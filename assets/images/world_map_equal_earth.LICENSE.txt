@@ -1,0 +1,5 @@
+Blank world map Equal Earth projection.svg
+Source: https://commons.wikimedia.org/wiki/File:Blank_world_map_Equal_Earth_projection.svg
+Author: Justinkunimune
+License: CC0 1.0 Universal Public Domain Dedication
+Underlying border data: Natural Earth public domain data
