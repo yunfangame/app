@@ -5,6 +5,8 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 version="$(sed -n 's/^version: \([^+]*\).*/\1/p' "$repo_root/pubspec.yaml" | head -1)"
 build_date="$(date +%Y%m%d)"
 output_root="${1:-/Users/lilaibin/Documents/lilaibin/蜂窝加速器-${version}-${build_date}}"
+macos_arm64_package="$output_root/macOS/蜂窝加速器-macOS-arm64.dmg"
+macos_amd64_package="$output_root/macOS/蜂窝加速器-macOS-amd64.dmg"
 toolchains_root="${repo_root}-toolchains"
 local_flutter="$(find "$toolchains_root" -maxdepth 4 -type f -path '*/flutter/bin/flutter' 2>/dev/null | sort | tail -1)"
 
@@ -178,7 +180,11 @@ package_macos() {
     printf '找不到 macOS %s 安装包。\n' "$output_arch" >&2
     exit 1
   fi
-  target="$output_root/macOS/蜂窝加速器-${version}-macos-${output_arch}.dmg"
+  case "$output_arch" in
+    arm64) target="$macos_arm64_package" ;;
+    amd64) target="$macos_amd64_package" ;;
+    *) printf '不支持的 macOS 输出架构：%s\n' "$output_arch" >&2; exit 1 ;;
+  esac
   cp -p "$source" "$target"
 }
 
@@ -289,7 +295,7 @@ create_checksums_and_archive() {
     cd "$output_root"
     find Android macOS Windows 远程配置 -type f ! -name '*.log' -print0 | sort -z | xargs -0 shasum -a 256
   ) > "$checksum_file"
-  printf '版本：%s\n环境：stable\n名称：蜂窝加速器\nAndroid：签名、结构、模拟器安装启动通过\nmacOS ARM64：架构、签名、DMG、启动通过\nmacOS Intel：架构、签名、DMG、Rosetta 启动通过\nWindows AMD64：云端构建、结构、启动冒烟测试通过\n远程配置：AES-GCM 解密与 Ed25519 签名验证通过\n' "$version" > "$output_root/验证报告.txt"
+  printf '版本：%s\n环境：stable\n名称：蜂窝加速器\nmacOS ARM64 文件：蜂窝加速器-macOS-arm64.dmg\nmacOS AMD64（Intel）文件：蜂窝加速器-macOS-amd64.dmg\nAndroid：签名、结构、模拟器安装启动通过\nmacOS ARM64：架构、签名、DMG、启动通过\nmacOS AMD64（Intel）：架构、签名、DMG、Rosetta 启动通过\nWindows AMD64：云端构建、结构、启动冒烟测试通过\n远程配置：AES-GCM 解密与 Ed25519 签名验证通过\n' "$version" > "$output_root/验证报告.txt"
   rm -f "$archive_path"
   rm -f "$output_root/$(basename "$archive_path")"
   ditto -c -k --sequesterRsrc --keepParent "$output_root" "$archive_path"
@@ -301,13 +307,13 @@ if [[ "${FENGWO_FINALIZE_ONLY:-0}" == '1' ]]; then
   verify_android_packages
 elif [[ "${FENGWO_RESUME_AFTER_MACOS:-0}" == '1' ]]; then
   verify_android_packages
-  verify_macos_package "$output_root/macOS/蜂窝加速器-${version}-macos-amd64.dmg" x86_64
-  verify_macos_package "$output_root/macOS/蜂窝加速器-${version}-macos-arm64.dmg" arm64
+  verify_macos_package "$macos_amd64_package" x86_64
+  verify_macos_package "$macos_arm64_package" arm64
 elif [[ "${FENGWO_RESUME_AFTER_INTEL:-0}" == '1' ]]; then
   verify_android_packages
-  verify_macos_package "$output_root/macOS/蜂窝加速器-${version}-macos-amd64.dmg" x86_64
+  verify_macos_package "$macos_amd64_package" x86_64
   package_macos arm64 arm64
-  verify_macos_package "$output_root/macOS/蜂窝加速器-${version}-macos-arm64.dmg" arm64
+  verify_macos_package "$macos_arm64_package" arm64
 else
   if [[ "${FENGWO_RESUME_AFTER_ANDROID:-0}" != '1' ]]; then
     "$flutter_bin" pub get
@@ -318,9 +324,9 @@ else
   verify_android_packages
   test_android_launch
   package_macos x86_64 amd64
-  verify_macos_package "$output_root/macOS/蜂窝加速器-${version}-macos-amd64.dmg" x86_64
+  verify_macos_package "$macos_amd64_package" x86_64
   package_macos arm64 arm64
-  verify_macos_package "$output_root/macOS/蜂窝加速器-${version}-macos-arm64.dmg" arm64
+  verify_macos_package "$macos_arm64_package" arm64
 fi
 if [[ "${FENGWO_FINALIZE_ONLY:-0}" != '1' ]]; then
   package_windows_remote
