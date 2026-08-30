@@ -1,0 +1,87 @@
+name: fengwo-windows-package
+
+on:
+  push:
+    tags:
+      - 'fengwo-package-windows-*'
+
+jobs:
+  package:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.4'
+          cache-dependency-path: core/go.sum
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.44.4'
+          cache: true
+
+      - name: Prepare build keys
+        shell: pwsh
+        env:
+          AES_KEY: ${{ secrets.REMOTE_CONFIG_AES_KEY }}
+          SIGNING_PUBLIC_KEY: ${{ secrets.REMOTE_CONFIG_SIGNING_PUBLIC_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:AES_KEY)) { throw 'Missing AES key' }
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_PUBLIC_KEY)) { throw 'Missing signing public key' }
+          New-Item -ItemType Directory -Force tooling/remote_config | Out-Null
+          $keys = @{
+            aesKey = $env:AES_KEY
+            signingPublicKey = $env:SIGNING_PUBLIC_KEY
+          } | ConvertTo-Json -Compress
+          [System.IO.File]::WriteAllText(
+            "$PWD/tooling/remote_config/keys.json",
+            $keys,
+            [System.Text.UTF8Encoding]::new($false)
+          )
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Test latency and packaging contracts
+        shell: pwsh
+        run: |
+          flutter test test/core/controller_test.dart test/core/protocol_contract_test.dart test/views/proxies/common_test.dart --reporter expanded
+          Push-Location core
+          $env:CGO_ENABLED = '0'
+          go test .
+          Pop-Location
+
+      - name: Package stable Windows release
+        run: dart setup.dart windows --env stable --targets exe,zip
+
+      - name: Verify Windows package
+        shell: pwsh
+        run: |
+          $names = Get-ChildItem dist -File | ForEach-Object Name
+          if (($names -join "`n") -match '(?i)pre') { throw 'Package name contains pre' }
+          $archive = Get-ChildItem dist -Filter '*windows*.zip' | Select-Object -First 1
+          if ($null -eq $archive) { throw 'Windows archive not found' }
+          Expand-Archive $archive.FullName -DestinationPath verify-windows -Force
+          $app = Get-ChildItem verify-windows -Recurse -Filter FlClash.exe | Where-Object { $_.FullName -notmatch 'Core' } | Select-Object -First 1
+          $core = Get-ChildItem verify-windows -Recurse -Filter FlClashCore.exe | Select-Object -First 1
+          if ($null -eq $app) { throw 'FlClash.exe not found' }
+          if ($null -eq $core) { throw 'FlClashCore.exe not found' }
+          if ($app.VersionInfo.ProductName -ne '蜂窝加速器') { throw "Unexpected product name: $($app.VersionInfo.ProductName)" }
+          $process = Start-Process -FilePath $app.FullName -PassThru
+          Start-Sleep -Seconds 8
+          if ($process.HasExited -and $process.ExitCode -ne 0) { throw "Application exited with $($process.ExitCode)" }
+          if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: fengwo-windows-amd64
+          path: dist
+          if-no-files-found: error

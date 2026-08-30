@@ -264,6 +264,7 @@ void main() {
       final result = await controller.getDelay('test.com', 'P1');
       expect(result.name, 'P1');
       expect(result.value, 100);
+      verify(() => mock.asyncTestDelay('test.com', 'P1')).called(1);
     });
 
     test('startListener delegates', () async {

@@ -97,4 +97,20 @@ void main() {
 
     expect(applyCampusNetworkConfig(patch, settings), same(patch));
   });
+
+  test('recognizes a complete cached campus configuration', () {
+    expect(
+      hasCompleteCampusNetworkConfig({
+        for (final operator in CampusOperator.values)
+          operator.name: {'base.fengwo1688.cc': '192.0.2.1'},
+      }),
+      isTrue,
+    );
+    expect(
+      hasCompleteCampusNetworkConfig({
+        'telecom': {'base.fengwo1688.cc': '192.0.2.1'},
+      }),
+      isFalse,
+    );
+  });
 }

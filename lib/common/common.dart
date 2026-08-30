@@ -1,4 +1,5 @@
 export 'app_localizations.dart';
+export 'chain_proxy.dart';
 export 'api_health.dart';
 export 'api_endpoint_preference.dart';
 export 'color.dart';
@@ -7,6 +8,7 @@ export 'constant.dart';
 export 'context.dart';
 export 'converter.dart';
 export 'datetime.dart';
+export 'delay_probe.dart';
 export 'file.dart';
 export 'fixed.dart';
 export 'function.dart';

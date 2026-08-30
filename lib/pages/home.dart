@@ -246,29 +246,7 @@ class _FengWoMobileNavigationBar extends StatefulWidget {
 
 class _FengWoMobileNavigationBarState
     extends State<_FengWoMobileNavigationBar> {
-  late final ScrollController _scrollController;
-  double _itemExtent = 96;
-
-  @override
-  void initState() {
-    super.initState();
-    _scrollController = ScrollController();
-  }
-
-  @override
-  void didUpdateWidget(covariant _FengWoMobileNavigationBar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.currentIndex != widget.currentIndex ||
-        oldWidget.navigationItems != widget.navigationItems) {
-      _scheduleSelectedItemVisibility();
-    }
-  }
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
+  bool _mineMenuOpen = false;
 
   PageLabel get _currentLabel {
     return widget.currentIndex >= 0 &&
@@ -277,19 +255,9 @@ class _FengWoMobileNavigationBarState
         : PageLabel.dashboard;
   }
 
-  List<_FengWoMobileMenuItem> _entries(BuildContext context) {
+  List<_FengWoMobileMenuItem> _mineEntries(BuildContext context) {
     final l10n = context.appLocalizations;
     return <_FengWoMobileMenuItem>[
-      _FengWoMobileMenuItem(
-        icon: Icons.home_outlined,
-        label: l10n.acceleratorHome,
-        pageLabel: PageLabel.dashboard,
-      ),
-      _FengWoMobileMenuItem(
-        icon: Icons.shopping_cart_outlined,
-        label: l10n.purchasePlan,
-        pageLabel: PageLabel.profiles,
-      ),
       _FengWoMobileMenuItem(
         icon: Icons.tune_rounded,
         label: l10n.nodeStatus,
@@ -333,81 +301,212 @@ class _FengWoMobileNavigationBarState
     ];
   }
 
-  void _scheduleSelectedItemVisibility() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
-      final selectedIndex = _entries(
-        context,
-      ).indexWhere((entry) => entry.pageLabel == _currentLabel);
-      if (selectedIndex < 0) return;
-      final position = _scrollController.position;
-      final itemStart = selectedIndex * _itemExtent;
-      final itemEnd = itemStart + _itemExtent;
-      final viewportStart = position.pixels;
-      final viewportEnd = viewportStart + position.viewportDimension;
-      double? target;
-      if (itemStart < viewportStart) {
-        target = itemStart - 8;
-      } else if (itemEnd > viewportEnd) {
-        target = itemEnd - position.viewportDimension + 8;
-      }
-      if (target == null) return;
-      _scrollController.animateTo(
-        target.clamp(position.minScrollExtent, position.maxScrollExtent),
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-      );
-    });
+  bool _isAvailable(PageLabel target) {
+    return widget.navigationItems.any((item) => item.label == target);
+  }
+
+  void _select(PageLabel target) {
+    if (!_isAvailable(target)) {
+      globalState.showNotifier(context.appLocalizations.featureComingSoon);
+      return;
+    }
+    widget.onSelected(target);
+  }
+
+  Future<void> _openMineMenu() async {
+    if (_mineMenuOpen) return;
+    setState(() => _mineMenuOpen = true);
+    final target = await showModalBottomSheet<PageLabel>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: .32),
+      builder: (sheetContext) {
+        final colors = sheetContext.colorScheme;
+        final entries = _mineEntries(sheetContext);
+        final height = (MediaQuery.sizeOf(sheetContext).height * .62).clamp(
+          400.0,
+          560.0,
+        );
+        return Material(
+          key: const ValueKey('fengwo-mobile-mine-sheet'),
+          color: colors.surfaceContainerLow,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          clipBehavior: Clip.antiAlias,
+          child: SizedBox(
+            height: height,
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+                Container(
+                  width: 38,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colors.onSurfaceVariant.withValues(alpha: .35),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 8, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          sheetContext.appLocalizations.mine,
+                          style: sheetContext.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        key: const ValueKey('fengwo-mobile-mine-close'),
+                        tooltip: MaterialLocalizations.of(
+                          sheetContext,
+                        ).closeButtonTooltip,
+                        onPressed: () => Navigator.of(sheetContext).pop(),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: GridView.builder(
+                    key: const ValueKey('fengwo-mobile-mine-grid'),
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                    physics: const ClampingScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                          childAspectRatio: 1.05,
+                        ),
+                    itemCount: entries.length,
+                    itemBuilder: (context, index) {
+                      final entry = entries[index];
+                      final target = entry.pageLabel!;
+                      final selected = target == _currentLabel;
+                      return Material(
+                        color: selected
+                            ? colors.secondaryContainer
+                            : colors.surfaceContainerHighest.withValues(
+                                alpha: .72,
+                              ),
+                        borderRadius: BorderRadius.circular(20),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          key: ValueKey('fengwo-mobile-mine-${target.name}'),
+                          onTap: () => Navigator.of(sheetContext).pop(target),
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  entry.icon,
+                                  size: 28,
+                                  color: selected
+                                      ? colors.onSecondaryContainer
+                                      : colors.onSurfaceVariant,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  entry.label,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: sheetContext.textTheme.labelLarge
+                                      ?.copyWith(
+                                        color: selected
+                                            ? colors.onSecondaryContainer
+                                            : colors.onSurface,
+                                        fontWeight: selected
+                                            ? FontWeight.w700
+                                            : FontWeight.w500,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (!mounted) return;
+    setState(() => _mineMenuOpen = false);
+    if (target != null) _select(target);
   }
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colorScheme;
     final l10n = context.appLocalizations;
-    final entries = _entries(context);
-    final selectedIndex = entries.indexWhere(
-      (entry) => entry.pageLabel == _currentLabel,
-    );
+    final selectedIndex = _mineMenuOpen
+        ? 2
+        : switch (_currentLabel) {
+            PageLabel.profiles => 0,
+            PageLabel.dashboard => 1,
+            _ => 2,
+          };
     final viewportWidth = MediaQuery.sizeOf(context).width;
-    final baseExtent = Localizations.localeOf(context).languageCode == 'zh'
-        ? 92.0
-        : 104.0;
-    _itemExtent = MediaQuery.textScalerOf(
-      context,
-    ).scale(baseExtent).clamp(92.0, 126.0);
-    final contentWidth = entries.length * _itemExtent;
-    final barWidth = viewportWidth > contentWidth
-        ? viewportWidth
-        : contentWidth;
-    _scheduleSelectedItemVisibility();
-    return SingleChildScrollView(
-      key: const ValueKey('fengwo-mobile-business-menu-scroll'),
-      controller: _scrollController,
-      scrollDirection: Axis.horizontal,
-      physics: const ClampingScrollPhysics(),
-      child: SizedBox(
-        width: barWidth,
-        child: NavigationBar(
-          key: const ValueKey('fengwo-mobile-business-menu'),
-          destinations: entries
-              .map(
-                (entry) => NavigationDestination(
-                  icon: Icon(entry.icon),
-                  label: entry.label,
+    final availableWidth = viewportWidth > 32
+        ? viewportWidth - 32
+        : viewportWidth;
+    final dockWidth = (availableWidth / 3).clamp(72.0, 126.0) * 3;
+    return SafeArea(
+      top: false,
+      minimum: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: Material(
+          key: const ValueKey('fengwo-mobile-floating-menu'),
+          color: colors.surfaceContainer.withValues(alpha: .97),
+          elevation: 8,
+          shadowColor: colors.shadow.withValues(alpha: .28),
+          borderRadius: BorderRadius.circular(24),
+          clipBehavior: Clip.antiAlias,
+          child: SizedBox(
+            key: const ValueKey('fengwo-mobile-floating-menu-viewport'),
+            width: dockWidth,
+            child: NavigationBar(
+              key: const ValueKey('fengwo-mobile-business-menu'),
+              destinations: [
+                NavigationDestination(
+                  icon: const Icon(Icons.shopping_cart_outlined),
+                  label: l10n.purchasePlan,
                 ),
-              )
-              .toList(growable: false),
-          selectedIndex: selectedIndex < 0 ? 0 : selectedIndex,
-          onDestinationSelected: (index) {
-            final target = entries[index].pageLabel;
-            final available =
-                target != null &&
-                widget.navigationItems.any((item) => item.label == target);
-            if (!available) {
-              globalState.showNotifier(l10n.featureComingSoon);
-              return;
-            }
-            widget.onSelected(target);
-          },
+                NavigationDestination(
+                  icon: const Icon(Icons.home_outlined),
+                  selectedIcon: const Icon(Icons.home_rounded),
+                  label: l10n.acceleratorHome,
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.grid_view_rounded),
+                  selectedIcon: const Icon(Icons.grid_view_rounded),
+                  label: l10n.mine,
+                ),
+              ],
+              selectedIndex: selectedIndex,
+              onDestinationSelected: (index) {
+                switch (index) {
+                  case 0:
+                    _select(PageLabel.profiles);
+                  case 1:
+                    _select(PageLabel.dashboard);
+                  case 2:
+                    _openMineMenu();
+                }
+              },
+            ),
+          ),
         ),
       ),
     );
@@ -520,8 +619,8 @@ class _HomePageViewState extends ConsumerState<_HomePageView> {
 class _NavigationBarDefaultsM3 extends NavigationBarThemeData {
   _NavigationBarDefaultsM3(this.context)
     : super(
-        height: 80.0,
-        elevation: 3.0,
+        height: 76.0,
+        elevation: 0,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       );
 

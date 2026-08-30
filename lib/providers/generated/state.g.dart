@@ -1136,6 +1136,175 @@ final class RealTestUrlFamily extends $Family
   String toString() => r'realTestUrlProvider';
 }
 
+@ProviderFor(standardDelay)
+final standardDelayProvider = StandardDelayFamily._();
+
+final class StandardDelayProvider extends $FunctionalProvider<int?, int?, int?>
+    with $Provider<int?> {
+  StandardDelayProvider._({
+    required StandardDelayFamily super.from,
+    required ({String proxyName, String? testUrl}) super.argument,
+  }) : super(
+         retry: null,
+         name: r'standardDelayProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$standardDelayHash();
+
+  @override
+  String toString() {
+    return r'standardDelayProvider'
+        ''
+        '$argument';
+  }
+
+  @$internal
+  @override
+  $ProviderElement<int?> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  int? create(Ref ref) {
+    final argument = this.argument as ({String proxyName, String? testUrl});
+    return standardDelay(
+      ref,
+      proxyName: argument.proxyName,
+      testUrl: argument.testUrl,
+    );
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(int? value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<int?>(value),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is StandardDelayProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$standardDelayHash() => r'eb0383dc9ce976b38245018aee6e3def04a5df9b';
+
+final class StandardDelayFamily extends $Family
+    with
+        $FunctionalFamilyOverride<int?, ({String proxyName, String? testUrl})> {
+  StandardDelayFamily._()
+    : super(
+        retry: null,
+        name: r'standardDelayProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  StandardDelayProvider call({required String proxyName, String? testUrl}) =>
+      StandardDelayProvider._(
+        argument: (proxyName: proxyName, testUrl: testUrl),
+        from: this,
+      );
+
+  @override
+  String toString() => r'standardDelayProvider';
+}
+
+@ProviderFor(connectionDelay)
+final connectionDelayProvider = ConnectionDelayFamily._();
+
+final class ConnectionDelayProvider
+    extends $FunctionalProvider<int?, int?, int?>
+    with $Provider<int?> {
+  ConnectionDelayProvider._({
+    required ConnectionDelayFamily super.from,
+    required ({String proxyName, String? testUrl}) super.argument,
+  }) : super(
+         retry: null,
+         name: r'connectionDelayProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$connectionDelayHash();
+
+  @override
+  String toString() {
+    return r'connectionDelayProvider'
+        ''
+        '$argument';
+  }
+
+  @$internal
+  @override
+  $ProviderElement<int?> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  int? create(Ref ref) {
+    final argument = this.argument as ({String proxyName, String? testUrl});
+    return connectionDelay(
+      ref,
+      proxyName: argument.proxyName,
+      testUrl: argument.testUrl,
+    );
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(int? value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<int?>(value),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is ConnectionDelayProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$connectionDelayHash() => r'0bc7543eead7ebf67308bdaa59a13631b11cb21e';
+
+final class ConnectionDelayFamily extends $Family
+    with
+        $FunctionalFamilyOverride<int?, ({String proxyName, String? testUrl})> {
+  ConnectionDelayFamily._()
+    : super(
+        retry: null,
+        name: r'connectionDelayProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  ConnectionDelayProvider call({required String proxyName, String? testUrl}) =>
+      ConnectionDelayProvider._(
+        argument: (proxyName: proxyName, testUrl: testUrl),
+        from: this,
+      );
+
+  @override
+  String toString() => r'connectionDelayProvider';
+}
+
 @ProviderFor(delay)
 final delayProvider = DelayFamily._();
 
@@ -1192,7 +1361,7 @@ final class DelayProvider extends $FunctionalProvider<int?, int?, int?>
   }
 }
 
-String _$delayHash() => r'3cbaa758ea602519d2958a4e413c705b062bce32';
+String _$delayHash() => r'9584c5d04b8af560a78098f00a0a1b3b289c2517';
 
 final class DelayFamily extends $Family
     with

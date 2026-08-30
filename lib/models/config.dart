@@ -36,6 +36,23 @@ const defaultWindowProps = WindowProps();
 const defaultAccessControlProps = AccessControlProps();
 const defaultThemeProps = ThemeProps(primaryColor: defaultPrimaryColor);
 
+enum ChainProxyProtocol { socks5, http }
+
+@freezed
+abstract class ChainProxyConfig with _$ChainProxyConfig {
+  const factory ChainProxyConfig({
+    required String name,
+    @Default(ChainProxyProtocol.socks5) ChainProxyProtocol protocol,
+    required String server,
+    required int port,
+    @Default('') String username,
+    @Default('') String password,
+  }) = _ChainProxyConfig;
+
+  factory ChainProxyConfig.fromJson(Map<String, Object?> json) =>
+      _$ChainProxyConfigFromJson(json);
+}
+
 const List<DashboardWidget> defaultDashboardWidgets = [
   DashboardWidget.networkSpeed,
   DashboardWidget.systemProxyButton,
@@ -85,6 +102,8 @@ abstract class AppSettingProps with _$AppSettingProps {
     @Default(false) bool campusNetworkEnabled,
     @Default(CampusOperator.telecom) CampusOperator campusOperator,
     @Default({}) Map<String, Map<String, String>> campusHostsByOperator,
+    @Default([]) List<ChainProxyConfig> chainProxies,
+    String? activeChainProxyName,
     @Default(RestoreStrategy.compatible) RestoreStrategy restoreStrategy,
     @Default(true) bool showTrayTitle,
     @Default('') String customUserAgent,

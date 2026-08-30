@@ -59,9 +59,16 @@ class _FengWoNodeSelectorViewState
 
   Future<void> _testAll(Group group) async {
     if (_testingAll || group.all.isEmpty) return;
+    final testable = group.all
+        .where(
+          (proxy) =>
+              !isXboardNodeMarkedOffline(proxy.name, globalState.xboardNodes),
+        )
+        .toList();
+    if (testable.isEmpty) return;
     setState(() => _testingAll = true);
     try {
-      await delayTest(group.all, group.testUrl);
+      await delayTest(testable, group.testUrl);
     } finally {
       if (mounted) setState(() => _testingAll = false);
     }
@@ -459,6 +466,10 @@ class _NodePane extends ConsumerWidget {
       };
     });
     final selectedName = ref.watch(selectedProxyNameProvider(group.name));
+    final canTestAll = group.all.any(
+      (proxy) =>
+          !isXboardNodeMarkedOffline(proxy.name, globalState.xboardNodes),
+    );
     return Column(
       children: [
         Container(
@@ -485,7 +496,7 @@ class _NodePane extends ConsumerWidget {
                   ),
                   const SizedBox(width: 10),
                   FilledButton.tonalIcon(
-                    onPressed: testingAll ? null : onTestAll,
+                    onPressed: testingAll || !canTestAll ? null : onTestAll,
                     icon: testingAll
                         ? const SizedBox.square(
                             dimension: 16,
@@ -560,10 +571,15 @@ class _NodePane extends ConsumerWidget {
                   itemBuilder: (context, index) {
                     final proxy = proxies[index];
                     final delay = delayMap[proxy.name];
+                    final offline = isXboardNodeMarkedOffline(
+                      proxy.name,
+                      globalState.xboardNodes,
+                    );
                     return _NodeRow(
                       colors: colors,
                       proxy: proxy,
                       delay: delay,
+                      offline: offline,
                       selected: selectedName == proxy.name,
                       onSelect: () => onSelect(proxy),
                       onTest: () => proxyDelayTest(proxy, group.testUrl),
@@ -580,6 +596,7 @@ class _NodeRow extends StatelessWidget {
   final _SelectorColors colors;
   final Proxy proxy;
   final int? delay;
+  final bool offline;
   final bool selected;
   final VoidCallback onSelect;
   final VoidCallback onTest;
@@ -588,12 +605,14 @@ class _NodeRow extends StatelessWidget {
     required this.colors,
     required this.proxy,
     required this.delay,
+    required this.offline,
     required this.selected,
     required this.onSelect,
     required this.onTest,
   });
 
   Color _delayColor() {
+    if (offline) return const Color(0xFFE84C4C);
     if (delay == null || delay == 0) return colors.muted;
     if (delay! < 0) return const Color(0xFFE84C4C);
     if (delay! <= 250) return colors.success;
@@ -604,12 +623,14 @@ class _NodeRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _delayColor();
-    final text = switch (delay) {
-      null => context.appLocalizations.delayTest,
-      0 => '',
-      < 0 => context.appLocalizations.timeout,
-      final value => '$value ms',
-    };
+    final text = offline
+        ? context.appLocalizations.nodeBackendOffline
+        : switch (delay) {
+            null => context.appLocalizations.delayTest,
+            0 => '',
+            < 0 => context.appLocalizations.timeout,
+            final value => '$value ms',
+          };
     return Material(
       color: selected ? colors.primarySoft : colors.surfaceStrong,
       borderRadius: BorderRadius.circular(16),
@@ -654,12 +675,13 @@ class _NodeRow extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               OutlinedButton.icon(
-                onPressed: delay == 0 ? null : onTest,
+                key: ValueKey('fengwo-selector-test-${proxy.name}'),
+                onPressed: offline || delay == 0 ? null : onTest,
                 style: OutlinedButton.styleFrom(
                   foregroundColor: color,
                   side: BorderSide(color: color.withValues(alpha: 0.45)),
                 ),
-                icon: delay == 0
+                icon: !offline && delay == 0
                     ? const SizedBox.square(
                         dimension: 14,
                         child: CircularProgressIndicator(strokeWidth: 2),

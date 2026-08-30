@@ -707,15 +707,27 @@ void main() {
 
     Future<void> tapMenu(IconData icon) async {
       final finder = menuIcon(icon);
-      await tester.ensureVisible(finder);
-      await tester.pump();
       await tester.tap(finder);
       await tester.pumpAndSettle();
     }
 
-    await tapMenu(Icons.person_outline_rounded);
+    Future<void> tapMineEntry(IconData icon) async {
+      await tapMenu(Icons.grid_view_rounded);
+      expect(
+        find.byKey(const ValueKey('fengwo-mobile-mine-sheet')),
+        findsOneWidget,
+      );
+      final finder = find.descendant(
+        of: find.byKey(const ValueKey('fengwo-mobile-mine-sheet')),
+        matching: find.byIcon(icon),
+      );
+      await tester.tap(finder);
+      await tester.pumpAndSettle();
+    }
+
+    await tapMineEntry(Icons.person_outline_rounded);
     expect(container.read(currentPageLabelProvider), PageLabel.tools);
-    expect(navBar().selectedIndex, 7);
+    expect(navBar().selectedIndex, 2);
     expect(find.text('page:tools'), findsOneWidget);
 
     bool focusInNav() {
@@ -733,15 +745,15 @@ void main() {
     await tester.pump();
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
-    expect(container.read(currentPageLabelProvider), PageLabel.profiles);
+    expect(container.read(currentPageLabelProvider), PageLabel.dashboard);
     expect(navBar().selectedIndex, 1);
-    expect(find.text('page:profiles'), findsOneWidget);
+    expect(find.text('page:dashboard'), findsOneWidget);
 
-    await tapMenu(Icons.person_outline_rounded);
+    await tapMineEntry(Icons.person_outline_rounded);
     await tapMenu(Icons.home_outlined);
     await tapMenu(Icons.shopping_cart_outlined);
     expect(container.read(currentPageLabelProvider), PageLabel.profiles);
-    expect(navBar().selectedIndex, 1);
+    expect(navBar().selectedIndex, 0);
     expect(find.text('page:profiles'), findsOneWidget);
     expect(focusInNav(), isTrue);
 
@@ -758,7 +770,7 @@ void main() {
   });
 
   testWidgets(
-    'narrow mobile navigation renders all business menu entries in order',
+    'mobile navigation keeps three primary entries and opens the rest in My',
     (tester) async {
       tester.view.physicalSize = const Size(360, 640);
       tester.view.devicePixelRatio = 1;
@@ -824,74 +836,92 @@ void main() {
       final navigationBar = tester.widget<NavigationBar>(
         find.byType(NavigationBar),
       );
+      expect(navigationBar.selectedIndex, 1);
       final destinations = navigationBar.destinations
           .cast<NavigationDestination>()
           .toList();
       final l10n = tester.element(find.byType(NavigationBar)).appLocalizations;
       expect(
-        find.byKey(const ValueKey('fengwo-mobile-business-menu-scroll')),
+        find.byKey(const ValueKey('fengwo-mobile-floating-menu')),
         findsOneWidget,
       );
-      expect(destinations, hasLength(10));
+      final viewportSize = tester.getSize(
+        find.byKey(const ValueKey('fengwo-mobile-floating-menu-viewport')),
+      );
+      final menuSize = tester.getSize(
+        find.byKey(const ValueKey('fengwo-mobile-business-menu')),
+      );
+      expect(viewportSize.width, closeTo(328, .01));
+      expect(menuSize.width, closeTo(viewportSize.width, .01));
+      expect(destinations, hasLength(3));
       expect(
         destinations.map((destination) => (destination.icon as Icon).icon),
         [
-          Icons.home_outlined,
           Icons.shopping_cart_outlined,
-          Icons.tune_rounded,
-          Icons.show_chart_rounded,
-          Icons.pie_chart_outline_rounded,
-          Icons.receipt_long_outlined,
-          Icons.card_giftcard_outlined,
-          Icons.person_outline_rounded,
-          Icons.settings_outlined,
-          Icons.business_center_outlined,
+          Icons.home_outlined,
+          Icons.grid_view_rounded,
         ],
       );
       expect(destinations.map((destination) => destination.label), [
-        l10n.acceleratorHome,
         l10n.purchasePlan,
-        l10n.nodeStatus,
-        l10n.realTimeConnections,
-        l10n.trafficDetails,
-        l10n.myOrders,
-        l10n.invitePromotion,
-        l10n.personalCenter,
-        l10n.advancedSettings,
-        l10n.practicalTools,
+        l10n.acceleratorHome,
+        l10n.mine,
       ]);
       expect(find.byIcon(Icons.storage), findsNothing);
 
-      final trafficIcon = find.descendant(
-        of: find.byKey(const ValueKey('fengwo-mobile-business-menu')),
-        matching: find.byIcon(Icons.pie_chart_outline_rounded),
+      Future<void> tapMineEntry(IconData icon) async {
+        await tester.tap(find.byIcon(Icons.grid_view_rounded));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('fengwo-mobile-mine-grid')),
+          findsOneWidget,
+        );
+        final finder = find.descendant(
+          of: find.byKey(const ValueKey('fengwo-mobile-mine-sheet')),
+          matching: find.byIcon(icon),
+        );
+        await tester.tap(finder);
+        await tester.pumpAndSettle();
+      }
+
+      await tester.tap(find.byIcon(Icons.grid_view_rounded));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('fengwo-mobile-mine-grid')),
+        findsOneWidget,
       );
-      await tester.ensureVisible(trafficIcon);
-      await tester.pump();
-      await tester.tap(trafficIcon);
+      for (final label in [
+        PageLabel.proxies,
+        PageLabel.connections,
+        PageLabel.traffic,
+        PageLabel.orders,
+        PageLabel.invite,
+        PageLabel.tools,
+        PageLabel.resources,
+        PageLabel.practicalTools,
+      ]) {
+        expect(
+          find.byKey(ValueKey('fengwo-mobile-mine-${label.name}')),
+          findsOneWidget,
+        );
+      }
+      await tester.tap(find.byKey(const ValueKey('fengwo-mobile-mine-close')));
+      await tester.pumpAndSettle();
+
+      await tapMineEntry(Icons.pie_chart_outline_rounded);
       await tester.pumpAndSettle();
       expect(container.read(currentPageLabelProvider), PageLabel.traffic);
       expect(find.text('page:traffic'), findsOneWidget);
-
-      final inviteIcon = find.descendant(
-        of: find.byKey(const ValueKey('fengwo-mobile-business-menu')),
-        matching: find.byIcon(Icons.card_giftcard_outlined),
+      expect(
+        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+        2,
       );
-      await tester.ensureVisible(inviteIcon);
-      await tester.pump();
-      await tester.tap(inviteIcon);
-      await tester.pumpAndSettle();
+
+      await tapMineEntry(Icons.card_giftcard_outlined);
       expect(container.read(currentPageLabelProvider), PageLabel.invite);
       expect(find.text('page:invite'), findsOneWidget);
 
-      final settingsIcon = find.descendant(
-        of: find.byKey(const ValueKey('fengwo-mobile-business-menu')),
-        matching: find.byIcon(Icons.settings_outlined),
-      );
-      await tester.ensureVisible(settingsIcon);
-      await tester.pump();
-      await tester.tap(settingsIcon);
-      await tester.pumpAndSettle();
+      await tapMineEntry(Icons.settings_outlined);
       expect(container.read(currentPageLabelProvider), PageLabel.resources);
       expect(find.text('page:resources'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -956,21 +986,25 @@ void main() {
     final businessMenu = find.byKey(
       const ValueKey('fengwo-mobile-business-menu'),
     );
-    final accountIcon = find.descendant(
-      of: businessMenu,
-      matching: find.byIcon(Icons.person_outline_rounded),
+    await tester.tap(
+      find.descendant(
+        of: businessMenu,
+        matching: find.byIcon(Icons.grid_view_rounded),
+      ),
     );
-    await tester.ensureVisible(accountIcon);
-    await tester.pump();
-    await tester.tap(accountIcon);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('fengwo-mobile-mine-sheet')),
+        matching: find.byIcon(Icons.person_outline_rounded),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(query, isEmpty);
     final homeIcon = find.descendant(
       of: businessMenu,
       matching: find.byIcon(Icons.home_outlined),
     );
-    await tester.ensureVisible(homeIcon);
-    await tester.pump();
     await tester.tap(homeIcon);
     await tester.pumpAndSettle();
 

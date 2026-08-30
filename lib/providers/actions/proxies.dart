@@ -72,6 +72,10 @@ class ProxiesAction extends _$ProxiesAction {
     ref.read(delayDataSourceProvider.notifier).setDelay(delay);
   }
 
+  void setConnectionDelay(Delay delay) {
+    ref.read(connectionDelayDataSourceProvider.notifier).setDelay(delay);
+  }
+
   Future<void> changeProxy({
     required String groupName,
     required String proxyName,

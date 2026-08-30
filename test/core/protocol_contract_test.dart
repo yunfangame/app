@@ -165,6 +165,10 @@ void main() {
     ]) {
       expect(handler.calls[method], isA<Map>());
     }
+    expect(
+      handler.calls[CoreMethod.asyncTestDelay],
+      isNot(contains('unified-delay')),
+    );
     expect(handler.calls[CoreMethod.clearEffect], 42);
   });
 

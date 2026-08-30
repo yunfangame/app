@@ -40,11 +40,19 @@ The Makefile wraps `plugins/setup/buildkit/run_build_tool.sh`; prefer the `make`
 
 ## Flutter Development
 
-Use the default Flutter SDK directly:
+The remote configuration is encrypted. Debug runs must regenerate `env.json`
+from the local ignored key file and inject it into the Dart build. Do not use a
+bare `flutter run`; use the guarded project entry point:
+
+```bash
+make debug
+make debug DEVICE=<device-id>
+```
+
+Other Flutter commands can use the default Flutter SDK directly:
 
 ```bash
 flutter pub get
-flutter run
 flutter test
 ```
 

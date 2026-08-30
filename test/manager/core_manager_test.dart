@@ -12,6 +12,17 @@ import 'package:mocktail/mocktail.dart';
 class _MockCoreHandlerInterface extends Mock implements CoreHandlerInterface {}
 
 void main() {
+  test('raw native delay diagnostics stay in logs without user toast', () {
+    expect(
+      shouldNotifyCoreError(
+        'node failed to get the second response from '
+        'http://www.gstatic.com/generate_204: context deadline exceeded',
+      ),
+      isFalse,
+    );
+    expect(shouldNotifyCoreError('TUN failed to start'), isTrue);
+  });
+
   testWidgets('duplicate crash events disconnect the core only once', (
     tester,
   ) async {

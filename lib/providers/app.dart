@@ -253,6 +253,26 @@ class DelayDataSource extends _$DelayDataSource with AutoDisposeNotifierMixin {
 }
 
 @Riverpod(keepAlive: true)
+class ConnectionDelayDataSource extends _$ConnectionDelayDataSource
+    with AutoDisposeNotifierMixin {
+  @override
+  DelayMap build() {
+    return {};
+  }
+
+  void setDelay(Delay delay) {
+    if (state[delay.url]?[delay.name] != delay.value) {
+      final DelayMap newDelayMap = Map.from(state);
+      if (newDelayMap[delay.url] == null) {
+        newDelayMap[delay.url] = {};
+      }
+      newDelayMap[delay.url]![delay.name] = delay.value;
+      value = newDelayMap;
+    }
+  }
+}
+
+@Riverpod(keepAlive: true)
 class SystemUiOverlayStyleState extends _$SystemUiOverlayStyleState
     with AutoDisposeNotifierMixin {
   @override

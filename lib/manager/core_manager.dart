@@ -12,6 +12,10 @@ import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+bool shouldNotifyCoreError(String payload) {
+  return !isNoisyDelayProbeDiagnostic(payload);
+}
+
 class CoreManager extends ConsumerStatefulWidget {
   final Widget child;
   final CoreController controller;
@@ -77,7 +81,7 @@ class _CoreContainerState extends ConsumerState<CoreManager>
   @override
   void onLog(Log log) {
     ref.read(logsProvider.notifier).add(log);
-    if (log.logLevel == LogLevel.error) {
+    if (log.logLevel == LogLevel.error && shouldNotifyCoreError(log.payload)) {
       globalState.showNotifier(log.payload);
     }
     super.onLog(log);

@@ -58,6 +58,12 @@ bool hasActiveCampusNetworkConfig(AppSettingProps appSettings) {
       true;
 }
 
+bool hasCompleteCampusNetworkConfig(
+  Map<String, Map<String, String>> hostsByOperator,
+) {
+  return _isComplete(hostsByOperator);
+}
+
 Map<String, Map<String, String>> _parseGroupedHosts(Object? value) {
   if (value is! Map) {
     return const {};

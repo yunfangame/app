@@ -492,6 +492,35 @@ int xboardTagCount(Iterable<XboardNodeData> nodes) {
       .length;
 }
 
+String xboardNodeMatchKey(String name) {
+  final buffer = StringBuffer();
+  for (final rune in name.toLowerCase().runes) {
+    if (rune >= 0x1F1E6 && rune <= 0x1F1FF) continue;
+    if (String.fromCharCode(rune).contains(RegExp(r'[\s\-_·|｜]'))) continue;
+    buffer.writeCharCode(rune);
+  }
+  return buffer.toString();
+}
+
+XboardNodeData? matchXboardNodeByName(
+  String name,
+  Iterable<XboardNodeData> nodes,
+) {
+  for (final node in nodes) {
+    if (node.name == name) return node;
+  }
+  final matchKey = xboardNodeMatchKey(name);
+  if (matchKey.isEmpty) return null;
+  for (final node in nodes) {
+    if (xboardNodeMatchKey(node.name) == matchKey) return node;
+  }
+  return null;
+}
+
+bool isXboardNodeMarkedOffline(String name, Iterable<XboardNodeData> nodes) {
+  return matchXboardNodeByName(name, nodes)?.isOnline == false;
+}
+
 class XboardGuestConfig {
   const XboardGuestConfig({
     required this.endpoint,

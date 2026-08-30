@@ -283,6 +283,23 @@ void main() {
       'Leaf',
     );
     expect(container.read(delayProvider(proxyName: 'Selector')), 42);
+    expect(container.read(standardDelayProvider(proxyName: 'Selector')), 42);
+    expect(
+      container.read(connectionDelayProvider(proxyName: 'Selector')),
+      isNull,
+    );
+    container
+        .read(connectionDelayDataSourceProvider.notifier)
+        .setDelay(
+          const Delay(
+            name: 'Leaf',
+            url: 'https://www.gstatic.com/generate_204',
+            value: 96,
+          ),
+        );
+    expect(container.read(connectionDelayProvider(proxyName: 'Selector')), 96);
+    expect(container.read(delayProvider(proxyName: 'Selector')), 96);
+    expect(container.read(standardDelayProvider(proxyName: 'Selector')), 42);
     expect(
       container.read(
         proxyDescProvider(const Proxy(name: 'Selector', type: 'Selector')),

@@ -17,6 +17,26 @@ class BaseScrollBehavior extends MaterialScrollBehavior {
   };
 
   @override
+  Widget buildOverscrollIndicator(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
+    if (getPlatform(context) == TargetPlatform.android) {
+      return child;
+    }
+    return super.buildOverscrollIndicator(context, child, details);
+  }
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    if (getPlatform(context) == TargetPlatform.android) {
+      return const ClampingScrollPhysics();
+    }
+    return super.getScrollPhysics(context);
+  }
+
+  @override
   Widget buildScrollbar(
     BuildContext context,
     Widget child,

@@ -21,13 +21,16 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
   final _nodesScrollController = ScrollController();
   final _xboardAuthService = XboardAuthService();
   List<XboardNodeData> _xboardNodes = const [];
+  final Set<String> _testingNodes = {};
   bool _loadingXboardNodes = false;
+  bool _xboardStatusFresh = false;
   bool _testingAll = false;
 
   @override
   void initState() {
     super.initState();
     _xboardNodes = globalState.xboardNodes;
+    _xboardStatusFresh = _xboardNodes.isNotEmpty;
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadXboardNodes());
   }
 
@@ -66,8 +69,14 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
         authData: session.authData,
       );
       globalState.xboardNodes = nodes;
-      if (mounted) setState(() => _xboardNodes = nodes);
+      if (mounted) {
+        setState(() {
+          _xboardNodes = nodes;
+          _xboardStatusFresh = true;
+        });
+      }
     } catch (error, stackTrace) {
+      if (mounted) setState(() => _xboardStatusFresh = false);
       commonPrint.log(
         'load XBoard nodes failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
@@ -77,12 +86,19 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
     }
   }
 
-  Future<void> _refreshNodes(Group group) async {
-    if (_testingAll || group.all.isEmpty) return;
+  Future<void> _refreshNodes(Group group, List<Proxy> nodes) async {
+    if (_testingAll || nodes.isEmpty) return;
     setState(() => _testingAll = true);
     try {
       await _loadXboardNodes();
-      await delayTest(group.all, group.testUrl);
+      final metadata = _matchXboardNodes(nodes, _xboardNodes);
+      final testableNodes = nodes
+          .where(
+            (proxy) =>
+                !_xboardStatusFresh || metadata[proxy.name]?.isOnline != false,
+          )
+          .toList(growable: false);
+      await delayTest(testableNodes, group.testUrl);
     } catch (error, stackTrace) {
       commonPrint.log(
         'refresh node delays failed: $error, $stackTrace',
@@ -90,6 +106,18 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
       );
     } finally {
       if (mounted) setState(() => _testingAll = false);
+    }
+  }
+
+  Future<void> _testNode(Group group, Proxy proxy) async {
+    if (_testingAll || _testingNodes.contains(proxy.name)) return;
+    final metadata = _matchXboardNodes([proxy], _xboardNodes)[proxy.name];
+    if (_xboardStatusFresh && metadata?.isOnline == false) return;
+    setState(() => _testingNodes.add(proxy.name));
+    try {
+      await proxyDelayTest(proxy, group.testUrl);
+    } finally {
+      if (mounted) setState(() => _testingNodes.remove(proxy.name));
     }
   }
 
@@ -132,15 +160,37 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
           delayProvider(proxyName: proxy.name, testUrl: group?.testUrl),
         ),
     };
-    final delays = <String, int?>{
+    final connectionDelays = <String, int?>{
       for (final proxy in nodes)
-        proxy.name: _nodeDisplayDelay(proxy.name, measuredDelays[proxy.name]),
+        proxy.name: ref.watch(
+          connectionDelayProvider(
+            proxyName: proxy.name,
+            testUrl: group?.testUrl,
+          ),
+        ),
+    };
+    final standardDelays = <String, int?>{
+      for (final proxy in nodes)
+        proxy.name: ref.watch(
+          standardDelayProvider(proxyName: proxy.name, testUrl: group?.testUrl),
+        ),
+    };
+    final nodeStatuses = <String, _NodePresentationStatus>{
+      for (final proxy in nodes)
+        proxy.name: _resolveNodeStatus(
+          measuredDelay: measuredDelays[proxy.name],
+          metadata: nodeMetadata[proxy.name],
+          xboardStatusFresh: _xboardStatusFresh,
+          isTesting: _testingNodes.contains(proxy.name),
+        ),
     };
     final mapNodes = nodes
         .map(
           (proxy) => FengWoWorldMapNode(
             name: proxy.name,
-            delay: delays[proxy.name],
+            delay: nodeStatuses[proxy.name]?.mapDelay,
+            connectionDelay: connectionDelays[proxy.name],
+            standardDelay: standardDelays[proxy.name],
             countryCode: _countryCodeFromTags(
               nodeMetadata[proxy.name]?.tags ?? const [],
             ),
@@ -150,8 +200,8 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
     final selectedName = group == null
         ? null
         : ref.watch(selectedProxyNameProvider(group.name));
-    final onlineCount = delays.values
-        .where((delay) => (delay ?? -1) > 0)
+    final onlineCount = nodeStatuses.values
+        .where((status) => status.countsAsAvailable)
         .length;
     final countryCount = _xboardTagCount(_xboardNodes);
     final availability = nodes.isEmpty ? 0.0 : onlineCount / nodes.length;
@@ -167,7 +217,7 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
                 colors: colors,
                 group: group,
                 nodes: nodes,
-                delays: delays,
+                nodeStatuses: nodeStatuses,
                 nodeMetadata: nodeMetadata,
                 mapNodes: mapNodes,
                 currentNode: currentNode,
@@ -177,13 +227,15 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
                 countryCount: countryCount,
                 availability: availability,
                 nodesScrollController: _nodesScrollController,
-                onRefresh: group == null ? null : () => _refreshNodes(group),
+                onRefresh: group == null
+                    ? null
+                    : () => _refreshNodes(group, nodes),
                 onSelect: group == null
                     ? null
                     : (proxy) => _selectProxy(group, proxy),
                 onTest: group == null
                     ? null
-                    : (proxy) => proxyDelayTest(proxy, group.testUrl),
+                    : (proxy) => _testNode(group, proxy),
               ),
             ),
           ],
@@ -261,7 +313,7 @@ class _NodeStatusBody extends StatelessWidget {
   final _NodeStatusColors colors;
   final Group? group;
   final List<Proxy> nodes;
-  final Map<String, int?> delays;
+  final Map<String, _NodePresentationStatus> nodeStatuses;
   final Map<String, XboardNodeData> nodeMetadata;
   final List<FengWoWorldMapNode> mapNodes;
   final String currentNode;
@@ -279,7 +331,7 @@ class _NodeStatusBody extends StatelessWidget {
     required this.colors,
     required this.group,
     required this.nodes,
-    required this.delays,
+    required this.nodeStatuses,
     required this.nodeMetadata,
     required this.mapNodes,
     required this.currentNode,
@@ -372,7 +424,7 @@ class _NodeStatusBody extends StatelessWidget {
                             colors: colors,
                             group: group,
                             nodes: nodes,
-                            delays: delays,
+                            nodeStatuses: nodeStatuses,
                             nodeMetadata: nodeMetadata,
                             selectedName: selectedName,
                             testingAll: testingAll,
@@ -713,7 +765,7 @@ class _PreferredNodesPanel extends StatelessWidget {
   final _NodeStatusColors colors;
   final Group? group;
   final List<Proxy> nodes;
-  final Map<String, int?> delays;
+  final Map<String, _NodePresentationStatus> nodeStatuses;
   final Map<String, XboardNodeData> nodeMetadata;
   final String? selectedName;
   final bool testingAll;
@@ -728,7 +780,7 @@ class _PreferredNodesPanel extends StatelessWidget {
     required this.colors,
     required this.group,
     required this.nodes,
-    required this.delays,
+    required this.nodeStatuses,
     required this.nodeMetadata,
     required this.selectedName,
     required this.testingAll,
@@ -829,7 +881,11 @@ class _PreferredNodesPanel extends StatelessWidget {
                             key: ValueKey('fengwo-node-row-${proxy.name}'),
                             colors: colors,
                             proxy: proxy,
-                            delay: delays[proxy.name],
+                            status:
+                                nodeStatuses[proxy.name] ??
+                                const _NodePresentationStatus(
+                                  state: _NodeConnectivityState.unknown,
+                                ),
                             rate: metadata?.rate,
                             tags: metadata?.tags ?? const [],
                             selected: selectedName == proxy.name,
@@ -837,7 +893,11 @@ class _PreferredNodesPanel extends StatelessWidget {
                             onSelect: onSelect == null
                                 ? null
                                 : () => onSelect!(proxy),
-                            onTest: onTest == null
+                            onTest:
+                                onTest == null ||
+                                    testingAll ||
+                                    nodeStatuses[proxy.name]?.state ==
+                                        _NodeConnectivityState.backendOffline
                                 ? null
                                 : () => onTest!(proxy),
                           );
@@ -855,7 +915,7 @@ class _PreferredNodesPanel extends StatelessWidget {
 class _PreferredNodeRow extends StatelessWidget {
   final _NodeStatusColors colors;
   final Proxy proxy;
-  final int? delay;
+  final _NodePresentationStatus status;
   final double? rate;
   final List<String> tags;
   final bool selected;
@@ -867,7 +927,7 @@ class _PreferredNodeRow extends StatelessWidget {
     super.key,
     required this.colors,
     required this.proxy,
-    required this.delay,
+    required this.status,
     required this.rate,
     required this.tags,
     required this.selected,
@@ -878,25 +938,39 @@ class _PreferredNodeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isOnline = (delay ?? -1) > 0;
-    final isTesting = delay == 0;
-    final statusColor = isOnline
-        ? colors.success
-        : delay == null || isTesting
-        ? colors.muted
-        : colors.danger;
-    final statusBackground = isOnline
-        ? colors.successSoft
-        : delay == null || isTesting
-        ? colors.primarySoft
-        : colors.dangerSoft;
-    final statusText = isOnline
-        ? context.appLocalizations.online
-        : delay == null
-        ? context.appLocalizations.notTested
-        : isTesting
-        ? ''
-        : context.appLocalizations.offline;
+    final isTesting = status.state == _NodeConnectivityState.testing;
+    final statusColor = switch (status.state) {
+      _NodeConnectivityState.available => colors.success,
+      _NodeConnectivityState.backendOffline ||
+      _NodeConnectivityState.unreachable => colors.danger,
+      _ => colors.muted,
+    };
+    final statusBackground = switch (status.state) {
+      _NodeConnectivityState.available => colors.successSoft,
+      _NodeConnectivityState.backendOffline ||
+      _NodeConnectivityState.unreachable => colors.dangerSoft,
+      _ => colors.primarySoft,
+    };
+    final statusText = switch (status.state) {
+      _NodeConnectivityState.backendOffline =>
+        context.appLocalizations.nodeBackendOffline,
+      _NodeConnectivityState.backendOnlineUntested =>
+        context.appLocalizations.nodeBackendOnline,
+      _NodeConnectivityState.testing => context.appLocalizations.delayTest,
+      _NodeConnectivityState.available =>
+        context.appLocalizations.nodeAvailable,
+      _NodeConnectivityState.unreachable =>
+        context.appLocalizations.nodeLocallyUnreachable,
+      _NodeConnectivityState.unknown =>
+        context.appLocalizations.nodeStatusUnknown,
+    };
+    final detailText = switch (status.state) {
+      _NodeConnectivityState.available when status.delay != null =>
+        '${status.delay} ms',
+      _NodeConnectivityState.backendOnlineUntested =>
+        context.appLocalizations.notTested,
+      _ => null,
+    };
     return Material(
       color: selected ? colors.primarySoft : colors.surface,
       borderRadius: BorderRadius.circular(20),
@@ -1026,8 +1100,8 @@ class _PreferredNodeRow extends StatelessWidget {
                 const SizedBox(width: 14),
               ],
               Container(
-                width: compact ? 72 : 88,
-                height: compact ? 32 : 38,
+                width: compact ? 102 : 132,
+                height: compact ? 40 : 48,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: statusBackground,
@@ -1041,31 +1115,50 @@ class _PreferredNodeRow extends StatelessWidget {
                           strokeWidth: 2,
                         ),
                       )
-                    : Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            width: 7,
-                            height: 7,
-                            decoration: BoxDecoration(
-                              color: statusColor,
-                              shape: BoxShape.circle,
+                    : Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 7),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: BoxDecoration(
+                                    color: statusColor,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
+                                    statusText,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: statusColor,
+                                      fontSize: compact ? 10 : 11,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                          const SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              statusText,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: statusColor,
-                                fontSize: compact ? 11 : 12,
-                                fontWeight: FontWeight.w800,
+                            if (detailText != null)
+                              Text(
+                                detailText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: statusColor,
+                                  fontSize: compact ? 9 : 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
               ),
             ],
@@ -1076,13 +1169,77 @@ class _PreferredNodeRow extends StatelessWidget {
   }
 
   String _delayText(BuildContext context) {
-    return switch (delay) {
-      null => context.appLocalizations.notTested,
-      0 => context.appLocalizations.delayTest,
-      < 0 => context.appLocalizations.timeout,
-      final value => '$value ms',
+    return switch (status.state) {
+      _NodeConnectivityState.available => '${status.delay} ms',
+      _NodeConnectivityState.backendOffline =>
+        context.appLocalizations.nodeBackendOffline,
+      _NodeConnectivityState.backendOnlineUntested =>
+        context.appLocalizations.notTested,
+      _NodeConnectivityState.testing => context.appLocalizations.delayTest,
+      _NodeConnectivityState.unreachable => context.appLocalizations.timeout,
+      _ => context.appLocalizations.nodeStatusUnknown,
     };
   }
+}
+
+enum _NodeConnectivityState {
+  backendOffline,
+  backendOnlineUntested,
+  testing,
+  available,
+  unreachable,
+  unknown,
+}
+
+class _NodePresentationStatus {
+  const _NodePresentationStatus({required this.state, this.delay});
+
+  final _NodeConnectivityState state;
+  final int? delay;
+
+  bool get countsAsAvailable =>
+      state == _NodeConnectivityState.available ||
+      state == _NodeConnectivityState.backendOnlineUntested;
+
+  int? get mapDelay => switch (state) {
+    _NodeConnectivityState.available => delay,
+    _NodeConnectivityState.backendOffline ||
+    _NodeConnectivityState.unreachable => -1,
+    _ => null,
+  };
+}
+
+_NodePresentationStatus _resolveNodeStatus({
+  required int? measuredDelay,
+  required XboardNodeData? metadata,
+  required bool xboardStatusFresh,
+  required bool isTesting,
+}) {
+  if (xboardStatusFresh && metadata?.isOnline == false) {
+    return const _NodePresentationStatus(
+      state: _NodeConnectivityState.backendOffline,
+    );
+  }
+  if (isTesting || measuredDelay == 0) {
+    return const _NodePresentationStatus(state: _NodeConnectivityState.testing);
+  }
+  if (measuredDelay != null && measuredDelay > 0) {
+    return _NodePresentationStatus(
+      state: _NodeConnectivityState.available,
+      delay: measuredDelay,
+    );
+  }
+  if (measuredDelay != null && measuredDelay < 0) {
+    return const _NodePresentationStatus(
+      state: _NodeConnectivityState.unreachable,
+    );
+  }
+  if (xboardStatusFresh && metadata?.isOnline == true) {
+    return const _NodePresentationStatus(
+      state: _NodeConnectivityState.backendOnlineUntested,
+    );
+  }
+  return const _NodePresentationStatus(state: _NodeConnectivityState.unknown);
 }
 
 String _formatNodeRate(double? rate) {
@@ -1091,17 +1248,6 @@ String _formatNodeRate(double? rate) {
       ? rate.toStringAsFixed(0)
       : rate.toStringAsFixed(2).replaceFirst(RegExp(r'0+$'), '');
   return '${value}x';
-}
-
-int _nodeDisplayDelay(String name, int? measuredDelay) {
-  if (measuredDelay != null) return measuredDelay;
-  final seed = name.runes.fold<int>(0, (value, rune) => value + rune);
-  return switch (seed % 12) {
-    0 => -1,
-    <= 6 => 55 + seed % 196,
-    <= 9 => 251 + seed % 150,
-    _ => 401 + seed % 260,
-  };
 }
 
 List<Proxy> _xboardDisplayNodes(List<Proxy> proxies, List<Group> groups) {
@@ -1115,24 +1261,12 @@ Map<String, XboardNodeData> _matchXboardNodes(
   List<Proxy> proxies,
   List<XboardNodeData> nodes,
 ) {
-  final exact = {for (final node in nodes) node.name: node};
-  final normalized = {for (final node in nodes) _nodeMatchKey(node.name): node};
   final matches = <String, XboardNodeData>{};
   for (final proxy in proxies) {
-    final metadata = exact[proxy.name] ?? normalized[_nodeMatchKey(proxy.name)];
+    final metadata = matchXboardNodeByName(proxy.name, nodes);
     if (metadata != null) matches[proxy.name] = metadata;
   }
   return matches;
-}
-
-String _nodeMatchKey(String name) {
-  final buffer = StringBuffer();
-  for (final rune in name.toLowerCase().runes) {
-    if (rune >= 0x1F1E6 && rune <= 0x1F1FF) continue;
-    if (String.fromCharCode(rune).contains(RegExp(r'[\s\-_·|｜]'))) continue;
-    buffer.writeCharCode(rune);
-  }
-  return buffer.toString();
 }
 
 int _xboardTagCount(List<XboardNodeData> nodes) {

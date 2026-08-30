@@ -6,6 +6,33 @@ part of '../config.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
+_ChainProxyConfig _$ChainProxyConfigFromJson(Map<String, dynamic> json) =>
+    _ChainProxyConfig(
+      name: json['name'] as String,
+      protocol:
+          $enumDecodeNullable(_$ChainProxyProtocolEnumMap, json['protocol']) ??
+          ChainProxyProtocol.socks5,
+      server: json['server'] as String,
+      port: (json['port'] as num).toInt(),
+      username: json['username'] as String? ?? '',
+      password: json['password'] as String? ?? '',
+    );
+
+Map<String, dynamic> _$ChainProxyConfigToJson(_ChainProxyConfig instance) =>
+    <String, dynamic>{
+      'name': instance.name,
+      'protocol': _$ChainProxyProtocolEnumMap[instance.protocol]!,
+      'server': instance.server,
+      'port': instance.port,
+      'username': instance.username,
+      'password': instance.password,
+    };
+
+const _$ChainProxyProtocolEnumMap = {
+  ChainProxyProtocol.socks5: 'socks5',
+  ChainProxyProtocol.http: 'http',
+};
+
 _AppSettingProps _$AppSettingPropsFromJson(
   Map<String, dynamic> json,
 ) => _AppSettingProps(
@@ -38,6 +65,12 @@ _AppSettingProps _$AppSettingPropsFromJson(
         (k, e) => MapEntry(k, Map<String, String>.from(e as Map)),
       ) ??
       const {},
+  chainProxies:
+      (json['chainProxies'] as List<dynamic>?)
+          ?.map((e) => ChainProxyConfig.fromJson(e as Map<String, dynamic>))
+          .toList() ??
+      const [],
+  activeChainProxyName: json['activeChainProxyName'] as String?,
   restoreStrategy:
       $enumDecodeNullable(_$RestoreStrategyEnumMap, json['restoreStrategy']) ??
       RestoreStrategy.compatible,
@@ -72,6 +105,8 @@ Map<String, dynamic> _$AppSettingPropsToJson(_AppSettingProps instance) =>
       'campusNetworkEnabled': instance.campusNetworkEnabled,
       'campusOperator': _$CampusOperatorEnumMap[instance.campusOperator]!,
       'campusHostsByOperator': instance.campusHostsByOperator,
+      'chainProxies': instance.chainProxies,
+      'activeChainProxyName': instance.activeChainProxyName,
       'restoreStrategy': _$RestoreStrategyEnumMap[instance.restoreStrategy]!,
       'showTrayTitle': instance.showTrayTitle,
       'customUserAgent': instance.customUserAgent,

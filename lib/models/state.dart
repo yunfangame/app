@@ -340,6 +340,9 @@ abstract class MakeRealProfileState with _$MakeRealProfileState {
     required List<Rule> rules,
     required List<Rule> addedRules,
     required String defaultUA,
+    ChainProxyConfig? chainProxy,
+    String? chainProxyGlobalTarget,
+    @Default([]) List<String> chainProxyBypassDomains,
   }) = _MakeRealProfileState;
 }
 

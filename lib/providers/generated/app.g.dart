@@ -1153,6 +1153,59 @@ abstract class _$DelayDataSource extends $Notifier<DelayMap> {
   }
 }
 
+@ProviderFor(ConnectionDelayDataSource)
+final connectionDelayDataSourceProvider = ConnectionDelayDataSourceProvider._();
+
+final class ConnectionDelayDataSourceProvider
+    extends $NotifierProvider<ConnectionDelayDataSource, DelayMap> {
+  ConnectionDelayDataSourceProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'connectionDelayDataSourceProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$connectionDelayDataSourceHash();
+
+  @$internal
+  @override
+  ConnectionDelayDataSource create() => ConnectionDelayDataSource();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(DelayMap value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<DelayMap>(value),
+    );
+  }
+}
+
+String _$connectionDelayDataSourceHash() =>
+    r'7fa1baa55907c9038f030001b4029b5d89b12356';
+
+abstract class _$ConnectionDelayDataSource extends $Notifier<DelayMap> {
+  DelayMap build();
+  @$mustCallSuper
+  @override
+  WhenComplete runBuild() {
+    final ref = this.ref as $Ref<DelayMap, DelayMap>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<DelayMap, DelayMap>,
+              DelayMap,
+              Object?,
+              Object?
+            >;
+    return element.handleCreate(ref, build);
+  }
+}
+
 @ProviderFor(SystemUiOverlayStyleState)
 final systemUiOverlayStyleStateProvider = SystemUiOverlayStyleStateProvider._();
 

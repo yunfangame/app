@@ -81,9 +81,24 @@ void main() {
             },
           },
           'proxy-providers': {
-            'remote': {'type': 'http', 'url': 'https://example.com/proxy.yaml'},
+            'remote': {
+              'type': 'http',
+              'url': 'https://example.com/proxy.yaml',
+              'health-check': {
+                'enable': true,
+                'url': 'http://www.gstatic.com/generate_204',
+              },
+            },
             'file': {'type': 'file', 'path': './local.yaml'},
           },
+          'proxy-groups': [
+            {
+              'name': '自动选择',
+              'type': 'url-test',
+              'proxies': ['DIRECT'],
+              'url': 'http://www.gstatic.com/generate_204',
+            },
+          ],
           'rule-providers': {
             'remote': {'type': 'http', 'url': 'https://example.com/rule.yaml'},
           },
@@ -135,6 +150,14 @@ void main() {
       expect(
         config['proxy-providers']['remote']['path'],
         startsWith('/profiles/providers/7/proxies/'),
+      );
+      expect(
+        config['proxy-providers']['remote']['health-check']['url'],
+        'https://cp.cloudflare.com/generate_204',
+      );
+      expect(
+        config['proxy-groups'][0]['url'],
+        'https://cp.cloudflare.com/generate_204',
       );
       expect(
         config['rule-providers']['remote']['path'],

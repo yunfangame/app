@@ -45,7 +45,23 @@ class FengWoMobileDashboard extends ConsumerWidget {
     final currentGroup = _currentGroup(ref, profile);
     final rawNodeName = _currentNode(currentGroup, profile);
     final nodeName = rawNodeName.takeFirstValid([l10n.proxiesEmpty]);
-    final delay = rawNodeName.isEmpty
+    final connectionDelay = rawNodeName.isEmpty
+        ? null
+        : ref.watch(
+            connectionDelayProvider(
+              proxyName: rawNodeName,
+              testUrl: currentGroup?.testUrl,
+            ),
+          );
+    final standardDelay = rawNodeName.isEmpty
+        ? null
+        : ref.watch(
+            standardDelayProvider(
+              proxyName: rawNodeName,
+              testUrl: currentGroup?.testUrl,
+            ),
+          );
+    final fallbackDelay = rawNodeName.isEmpty
         ? null
         : ref.watch(
             delayProvider(
@@ -53,25 +69,39 @@ class FengWoMobileDashboard extends ConsumerWidget {
               testUrl: currentGroup?.testUrl,
             ),
           );
+    final delay = connectionDelay ?? standardDelay ?? fallbackDelay;
     final traffic = ref.watch(trafficsProvider).list.safeLast(const Traffic());
     final ipInfo = ref.watch(
       networkDetectionProvider.select((state) => state.ipInfo),
     );
     final mapNodes = currentGroup == null
         ? const <FengWoWorldMapNode>[]
-        : currentGroup.all
-              .map(
-                (proxy) => FengWoWorldMapNode(
-                  name: proxy.name,
-                  delay: ref.watch(
-                    delayProvider(
-                      proxyName: proxy.name,
-                      testUrl: currentGroup.testUrl,
-                    ),
-                  ),
-                ),
-              )
-              .toList();
+        : currentGroup.all.map((proxy) {
+            final connectionDelay = ref.watch(
+              connectionDelayProvider(
+                proxyName: proxy.name,
+                testUrl: currentGroup.testUrl,
+              ),
+            );
+            final standardDelay = ref.watch(
+              standardDelayProvider(
+                proxyName: proxy.name,
+                testUrl: currentGroup.testUrl,
+              ),
+            );
+            final fallbackDelay = ref.watch(
+              delayProvider(
+                proxyName: proxy.name,
+                testUrl: currentGroup.testUrl,
+              ),
+            );
+            return FengWoWorldMapNode(
+              name: proxy.name,
+              delay: connectionDelay ?? standardDelay ?? fallbackDelay,
+              connectionDelay: connectionDelay,
+              standardDelay: standardDelay,
+            );
+          }).toList();
     final subscription = globalState.xboardSubscription;
     final xboardNodes = globalState.xboardNodes;
     final countryCount = xboardNodes.isEmpty
@@ -140,6 +170,8 @@ class FengWoMobileDashboard extends ConsumerWidget {
                   isStart: isStart,
                   nodeName: nodeName,
                   delay: delay,
+                  connectionDelay: connectionDelay,
+                  standardDelay: standardDelay,
                   onOpenNodes: () => FengWoNodeSelector.show(context),
                   onRefresh: currentGroup == null
                       ? null
@@ -725,7 +757,7 @@ class _MobileWorldMapCard extends StatelessWidget {
                   key: const ValueKey('fengwo-mobile-world-map'),
                   isStart: isStart,
                   showRoute: true,
-                  interactive: false,
+                  interactive: true,
                   opacity: 0.82,
                   nodeName: nodeName,
                   ipInfo: ipInfo,
@@ -745,6 +777,8 @@ class _MobileNodeCard extends StatelessWidget {
   final bool isStart;
   final String nodeName;
   final int? delay;
+  final int? connectionDelay;
+  final int? standardDelay;
   final VoidCallback onOpenNodes;
   final VoidCallback? onRefresh;
 
@@ -753,6 +787,8 @@ class _MobileNodeCard extends StatelessWidget {
     required this.isStart,
     required this.nodeName,
     required this.delay,
+    required this.connectionDelay,
+    required this.standardDelay,
     required this.onOpenNodes,
     required this.onRefresh,
   });
@@ -853,6 +889,14 @@ class _MobileNodeCard extends StatelessWidget {
                         fontWeight: FontWeight.w800,
                       ),
                     ),
+                    if (connectionDelay != null && standardDelay != null)
+                      Text(
+                        '${l10n.standardizedDelay} $standardDelay ms',
+                        key: const ValueKey('fengwo-mobile-standardized-delay'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: colors.muted, fontSize: 9),
+                      ),
                     TextButton(
                       key: const ValueKey('fengwo-mobile-switch-node'),
                       style: TextButton.styleFrom(

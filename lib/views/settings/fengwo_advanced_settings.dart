@@ -55,7 +55,7 @@ class _FengWoAdvancedSettingsViewState
     setState(() => _updatingCampusNetwork = true);
     try {
       var hostsByOperator = previous.campusHostsByOperator;
-      if (enabled) {
+      if (enabled && !hasCompleteCampusNetworkConfig(hostsByOperator)) {
         hostsByOperator = (await _loadCampusNetworkConfig()).hostsByOperator;
       }
       if (!mounted) return;

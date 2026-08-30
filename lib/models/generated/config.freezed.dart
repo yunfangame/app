@@ -13,9 +13,287 @@ part of '../config.dart';
 T _$identity<T>(T value) => value;
 
 /// @nodoc
+mixin _$ChainProxyConfig {
+
+ String get name; ChainProxyProtocol get protocol; String get server; int get port; String get username; String get password;
+/// Create a copy of ChainProxyConfig
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$ChainProxyConfigCopyWith<ChainProxyConfig> get copyWith => _$ChainProxyConfigCopyWithImpl<ChainProxyConfig>(this as ChainProxyConfig, _$identity);
+
+  /// Serializes this ChainProxyConfig to a JSON map.
+  Map<String, dynamic> toJson();
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ChainProxyConfig&&(identical(other.name, name) || other.name == name)&&(identical(other.protocol, protocol) || other.protocol == protocol)&&(identical(other.server, server) || other.server == server)&&(identical(other.port, port) || other.port == port)&&(identical(other.username, username) || other.username == username)&&(identical(other.password, password) || other.password == password));
+}
+
+@JsonKey(includeFromJson: false, includeToJson: false)
+@override
+int get hashCode => Object.hash(runtimeType,name,protocol,server,port,username,password);
+
+@override
+String toString() {
+  return 'ChainProxyConfig(name: $name, protocol: $protocol, server: $server, port: $port, username: $username, password: $password)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $ChainProxyConfigCopyWith<$Res>  {
+  factory $ChainProxyConfigCopyWith(ChainProxyConfig value, $Res Function(ChainProxyConfig) _then) = _$ChainProxyConfigCopyWithImpl;
+@useResult
+$Res call({
+ String name, ChainProxyProtocol protocol, String server, int port, String username, String password
+});
+
+
+
+
+}
+/// @nodoc
+class _$ChainProxyConfigCopyWithImpl<$Res>
+    implements $ChainProxyConfigCopyWith<$Res> {
+  _$ChainProxyConfigCopyWithImpl(this._self, this._then);
+
+  final ChainProxyConfig _self;
+  final $Res Function(ChainProxyConfig) _then;
+
+/// Create a copy of ChainProxyConfig
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') @override $Res call({Object? name = null,Object? protocol = null,Object? server = null,Object? port = null,Object? username = null,Object? password = null,}) {
+  return _then(_self.copyWith(
+name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
+as String,protocol: null == protocol ? _self.protocol : protocol // ignore: cast_nullable_to_non_nullable
+as ChainProxyProtocol,server: null == server ? _self.server : server // ignore: cast_nullable_to_non_nullable
+as String,port: null == port ? _self.port : port // ignore: cast_nullable_to_non_nullable
+as int,username: null == username ? _self.username : username // ignore: cast_nullable_to_non_nullable
+as String,password: null == password ? _self.password : password // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+}
+
+
+/// Adds pattern-matching-related methods to [ChainProxyConfig].
+extension ChainProxyConfigPatterns on ChainProxyConfig {
+/// A variant of `map` that fallback to returning `orElse`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>(TResult Function( _ChainProxyConfig value)?  $default,{required TResult orElse(),}){
+final _that = this;
+switch (_that) {
+case _ChainProxyConfig() when $default != null:
+return $default(_that);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// Callbacks receives the raw object, upcasted.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case final Subclass2 value:
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult map<TResult extends Object?>(TResult Function( _ChainProxyConfig value)  $default,){
+final _that = this;
+switch (_that) {
+case _ChainProxyConfig():
+return $default(_that);case _:
+  throw StateError('Unexpected subclass');
+
+}
+}
+/// A variant of `map` that fallback to returning `null`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>(TResult? Function( _ChainProxyConfig value)?  $default,){
+final _that = this;
+switch (_that) {
+case _ChainProxyConfig() when $default != null:
+return $default(_that);case _:
+  return null;
+
+}
+}
+/// A variant of `when` that fallback to an `orElse` callback.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String name,  ChainProxyProtocol protocol,  String server,  int port,  String username,  String password)?  $default,{required TResult orElse(),}) {final _that = this;
+switch (_that) {
+case _ChainProxyConfig() when $default != null:
+return $default(_that.name,_that.protocol,_that.server,_that.port,_that.username,_that.password);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// As opposed to `map`, this offers destructuring.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case Subclass2(:final field2):
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String name,  ChainProxyProtocol protocol,  String server,  int port,  String username,  String password)  $default,) {final _that = this;
+switch (_that) {
+case _ChainProxyConfig():
+return $default(_that.name,_that.protocol,_that.server,_that.port,_that.username,_that.password);case _:
+  throw StateError('Unexpected subclass');
+
+}
+}
+/// A variant of `when` that fallback to returning `null`
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String name,  ChainProxyProtocol protocol,  String server,  int port,  String username,  String password)?  $default,) {final _that = this;
+switch (_that) {
+case _ChainProxyConfig() when $default != null:
+return $default(_that.name,_that.protocol,_that.server,_that.port,_that.username,_that.password);case _:
+  return null;
+
+}
+}
+
+}
+
+/// @nodoc
+@JsonSerializable()
+
+class _ChainProxyConfig implements ChainProxyConfig {
+  const _ChainProxyConfig({required this.name, this.protocol = ChainProxyProtocol.socks5, required this.server, required this.port, this.username = '', this.password = ''});
+  factory _ChainProxyConfig.fromJson(Map<String, dynamic> json) => _$ChainProxyConfigFromJson(json);
+
+@override final  String name;
+@override@JsonKey() final  ChainProxyProtocol protocol;
+@override final  String server;
+@override final  int port;
+@override@JsonKey() final  String username;
+@override@JsonKey() final  String password;
+
+/// Create a copy of ChainProxyConfig
+/// with the given fields replaced by the non-null parameter values.
+@override @JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+_$ChainProxyConfigCopyWith<_ChainProxyConfig> get copyWith => __$ChainProxyConfigCopyWithImpl<_ChainProxyConfig>(this, _$identity);
+
+@override
+Map<String, dynamic> toJson() {
+  return _$ChainProxyConfigToJson(this, );
+}
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _ChainProxyConfig&&(identical(other.name, name) || other.name == name)&&(identical(other.protocol, protocol) || other.protocol == protocol)&&(identical(other.server, server) || other.server == server)&&(identical(other.port, port) || other.port == port)&&(identical(other.username, username) || other.username == username)&&(identical(other.password, password) || other.password == password));
+}
+
+@JsonKey(includeFromJson: false, includeToJson: false)
+@override
+int get hashCode => Object.hash(runtimeType,name,protocol,server,port,username,password);
+
+@override
+String toString() {
+  return 'ChainProxyConfig(name: $name, protocol: $protocol, server: $server, port: $port, username: $username, password: $password)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class _$ChainProxyConfigCopyWith<$Res> implements $ChainProxyConfigCopyWith<$Res> {
+  factory _$ChainProxyConfigCopyWith(_ChainProxyConfig value, $Res Function(_ChainProxyConfig) _then) = __$ChainProxyConfigCopyWithImpl;
+@override @useResult
+$Res call({
+ String name, ChainProxyProtocol protocol, String server, int port, String username, String password
+});
+
+
+
+
+}
+/// @nodoc
+class __$ChainProxyConfigCopyWithImpl<$Res>
+    implements _$ChainProxyConfigCopyWith<$Res> {
+  __$ChainProxyConfigCopyWithImpl(this._self, this._then);
+
+  final _ChainProxyConfig _self;
+  final $Res Function(_ChainProxyConfig) _then;
+
+/// Create a copy of ChainProxyConfig
+/// with the given fields replaced by the non-null parameter values.
+@override @pragma('vm:prefer-inline') $Res call({Object? name = null,Object? protocol = null,Object? server = null,Object? port = null,Object? username = null,Object? password = null,}) {
+  return _then(_ChainProxyConfig(
+name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
+as String,protocol: null == protocol ? _self.protocol : protocol // ignore: cast_nullable_to_non_nullable
+as ChainProxyProtocol,server: null == server ? _self.server : server // ignore: cast_nullable_to_non_nullable
+as String,port: null == port ? _self.port : port // ignore: cast_nullable_to_non_nullable
+as int,username: null == username ? _self.username : username // ignore: cast_nullable_to_non_nullable
+as String,password: null == password ? _self.password : password // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+
+/// @nodoc
 mixin _$AppSettingProps {
 
- String? get locale;@JsonKey(fromJson: dashboardWidgetsSafeFormJson) List<DashboardWidget> get dashboardWidgets; bool get onlyStatisticsProxy; bool get autoLaunch; bool get silentLaunch; bool get autoRun; bool get openLogs; bool get closeConnections; String get testUrl; bool get isAnimateToPage; bool get autoCheckUpdate; bool get showLabel; bool get disclaimerAccepted; bool get crashlyticsTip; bool get crashlytics; bool get minimizeOnExit; bool get hidden; bool get developerMode; bool get campusNetworkEnabled; CampusOperator get campusOperator; Map<String, Map<String, String>> get campusHostsByOperator; RestoreStrategy get restoreStrategy; bool get showTrayTitle; String get customUserAgent; bool get skipGlobalModeConfirmation;
+ String? get locale;@JsonKey(fromJson: dashboardWidgetsSafeFormJson) List<DashboardWidget> get dashboardWidgets; bool get onlyStatisticsProxy; bool get autoLaunch; bool get silentLaunch; bool get autoRun; bool get openLogs; bool get closeConnections; String get testUrl; bool get isAnimateToPage; bool get autoCheckUpdate; bool get showLabel; bool get disclaimerAccepted; bool get crashlyticsTip; bool get crashlytics; bool get minimizeOnExit; bool get hidden; bool get developerMode; bool get campusNetworkEnabled; CampusOperator get campusOperator; Map<String, Map<String, String>> get campusHostsByOperator; List<ChainProxyConfig> get chainProxies; String? get activeChainProxyName; RestoreStrategy get restoreStrategy; bool get showTrayTitle; String get customUserAgent; bool get skipGlobalModeConfirmation;
 /// Create a copy of AppSettingProps
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -28,16 +306,16 @@ $AppSettingPropsCopyWith<AppSettingProps> get copyWith => _$AppSettingPropsCopyW
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is AppSettingProps&&(identical(other.locale, locale) || other.locale == locale)&&const DeepCollectionEquality().equals(other.dashboardWidgets, dashboardWidgets)&&(identical(other.onlyStatisticsProxy, onlyStatisticsProxy) || other.onlyStatisticsProxy == onlyStatisticsProxy)&&(identical(other.autoLaunch, autoLaunch) || other.autoLaunch == autoLaunch)&&(identical(other.silentLaunch, silentLaunch) || other.silentLaunch == silentLaunch)&&(identical(other.autoRun, autoRun) || other.autoRun == autoRun)&&(identical(other.openLogs, openLogs) || other.openLogs == openLogs)&&(identical(other.closeConnections, closeConnections) || other.closeConnections == closeConnections)&&(identical(other.testUrl, testUrl) || other.testUrl == testUrl)&&(identical(other.isAnimateToPage, isAnimateToPage) || other.isAnimateToPage == isAnimateToPage)&&(identical(other.autoCheckUpdate, autoCheckUpdate) || other.autoCheckUpdate == autoCheckUpdate)&&(identical(other.showLabel, showLabel) || other.showLabel == showLabel)&&(identical(other.disclaimerAccepted, disclaimerAccepted) || other.disclaimerAccepted == disclaimerAccepted)&&(identical(other.crashlyticsTip, crashlyticsTip) || other.crashlyticsTip == crashlyticsTip)&&(identical(other.crashlytics, crashlytics) || other.crashlytics == crashlytics)&&(identical(other.minimizeOnExit, minimizeOnExit) || other.minimizeOnExit == minimizeOnExit)&&(identical(other.hidden, hidden) || other.hidden == hidden)&&(identical(other.developerMode, developerMode) || other.developerMode == developerMode)&&(identical(other.campusNetworkEnabled, campusNetworkEnabled) || other.campusNetworkEnabled == campusNetworkEnabled)&&(identical(other.campusOperator, campusOperator) || other.campusOperator == campusOperator)&&const DeepCollectionEquality().equals(other.campusHostsByOperator, campusHostsByOperator)&&(identical(other.restoreStrategy, restoreStrategy) || other.restoreStrategy == restoreStrategy)&&(identical(other.showTrayTitle, showTrayTitle) || other.showTrayTitle == showTrayTitle)&&(identical(other.customUserAgent, customUserAgent) || other.customUserAgent == customUserAgent)&&(identical(other.skipGlobalModeConfirmation, skipGlobalModeConfirmation) || other.skipGlobalModeConfirmation == skipGlobalModeConfirmation));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is AppSettingProps&&(identical(other.locale, locale) || other.locale == locale)&&const DeepCollectionEquality().equals(other.dashboardWidgets, dashboardWidgets)&&(identical(other.onlyStatisticsProxy, onlyStatisticsProxy) || other.onlyStatisticsProxy == onlyStatisticsProxy)&&(identical(other.autoLaunch, autoLaunch) || other.autoLaunch == autoLaunch)&&(identical(other.silentLaunch, silentLaunch) || other.silentLaunch == silentLaunch)&&(identical(other.autoRun, autoRun) || other.autoRun == autoRun)&&(identical(other.openLogs, openLogs) || other.openLogs == openLogs)&&(identical(other.closeConnections, closeConnections) || other.closeConnections == closeConnections)&&(identical(other.testUrl, testUrl) || other.testUrl == testUrl)&&(identical(other.isAnimateToPage, isAnimateToPage) || other.isAnimateToPage == isAnimateToPage)&&(identical(other.autoCheckUpdate, autoCheckUpdate) || other.autoCheckUpdate == autoCheckUpdate)&&(identical(other.showLabel, showLabel) || other.showLabel == showLabel)&&(identical(other.disclaimerAccepted, disclaimerAccepted) || other.disclaimerAccepted == disclaimerAccepted)&&(identical(other.crashlyticsTip, crashlyticsTip) || other.crashlyticsTip == crashlyticsTip)&&(identical(other.crashlytics, crashlytics) || other.crashlytics == crashlytics)&&(identical(other.minimizeOnExit, minimizeOnExit) || other.minimizeOnExit == minimizeOnExit)&&(identical(other.hidden, hidden) || other.hidden == hidden)&&(identical(other.developerMode, developerMode) || other.developerMode == developerMode)&&(identical(other.campusNetworkEnabled, campusNetworkEnabled) || other.campusNetworkEnabled == campusNetworkEnabled)&&(identical(other.campusOperator, campusOperator) || other.campusOperator == campusOperator)&&const DeepCollectionEquality().equals(other.campusHostsByOperator, campusHostsByOperator)&&const DeepCollectionEquality().equals(other.chainProxies, chainProxies)&&(identical(other.activeChainProxyName, activeChainProxyName) || other.activeChainProxyName == activeChainProxyName)&&(identical(other.restoreStrategy, restoreStrategy) || other.restoreStrategy == restoreStrategy)&&(identical(other.showTrayTitle, showTrayTitle) || other.showTrayTitle == showTrayTitle)&&(identical(other.customUserAgent, customUserAgent) || other.customUserAgent == customUserAgent)&&(identical(other.skipGlobalModeConfirmation, skipGlobalModeConfirmation) || other.skipGlobalModeConfirmation == skipGlobalModeConfirmation));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hashAll([runtimeType,locale,const DeepCollectionEquality().hash(dashboardWidgets),onlyStatisticsProxy,autoLaunch,silentLaunch,autoRun,openLogs,closeConnections,testUrl,isAnimateToPage,autoCheckUpdate,showLabel,disclaimerAccepted,crashlyticsTip,crashlytics,minimizeOnExit,hidden,developerMode,campusNetworkEnabled,campusOperator,const DeepCollectionEquality().hash(campusHostsByOperator),restoreStrategy,showTrayTitle,customUserAgent,skipGlobalModeConfirmation]);
+int get hashCode => Object.hashAll([runtimeType,locale,const DeepCollectionEquality().hash(dashboardWidgets),onlyStatisticsProxy,autoLaunch,silentLaunch,autoRun,openLogs,closeConnections,testUrl,isAnimateToPage,autoCheckUpdate,showLabel,disclaimerAccepted,crashlyticsTip,crashlytics,minimizeOnExit,hidden,developerMode,campusNetworkEnabled,campusOperator,const DeepCollectionEquality().hash(campusHostsByOperator),const DeepCollectionEquality().hash(chainProxies),activeChainProxyName,restoreStrategy,showTrayTitle,customUserAgent,skipGlobalModeConfirmation]);
 
 @override
 String toString() {
-  return 'AppSettingProps(locale: $locale, dashboardWidgets: $dashboardWidgets, onlyStatisticsProxy: $onlyStatisticsProxy, autoLaunch: $autoLaunch, silentLaunch: $silentLaunch, autoRun: $autoRun, openLogs: $openLogs, closeConnections: $closeConnections, testUrl: $testUrl, isAnimateToPage: $isAnimateToPage, autoCheckUpdate: $autoCheckUpdate, showLabel: $showLabel, disclaimerAccepted: $disclaimerAccepted, crashlyticsTip: $crashlyticsTip, crashlytics: $crashlytics, minimizeOnExit: $minimizeOnExit, hidden: $hidden, developerMode: $developerMode, campusNetworkEnabled: $campusNetworkEnabled, campusOperator: $campusOperator, campusHostsByOperator: $campusHostsByOperator, restoreStrategy: $restoreStrategy, showTrayTitle: $showTrayTitle, customUserAgent: $customUserAgent, skipGlobalModeConfirmation: $skipGlobalModeConfirmation)';
+  return 'AppSettingProps(locale: $locale, dashboardWidgets: $dashboardWidgets, onlyStatisticsProxy: $onlyStatisticsProxy, autoLaunch: $autoLaunch, silentLaunch: $silentLaunch, autoRun: $autoRun, openLogs: $openLogs, closeConnections: $closeConnections, testUrl: $testUrl, isAnimateToPage: $isAnimateToPage, autoCheckUpdate: $autoCheckUpdate, showLabel: $showLabel, disclaimerAccepted: $disclaimerAccepted, crashlyticsTip: $crashlyticsTip, crashlytics: $crashlytics, minimizeOnExit: $minimizeOnExit, hidden: $hidden, developerMode: $developerMode, campusNetworkEnabled: $campusNetworkEnabled, campusOperator: $campusOperator, campusHostsByOperator: $campusHostsByOperator, chainProxies: $chainProxies, activeChainProxyName: $activeChainProxyName, restoreStrategy: $restoreStrategy, showTrayTitle: $showTrayTitle, customUserAgent: $customUserAgent, skipGlobalModeConfirmation: $skipGlobalModeConfirmation)';
 }
 
 
@@ -48,7 +326,7 @@ abstract mixin class $AppSettingPropsCopyWith<$Res>  {
   factory $AppSettingPropsCopyWith(AppSettingProps value, $Res Function(AppSettingProps) _then) = _$AppSettingPropsCopyWithImpl;
 @useResult
 $Res call({
- String? locale,@JsonKey(fromJson: dashboardWidgetsSafeFormJson) List<DashboardWidget> dashboardWidgets, bool onlyStatisticsProxy, bool autoLaunch, bool silentLaunch, bool autoRun, bool openLogs, bool closeConnections, String testUrl, bool isAnimateToPage, bool autoCheckUpdate, bool showLabel, bool disclaimerAccepted, bool crashlyticsTip, bool crashlytics, bool minimizeOnExit, bool hidden, bool developerMode, bool campusNetworkEnabled, CampusOperator campusOperator, Map<String, Map<String, String>> campusHostsByOperator, RestoreStrategy restoreStrategy, bool showTrayTitle, String customUserAgent, bool skipGlobalModeConfirmation
+ String? locale,@JsonKey(fromJson: dashboardWidgetsSafeFormJson) List<DashboardWidget> dashboardWidgets, bool onlyStatisticsProxy, bool autoLaunch, bool silentLaunch, bool autoRun, bool openLogs, bool closeConnections, String testUrl, bool isAnimateToPage, bool autoCheckUpdate, bool showLabel, bool disclaimerAccepted, bool crashlyticsTip, bool crashlytics, bool minimizeOnExit, bool hidden, bool developerMode, bool campusNetworkEnabled, CampusOperator campusOperator, Map<String, Map<String, String>> campusHostsByOperator, List<ChainProxyConfig> chainProxies, String? activeChainProxyName, RestoreStrategy restoreStrategy, bool showTrayTitle, String customUserAgent, bool skipGlobalModeConfirmation
 });
 
 
@@ -65,7 +343,7 @@ class _$AppSettingPropsCopyWithImpl<$Res>
 
 /// Create a copy of AppSettingProps
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? locale = freezed,Object? dashboardWidgets = null,Object? onlyStatisticsProxy = null,Object? autoLaunch = null,Object? silentLaunch = null,Object? autoRun = null,Object? openLogs = null,Object? closeConnections = null,Object? testUrl = null,Object? isAnimateToPage = null,Object? autoCheckUpdate = null,Object? showLabel = null,Object? disclaimerAccepted = null,Object? crashlyticsTip = null,Object? crashlytics = null,Object? minimizeOnExit = null,Object? hidden = null,Object? developerMode = null,Object? campusNetworkEnabled = null,Object? campusOperator = null,Object? campusHostsByOperator = null,Object? restoreStrategy = null,Object? showTrayTitle = null,Object? customUserAgent = null,Object? skipGlobalModeConfirmation = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? locale = freezed,Object? dashboardWidgets = null,Object? onlyStatisticsProxy = null,Object? autoLaunch = null,Object? silentLaunch = null,Object? autoRun = null,Object? openLogs = null,Object? closeConnections = null,Object? testUrl = null,Object? isAnimateToPage = null,Object? autoCheckUpdate = null,Object? showLabel = null,Object? disclaimerAccepted = null,Object? crashlyticsTip = null,Object? crashlytics = null,Object? minimizeOnExit = null,Object? hidden = null,Object? developerMode = null,Object? campusNetworkEnabled = null,Object? campusOperator = null,Object? campusHostsByOperator = null,Object? chainProxies = null,Object? activeChainProxyName = freezed,Object? restoreStrategy = null,Object? showTrayTitle = null,Object? customUserAgent = null,Object? skipGlobalModeConfirmation = null,}) {
   return _then(_self.copyWith(
 locale: freezed == locale ? _self.locale : locale // ignore: cast_nullable_to_non_nullable
 as String?,dashboardWidgets: null == dashboardWidgets ? _self.dashboardWidgets : dashboardWidgets // ignore: cast_nullable_to_non_nullable
@@ -88,7 +366,9 @@ as bool,developerMode: null == developerMode ? _self.developerMode : developerMo
 as bool,campusNetworkEnabled: null == campusNetworkEnabled ? _self.campusNetworkEnabled : campusNetworkEnabled // ignore: cast_nullable_to_non_nullable
 as bool,campusOperator: null == campusOperator ? _self.campusOperator : campusOperator // ignore: cast_nullable_to_non_nullable
 as CampusOperator,campusHostsByOperator: null == campusHostsByOperator ? _self.campusHostsByOperator : campusHostsByOperator // ignore: cast_nullable_to_non_nullable
-as Map<String, Map<String, String>>,restoreStrategy: null == restoreStrategy ? _self.restoreStrategy : restoreStrategy // ignore: cast_nullable_to_non_nullable
+as Map<String, Map<String, String>>,chainProxies: null == chainProxies ? _self.chainProxies : chainProxies // ignore: cast_nullable_to_non_nullable
+as List<ChainProxyConfig>,activeChainProxyName: freezed == activeChainProxyName ? _self.activeChainProxyName : activeChainProxyName // ignore: cast_nullable_to_non_nullable
+as String?,restoreStrategy: null == restoreStrategy ? _self.restoreStrategy : restoreStrategy // ignore: cast_nullable_to_non_nullable
 as RestoreStrategy,showTrayTitle: null == showTrayTitle ? _self.showTrayTitle : showTrayTitle // ignore: cast_nullable_to_non_nullable
 as bool,customUserAgent: null == customUserAgent ? _self.customUserAgent : customUserAgent // ignore: cast_nullable_to_non_nullable
 as String,skipGlobalModeConfirmation: null == skipGlobalModeConfirmation ? _self.skipGlobalModeConfirmation : skipGlobalModeConfirmation // ignore: cast_nullable_to_non_nullable
@@ -177,10 +457,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String? locale, @JsonKey(fromJson: dashboardWidgetsSafeFormJson)  List<DashboardWidget> dashboardWidgets,  bool onlyStatisticsProxy,  bool autoLaunch,  bool silentLaunch,  bool autoRun,  bool openLogs,  bool closeConnections,  String testUrl,  bool isAnimateToPage,  bool autoCheckUpdate,  bool showLabel,  bool disclaimerAccepted,  bool crashlyticsTip,  bool crashlytics,  bool minimizeOnExit,  bool hidden,  bool developerMode,  bool campusNetworkEnabled,  CampusOperator campusOperator,  Map<String, Map<String, String>> campusHostsByOperator,  RestoreStrategy restoreStrategy,  bool showTrayTitle,  String customUserAgent,  bool skipGlobalModeConfirmation)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String? locale, @JsonKey(fromJson: dashboardWidgetsSafeFormJson)  List<DashboardWidget> dashboardWidgets,  bool onlyStatisticsProxy,  bool autoLaunch,  bool silentLaunch,  bool autoRun,  bool openLogs,  bool closeConnections,  String testUrl,  bool isAnimateToPage,  bool autoCheckUpdate,  bool showLabel,  bool disclaimerAccepted,  bool crashlyticsTip,  bool crashlytics,  bool minimizeOnExit,  bool hidden,  bool developerMode,  bool campusNetworkEnabled,  CampusOperator campusOperator,  Map<String, Map<String, String>> campusHostsByOperator,  List<ChainProxyConfig> chainProxies,  String? activeChainProxyName,  RestoreStrategy restoreStrategy,  bool showTrayTitle,  String customUserAgent,  bool skipGlobalModeConfirmation)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _AppSettingProps() when $default != null:
-return $default(_that.locale,_that.dashboardWidgets,_that.onlyStatisticsProxy,_that.autoLaunch,_that.silentLaunch,_that.autoRun,_that.openLogs,_that.closeConnections,_that.testUrl,_that.isAnimateToPage,_that.autoCheckUpdate,_that.showLabel,_that.disclaimerAccepted,_that.crashlyticsTip,_that.crashlytics,_that.minimizeOnExit,_that.hidden,_that.developerMode,_that.campusNetworkEnabled,_that.campusOperator,_that.campusHostsByOperator,_that.restoreStrategy,_that.showTrayTitle,_that.customUserAgent,_that.skipGlobalModeConfirmation);case _:
+return $default(_that.locale,_that.dashboardWidgets,_that.onlyStatisticsProxy,_that.autoLaunch,_that.silentLaunch,_that.autoRun,_that.openLogs,_that.closeConnections,_that.testUrl,_that.isAnimateToPage,_that.autoCheckUpdate,_that.showLabel,_that.disclaimerAccepted,_that.crashlyticsTip,_that.crashlytics,_that.minimizeOnExit,_that.hidden,_that.developerMode,_that.campusNetworkEnabled,_that.campusOperator,_that.campusHostsByOperator,_that.chainProxies,_that.activeChainProxyName,_that.restoreStrategy,_that.showTrayTitle,_that.customUserAgent,_that.skipGlobalModeConfirmation);case _:
   return orElse();
 
 }
@@ -198,10 +478,10 @@ return $default(_that.locale,_that.dashboardWidgets,_that.onlyStatisticsProxy,_t
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String? locale, @JsonKey(fromJson: dashboardWidgetsSafeFormJson)  List<DashboardWidget> dashboardWidgets,  bool onlyStatisticsProxy,  bool autoLaunch,  bool silentLaunch,  bool autoRun,  bool openLogs,  bool closeConnections,  String testUrl,  bool isAnimateToPage,  bool autoCheckUpdate,  bool showLabel,  bool disclaimerAccepted,  bool crashlyticsTip,  bool crashlytics,  bool minimizeOnExit,  bool hidden,  bool developerMode,  bool campusNetworkEnabled,  CampusOperator campusOperator,  Map<String, Map<String, String>> campusHostsByOperator,  RestoreStrategy restoreStrategy,  bool showTrayTitle,  String customUserAgent,  bool skipGlobalModeConfirmation)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String? locale, @JsonKey(fromJson: dashboardWidgetsSafeFormJson)  List<DashboardWidget> dashboardWidgets,  bool onlyStatisticsProxy,  bool autoLaunch,  bool silentLaunch,  bool autoRun,  bool openLogs,  bool closeConnections,  String testUrl,  bool isAnimateToPage,  bool autoCheckUpdate,  bool showLabel,  bool disclaimerAccepted,  bool crashlyticsTip,  bool crashlytics,  bool minimizeOnExit,  bool hidden,  bool developerMode,  bool campusNetworkEnabled,  CampusOperator campusOperator,  Map<String, Map<String, String>> campusHostsByOperator,  List<ChainProxyConfig> chainProxies,  String? activeChainProxyName,  RestoreStrategy restoreStrategy,  bool showTrayTitle,  String customUserAgent,  bool skipGlobalModeConfirmation)  $default,) {final _that = this;
 switch (_that) {
 case _AppSettingProps():
-return $default(_that.locale,_that.dashboardWidgets,_that.onlyStatisticsProxy,_that.autoLaunch,_that.silentLaunch,_that.autoRun,_that.openLogs,_that.closeConnections,_that.testUrl,_that.isAnimateToPage,_that.autoCheckUpdate,_that.showLabel,_that.disclaimerAccepted,_that.crashlyticsTip,_that.crashlytics,_that.minimizeOnExit,_that.hidden,_that.developerMode,_that.campusNetworkEnabled,_that.campusOperator,_that.campusHostsByOperator,_that.restoreStrategy,_that.showTrayTitle,_that.customUserAgent,_that.skipGlobalModeConfirmation);case _:
+return $default(_that.locale,_that.dashboardWidgets,_that.onlyStatisticsProxy,_that.autoLaunch,_that.silentLaunch,_that.autoRun,_that.openLogs,_that.closeConnections,_that.testUrl,_that.isAnimateToPage,_that.autoCheckUpdate,_that.showLabel,_that.disclaimerAccepted,_that.crashlyticsTip,_that.crashlytics,_that.minimizeOnExit,_that.hidden,_that.developerMode,_that.campusNetworkEnabled,_that.campusOperator,_that.campusHostsByOperator,_that.chainProxies,_that.activeChainProxyName,_that.restoreStrategy,_that.showTrayTitle,_that.customUserAgent,_that.skipGlobalModeConfirmation);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -218,10 +498,10 @@ return $default(_that.locale,_that.dashboardWidgets,_that.onlyStatisticsProxy,_t
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String? locale, @JsonKey(fromJson: dashboardWidgetsSafeFormJson)  List<DashboardWidget> dashboardWidgets,  bool onlyStatisticsProxy,  bool autoLaunch,  bool silentLaunch,  bool autoRun,  bool openLogs,  bool closeConnections,  String testUrl,  bool isAnimateToPage,  bool autoCheckUpdate,  bool showLabel,  bool disclaimerAccepted,  bool crashlyticsTip,  bool crashlytics,  bool minimizeOnExit,  bool hidden,  bool developerMode,  bool campusNetworkEnabled,  CampusOperator campusOperator,  Map<String, Map<String, String>> campusHostsByOperator,  RestoreStrategy restoreStrategy,  bool showTrayTitle,  String customUserAgent,  bool skipGlobalModeConfirmation)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String? locale, @JsonKey(fromJson: dashboardWidgetsSafeFormJson)  List<DashboardWidget> dashboardWidgets,  bool onlyStatisticsProxy,  bool autoLaunch,  bool silentLaunch,  bool autoRun,  bool openLogs,  bool closeConnections,  String testUrl,  bool isAnimateToPage,  bool autoCheckUpdate,  bool showLabel,  bool disclaimerAccepted,  bool crashlyticsTip,  bool crashlytics,  bool minimizeOnExit,  bool hidden,  bool developerMode,  bool campusNetworkEnabled,  CampusOperator campusOperator,  Map<String, Map<String, String>> campusHostsByOperator,  List<ChainProxyConfig> chainProxies,  String? activeChainProxyName,  RestoreStrategy restoreStrategy,  bool showTrayTitle,  String customUserAgent,  bool skipGlobalModeConfirmation)?  $default,) {final _that = this;
 switch (_that) {
 case _AppSettingProps() when $default != null:
-return $default(_that.locale,_that.dashboardWidgets,_that.onlyStatisticsProxy,_that.autoLaunch,_that.silentLaunch,_that.autoRun,_that.openLogs,_that.closeConnections,_that.testUrl,_that.isAnimateToPage,_that.autoCheckUpdate,_that.showLabel,_that.disclaimerAccepted,_that.crashlyticsTip,_that.crashlytics,_that.minimizeOnExit,_that.hidden,_that.developerMode,_that.campusNetworkEnabled,_that.campusOperator,_that.campusHostsByOperator,_that.restoreStrategy,_that.showTrayTitle,_that.customUserAgent,_that.skipGlobalModeConfirmation);case _:
+return $default(_that.locale,_that.dashboardWidgets,_that.onlyStatisticsProxy,_that.autoLaunch,_that.silentLaunch,_that.autoRun,_that.openLogs,_that.closeConnections,_that.testUrl,_that.isAnimateToPage,_that.autoCheckUpdate,_that.showLabel,_that.disclaimerAccepted,_that.crashlyticsTip,_that.crashlytics,_that.minimizeOnExit,_that.hidden,_that.developerMode,_that.campusNetworkEnabled,_that.campusOperator,_that.campusHostsByOperator,_that.chainProxies,_that.activeChainProxyName,_that.restoreStrategy,_that.showTrayTitle,_that.customUserAgent,_that.skipGlobalModeConfirmation);case _:
   return null;
 
 }
@@ -233,7 +513,7 @@ return $default(_that.locale,_that.dashboardWidgets,_that.onlyStatisticsProxy,_t
 @JsonSerializable()
 
 class _AppSettingProps implements AppSettingProps {
-  const _AppSettingProps({this.locale, @JsonKey(fromJson: dashboardWidgetsSafeFormJson) final  List<DashboardWidget> dashboardWidgets = defaultDashboardWidgets, this.onlyStatisticsProxy = false, this.autoLaunch = false, this.silentLaunch = false, this.autoRun = false, this.openLogs = false, this.closeConnections = true, this.testUrl = defaultTestUrl, this.isAnimateToPage = true, this.autoCheckUpdate = true, this.showLabel = false, this.disclaimerAccepted = false, this.crashlyticsTip = false, this.crashlytics = false, this.minimizeOnExit = true, this.hidden = false, this.developerMode = false, this.campusNetworkEnabled = false, this.campusOperator = CampusOperator.telecom, final  Map<String, Map<String, String>> campusHostsByOperator = const {}, this.restoreStrategy = RestoreStrategy.compatible, this.showTrayTitle = true, this.customUserAgent = '', this.skipGlobalModeConfirmation = false}): _dashboardWidgets = dashboardWidgets,_campusHostsByOperator = campusHostsByOperator;
+  const _AppSettingProps({this.locale, @JsonKey(fromJson: dashboardWidgetsSafeFormJson) final  List<DashboardWidget> dashboardWidgets = defaultDashboardWidgets, this.onlyStatisticsProxy = false, this.autoLaunch = false, this.silentLaunch = false, this.autoRun = false, this.openLogs = false, this.closeConnections = true, this.testUrl = defaultTestUrl, this.isAnimateToPage = true, this.autoCheckUpdate = true, this.showLabel = false, this.disclaimerAccepted = false, this.crashlyticsTip = false, this.crashlytics = false, this.minimizeOnExit = true, this.hidden = false, this.developerMode = false, this.campusNetworkEnabled = false, this.campusOperator = CampusOperator.telecom, final  Map<String, Map<String, String>> campusHostsByOperator = const {}, final  List<ChainProxyConfig> chainProxies = const [], this.activeChainProxyName, this.restoreStrategy = RestoreStrategy.compatible, this.showTrayTitle = true, this.customUserAgent = '', this.skipGlobalModeConfirmation = false}): _dashboardWidgets = dashboardWidgets,_campusHostsByOperator = campusHostsByOperator,_chainProxies = chainProxies;
   factory _AppSettingProps.fromJson(Map<String, dynamic> json) => _$AppSettingPropsFromJson(json);
 
 @override final  String? locale;
@@ -269,6 +549,14 @@ class _AppSettingProps implements AppSettingProps {
   return EqualUnmodifiableMapView(_campusHostsByOperator);
 }
 
+ final  List<ChainProxyConfig> _chainProxies;
+@override@JsonKey() List<ChainProxyConfig> get chainProxies {
+  if (_chainProxies is EqualUnmodifiableListView) return _chainProxies;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableListView(_chainProxies);
+}
+
+@override final  String? activeChainProxyName;
 @override@JsonKey() final  RestoreStrategy restoreStrategy;
 @override@JsonKey() final  bool showTrayTitle;
 @override@JsonKey() final  String customUserAgent;
@@ -287,16 +575,16 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _AppSettingProps&&(identical(other.locale, locale) || other.locale == locale)&&const DeepCollectionEquality().equals(other._dashboardWidgets, _dashboardWidgets)&&(identical(other.onlyStatisticsProxy, onlyStatisticsProxy) || other.onlyStatisticsProxy == onlyStatisticsProxy)&&(identical(other.autoLaunch, autoLaunch) || other.autoLaunch == autoLaunch)&&(identical(other.silentLaunch, silentLaunch) || other.silentLaunch == silentLaunch)&&(identical(other.autoRun, autoRun) || other.autoRun == autoRun)&&(identical(other.openLogs, openLogs) || other.openLogs == openLogs)&&(identical(other.closeConnections, closeConnections) || other.closeConnections == closeConnections)&&(identical(other.testUrl, testUrl) || other.testUrl == testUrl)&&(identical(other.isAnimateToPage, isAnimateToPage) || other.isAnimateToPage == isAnimateToPage)&&(identical(other.autoCheckUpdate, autoCheckUpdate) || other.autoCheckUpdate == autoCheckUpdate)&&(identical(other.showLabel, showLabel) || other.showLabel == showLabel)&&(identical(other.disclaimerAccepted, disclaimerAccepted) || other.disclaimerAccepted == disclaimerAccepted)&&(identical(other.crashlyticsTip, crashlyticsTip) || other.crashlyticsTip == crashlyticsTip)&&(identical(other.crashlytics, crashlytics) || other.crashlytics == crashlytics)&&(identical(other.minimizeOnExit, minimizeOnExit) || other.minimizeOnExit == minimizeOnExit)&&(identical(other.hidden, hidden) || other.hidden == hidden)&&(identical(other.developerMode, developerMode) || other.developerMode == developerMode)&&(identical(other.campusNetworkEnabled, campusNetworkEnabled) || other.campusNetworkEnabled == campusNetworkEnabled)&&(identical(other.campusOperator, campusOperator) || other.campusOperator == campusOperator)&&const DeepCollectionEquality().equals(other._campusHostsByOperator, _campusHostsByOperator)&&(identical(other.restoreStrategy, restoreStrategy) || other.restoreStrategy == restoreStrategy)&&(identical(other.showTrayTitle, showTrayTitle) || other.showTrayTitle == showTrayTitle)&&(identical(other.customUserAgent, customUserAgent) || other.customUserAgent == customUserAgent)&&(identical(other.skipGlobalModeConfirmation, skipGlobalModeConfirmation) || other.skipGlobalModeConfirmation == skipGlobalModeConfirmation));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _AppSettingProps&&(identical(other.locale, locale) || other.locale == locale)&&const DeepCollectionEquality().equals(other._dashboardWidgets, _dashboardWidgets)&&(identical(other.onlyStatisticsProxy, onlyStatisticsProxy) || other.onlyStatisticsProxy == onlyStatisticsProxy)&&(identical(other.autoLaunch, autoLaunch) || other.autoLaunch == autoLaunch)&&(identical(other.silentLaunch, silentLaunch) || other.silentLaunch == silentLaunch)&&(identical(other.autoRun, autoRun) || other.autoRun == autoRun)&&(identical(other.openLogs, openLogs) || other.openLogs == openLogs)&&(identical(other.closeConnections, closeConnections) || other.closeConnections == closeConnections)&&(identical(other.testUrl, testUrl) || other.testUrl == testUrl)&&(identical(other.isAnimateToPage, isAnimateToPage) || other.isAnimateToPage == isAnimateToPage)&&(identical(other.autoCheckUpdate, autoCheckUpdate) || other.autoCheckUpdate == autoCheckUpdate)&&(identical(other.showLabel, showLabel) || other.showLabel == showLabel)&&(identical(other.disclaimerAccepted, disclaimerAccepted) || other.disclaimerAccepted == disclaimerAccepted)&&(identical(other.crashlyticsTip, crashlyticsTip) || other.crashlyticsTip == crashlyticsTip)&&(identical(other.crashlytics, crashlytics) || other.crashlytics == crashlytics)&&(identical(other.minimizeOnExit, minimizeOnExit) || other.minimizeOnExit == minimizeOnExit)&&(identical(other.hidden, hidden) || other.hidden == hidden)&&(identical(other.developerMode, developerMode) || other.developerMode == developerMode)&&(identical(other.campusNetworkEnabled, campusNetworkEnabled) || other.campusNetworkEnabled == campusNetworkEnabled)&&(identical(other.campusOperator, campusOperator) || other.campusOperator == campusOperator)&&const DeepCollectionEquality().equals(other._campusHostsByOperator, _campusHostsByOperator)&&const DeepCollectionEquality().equals(other._chainProxies, _chainProxies)&&(identical(other.activeChainProxyName, activeChainProxyName) || other.activeChainProxyName == activeChainProxyName)&&(identical(other.restoreStrategy, restoreStrategy) || other.restoreStrategy == restoreStrategy)&&(identical(other.showTrayTitle, showTrayTitle) || other.showTrayTitle == showTrayTitle)&&(identical(other.customUserAgent, customUserAgent) || other.customUserAgent == customUserAgent)&&(identical(other.skipGlobalModeConfirmation, skipGlobalModeConfirmation) || other.skipGlobalModeConfirmation == skipGlobalModeConfirmation));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hashAll([runtimeType,locale,const DeepCollectionEquality().hash(_dashboardWidgets),onlyStatisticsProxy,autoLaunch,silentLaunch,autoRun,openLogs,closeConnections,testUrl,isAnimateToPage,autoCheckUpdate,showLabel,disclaimerAccepted,crashlyticsTip,crashlytics,minimizeOnExit,hidden,developerMode,campusNetworkEnabled,campusOperator,const DeepCollectionEquality().hash(_campusHostsByOperator),restoreStrategy,showTrayTitle,customUserAgent,skipGlobalModeConfirmation]);
+int get hashCode => Object.hashAll([runtimeType,locale,const DeepCollectionEquality().hash(_dashboardWidgets),onlyStatisticsProxy,autoLaunch,silentLaunch,autoRun,openLogs,closeConnections,testUrl,isAnimateToPage,autoCheckUpdate,showLabel,disclaimerAccepted,crashlyticsTip,crashlytics,minimizeOnExit,hidden,developerMode,campusNetworkEnabled,campusOperator,const DeepCollectionEquality().hash(_campusHostsByOperator),const DeepCollectionEquality().hash(_chainProxies),activeChainProxyName,restoreStrategy,showTrayTitle,customUserAgent,skipGlobalModeConfirmation]);
 
 @override
 String toString() {
-  return 'AppSettingProps(locale: $locale, dashboardWidgets: $dashboardWidgets, onlyStatisticsProxy: $onlyStatisticsProxy, autoLaunch: $autoLaunch, silentLaunch: $silentLaunch, autoRun: $autoRun, openLogs: $openLogs, closeConnections: $closeConnections, testUrl: $testUrl, isAnimateToPage: $isAnimateToPage, autoCheckUpdate: $autoCheckUpdate, showLabel: $showLabel, disclaimerAccepted: $disclaimerAccepted, crashlyticsTip: $crashlyticsTip, crashlytics: $crashlytics, minimizeOnExit: $minimizeOnExit, hidden: $hidden, developerMode: $developerMode, campusNetworkEnabled: $campusNetworkEnabled, campusOperator: $campusOperator, campusHostsByOperator: $campusHostsByOperator, restoreStrategy: $restoreStrategy, showTrayTitle: $showTrayTitle, customUserAgent: $customUserAgent, skipGlobalModeConfirmation: $skipGlobalModeConfirmation)';
+  return 'AppSettingProps(locale: $locale, dashboardWidgets: $dashboardWidgets, onlyStatisticsProxy: $onlyStatisticsProxy, autoLaunch: $autoLaunch, silentLaunch: $silentLaunch, autoRun: $autoRun, openLogs: $openLogs, closeConnections: $closeConnections, testUrl: $testUrl, isAnimateToPage: $isAnimateToPage, autoCheckUpdate: $autoCheckUpdate, showLabel: $showLabel, disclaimerAccepted: $disclaimerAccepted, crashlyticsTip: $crashlyticsTip, crashlytics: $crashlytics, minimizeOnExit: $minimizeOnExit, hidden: $hidden, developerMode: $developerMode, campusNetworkEnabled: $campusNetworkEnabled, campusOperator: $campusOperator, campusHostsByOperator: $campusHostsByOperator, chainProxies: $chainProxies, activeChainProxyName: $activeChainProxyName, restoreStrategy: $restoreStrategy, showTrayTitle: $showTrayTitle, customUserAgent: $customUserAgent, skipGlobalModeConfirmation: $skipGlobalModeConfirmation)';
 }
 
 
@@ -307,7 +595,7 @@ abstract mixin class _$AppSettingPropsCopyWith<$Res> implements $AppSettingProps
   factory _$AppSettingPropsCopyWith(_AppSettingProps value, $Res Function(_AppSettingProps) _then) = __$AppSettingPropsCopyWithImpl;
 @override @useResult
 $Res call({
- String? locale,@JsonKey(fromJson: dashboardWidgetsSafeFormJson) List<DashboardWidget> dashboardWidgets, bool onlyStatisticsProxy, bool autoLaunch, bool silentLaunch, bool autoRun, bool openLogs, bool closeConnections, String testUrl, bool isAnimateToPage, bool autoCheckUpdate, bool showLabel, bool disclaimerAccepted, bool crashlyticsTip, bool crashlytics, bool minimizeOnExit, bool hidden, bool developerMode, bool campusNetworkEnabled, CampusOperator campusOperator, Map<String, Map<String, String>> campusHostsByOperator, RestoreStrategy restoreStrategy, bool showTrayTitle, String customUserAgent, bool skipGlobalModeConfirmation
+ String? locale,@JsonKey(fromJson: dashboardWidgetsSafeFormJson) List<DashboardWidget> dashboardWidgets, bool onlyStatisticsProxy, bool autoLaunch, bool silentLaunch, bool autoRun, bool openLogs, bool closeConnections, String testUrl, bool isAnimateToPage, bool autoCheckUpdate, bool showLabel, bool disclaimerAccepted, bool crashlyticsTip, bool crashlytics, bool minimizeOnExit, bool hidden, bool developerMode, bool campusNetworkEnabled, CampusOperator campusOperator, Map<String, Map<String, String>> campusHostsByOperator, List<ChainProxyConfig> chainProxies, String? activeChainProxyName, RestoreStrategy restoreStrategy, bool showTrayTitle, String customUserAgent, bool skipGlobalModeConfirmation
 });
 
 
@@ -324,7 +612,7 @@ class __$AppSettingPropsCopyWithImpl<$Res>
 
 /// Create a copy of AppSettingProps
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? locale = freezed,Object? dashboardWidgets = null,Object? onlyStatisticsProxy = null,Object? autoLaunch = null,Object? silentLaunch = null,Object? autoRun = null,Object? openLogs = null,Object? closeConnections = null,Object? testUrl = null,Object? isAnimateToPage = null,Object? autoCheckUpdate = null,Object? showLabel = null,Object? disclaimerAccepted = null,Object? crashlyticsTip = null,Object? crashlytics = null,Object? minimizeOnExit = null,Object? hidden = null,Object? developerMode = null,Object? campusNetworkEnabled = null,Object? campusOperator = null,Object? campusHostsByOperator = null,Object? restoreStrategy = null,Object? showTrayTitle = null,Object? customUserAgent = null,Object? skipGlobalModeConfirmation = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? locale = freezed,Object? dashboardWidgets = null,Object? onlyStatisticsProxy = null,Object? autoLaunch = null,Object? silentLaunch = null,Object? autoRun = null,Object? openLogs = null,Object? closeConnections = null,Object? testUrl = null,Object? isAnimateToPage = null,Object? autoCheckUpdate = null,Object? showLabel = null,Object? disclaimerAccepted = null,Object? crashlyticsTip = null,Object? crashlytics = null,Object? minimizeOnExit = null,Object? hidden = null,Object? developerMode = null,Object? campusNetworkEnabled = null,Object? campusOperator = null,Object? campusHostsByOperator = null,Object? chainProxies = null,Object? activeChainProxyName = freezed,Object? restoreStrategy = null,Object? showTrayTitle = null,Object? customUserAgent = null,Object? skipGlobalModeConfirmation = null,}) {
   return _then(_AppSettingProps(
 locale: freezed == locale ? _self.locale : locale // ignore: cast_nullable_to_non_nullable
 as String?,dashboardWidgets: null == dashboardWidgets ? _self._dashboardWidgets : dashboardWidgets // ignore: cast_nullable_to_non_nullable
@@ -347,7 +635,9 @@ as bool,developerMode: null == developerMode ? _self.developerMode : developerMo
 as bool,campusNetworkEnabled: null == campusNetworkEnabled ? _self.campusNetworkEnabled : campusNetworkEnabled // ignore: cast_nullable_to_non_nullable
 as bool,campusOperator: null == campusOperator ? _self.campusOperator : campusOperator // ignore: cast_nullable_to_non_nullable
 as CampusOperator,campusHostsByOperator: null == campusHostsByOperator ? _self._campusHostsByOperator : campusHostsByOperator // ignore: cast_nullable_to_non_nullable
-as Map<String, Map<String, String>>,restoreStrategy: null == restoreStrategy ? _self.restoreStrategy : restoreStrategy // ignore: cast_nullable_to_non_nullable
+as Map<String, Map<String, String>>,chainProxies: null == chainProxies ? _self._chainProxies : chainProxies // ignore: cast_nullable_to_non_nullable
+as List<ChainProxyConfig>,activeChainProxyName: freezed == activeChainProxyName ? _self.activeChainProxyName : activeChainProxyName // ignore: cast_nullable_to_non_nullable
+as String?,restoreStrategy: null == restoreStrategy ? _self.restoreStrategy : restoreStrategy // ignore: cast_nullable_to_non_nullable
 as RestoreStrategy,showTrayTitle: null == showTrayTitle ? _self.showTrayTitle : showTrayTitle // ignore: cast_nullable_to_non_nullable
 as bool,customUserAgent: null == customUserAgent ? _self.customUserAgent : customUserAgent // ignore: cast_nullable_to_non_nullable
 as String,skipGlobalModeConfirmation: null == skipGlobalModeConfirmation ? _self.skipGlobalModeConfirmation : skipGlobalModeConfirmation // ignore: cast_nullable_to_non_nullable

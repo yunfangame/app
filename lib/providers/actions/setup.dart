@@ -23,16 +23,23 @@ class SetupAction extends _$SetupAction {
   void build() {}
 
   SetupParams get _setupParams {
-    final selectedMap = ref.read(selectedMapProvider);
-    final testUrl = ref.read(
-      appSettingProvider.select((state) => state.testUrl),
-    );
+    final settings = ref.read(appSettingProvider);
+    final selectedMap = Map<String, String>.from(ref.read(selectedMapProvider));
+    final mode = ref.read(patchClashConfigProvider).mode;
+    if (activeChainProxy(settings) != null && mode == Mode.global) {
+      final current = selectedMap[GroupName.GLOBAL.name];
+      if (current?.isNotEmpty == true && current != chainProxyRuntimeName) {
+        selectedMap[GroupName.GLOBAL.name] = chainProxyRuntimeName;
+      }
+    }
+    final testUrl = settings.testUrl;
     return SetupParams(selectedMap: selectedMap, testUrl: testUrl);
   }
 
   void fullSetup() {
     if (!ref.read(initProvider)) return;
     ref.read(delayDataSourceProvider.notifier).value = {};
+    ref.read(connectionDelayDataSourceProvider.notifier).value = {};
     unawaited(_runSetup(force: true));
     ref.read(logsProvider.notifier).value = FixedList(500);
     ref.read(requestsProvider.notifier).value = FixedList(500);
@@ -282,6 +289,13 @@ class SetupAction extends _$SetupAction {
     final appSettings = ref.read(appSettingProvider);
     final appendSystemDns = networkVM2.a;
     final routeMode = networkVM2.b;
+    final selectedMap = ref.read(selectedMapProvider);
+    final chainProxyBypassDomains = ref
+        .read(profilesProvider)
+        .map((profile) => Uri.tryParse(profile.url)?.host ?? '')
+        .where((host) => host.isNotEmpty)
+        .toSet()
+        .toList();
     final configMap = await coreController.getConfig(profileId);
     String? scriptContent;
     final List<Rule> addedRules = [];
@@ -316,6 +330,9 @@ class SetupAction extends _$SetupAction {
         appendSystemDns: appendSystemDns,
         addedRules: addedRules,
         defaultUA: defaultUA,
+        chainProxy: activeChainProxy(appSettings),
+        chainProxyGlobalTarget: selectedMap[GroupName.GLOBAL.name],
+        chainProxyBypassDomains: chainProxyBypassDomains,
       ),
     );
     return res;

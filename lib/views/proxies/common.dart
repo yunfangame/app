@@ -56,18 +56,23 @@ Future<void> proxyDelayTest(Proxy proxy, [String? testUrl]) async {
   final currentTestUrl = state.testUrl.takeFirstValid([
     ref.read(realTestUrlProvider(testUrl)),
   ]);
-  if (state.proxyName.isEmpty) {
+  if (state.proxyName.isEmpty ||
+      isXboardNodeMarkedOffline(state.proxyName, globalState.xboardNodes) ||
+      isXboardNodeMarkedOffline(proxy.name, globalState.xboardNodes)) {
     return;
   }
   ref
       .read(proxiesActionProvider.notifier)
       .setDelay(Delay(url: currentTestUrl, name: state.proxyName, value: 0));
   try {
-    final delay = await coreController.getDelay(
+    final probeUrl = reliableDelayProbeUrl(
       currentTestUrl,
-      state.proxyName,
+      fallback: ref.read(realTestUrlProvider()),
     );
-    ref.read(proxiesActionProvider.notifier).setDelay(delay);
+    final delay = await coreController.getDelay(probeUrl, state.proxyName);
+    ref
+        .read(proxiesActionProvider.notifier)
+        .setDelay(delay.copyWith(url: currentTestUrl));
   } catch (error) {
     commonPrint.log(
       'Delay test failed for ${state.proxyName}: $error',

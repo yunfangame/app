@@ -146,9 +146,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "action_view": MessageLookupByLibrary.simpleMessage("Show/Hide"),
     "actions": MessageLookupByLibrary.simpleMessage("Action"),
     "activateNow": MessageLookupByLibrary.simpleMessage("Activate now"),
+    "actualConnectionDelay": MessageLookupByLibrary.simpleMessage(
+      "Actual latency",
+    ),
     "add": MessageLookupByLibrary.simpleMessage("Add"),
     "addProfile": MessageLookupByLibrary.simpleMessage("Add Profile"),
     "addProxies": MessageLookupByLibrary.simpleMessage("Add proxies"),
+    "addProxy": MessageLookupByLibrary.simpleMessage("Add proxy"),
     "addProxyGroup": MessageLookupByLibrary.simpleMessage("Add proxy group"),
     "addProxyProviders": MessageLookupByLibrary.simpleMessage(
       "Add proxy providers",
@@ -227,6 +231,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "applicationDesc": MessageLookupByLibrary.simpleMessage(
       "Modify application related settings",
     ),
+    "applyPreferredIps": MessageLookupByLibrary.simpleMessage("Apply all"),
+    "asnLabel": MessageLookupByLibrary.simpleMessage("ASN"),
     "authorized": MessageLookupByLibrary.simpleMessage("Authorized"),
     "auto": MessageLookupByLibrary.simpleMessage("Auto"),
     "autoCheckUpdate": MessageLookupByLibrary.simpleMessage(
@@ -269,6 +275,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "availableCommissionEmpty": MessageLookupByLibrary.simpleMessage(
       "No commission available to transfer",
     ),
+    "availableCount": MessageLookupByLibrary.simpleMessage("Available"),
     "availableEndpoints": MessageLookupByLibrary.simpleMessage(
       "Available endpoints",
     ),
@@ -344,6 +351,51 @@ class MessageLookup extends MessageLookupByLibrary {
     "cancelSelectAll": MessageLookupByLibrary.simpleMessage(
       "Cancel select all",
     ),
+    "candidateCount": MessageLookupByLibrary.simpleMessage("Candidates"),
+    "carrier": MessageLookupByLibrary.simpleMessage("Carrier"),
+    "cfApplyFailed": MessageLookupByLibrary.simpleMessage(
+      "Failed to apply preferred CF IPs. The previous configuration was restored",
+    ),
+    "cfApplySuccess": MessageLookupByLibrary.simpleMessage(
+      "Preferred CF IPs applied and the core configuration reloaded",
+    ),
+    "cfTargetMissingMessage": MessageLookupByLibrary.simpleMessage(
+      "Add the node domains that CF optimization may replace to the remote configuration first.",
+    ),
+    "cfTargetMissingTitle": MessageLookupByLibrary.simpleMessage(
+      "No target domain configured",
+    ),
+    "cfTargetValidationFailed": MessageLookupByLibrary.simpleMessage(
+      "Preferred IPs failed TLS validation for the target domains. Nothing was changed",
+    ),
+    "chainProxy": MessageLookupByLibrary.simpleMessage("Chain proxy"),
+    "chainProxyActive": MessageLookupByLibrary.simpleMessage(
+      "Chain proxy is running",
+    ),
+    "chainProxyApplyFailed": MessageLookupByLibrary.simpleMessage(
+      "Failed to apply the core configuration. The previous configuration was restored",
+    ),
+    "chainProxyDescription": MessageLookupByLibrary.simpleMessage(
+      "Manage an additional SOCKS5 or HTTP egress proxy",
+    ),
+    "chainProxyDirectModeUnsupported": MessageLookupByLibrary.simpleMessage(
+      "Switch the outbound mode to Rule or Global first",
+    ),
+    "chainProxyDisabled": MessageLookupByLibrary.simpleMessage(
+      "Chain proxy is not enabled",
+    ),
+    "chainProxyEnabled": MessageLookupByLibrary.simpleMessage(
+      "Chain proxy started",
+    ),
+    "chainProxyLocked": MessageLookupByLibrary.simpleMessage(
+      "Other entries are locked while a chain proxy is running",
+    ),
+    "chainProxySessionNotice": MessageLookupByLibrary.simpleMessage(
+      "When enabled, proxied traffic goes through the selected subscription node and then exits through this chain proxy. Only one can run at a time.",
+    ),
+    "chainProxyStopped": MessageLookupByLibrary.simpleMessage(
+      "Chain proxy stopped",
+    ),
     "changePasswordTitle": MessageLookupByLibrary.simpleMessage(
       "Change password",
     ),
@@ -358,6 +410,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "checkingLoginStatus": MessageLookupByLibrary.simpleMessage(
       "Checking login status...",
     ),
+    "chooseSpeedTest": MessageLookupByLibrary.simpleMessage("Choose service"),
     "clearData": MessageLookupByLibrary.simpleMessage("Clear Data"),
     "clipboardExport": MessageLookupByLibrary.simpleMessage("Export clipboard"),
     "clipboardImport": MessageLookupByLibrary.simpleMessage("Clipboard import"),
@@ -369,6 +422,12 @@ class MessageLookup extends MessageLookupByLibrary {
       "All current connections will be closed. Apps may reconnect automatically.",
     ),
     "closeConnection": MessageLookupByLibrary.simpleMessage("Close connection"),
+    "cloudflarePreferredIp": MessageLookupByLibrary.simpleMessage(
+      "CF preferred IP",
+    ),
+    "cloudflarePreferredIpDescription": MessageLookupByLibrary.simpleMessage(
+      "Find faster Cloudflare edge addresses for this network",
+    ),
     "color": MessageLookupByLibrary.simpleMessage("Color"),
     "colorSchemes": MessageLookupByLibrary.simpleMessage("Color schemes"),
     "columns": MessageLookupByLibrary.simpleMessage("Columns"),
@@ -389,6 +448,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "commissionWithdraw": MessageLookupByLibrary.simpleMessage("Withdraw"),
     "compatible": MessageLookupByLibrary.simpleMessage("Compatibility mode"),
+    "completedCount": MessageLookupByLibrary.simpleMessage("Completed"),
     "configDataDetected": MessageLookupByLibrary.simpleMessage(
       "Data detected in configuration",
     ),
@@ -463,6 +523,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "countriesCount": m3,
     "country": MessageLookupByLibrary.simpleMessage("Country"),
+    "countryRegion": MessageLookupByLibrary.simpleMessage("Country/region"),
     "crashDetected": MessageLookupByLibrary.simpleMessage("Crash detected"),
     "crashDetectedTip": MessageLookupByLibrary.simpleMessage(
       "The app crashed during the previous run. To prevent repeated crashes, the current profile has been cleared and automatic configuration setup was skipped.",
@@ -512,6 +573,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "dataCollectionTip": MessageLookupByLibrary.simpleMessage(
       "Data Collection Notice",
     ),
+    "dataSource": MessageLookupByLibrary.simpleMessage("Data source"),
     "dateLabel": MessageLookupByLibrary.simpleMessage("Date"),
     "daysAgo": m4,
     "defaultNameserver": MessageLookupByLibrary.simpleMessage(
@@ -545,6 +607,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Developer mode is enabled.",
     ),
     "direct": MessageLookupByLibrary.simpleMessage("Direct"),
+    "disableProxy": MessageLookupByLibrary.simpleMessage("Stop"),
     "disableUDP": MessageLookupByLibrary.simpleMessage("Disable UDP"),
     "disclaimer": MessageLookupByLibrary.simpleMessage("Disclaimer"),
     "disclaimerDesc": MessageLookupByLibrary.simpleMessage(
@@ -607,6 +670,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "enableOfflineTitle": MessageLookupByLibrary.simpleMessage(
       "Enable offline mode?",
     ),
+    "enableProxy": MessageLookupByLibrary.simpleMessage("Enable"),
     "enterConfirmPassword": MessageLookupByLibrary.simpleMessage(
       "Enter your password again",
     ),
@@ -675,6 +739,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Generally use offshore DNS",
     ),
     "fallbackFilter": MessageLookupByLibrary.simpleMessage("Fallback filter"),
+    "fastestDownload": MessageLookupByLibrary.simpleMessage("Fastest download"),
     "featureComingSoon": MessageLookupByLibrary.simpleMessage(
       "This feature will be available after the server is connected",
     ),
@@ -761,6 +826,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "hideFromList": MessageLookupByLibrary.simpleMessage("Hide from list"),
     "hidePassword": MessageLookupByLibrary.simpleMessage("Hide password"),
+    "highestLatency": MessageLookupByLibrary.simpleMessage("Highest latency"),
     "host": MessageLookupByLibrary.simpleMessage("Host"),
     "hostsDesc": MessageLookupByLibrary.simpleMessage("Add Hosts"),
     "hotkeyConflict": MessageLookupByLibrary.simpleMessage("Hotkey conflict"),
@@ -827,6 +893,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Enter a valid email account",
     ),
     "invalidPolicy": m16,
+    "invalidPort": MessageLookupByLibrary.simpleMessage("Enter a valid port"),
     "invalidProxy": m17,
     "invalidProxyProvider": m18,
     "invalidSubRule": m19,
@@ -860,6 +927,14 @@ class MessageLookup extends MessageLookupByLibrary {
       "Unable to load invite data",
     ),
     "invitePromotion": MessageLookupByLibrary.simpleMessage("Invite rewards"),
+    "ipAddress": MessageLookupByLibrary.simpleMessage("IP address"),
+    "ipLookup": MessageLookupByLibrary.simpleMessage("IP lookup"),
+    "ipLookupDescription": MessageLookupByLibrary.simpleMessage(
+      "View location, carrier, and other public IP details",
+    ),
+    "ipLookupFailed": MessageLookupByLibrary.simpleMessage(
+      "IP lookup failed. Check your connection and try again",
+    ),
     "ipcidr": MessageLookupByLibrary.simpleMessage("Ipcidr"),
     "ipv6Desc": MessageLookupByLibrary.simpleMessage(
       "When turned on it will be able to receive IPv6 traffic",
@@ -876,6 +951,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "keepAliveIntervalDesc": MessageLookupByLibrary.simpleMessage(
       "Tcp keep alive interval",
     ),
+    "keptCount": MessageLookupByLibrary.simpleMessage("Kept"),
     "key": MessageLookupByLibrary.simpleMessage("Key"),
     "language": MessageLookupByLibrary.simpleMessage("Language"),
     "layout": MessageLookupByLibrary.simpleMessage("Layout"),
@@ -946,6 +1022,8 @@ class MessageLookup extends MessageLookupByLibrary {
       "Used for UWP loopback unlocking",
     ),
     "loose": MessageLookupByLibrary.simpleMessage("Loose"),
+    "lowestLatency": MessageLookupByLibrary.simpleMessage("Lowest latency"),
+    "manageChainProxy": MessageLookupByLibrary.simpleMessage("Manage chain"),
     "manualSelection": MessageLookupByLibrary.simpleMessage("Manual select"),
     "matchContent": MessageLookupByLibrary.simpleMessage("Match content"),
     "matchSourceIp": MessageLookupByLibrary.simpleMessage("Match source IP"),
@@ -959,6 +1037,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "This is a message.",
     ),
     "min": MessageLookupByLibrary.simpleMessage("Min"),
+    "mine": MessageLookupByLibrary.simpleMessage("My"),
     "minimizeOnExit": MessageLookupByLibrary.simpleMessage("Minimize on exit"),
     "minimizeOnExitDesc": MessageLookupByLibrary.simpleMessage(
       "Modify the default system exit event",
@@ -1009,6 +1088,10 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "noActivePlan": MessageLookupByLibrary.simpleMessage("No active plan"),
     "noAnnouncements": MessageLookupByLibrary.simpleMessage("No announcements"),
+    "noChainProxy": MessageLookupByLibrary.simpleMessage("No chain proxies"),
+    "noChainProxyDescription": MessageLookupByLibrary.simpleMessage(
+      "Add a SOCKS5 or HTTP proxy to get started.",
+    ),
     "noCommissionRecords": MessageLookupByLibrary.simpleMessage(
       "No commission records",
     ),
@@ -1049,11 +1132,23 @@ class MessageLookup extends MessageLookupByLibrary {
     "noTrafficRecords": MessageLookupByLibrary.simpleMessage(
       "No traffic records for this month",
     ),
+    "nodeAvailable": MessageLookupByLibrary.simpleMessage("Available"),
+    "nodeBackendOffline": MessageLookupByLibrary.simpleMessage(
+      "Backend offline",
+    ),
+    "nodeBackendOnline": MessageLookupByLibrary.simpleMessage("Backend online"),
     "nodeLabel": MessageLookupByLibrary.simpleMessage("Node"),
+    "nodeLocallyUnreachable": MessageLookupByLibrary.simpleMessage(
+      "Unreachable here",
+    ),
+    "nodeNetworkFluctuating": MessageLookupByLibrary.simpleMessage(
+      "Network unstable",
+    ),
     "nodeStatus": MessageLookupByLibrary.simpleMessage("Nodes"),
     "nodeStatusSubtitle": MessageLookupByLibrary.simpleMessage(
       "Choose the best node for a fast and stable connection",
     ),
+    "nodeStatusUnknown": MessageLookupByLibrary.simpleMessage("Status unknown"),
     "nodesCount": m26,
     "none": MessageLookupByLibrary.simpleMessage("none"),
     "notEnabled": MessageLookupByLibrary.simpleMessage("Not enabled"),
@@ -1121,6 +1216,21 @@ class MessageLookup extends MessageLookupByLibrary {
     "onlyStatisticsProxyDesc": MessageLookupByLibrary.simpleMessage(
       "When turned on, only statistics proxy traffic",
     ),
+    "optimizationComplete": MessageLookupByLibrary.simpleMessage(
+      "Optimization complete",
+    ),
+    "optimizationDownload": MessageLookupByLibrary.simpleMessage(
+      "Testing download speed",
+    ),
+    "optimizationFailed": MessageLookupByLibrary.simpleMessage(
+      "No available Cloudflare IP was found. Check your connection and try again",
+    ),
+    "optimizationLatency": MessageLookupByLibrary.simpleMessage(
+      "Testing connection latency",
+    ),
+    "optimizationPreparing": MessageLookupByLibrary.simpleMessage(
+      "Loading Cloudflare candidate IPs",
+    ),
     "optional": MessageLookupByLibrary.simpleMessage("Optional"),
     "options": MessageLookupByLibrary.simpleMessage("Options"),
     "orderAmount": MessageLookupByLibrary.simpleMessage("Amount"),
@@ -1148,6 +1258,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "orderStatusProcessing": MessageLookupByLibrary.simpleMessage("Activating"),
     "orderStatusUnknown": MessageLookupByLibrary.simpleMessage("Unknown"),
+    "organization": MessageLookupByLibrary.simpleMessage("Organization"),
     "other": MessageLookupByLibrary.simpleMessage("Other"),
     "otherContributors": MessageLookupByLibrary.simpleMessage(
       "Other contributors",
@@ -1206,6 +1317,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "pendingCommission": MessageLookupByLibrary.simpleMessage(
       "Pending commission",
     ),
+    "pendingTest": MessageLookupByLibrary.simpleMessage("Pending"),
     "peopleCount": m30,
     "personalCenter": MessageLookupByLibrary.simpleMessage("Account"),
     "planCatalogEmpty": MessageLookupByLibrary.simpleMessage(
@@ -1220,6 +1332,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Secure global access with fast, stable connections",
     ),
     "planTrafficLabel": MessageLookupByLibrary.simpleMessage("Traffic"),
+    "platformCount": MessageLookupByLibrary.simpleMessage("Platforms"),
     "pleaseBindWebDAV": MessageLookupByLibrary.simpleMessage(
       "Please bind WebDAV",
     ),
@@ -1235,12 +1348,19 @@ class MessageLookup extends MessageLookupByLibrary {
     "pleaseWait": MessageLookupByLibrary.simpleMessage(
       "Please wait and do not submit again",
     ),
+    "popularApps": MessageLookupByLibrary.simpleMessage("Popular apps"),
+    "popularAppsDescription": MessageLookupByLibrary.simpleMessage(
+      "Browse useful clients and companion apps",
+    ),
     "port": MessageLookupByLibrary.simpleMessage("Port"),
     "portConflictTip": MessageLookupByLibrary.simpleMessage(
       "Please enter a different port",
     ),
     "portTip": m31,
     "practicalTools": MessageLookupByLibrary.simpleMessage("Utilities"),
+    "practicalToolsSubtitle": MessageLookupByLibrary.simpleMessage(
+      "Everyday network tools for a faster, easier online experience",
+    ),
     "preferH3Desc": MessageLookupByLibrary.simpleMessage(
       "Prioritize the use of DOH\'s http/3",
     ),
@@ -1277,7 +1397,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "profiles": MessageLookupByLibrary.simpleMessage("Profiles"),
     "profilesSort": MessageLookupByLibrary.simpleMessage("Profiles sort"),
     "project": MessageLookupByLibrary.simpleMessage("Project"),
+    "protocolLabel": MessageLookupByLibrary.simpleMessage("Protocol"),
     "providers": MessageLookupByLibrary.simpleMessage("Providers"),
+    "provinceCity": MessageLookupByLibrary.simpleMessage("State/city"),
     "proxies": MessageLookupByLibrary.simpleMessage("Proxies"),
     "proxiesEmpty": MessageLookupByLibrary.simpleMessage("Proxies is empty"),
     "proxyAccessAddress": MessageLookupByLibrary.simpleMessage(
@@ -1301,6 +1423,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "proxyGroupNameEmpty": MessageLookupByLibrary.simpleMessage(
       "Proxy group name cannot be empty",
     ),
+    "proxyNameDuplicate": MessageLookupByLibrary.simpleMessage(
+      "This proxy name already exists",
+    ),
     "proxyNameserver": MessageLookupByLibrary.simpleMessage("Proxy nameserver"),
     "proxyNameserverDesc": MessageLookupByLibrary.simpleMessage(
       "Domain for resolving proxy nodes",
@@ -1309,6 +1434,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "Need a proxy: open the node list and choose a non-DIRECT node.",
     ),
     "proxyPort": MessageLookupByLibrary.simpleMessage("ProxyPort"),
+    "proxyProtocolMismatch": MessageLookupByLibrary.simpleMessage(
+      "Incorrect protocol. Detected protocol:",
+    ),
     "proxyProviderDetectedAbnormal": MessageLookupByLibrary.simpleMessage(
       "Detected selected proxy providers are abnormal",
     ),
@@ -1319,12 +1447,17 @@ class MessageLookup extends MessageLookupByLibrary {
     "proxyProvidersNotEmpty": MessageLookupByLibrary.simpleMessage(
       "Proxy providers cannot be empty",
     ),
+    "proxyServer": MessageLookupByLibrary.simpleMessage("Server"),
     "proxySettings": MessageLookupByLibrary.simpleMessage("Proxy settings"),
     "proxySettingsSubtitle": MessageLookupByLibrary.simpleMessage(
       "Manage the local proxy service",
     ),
     "proxyType": MessageLookupByLibrary.simpleMessage("Proxy type"),
+    "proxyValidationFailed": MessageLookupByLibrary.simpleMessage(
+      "Cannot connect through this proxy. Check the server, port, username, and password",
+    ),
     "pruneCache": MessageLookupByLibrary.simpleMessage("Prune cache"),
+    "publicIp": MessageLookupByLibrary.simpleMessage("Public IP"),
     "purchasePlan": MessageLookupByLibrary.simpleMessage("Plans"),
     "pureBlackMode": MessageLookupByLibrary.simpleMessage("Pure black mode"),
     "qrcode": MessageLookupByLibrary.simpleMessage("QR code"),
@@ -1333,6 +1466,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "qualityNodes": MessageLookupByLibrary.simpleMessage("Quality nodes"),
     "quarterlyBilling": MessageLookupByLibrary.simpleMessage("Quarterly"),
+    "queryNow": MessageLookupByLibrary.simpleMessage("Check now"),
     "quickFill": MessageLookupByLibrary.simpleMessage("Quick fill"),
     "rainbowScheme": MessageLookupByLibrary.simpleMessage("Rainbow"),
     "reachable": MessageLookupByLibrary.simpleMessage("Reachable"),
@@ -1356,6 +1490,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "refreshSubscription": MessageLookupByLibrary.simpleMessage(
       "Refresh subscription",
     ),
+    "region": MessageLookupByLibrary.simpleMessage("Region"),
     "registerAccount": MessageLookupByLibrary.simpleMessage("Create account"),
     "registerAction": MessageLookupByLibrary.simpleMessage("Register"),
     "registeredUsers": MessageLookupByLibrary.simpleMessage("Registered users"),
@@ -1407,6 +1542,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "requestsDesc": MessageLookupByLibrary.simpleMessage(
       "View recently request records",
     ),
+    "requiredField": MessageLookupByLibrary.simpleMessage(
+      "This field is required",
+    ),
+    "rerunOptimization": MessageLookupByLibrary.simpleMessage("Scan again"),
     "reset": MessageLookupByLibrary.simpleMessage("Reset"),
     "resetPageChangesTip": MessageLookupByLibrary.simpleMessage(
       "The current page has changes. Are you sure you want to reset?",
@@ -1654,6 +1793,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "specialProxy": MessageLookupByLibrary.simpleMessage("Special proxy"),
     "specialRules": MessageLookupByLibrary.simpleMessage("special rules"),
     "speedStatistics": MessageLookupByLibrary.simpleMessage("Speed statistics"),
+    "speedTest": MessageLookupByLibrary.simpleMessage("Speed test"),
+    "speedTestDescription": MessageLookupByLibrary.simpleMessage(
+      "Test your current connection with a third-party speed service",
+    ),
     "splitStrategy": MessageLookupByLibrary.simpleMessage("Split strategy"),
     "splitStrategyNotEmpty": MessageLookupByLibrary.simpleMessage(
       "Split strategy cannot be empty",
@@ -1664,10 +1807,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "standardModeDesc": MessageLookupByLibrary.simpleMessage(
       "Standard mode, override basic configuration, provide simple rule addition capability",
     ),
+    "standardizedDelay": MessageLookupByLibrary.simpleMessage("Standard RTT"),
     "start": MessageLookupByLibrary.simpleMessage("Start"),
     "startAcceleration": MessageLookupByLibrary.simpleMessage(
       "Start acceleration",
     ),
+    "startOptimization": MessageLookupByLibrary.simpleMessage("Start scan"),
+    "startTest": MessageLookupByLibrary.simpleMessage("Start test"),
     "startVpn": MessageLookupByLibrary.simpleMessage("Starting VPN..."),
     "status": MessageLookupByLibrary.simpleMessage("Status"),
     "statusDesc": MessageLookupByLibrary.simpleMessage(
@@ -1678,6 +1824,43 @@ class MessageLookup extends MessageLookupByLibrary {
       "Stop acceleration",
     ),
     "stopVpn": MessageLookupByLibrary.simpleMessage("Stopping VPN..."),
+    "streamingExitRegion": MessageLookupByLibrary.simpleMessage("Exit region"),
+    "streamingFailed": MessageLookupByLibrary.simpleMessage(
+      "Connection failed",
+    ),
+    "streamingNetworkError": MessageLookupByLibrary.simpleMessage(
+      "Network connection failed",
+    ),
+    "streamingProxyRequired": MessageLookupByLibrary.simpleMessage(
+      "Start acceleration and select a proxy node before testing",
+    ),
+    "streamingReachable": MessageLookupByLibrary.simpleMessage(
+      "Web page reachable, deep status unconfirmed",
+    ),
+    "streamingReachableProbeFailed": MessageLookupByLibrary.simpleMessage(
+      "Web page reachable, deep status unconfirmed",
+    ),
+    "streamingReachableProbeTimedOut": MessageLookupByLibrary.simpleMessage(
+      "Web page reachable, deep check timed out",
+    ),
+    "streamingRestricted": MessageLookupByLibrary.simpleMessage(
+      "Region restricted",
+    ),
+    "streamingServiceError": MessageLookupByLibrary.simpleMessage(
+      "Service is temporarily unavailable",
+    ),
+    "streamingTimedOut": MessageLookupByLibrary.simpleMessage(
+      "Test timed out. Try again",
+    ),
+    "streamingUnlockTest": MessageLookupByLibrary.simpleMessage(
+      "Streaming access test",
+    ),
+    "streamingUnlockTestDescription": MessageLookupByLibrary.simpleMessage(
+      "Check streaming and AI service availability on this node",
+    ),
+    "streamingUnlocked": MessageLookupByLibrary.simpleMessage(
+      "Web page reachable",
+    ),
     "style": MessageLookupByLibrary.simpleMessage("Style"),
     "subRule": MessageLookupByLibrary.simpleMessage("Sub rule"),
     "subRuleEmpty": MessageLookupByLibrary.simpleMessage("Sub rule is empty"),
@@ -1746,11 +1929,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "telegramUnboundHint": MessageLookupByLibrary.simpleMessage(
       "Telegram is not bound to this account",
     ),
+    "testAll": MessageLookupByLibrary.simpleMessage("Test all"),
     "testAllEndpoints": MessageLookupByLibrary.simpleMessage("Test all"),
     "testEndpoint": MessageLookupByLibrary.simpleMessage("Test"),
     "testInterval": MessageLookupByLibrary.simpleMessage("Test interval"),
     "testUrl": MessageLookupByLibrary.simpleMessage("Test url"),
     "testWhenUsed": MessageLookupByLibrary.simpleMessage("Test when used"),
+    "testingStatus": MessageLookupByLibrary.simpleMessage("Testing"),
     "textScale": MessageLookupByLibrary.simpleMessage("Text Scaling"),
     "theme": MessageLookupByLibrary.simpleMessage("Theme"),
     "themeColor": MessageLookupByLibrary.simpleMessage("Theme color"),
@@ -1762,10 +1947,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "tight": MessageLookupByLibrary.simpleMessage("Tight"),
     "time": MessageLookupByLibrary.simpleMessage("Time"),
     "timeout": MessageLookupByLibrary.simpleMessage("Timeout"),
+    "timezoneLabel": MessageLookupByLibrary.simpleMessage("Time zone"),
     "tip": MessageLookupByLibrary.simpleMessage("tip"),
     "todayTraffic": MessageLookupByLibrary.simpleMessage("Today"),
     "toggle": MessageLookupByLibrary.simpleMessage("Toggle"),
     "tonalSpotScheme": MessageLookupByLibrary.simpleMessage("TonalSpot"),
+    "toolbox": MessageLookupByLibrary.simpleMessage("Toolbox"),
     "tools": MessageLookupByLibrary.simpleMessage("Tools"),
     "totalCommission": MessageLookupByLibrary.simpleMessage("Total commission"),
     "totalOrders": m38,
@@ -1830,6 +2017,13 @@ class MessageLookup extends MessageLookupByLibrary {
       "Unable to load account information",
     ),
     "userMapLabel": MessageLookupByLibrary.simpleMessage("User"),
+    "username": MessageLookupByLibrary.simpleMessage("Username"),
+    "validatingProxy": MessageLookupByLibrary.simpleMessage(
+      "Validating proxy connection…",
+    ),
+    "validatingTargets": MessageLookupByLibrary.simpleMessage(
+      "Validating target domains against preferred IPs",
+    ),
     "value": MessageLookupByLibrary.simpleMessage("Value"),
     "verificationApiPending": MessageLookupByLibrary.simpleMessage(
       "Verification API is not connected yet",
@@ -1839,6 +2033,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "vibrantScheme": MessageLookupByLibrary.simpleMessage("Vibrant"),
     "view": MessageLookupByLibrary.simpleMessage("View"),
+    "viewApps": MessageLookupByLibrary.simpleMessage("View apps"),
     "viewDetails": MessageLookupByLibrary.simpleMessage("View details"),
     "viewOrderDetails": MessageLookupByLibrary.simpleMessage("View details"),
     "vpnConfigChangeDetected": MessageLookupByLibrary.simpleMessage(

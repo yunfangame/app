@@ -9,19 +9,36 @@ import 'package:fl_clash/views/dashboard/fengwo_node_selector.dart';
 import 'package:fl_clash/views/dashboard/widgets/global_mode_confirmation.dart';
 import 'package:fl_clash/views/proxies/common.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_svg/flutter_svg.dart';
+import 'package:latlong2/latlong.dart' hide Path;
 
 const _neonRouteColor = Color(0xFF39FF14);
+const _staticWorldMapAsset = 'assets/images/world_map_static.png';
+final _staticWorldMapBounds = LatLngBounds(
+  const LatLng(-85.05112878, -180),
+  const LatLng(85.05112878, 180),
+);
+
+class _NonRepeatingWebMercator extends Epsg3857 {
+  const _NonRepeatingWebMercator();
+
+  @override
+  bool get replicatesWorldLongitude => false;
+}
 
 class FengWoWorldMapNode {
   final String name;
   final int? delay;
+  final int? connectionDelay;
+  final int? standardDelay;
   final String? countryCode;
 
   const FengWoWorldMapNode({
     required this.name,
     required this.delay,
+    this.connectionDelay,
+    this.standardDelay,
     this.countryCode,
   });
 }
@@ -61,6 +78,8 @@ class FengWoWorldMap extends StatelessWidget {
             (node) => _WorldNode(
               name: node.name,
               delay: node.delay,
+              connectionDelay: node.connectionDelay,
+              standardDelay: node.standardDelay,
               countryCode: node.countryCode,
             ),
           )
@@ -98,7 +117,23 @@ class FengWoDesktopDashboard extends ConsumerWidget {
     final currentGroup = _currentGroup(ref, profile);
     final rawNodeName = _currentNode(currentGroup, profile);
     final nodeName = rawNodeName.takeFirstValid([l10n.proxiesEmpty]);
-    final delay = rawNodeName.isEmpty
+    final connectionDelay = rawNodeName.isEmpty
+        ? null
+        : ref.watch(
+            connectionDelayProvider(
+              proxyName: rawNodeName,
+              testUrl: currentGroup?.testUrl,
+            ),
+          );
+    final standardDelay = rawNodeName.isEmpty
+        ? null
+        : ref.watch(
+            standardDelayProvider(
+              proxyName: rawNodeName,
+              testUrl: currentGroup?.testUrl,
+            ),
+          );
+    final fallbackDelay = rawNodeName.isEmpty
         ? null
         : ref.watch(
             delayProvider(
@@ -106,6 +141,7 @@ class FengWoDesktopDashboard extends ConsumerWidget {
               testUrl: currentGroup?.testUrl,
             ),
           );
+    final delay = connectionDelay ?? standardDelay ?? fallbackDelay;
     final trafficHistory = ref.watch(trafficsProvider).list;
     final traffic = trafficHistory.safeLast(const Traffic());
     final ipInfo = ref.watch(
@@ -171,6 +207,8 @@ class FengWoDesktopDashboard extends ConsumerWidget {
                                   isStart: isStart,
                                   nodeName: nodeName,
                                   delay: delay,
+                                  connectionDelay: connectionDelay,
+                                  standardDelay: standardDelay,
                                   traffic: traffic,
                                   trafficHistory: trafficHistory,
                                   subscription: subscription,
@@ -570,6 +608,8 @@ class _ConnectionStatusPanel extends StatelessWidget {
   final bool isStart;
   final String nodeName;
   final int? delay;
+  final int? connectionDelay;
+  final int? standardDelay;
   final Traffic traffic;
   final List<Traffic> trafficHistory;
   final XboardSubscriptionData? subscription;
@@ -581,6 +621,8 @@ class _ConnectionStatusPanel extends StatelessWidget {
     required this.isStart,
     required this.nodeName,
     required this.delay,
+    required this.connectionDelay,
+    required this.standardDelay,
     required this.traffic,
     required this.trafficHistory,
     required this.subscription,
@@ -679,13 +721,17 @@ class _ConnectionStatusPanel extends StatelessWidget {
                       colors: colors,
                       icon: Icons.equalizer_rounded,
                       color: _delayColor(delay, colors),
-                      label: l10n.delay,
+                      label: connectionDelay == null
+                          ? l10n.standardizedDelay
+                          : l10n.actualConnectionDelay,
                       value: delay == null || delay! < 0 ? '--' : '$delay',
                       unit: 'ms',
                       footer: delay == null
                           ? l10n.notTested
                           : delay! < 0
                           ? l10n.timeout
+                          : connectionDelay != null && standardDelay != null
+                          ? '${l10n.standardizedDelay} $standardDelay ms'
                           : null,
                       latency: delay,
                     ),
@@ -1149,17 +1195,32 @@ class _GlobalNetworkPanel extends ConsumerWidget {
     final mapNodes = firstGroup == null
         ? const <_WorldNode>[]
         : firstGroup.all
-              .map(
-                (proxy) => _WorldNode(
-                  name: proxy.name,
-                  delay: ref.watch(
-                    delayProvider(
-                      proxyName: proxy.name,
-                      testUrl: firstGroup.testUrl,
-                    ),
+              .map((proxy) {
+                final connectionDelay = ref.watch(
+                  connectionDelayProvider(
+                    proxyName: proxy.name,
+                    testUrl: firstGroup.testUrl,
                   ),
-                ),
-              )
+                );
+                final standardDelay = ref.watch(
+                  standardDelayProvider(
+                    proxyName: proxy.name,
+                    testUrl: firstGroup.testUrl,
+                  ),
+                );
+                final fallbackDelay = ref.watch(
+                  delayProvider(
+                    proxyName: proxy.name,
+                    testUrl: firstGroup.testUrl,
+                  ),
+                );
+                return _WorldNode(
+                  name: proxy.name,
+                  delay: connectionDelay ?? standardDelay ?? fallbackDelay,
+                  connectionDelay: connectionDelay,
+                  standardDelay: standardDelay,
+                );
+              })
               .toList(growable: false);
     final l10n = context.appLocalizations;
     return _GlassPanel(
@@ -1200,6 +1261,7 @@ class _GlobalNetworkPanel extends ConsumerWidget {
           const SizedBox(height: 8),
           Expanded(
             child: _ThemedWorldMap(
+              key: const ValueKey('fengwo-global-network-map'),
               colors: colors,
               isStart: isStart,
               showRoute: true,
@@ -1227,6 +1289,7 @@ class _ThemedWorldMap extends StatefulWidget {
   final List<_WorldNode> nodes;
 
   const _ThemedWorldMap({
+    super.key,
     required this.colors,
     required this.isStart,
     required this.showRoute,
@@ -1244,9 +1307,16 @@ class _ThemedWorldMap extends StatefulWidget {
 
 class _ThemedWorldMapState extends State<_ThemedWorldMap>
     with SingleTickerProviderStateMixin {
+  static const _initialCenter = LatLng(20, 0);
+  static const _initialZoom = 1.35;
+  static const _userFocusZoom = 1.75;
+  static const _minZoom = 1.0;
+  static const _maxZoom = 5.0;
+
   late final AnimationController _controller;
-  late final TransformationController _mapController;
-  double _mapScale = 1;
+  late final MapController _mapController;
+  late double _mapZoom;
+  bool _mapReady = false;
   String? _revealedNodeName;
 
   @override
@@ -1256,7 +1326,10 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
       vsync: this,
       duration: const Duration(milliseconds: 2600),
     )..repeat();
-    _mapController = TransformationController();
+    _mapController = MapController();
+    _mapZoom = _geoLatLng(widget.ipInfo) == null
+        ? _initialZoom
+        : _userFocusZoom;
   }
 
   @override
@@ -1274,6 +1347,17 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
         !widget.nodes.any((node) => node.name == revealedNodeName)) {
       _revealedNodeName = null;
     }
+    final oldUserPosition = _geoLatLng(oldWidget.ipInfo);
+    final userPosition = _geoLatLng(widget.ipInfo);
+    if (userPosition != null &&
+        !_sameLatLng(userPosition, oldUserPosition) &&
+        _mapReady) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _mapController.move(userPosition, math.max(_mapZoom, _userFocusZoom));
+        }
+      });
+    }
   }
 
   void _toggleNodeLabel(String nodeName) {
@@ -1282,214 +1366,279 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
     });
   }
 
-  void _setMapScale(double scale, Size size) {
-    final target = scale.clamp(1.0, 2.6).toDouble();
-    final matrix = Matrix4.identity()
-      ..setEntry(0, 0, target)
-      ..setEntry(1, 1, target)
-      ..setEntry(0, 3, size.width * (1 - target) / 2)
-      ..setEntry(1, 3, size.height * (1 - target) / 2);
-    _mapController.value = matrix;
-    setState(() => _mapScale = target);
+  void _moveMap(double zoom, {bool resetCenter = false}) {
+    final target = zoom.clamp(_minZoom, _maxZoom).toDouble();
+    final center = resetCenter
+        ? _geoLatLng(widget.ipInfo) ?? _initialCenter
+        : _mapController.camera.center;
+    _mapController.move(center, target);
+    if ((target - _mapZoom).abs() > 0.001) {
+      setState(() => _mapZoom = target);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final nodeCode = fengWoNodeCountryCode(widget.nodeName);
-    final userPosition = _geoPosition(widget.ipInfo);
-    final nodePosition = _countryPosition(nodeCode);
+    final userPosition = _geoLatLng(widget.ipInfo);
+    final nodePosition = _countryLatLng(nodeCode);
     final canDrawRoute =
         widget.showRoute && userPosition != null && nodePosition != null;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final size = constraints.biggest;
-        final innerMapRect = Rect.fromLTWH(
-          22,
-          12,
-          math.max(0.0, size.width - 44),
-          math.max(0.0, size.height - 24),
-        );
-        final fittedMapSize = applyBoxFit(
-          BoxFit.contain,
-          const Size(2048, 996.796),
-          innerMapRect.size,
-        ).destination;
-        final mapRect = Alignment.center.inscribe(fittedMapSize, innerMapRect);
-        Offset mapPosition(Offset position) => Offset(
-          (mapRect.left + position.dx * mapRect.width) / size.width,
-          (mapRect.top + position.dy * mapRect.height) / size.height,
-        );
-        final displayedUserPosition = userPosition == null
-            ? null
-            : mapPosition(userPosition);
-        final displayedNodePosition = nodePosition == null
-            ? null
-            : mapPosition(nodePosition);
-        final routeNodePosition =
-            displayedUserPosition != null &&
-                displayedNodePosition != null &&
-                (displayedNodePosition - displayedUserPosition).distance < 0.08
-            ? Offset(
-                (displayedUserPosition.dx + 0.11).clamp(0.08, 0.92),
-                (displayedUserPosition.dy - 0.05).clamp(0.1, 0.9),
-              )
-            : displayedNodePosition;
-        final countryIndexes = <String, int>{};
-        final positionedNodes = <({Offset position, _WorldNode node})>[];
-        for (final node in widget.nodes) {
-          final code = node.countryCode ?? fengWoNodeCountryCode(node.name);
-          final center = _countryPosition(code);
-          if (code == null || center == null) continue;
-          final index = countryIndexes.update(
-            code,
-            (value) => value + 1,
-            ifAbsent: () => 0,
-          );
-          final angle = index * math.pi * (3 - math.sqrt(5));
-          final radius = index == 0 ? 0.0 : 0.008 + math.sqrt(index) * 0.007;
-          positionedNodes.add((
-            node: node,
-            position: mapPosition(
-              Offset(
-                (center.dx + math.cos(angle) * radius)
-                    .clamp(0.03, 0.97)
-                    .toDouble(),
-                (center.dy + math.sin(angle) * radius)
-                    .clamp(0.05, 0.95)
-                    .toDouble(),
-              ),
+    final countryIndexes = <String, int>{};
+    final nodeNames = <String>{};
+    final positionedNodes = <({LatLng point, _WorldNode node})>[];
+    for (final node in widget.nodes) {
+      if (!nodeNames.add(node.name)) continue;
+      final code = node.countryCode ?? fengWoNodeCountryCode(node.name);
+      final center = _countryLatLng(code);
+      if (code == null || center == null) continue;
+      final index = countryIndexes.update(
+        code,
+        (value) => value + 1,
+        ifAbsent: () => 0,
+      );
+      final angle = index * math.pi * (3 - math.sqrt(5));
+      final radius = index == 0 ? 0.0 : 1.3 + math.sqrt(index) * 0.75;
+      final latitude = (center.latitude + math.sin(angle) * radius)
+          .clamp(-80.0, 80.0)
+          .toDouble();
+      final longitude = _wrapLongitude(
+        center.longitude + math.cos(angle) * radius,
+      );
+      positionedNodes.add((node: node, point: LatLng(latitude, longitude)));
+    }
+
+    final sortedNodes = [...positionedNodes]
+      ..sort(
+        (left, right) => (left.node.name == _revealedNodeName ? 1 : 0)
+            .compareTo(right.node.name == _revealedNodeName ? 1 : 0),
+      );
+    final countryCodes = <String>{};
+    if (nodeCode != null) countryCodes.add(nodeCode);
+    for (final node in widget.nodes) {
+      final code = node.countryCode ?? fengWoNodeCountryCode(node.name);
+      if (code != null) countryCodes.add(code);
+    }
+    final countryLabelMarkers = [
+      for (final code in countryCodes)
+        if (_countryLatLng(code) case final point?)
+          Marker(
+            point: point,
+            width: 86,
+            height: 34,
+            alignment: Alignment.topCenter,
+            child: _CountryMapLabel(
+              key: ValueKey('fengwo-map-country-$code'),
+              colors: widget.colors,
+              name: _countryDisplayNames[code] ?? code,
             ),
-          ));
-        }
-        ({Offset position, _WorldNode node})? revealedNode;
-        for (final item in positionedNodes) {
-          if (item.node.name == _revealedNodeName) {
-            revealedNode = item;
-            break;
-          }
-        }
-        final nodeCount = widget.nodeCount ?? widget.nodes.length;
-        final mapLayers = Stack(
-          clipBehavior: Clip.hardEdge,
-          children: [
-            Positioned.fill(
-              child: CustomPaint(
-                painter: _WorldMapPainter(
-                  lineColor: widget.colors.primary.withValues(alpha: 0.12),
-                ),
+          ),
+    ];
+    final nodeMarkers = [
+      for (final item in sortedNodes)
+        Marker(
+          point: item.point,
+          width: item.node.name == _revealedNodeName ? 280 : 40,
+          height: item.node.name == _revealedNodeName ? 82 : 40,
+          alignment: item.node.name == _revealedNodeName
+              ? Alignment.bottomCenter
+              : Alignment.center,
+          child: _NodeMapMarker(
+            key: ValueKey('fengwo-map-node-${item.node.name}'),
+            colors: widget.colors,
+            node: item.node,
+            selected: item.node.name == widget.nodeName,
+            revealed: item.node.name == _revealedNodeName,
+            animation: _controller,
+            onTap: () => _toggleNodeLabel(item.node.name),
+          ),
+        ),
+    ];
+    final endpointMarkers = <Marker>[
+      if (widget.showRoute && userPosition != null)
+        Marker(
+          point: userPosition,
+          width: 150,
+          height: 42,
+          alignment: Alignment.center,
+          child: _MapEndpointMarker(
+            key: const ValueKey('fengwo-route-user'),
+            colors: widget.colors,
+            label: context.appLocalizations.userMapLabel,
+            showLabel: true,
+          ),
+        ),
+      if (widget.showRoute && nodePosition != null)
+        Marker(
+          point: nodePosition,
+          width: 24,
+          height: 24,
+          alignment: Alignment.center,
+          child: _MapEndpointMarker(
+            key: const ValueKey('fengwo-route-node'),
+            colors: widget.colors,
+            label: widget.nodeName,
+            showLabel: false,
+          ),
+        ),
+    ];
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final nodeCount = widget.nodeCount ?? widget.nodes.length;
+
+    return Stack(
+      clipBehavior: Clip.hardEdge,
+      children: [
+        Positioned.fill(
+          child: FlutterMap(
+            key: const ValueKey('fengwo-flutter-map'),
+            mapController: _mapController,
+            options: MapOptions(
+              crs: const _NonRepeatingWebMercator(),
+              initialCenter: userPosition ?? _initialCenter,
+              initialZoom: userPosition == null ? _initialZoom : _userFocusZoom,
+              minZoom: _minZoom,
+              maxZoom: _maxZoom,
+              backgroundColor: widget.colors.surfaceStrong,
+              keepAlive: true,
+              interactionOptions: InteractionOptions(
+                flags: widget.interactive
+                    ? InteractiveFlag.all & ~InteractiveFlag.rotate
+                    : InteractiveFlag.none,
               ),
+              onMapReady: () {
+                _mapReady = true;
+                final focus = _geoLatLng(widget.ipInfo);
+                if (focus != null) {
+                  _mapController.move(focus, _userFocusZoom);
+                }
+              },
+              onPositionChanged: (camera, _) {
+                if ((camera.zoom - _mapZoom).abs() > 0.01 && mounted) {
+                  setState(() => _mapZoom = camera.zoom);
+                }
+              },
             ),
-            Positioned.fill(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 22,
-                  vertical: 12,
-                ),
-                child: Opacity(
-                  opacity: widget.opacity,
-                  child: SvgPicture.asset(
-                    'assets/images/world_map_equal_earth.svg',
-                    fit: BoxFit.contain,
-                    colorFilter: ColorFilter.mode(
-                      widget.colors.primary.withValues(alpha: 0.72),
-                      BlendMode.srcIn,
-                    ),
+            children: [
+              Opacity(
+                opacity: widget.opacity.clamp(0.0, 1.0).toDouble(),
+                child: ColorFiltered(
+                  colorFilter: isDark
+                      ? const ColorFilter.matrix([
+                          -0.62,
+                          0,
+                          0,
+                          0,
+                          255,
+                          0,
+                          -0.62,
+                          0,
+                          0,
+                          255,
+                          0,
+                          0,
+                          -0.62,
+                          0,
+                          255,
+                          0,
+                          0,
+                          0,
+                          1,
+                          0,
+                        ])
+                      : const ColorFilter.mode(
+                          Colors.transparent,
+                          BlendMode.dst,
+                        ),
+                  child: OverlayImageLayer(
+                    overlayImages: [
+                      OverlayImage(
+                        bounds: _staticWorldMapBounds,
+                        imageProvider: const AssetImage(_staticWorldMapAsset),
+                        gaplessPlayback: true,
+                        filterQuality: FilterQuality.high,
+                      ),
+                    ],
                   ),
                 ),
               ),
-            ),
-            for (final item in positionedNodes)
-              _NodeMapMarker(
-                key: ValueKey('fengwo-map-node-${item.node.name}'),
-                colors: widget.colors,
-                node: item.node,
-                position: item.position,
-                size: size,
-                selected: item.node.name == widget.nodeName,
-                onTap: () => _toggleNodeLabel(item.node.name),
-              ),
-            if (canDrawRoute)
-              Positioned.fill(
-                child: AnimatedBuilder(
+              if (canDrawRoute)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: [userPosition, nodePosition],
+                      strokeWidth: 3,
+                      borderStrokeWidth: 1,
+                      borderColor: Colors.white.withValues(alpha: 0.72),
+                      gradientColors: [
+                        _neonRouteColor.withValues(alpha: 0.5),
+                        _neonRouteColor,
+                      ],
+                    ),
+                  ],
+                ),
+              if (countryLabelMarkers.isNotEmpty)
+                MarkerLayer(markers: countryLabelMarkers),
+              MarkerLayer(markers: nodeMarkers),
+              if (endpointMarkers.isNotEmpty)
+                MarkerLayer(markers: endpointMarkers),
+              if (widget.isStart && userPosition != null)
+                AnimatedBuilder(
                   animation: _controller,
-                  builder: (_, _) => CustomPaint(
-                    painter: _GeoRoutePainter(
-                      start: displayedUserPosition!,
-                      end: routeNodePosition!,
-                      progress: widget.isStart ? _controller.value : 0,
-                      active: widget.isStart,
-                      color: _neonRouteColor,
-                    ),
-                  ),
+                  builder: (context, _) {
+                    return MarkerLayer(
+                      markers: [
+                        Marker(
+                          point: userPosition,
+                          width: 42,
+                          height: 42,
+                          child: _UserFocusPulse(
+                            key: const ValueKey('fengwo-user-focus-pulse'),
+                            progress: _controller.value,
+                          ),
+                        ),
+                        if (canDrawRoute)
+                          Marker(
+                            point: _interpolateGeo(
+                              userPosition,
+                              nodePosition,
+                              _controller.value,
+                            ),
+                            width: 18,
+                            height: 18,
+                            child: const _RouteProgressMarker(),
+                          ),
+                      ],
+                    );
+                  },
                 ),
+              const RichAttributionWidget(
+                showFlutterMapAttribution: false,
+                attributions: [
+                  TextSourceAttribution('Natural Earth (offline map)'),
+                ],
               ),
-            if (widget.showRoute && userPosition != null)
-              _RouteEndpoint(
-                key: const ValueKey('fengwo-route-user'),
-                colors: widget.colors,
-                position: displayedUserPosition!,
-                size: size,
-                label: context.appLocalizations.userMapLabel,
+            ],
+          ),
+        ),
+        if (widget.interactive)
+          Positioned(
+            top: 14,
+            right: 18,
+            child: _MapControls(
+              colors: widget.colors,
+              nodeCount: nodeCount,
+              scale: _mapZoom,
+              minScale: _minZoom,
+              maxScale: _maxZoom,
+              onZoomIn: () => _moveMap(_mapZoom + 0.5),
+              onZoomOut: () => _moveMap(_mapZoom - 0.5),
+              onReset: () => _moveMap(
+                userPosition == null ? _initialZoom : _userFocusZoom,
+                resetCenter: true,
               ),
-            if (widget.showRoute && nodePosition != null)
-              _RouteEndpoint(
-                key: const ValueKey('fengwo-route-node'),
-                colors: widget.colors,
-                position: routeNodePosition!,
-                size: size,
-                label: widget.nodeName,
-                showLabel: false,
-                alignRight: routeNodePosition.dx > 0.7,
-              ),
-            if (revealedNode != null)
-              _NodeNameCallout(
-                key: ValueKey(
-                  'fengwo-map-node-label-${revealedNode.node.name}',
-                ),
-                colors: widget.colors,
-                nodeName: revealedNode.node.name,
-                position: revealedNode.position,
-                size: size,
-              ),
-          ],
-        );
-        final mapView = widget.interactive
-            ? InteractiveViewer(
-                transformationController: _mapController,
-                minScale: 1,
-                maxScale: 2.6,
-                panEnabled: _mapScale > 1.01,
-                scaleEnabled: true,
-                clipBehavior: Clip.hardEdge,
-                onInteractionUpdate: (_) {
-                  final scale = _mapController.value.getMaxScaleOnAxis();
-                  if ((scale - _mapScale).abs() > 0.01) {
-                    setState(() => _mapScale = scale);
-                  }
-                },
-                child: SizedBox.fromSize(size: size, child: mapLayers),
-              )
-            : mapLayers;
-        return Stack(
-          clipBehavior: Clip.hardEdge,
-          children: [
-            Positioned.fill(child: mapView),
-            if (widget.interactive)
-              Positioned(
-                top: 14,
-                right: 18,
-                child: _MapControls(
-                  colors: widget.colors,
-                  nodeCount: nodeCount,
-                  scale: _mapScale,
-                  onZoomIn: () => _setMapScale(_mapScale + 0.35, size),
-                  onZoomOut: () => _setMapScale(_mapScale - 0.35, size),
-                  onReset: () => _setMapScale(1, size),
-                ),
-              ),
-          ],
-        );
-      },
+            ),
+          ),
+      ],
     );
   }
 }
@@ -1497,72 +1646,120 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
 class _WorldNode {
   final String name;
   final int? delay;
+  final int? connectionDelay;
+  final int? standardDelay;
   final String? countryCode;
 
-  const _WorldNode({required this.name, required this.delay, this.countryCode});
+  const _WorldNode({
+    required this.name,
+    required this.delay,
+    this.connectionDelay,
+    this.standardDelay,
+    this.countryCode,
+  });
 }
 
 class _NodeMapMarker extends StatelessWidget {
   final _DashboardColors colors;
   final _WorldNode node;
-  final Offset position;
-  final Size size;
   final bool selected;
+  final bool revealed;
+  final Animation<double> animation;
   final VoidCallback onTap;
 
   const _NodeMapMarker({
     super.key,
     required this.colors,
     required this.node,
-    required this.position,
-    required this.size,
     required this.selected,
+    required this.revealed,
+    required this.animation,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final markerColor = _delayColor(node.delay, colors);
-    final diameter = selected ? 10.0 : 7.0;
-    const hitSize = 28.0;
-    return Positioned(
-      left: position.dx * size.width - hitSize / 2,
-      top: position.dy * size.height - hitSize / 2,
-      child: Semantics(
-        button: true,
-        label: node.name,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onTap,
-          child: SizedBox.square(
-            dimension: hitSize,
-            child: Center(
-              child: Container(
-                key: ValueKey('fengwo-map-node-dot-${node.name}'),
-                width: diameter,
-                height: diameter,
-                decoration: BoxDecoration(
-                  color: markerColor,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: selected
-                        ? Colors.white
-                        : markerColor.withValues(alpha: 0.5),
-                    width: selected ? 1.8 : 1.2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: markerColor.withValues(
-                        alpha: selected ? 0.55 : 0.3,
+    final diameter = selected ? 12.0 : 9.0;
+    final animated = selected || node.delay == 0;
+    return Semantics(
+      button: true,
+      label: node.name,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.bottomCenter,
+          children: [
+            if (revealed)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 42,
+                child: _NodeNameCallout(
+                  key: ValueKey('fengwo-map-node-label-${node.name}'),
+                  colors: colors,
+                  node: node,
+                ),
+              ),
+            Positioned(
+              bottom: 4,
+              child: SizedBox.square(
+                dimension: 32,
+                child: AnimatedBuilder(
+                  animation: animation,
+                  builder: (context, child) {
+                    final progress = animated ? animation.value : 0.0;
+                    return Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        if (animated)
+                          Container(
+                            key: ValueKey('fengwo-map-node-pulse-${node.name}'),
+                            width: diameter + 16 * progress,
+                            height: diameter + 16 * progress,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: markerColor.withValues(
+                                  alpha: 0.48 * (1 - progress),
+                                ),
+                              ),
+                            ),
+                          ),
+                        child!,
+                      ],
+                    );
+                  },
+                  child: Container(
+                    key: ValueKey('fengwo-map-node-dot-${node.name}'),
+                    width: diameter,
+                    height: diameter,
+                    decoration: BoxDecoration(
+                      color: markerColor,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: selected
+                            ? Colors.white
+                            : markerColor.withValues(alpha: 0.5),
+                        width: selected ? 1.8 : 1.2,
                       ),
-                      blurRadius: selected ? 8 : 5,
-                      spreadRadius: selected ? 1.5 : 0.5,
+                      boxShadow: [
+                        BoxShadow(
+                          color: markerColor.withValues(
+                            alpha: selected ? 0.55 : 0.3,
+                          ),
+                          blurRadius: selected ? 8 : 5,
+                          spreadRadius: selected ? 1.5 : 0.5,
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -1571,55 +1768,245 @@ class _NodeMapMarker extends StatelessWidget {
 
 class _NodeNameCallout extends StatelessWidget {
   final _DashboardColors colors;
-  final String nodeName;
-  final Offset position;
-  final Size size;
+  final _WorldNode node;
 
-  const _NodeNameCallout({
+  const _NodeNameCallout({super.key, required this.colors, required this.node});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.appLocalizations;
+    final effectiveDetail = switch (node.delay) {
+      null => l10n.notTested,
+      0 => l10n.testingStatus,
+      < 0 => l10n.timeout,
+      final delay => '$delay ms',
+    };
+    final connectionDetail = switch (node.connectionDelay) {
+      null => null,
+      0 => l10n.testingStatus,
+      < 0 => l10n.timeout,
+      final delay => '$delay ms',
+    };
+    final standardDetail = switch (node.standardDelay) {
+      null || 0 => null,
+      < 0 => l10n.timeout,
+      final delay => '$delay ms',
+    };
+    final detail = connectionDetail == null && standardDetail == null
+        ? effectiveDetail
+        : [
+            if (connectionDetail != null)
+              '${l10n.actualConnectionDelay} $connectionDetail',
+            if (standardDetail != null)
+              '${l10n.standardizedDelay} $standardDetail',
+          ].join(' · ');
+    return IgnorePointer(
+      child: Container(
+        height: 36,
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: colors.surface.withValues(alpha: 0.97),
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: colors.outline),
+          boxShadow: [BoxShadow(color: colors.shadow, blurRadius: 10)],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Flexible(
+              child: Text(
+                node.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.text,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              width: 4,
+              height: 4,
+              decoration: BoxDecoration(
+                color: _delayColor(node.delay, colors),
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                detail,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.muted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MapEndpointMarker extends StatelessWidget {
+  final _DashboardColors colors;
+  final String label;
+  final bool showLabel;
+
+  const _MapEndpointMarker({
     super.key,
     required this.colors,
-    required this.nodeName,
-    required this.position,
-    required this.size,
+    required this.label,
+    required this.showLabel,
   });
 
   @override
   Widget build(BuildContext context) {
-    final width = math.min(220.0, math.max(120.0, size.width - 16));
-    final left = (position.dx * size.width - width / 2)
-        .clamp(8.0, math.max(8.0, size.width - width - 8))
-        .toDouble();
-    final markerY = position.dy * size.height;
-    final top = (markerY > 46 ? markerY - 38 : markerY + 12)
-        .clamp(6.0, math.max(6.0, size.height - 34))
-        .toDouble();
-    return Positioned(
-      left: left,
-      top: top,
-      width: width,
-      child: IgnorePointer(
-        child: Container(
-          height: 30,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          alignment: Alignment.center,
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
           decoration: BoxDecoration(
-            color: colors.surface.withValues(alpha: 0.96),
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: colors.outline),
-            boxShadow: [BoxShadow(color: colors.shadow, blurRadius: 10)],
+            color: _neonRouteColor,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 1.6),
+            boxShadow: [
+              BoxShadow(
+                color: _neonRouteColor.withValues(alpha: 0.58),
+                blurRadius: 8,
+                spreadRadius: 1,
+              ),
+            ],
           ),
-          child: Text(
-            nodeName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: colors.text,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
+        ),
+        if (showLabel) ...[
+          const SizedBox(width: 7),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: colors.text,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                shadows: [
+                  Shadow(color: colors.surface, blurRadius: 5),
+                  Shadow(color: colors.surface, blurRadius: 5),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _CountryMapLabel extends StatelessWidget {
+  final _DashboardColors colors;
+  final String name;
+
+  const _CountryMapLabel({super.key, required this.colors, required this.name});
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Text(
+          name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: colors.text.withValues(alpha: 0.86),
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            shadows: [
+              Shadow(color: colors.surface, blurRadius: 4),
+              Shadow(color: colors.surface, blurRadius: 4),
+              const Shadow(color: Colors.white, blurRadius: 2),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _UserFocusPulse extends StatelessWidget {
+  final double progress;
+
+  const _UserFocusPulse({super.key, required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    final eased = Curves.easeOut.transform(progress);
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Container(
+          width: 16 + 24 * eased,
+          height: 16 + 24 * eased,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: _neonRouteColor.withValues(alpha: 0.08 * (1 - eased)),
+            border: Border.all(
+              color: _neonRouteColor.withValues(alpha: 0.75 * (1 - eased)),
+              width: 1.8,
             ),
           ),
         ),
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: _neonRouteColor,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 1.4),
+            boxShadow: [
+              BoxShadow(
+                color: _neonRouteColor.withValues(alpha: 0.68),
+                blurRadius: 10,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RouteProgressMarker extends StatelessWidget {
+  const _RouteProgressMarker();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: _neonRouteColor,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 1.4),
+        boxShadow: [
+          BoxShadow(
+            color: _neonRouteColor.withValues(alpha: 0.55),
+            blurRadius: 9,
+            spreadRadius: 2,
+          ),
+        ],
       ),
     );
   }
@@ -1629,6 +2016,8 @@ class _MapControls extends StatelessWidget {
   final _DashboardColors colors;
   final int nodeCount;
   final double scale;
+  final double minScale;
+  final double maxScale;
   final VoidCallback onZoomIn;
   final VoidCallback onZoomOut;
   final VoidCallback onReset;
@@ -1637,6 +2026,8 @@ class _MapControls extends StatelessWidget {
     required this.colors,
     required this.nodeCount,
     required this.scale,
+    required this.minScale,
+    required this.maxScale,
     required this.onZoomIn,
     required this.onZoomOut,
     required this.onReset,
@@ -1672,7 +2063,7 @@ class _MapControls extends StatelessWidget {
             key: const ValueKey('fengwo-map-zoom-out'),
             icon: Icons.remove_rounded,
             tooltip: l10n.zoomOut,
-            enabled: scale > 1.01,
+            enabled: scale > minScale + 0.01,
             colors: colors,
             onTap: onZoomOut,
           ),
@@ -1680,7 +2071,7 @@ class _MapControls extends StatelessWidget {
             key: const ValueKey('fengwo-map-reset'),
             icon: Icons.center_focus_strong_rounded,
             tooltip: l10n.reset,
-            enabled: scale > 1.01,
+            enabled: true,
             colors: colors,
             onTap: onReset,
           ),
@@ -1688,7 +2079,7 @@ class _MapControls extends StatelessWidget {
             key: const ValueKey('fengwo-map-zoom-in'),
             icon: Icons.add_rounded,
             tooltip: l10n.zoomIn,
-            enabled: scale < 2.59,
+            enabled: scale < maxScale - 0.01,
             colors: colors,
             onTap: onZoomIn,
           ),
@@ -1728,175 +2119,6 @@ class _MapControlButton extends StatelessWidget {
         color: enabled ? colors.primary : colors.muted.withValues(alpha: 0.45),
       ),
     );
-  }
-}
-
-class _RouteEndpoint extends StatelessWidget {
-  final _DashboardColors colors;
-  final Offset position;
-  final Size size;
-  final String label;
-  final bool alignRight;
-  final bool showLabel;
-
-  const _RouteEndpoint({
-    super.key,
-    required this.colors,
-    required this.position,
-    required this.size,
-    required this.label,
-    this.alignRight = false,
-    this.showLabel = true,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final width = math.min(
-      math.max(96.0, size.width * 0.42),
-      math.max(0.0, size.width - 8),
-    );
-    final left = (position.dx * size.width + (alignRight ? -width - 10 : 10))
-        .clamp(4.0, math.max(4.0, size.width - width - 4))
-        .toDouble();
-    final top = (position.dy * size.height - 28)
-        .clamp(4.0, math.max(4.0, size.height - 28))
-        .toDouble();
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: Stack(
-          children: [
-            Positioned(
-              left: position.dx * size.width - 5,
-              top: position.dy * size.height - 5,
-              child: Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: _neonRouteColor,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 1.5),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _neonRouteColor.withValues(alpha: 0.55),
-                      blurRadius: 7,
-                      spreadRadius: 1,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (showLabel)
-              Positioned(
-                left: left,
-                top: top,
-                width: width,
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  textAlign: alignRight ? TextAlign.right : TextAlign.left,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colors.text,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    shadows: [
-                      Shadow(color: colors.surface, blurRadius: 5),
-                      Shadow(color: colors.surface, blurRadius: 5),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _GeoRoutePainter extends CustomPainter {
-  final Offset start;
-  final Offset end;
-  final double progress;
-  final bool active;
-  final Color color;
-
-  const _GeoRoutePainter({
-    required this.start,
-    required this.end,
-    required this.progress,
-    required this.active,
-    required this.color,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final routeColor = color;
-    final startPoint = Offset(start.dx * size.width, start.dy * size.height);
-    final endPoint = Offset(end.dx * size.width, end.dy * size.height);
-    final control = Offset(
-      (startPoint.dx + endPoint.dx) / 2,
-      (startPoint.dy + endPoint.dy) / 2 - size.height * 0.2,
-    );
-    final route = Path()
-      ..moveTo(startPoint.dx, startPoint.dy)
-      ..quadraticBezierTo(control.dx, control.dy, endPoint.dx, endPoint.dy);
-    canvas.drawPath(
-      route,
-      Paint()
-        ..color = routeColor.withValues(alpha: active ? 0.42 : 0.28)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round,
-    );
-    for (final metric in route.computeMetrics()) {
-      final direction = metric.getTangentForOffset(metric.length * 0.72);
-      if (direction != null) {
-        final angle = math.atan2(direction.vector.dy, direction.vector.dx);
-        const arrowLength = 11.0;
-        const arrowSpread = 0.58;
-        final arrow = Path()
-          ..moveTo(direction.position.dx, direction.position.dy)
-          ..lineTo(
-            direction.position.dx - math.cos(angle - arrowSpread) * arrowLength,
-            direction.position.dy - math.sin(angle - arrowSpread) * arrowLength,
-          )
-          ..lineTo(
-            direction.position.dx - math.cos(angle + arrowSpread) * arrowLength,
-            direction.position.dy - math.sin(angle + arrowSpread) * arrowLength,
-          )
-          ..close();
-        canvas.drawPath(arrow, Paint()..color = routeColor);
-      }
-      if (active) {
-        final animated = metric.extractPath(0, metric.length * progress);
-        canvas.drawPath(
-          animated,
-          Paint()
-            ..color = routeColor
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 4
-            ..strokeCap = StrokeCap.round,
-        );
-        final tangent = metric.getTangentForOffset(metric.length * progress);
-        if (tangent != null) {
-          canvas.drawCircle(
-            tangent.position,
-            7,
-            Paint()..color = routeColor.withValues(alpha: 0.2),
-          );
-          canvas.drawCircle(tangent.position, 3.5, Paint()..color = routeColor);
-        }
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _GeoRoutePainter oldDelegate) {
-    return oldDelegate.start != start ||
-        oldDelegate.end != end ||
-        oldDelegate.progress != progress ||
-        oldDelegate.active != active ||
-        oldDelegate.color != color;
   }
 }
 
@@ -1993,21 +2215,105 @@ const _countryCoordinates = <String, ({double latitude, double longitude})>{
   'ZA': (latitude: -30.6, longitude: 22.9),
 };
 
-Offset? _geoPosition(IpInfo? ipInfo) {
+const _countryDisplayNames = <String, String>{
+  'AR': 'Argentina',
+  'AT': 'Austria',
+  'AZ': 'Azerbaijan',
+  'BE': 'Belgium',
+  'BG': 'Bulgaria',
+  'BO': 'Bolivia',
+  'US': 'United States',
+  'CA': 'Canada',
+  'BR': 'Brazil',
+  'CL': 'Chile',
+  'CO': 'Colombia',
+  'CR': 'Costa Rica',
+  'CU': 'Cuba',
+  'DO': 'Dominican Rep.',
+  'EC': 'Ecuador',
+  'GT': 'Guatemala',
+  'MX': 'Mexico',
+  'PA': 'Panama',
+  'PE': 'Peru',
+  'PR': 'Puerto Rico',
+  'PY': 'Paraguay',
+  'UY': 'Uruguay',
+  'VE': 'Venezuela',
+  'GB': 'United Kingdom',
+  'CH': 'Switzerland',
+  'CZ': 'Czechia',
+  'DK': 'Denmark',
+  'EE': 'Estonia',
+  'ES': 'Spain',
+  'FI': 'Finland',
+  'FR': 'France',
+  'DE': 'Germany',
+  'GR': 'Greece',
+  'HR': 'Croatia',
+  'HU': 'Hungary',
+  'IE': 'Ireland',
+  'IS': 'Iceland',
+  'IT': 'Italy',
+  'LT': 'Lithuania',
+  'LU': 'Luxembourg',
+  'LV': 'Latvia',
+  'NL': 'Netherlands',
+  'NO': 'Norway',
+  'PL': 'Poland',
+  'PT': 'Portugal',
+  'RO': 'Romania',
+  'RS': 'Serbia',
+  'RU': 'Russia',
+  'SE': 'Sweden',
+  'SI': 'Slovenia',
+  'SK': 'Slovakia',
+  'TR': 'Türkiye',
+  'UA': 'Ukraine',
+  'AE': 'UAE',
+  'AM': 'Armenia',
+  'BD': 'Bangladesh',
+  'GE': 'Georgia',
+  'IL': 'Israel',
+  'IN': 'India',
+  'IR': 'Iran',
+  'KZ': 'Kazakhstan',
+  'KH': 'Cambodia',
+  'LK': 'Sri Lanka',
+  'MN': 'Mongolia',
+  'NP': 'Nepal',
+  'PK': 'Pakistan',
+  'QA': 'Qatar',
+  'SA': 'Saudi Arabia',
+  'CN': 'China',
+  'HK': 'Hong Kong',
+  'TW': 'Taiwan',
+  'JP': 'Japan',
+  'KR': 'South Korea',
+  'SG': 'Singapore',
+  'MY': 'Malaysia',
+  'TH': 'Thailand',
+  'VN': 'Vietnam',
+  'PH': 'Philippines',
+  'ID': 'Indonesia',
+  'AU': 'Australia',
+  'NZ': 'New Zealand',
+  'DZ': 'Algeria',
+  'EG': 'Egypt',
+  'ET': 'Ethiopia',
+  'GH': 'Ghana',
+  'KE': 'Kenya',
+  'MA': 'Morocco',
+  'NG': 'Nigeria',
+  'TN': 'Tunisia',
+  'ZA': 'South Africa',
+};
+
+LatLng? _geoLatLng(IpInfo? ipInfo) {
   final latitude = ipInfo?.latitude;
   final longitude = ipInfo?.longitude;
-  if (latitude == null || longitude == null) return null;
-  return _projectGeo(latitude, longitude);
-}
-
-Offset? _countryPosition(String? countryCode) {
-  final coordinates = _countryCoordinates[countryCode];
-  if (coordinates == null) return null;
-  return _projectGeo(coordinates.latitude, coordinates.longitude);
-}
-
-Offset? _projectGeo(double latitude, double longitude) {
-  if (!latitude.isFinite ||
+  if (latitude == null ||
+      longitude == null ||
+      !latitude.isFinite ||
       !longitude.isFinite ||
       latitude < -90 ||
       latitude > 90 ||
@@ -2015,24 +2321,39 @@ Offset? _projectGeo(double latitude, double longitude) {
       longitude > 180) {
     return null;
   }
-  const a1 = 1.340264;
-  const a2 = -0.081106;
-  const a3 = 0.000893;
-  const a4 = 0.003796;
-  const xExtent = 2.706629;
-  const yExtent = 1.317362759;
-  final phi = latitude * math.pi / 180;
-  final lambda = longitude * math.pi / 180;
-  final theta = math.asin(math.sqrt(3) * math.sin(phi) / 2);
-  final theta2 = theta * theta;
-  final theta6 = theta2 * theta2 * theta2;
-  final denominator =
-      3 * (9 * a4 * theta6 * theta2 + 7 * a3 * theta6 + 3 * a2 * theta2 + a1);
-  final x = 2 * math.sqrt(3) * lambda * math.cos(theta) / denominator;
-  final y = theta * (a4 * theta6 * theta2 + a3 * theta6 + a2 * theta2 + a1);
-  return Offset(
-    ((x / xExtent + 1) / 2).clamp(0.0, 1.0),
-    ((1 - y / yExtent) / 2).clamp(0.0, 1.0),
+  return LatLng(latitude, longitude);
+}
+
+bool _sameLatLng(LatLng? left, LatLng? right) {
+  if (left == null || right == null) return left == right;
+  return (left.latitude - right.latitude).abs() < 0.000001 &&
+      (left.longitude - right.longitude).abs() < 0.000001;
+}
+
+LatLng? _countryLatLng(String? countryCode) {
+  final coordinates = _countryCoordinates[countryCode];
+  if (coordinates == null) return null;
+  return LatLng(coordinates.latitude, coordinates.longitude);
+}
+
+double _wrapLongitude(double longitude) {
+  var value = longitude;
+  while (value > 180) {
+    value -= 360;
+  }
+  while (value < -180) {
+    value += 360;
+  }
+  return value;
+}
+
+LatLng _interpolateGeo(LatLng start, LatLng end, double progress) {
+  var longitudeDelta = end.longitude - start.longitude;
+  if (longitudeDelta > 180) longitudeDelta -= 360;
+  if (longitudeDelta < -180) longitudeDelta += 360;
+  return LatLng(
+    start.latitude + (end.latitude - start.latitude) * progress,
+    _wrapLongitude(start.longitude + longitudeDelta * progress),
   );
 }
 
@@ -2109,42 +2430,5 @@ class _GlassPanel extends StatelessWidget {
       ),
       child: child,
     );
-  }
-}
-
-class _WorldMapPainter extends CustomPainter {
-  final Color lineColor;
-
-  const _WorldMapPainter({required this.lineColor});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final mapRect = Rect.fromLTWH(
-      size.width * 0.08,
-      size.height * 0.08,
-      size.width * 0.84,
-      size.height * 0.78,
-    );
-    final linePaint = Paint()
-      ..color = lineColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2;
-    for (var index = 0; index < 5; index++) {
-      final inset = index * size.width * 0.06;
-      canvas.drawOval(
-        Rect.fromLTRB(
-          mapRect.left + inset,
-          mapRect.top + index * 7,
-          mapRect.right - inset,
-          mapRect.bottom - index * 7,
-        ),
-        linePaint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _WorldMapPainter oldDelegate) {
-    return oldDelegate.lineColor != lineColor;
   }
 }

@@ -392,7 +392,7 @@ String realTestUrl(Ref ref, [String? testUrl]) {
 }
 
 @riverpod
-int? delay(Ref ref, {required String proxyName, String? testUrl}) {
+int? standardDelay(Ref ref, {required String proxyName, String? testUrl}) {
   final currentTestUrl = ref.watch(realTestUrlProvider(testUrl));
   final proxyState = ref.watch(realSelectedProxyStateProvider(proxyName));
   final effectiveTestUrl = proxyState.testUrl.takeFirstValid([currentTestUrl]);
@@ -402,6 +402,27 @@ int? delay(Ref ref, {required String proxyName, String? testUrl}) {
       (state) => state[effectiveTestUrl]?[effectiveProxyName],
     ),
   );
+}
+
+@riverpod
+int? connectionDelay(Ref ref, {required String proxyName, String? testUrl}) {
+  final currentTestUrl = ref.watch(realTestUrlProvider(testUrl));
+  final proxyState = ref.watch(realSelectedProxyStateProvider(proxyName));
+  final effectiveTestUrl = proxyState.testUrl.takeFirstValid([currentTestUrl]);
+  final effectiveProxyName = proxyState.proxyName;
+  return ref.watch(
+    connectionDelayDataSourceProvider.select(
+      (state) => state[effectiveTestUrl]?[effectiveProxyName],
+    ),
+  );
+}
+
+@riverpod
+int? delay(Ref ref, {required String proxyName, String? testUrl}) {
+  return ref.watch(
+        connectionDelayProvider(proxyName: proxyName, testUrl: testUrl),
+      ) ??
+      ref.watch(standardDelayProvider(proxyName: proxyName, testUrl: testUrl));
 }
 
 @riverpod

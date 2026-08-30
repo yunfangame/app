@@ -74,7 +74,7 @@ ArgParser createSetupArgParser() {
   return ArgParser()
     ..addOption(
       'env',
-      defaultsTo: 'pre',
+      defaultsTo: 'stable',
       allowed: ['dev', 'pre', 'stable'],
       help: 'Application environment',
     )
@@ -124,18 +124,28 @@ Future<Map<String, String>> loadBuildEnvironment(
     p.join(rootDir, 'tooling', 'remote_config', 'keys.json'),
   );
   if (!await keysFile.exists()) {
-    return environment;
+    throw const FormatException('Missing remote config build keys');
   }
   final decoded = jsonDecode(await keysFile.readAsString());
   if (decoded is! Map ||
       decoded['aesKey'] is! String ||
-      decoded['signingPublicKey'] is! String) {
+      decoded['signingPublicKey'] is! String ||
+      (decoded['aesKey'] as String).trim().isEmpty ||
+      (decoded['signingPublicKey'] as String).trim().isEmpty) {
     throw const FormatException('Invalid remote config build keys');
   }
   environment['REMOTE_CONFIG_AES_KEY'] = decoded['aesKey'] as String;
   environment['REMOTE_CONFIG_SIGNING_PUBLIC_KEY'] =
       decoded['signingPublicKey'] as String;
   return environment;
+}
+
+Future<File> writeBuildEnvironmentFile(String rootDir, String env) async {
+  final file = File(p.join(rootDir, 'env.json'));
+  await file.writeAsString(
+    jsonEncode(await loadBuildEnvironment(rootDir, env)),
+  );
+  return file;
 }
 
 String _getTargets(String platform, String arch, String? customTargets) {
@@ -163,10 +173,7 @@ Future<int> _package(
   String? androidArch,
   required bool verbose,
 }) async {
-  final file = File(p.join(rootDir, 'env.json'));
-  await file.writeAsString(
-    jsonEncode(await loadBuildEnvironment(rootDir, env)),
-  );
+  await writeBuildEnvironmentFile(rootDir, env);
 
   final flutterBuildArgs = createFlutterBuildArgs(
     platform: platform,

@@ -14,6 +14,8 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundleDisplayName</key>
+	<string>蜂窝加速器</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -44,6 +46,6 @@
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>FlClash needs location access to detect WiFi network name for connectivity features.</string>
+	<string>蜂窝加速器需要获取位置信息，以识别 Wi-Fi 名称并提供网络连接功能。</string>
 </dict>
 </plist>

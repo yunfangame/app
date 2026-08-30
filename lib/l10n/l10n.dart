@@ -1809,6 +1809,26 @@ class AppLocalizations {
     return Intl.message('Delay', name: 'delay', desc: '', args: []);
   }
 
+  /// `Actual latency`
+  String get actualConnectionDelay {
+    return Intl.message(
+      'Actual latency',
+      name: 'actualConnectionDelay',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Standard RTT`
+  String get standardizedDelay {
+    return Intl.message(
+      'Standard RTT',
+      name: 'standardizedDelay',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Style`
   String get style {
     return Intl.message('Style', name: 'style', desc: '', args: []);
@@ -5294,6 +5314,11 @@ class AppLocalizations {
     return Intl.message('My orders', name: 'myOrders', desc: '', args: []);
   }
 
+  /// `My`
+  String get mine {
+    return Intl.message('My', name: 'mine', desc: '', args: []);
+  }
+
   /// `Review plan and traffic-reset orders, payments, and activation status`
   String get orderCenterSubtitle {
     return Intl.message(
@@ -5787,6 +5812,61 @@ class AppLocalizations {
   /// `Offline`
   String get offline {
     return Intl.message('Offline', name: 'offline', desc: '', args: []);
+  }
+
+  /// `Backend online`
+  String get nodeBackendOnline {
+    return Intl.message(
+      'Backend online',
+      name: 'nodeBackendOnline',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Backend offline`
+  String get nodeBackendOffline {
+    return Intl.message(
+      'Backend offline',
+      name: 'nodeBackendOffline',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Available`
+  String get nodeAvailable {
+    return Intl.message('Available', name: 'nodeAvailable', desc: '', args: []);
+  }
+
+  /// `Network unstable`
+  String get nodeNetworkFluctuating {
+    return Intl.message(
+      'Network unstable',
+      name: 'nodeNetworkFluctuating',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unreachable here`
+  String get nodeLocallyUnreachable {
+    return Intl.message(
+      'Unreachable here',
+      name: 'nodeLocallyUnreachable',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Status unknown`
+  String get nodeStatusUnknown {
+    return Intl.message(
+      'Status unknown',
+      name: 'nodeStatusUnknown',
+      desc: '',
+      args: [],
+    );
   }
 
   /// `Offline mode`
@@ -8034,6 +8114,756 @@ class AppLocalizations {
     return Intl.message(
       'Failed to apply campus network mode. Check your connection and try again',
       name: 'campusNetworkApplyFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Everyday network tools for a faster, easier online experience`
+  String get practicalToolsSubtitle {
+    return Intl.message(
+      'Everyday network tools for a faster, easier online experience',
+      name: 'practicalToolsSubtitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Toolbox`
+  String get toolbox {
+    return Intl.message('Toolbox', name: 'toolbox', desc: '', args: []);
+  }
+
+  /// `Speed test`
+  String get speedTest {
+    return Intl.message('Speed test', name: 'speedTest', desc: '', args: []);
+  }
+
+  /// `Test your current connection with a third-party speed service`
+  String get speedTestDescription {
+    return Intl.message(
+      'Test your current connection with a third-party speed service',
+      name: 'speedTestDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Choose service`
+  String get chooseSpeedTest {
+    return Intl.message(
+      'Choose service',
+      name: 'chooseSpeedTest',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `CF preferred IP`
+  String get cloudflarePreferredIp {
+    return Intl.message(
+      'CF preferred IP',
+      name: 'cloudflarePreferredIp',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Find faster Cloudflare edge addresses for this network`
+  String get cloudflarePreferredIpDescription {
+    return Intl.message(
+      'Find faster Cloudflare edge addresses for this network',
+      name: 'cloudflarePreferredIpDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Start scan`
+  String get startOptimization {
+    return Intl.message(
+      'Start scan',
+      name: 'startOptimization',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `IP lookup`
+  String get ipLookup {
+    return Intl.message('IP lookup', name: 'ipLookup', desc: '', args: []);
+  }
+
+  /// `View location, carrier, and other public IP details`
+  String get ipLookupDescription {
+    return Intl.message(
+      'View location, carrier, and other public IP details',
+      name: 'ipLookupDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Check now`
+  String get queryNow {
+    return Intl.message('Check now', name: 'queryNow', desc: '', args: []);
+  }
+
+  /// `Streaming access test`
+  String get streamingUnlockTest {
+    return Intl.message(
+      'Streaming access test',
+      name: 'streamingUnlockTest',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Check streaming and AI service availability on this node`
+  String get streamingUnlockTestDescription {
+    return Intl.message(
+      'Check streaming and AI service availability on this node',
+      name: 'streamingUnlockTestDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Start test`
+  String get startTest {
+    return Intl.message('Start test', name: 'startTest', desc: '', args: []);
+  }
+
+  /// `Chain proxy`
+  String get chainProxy {
+    return Intl.message('Chain proxy', name: 'chainProxy', desc: '', args: []);
+  }
+
+  /// `Manage an additional SOCKS5 or HTTP egress proxy`
+  String get chainProxyDescription {
+    return Intl.message(
+      'Manage an additional SOCKS5 or HTTP egress proxy',
+      name: 'chainProxyDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Manage chain`
+  String get manageChainProxy {
+    return Intl.message(
+      'Manage chain',
+      name: 'manageChainProxy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Popular apps`
+  String get popularApps {
+    return Intl.message(
+      'Popular apps',
+      name: 'popularApps',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Browse useful clients and companion apps`
+  String get popularAppsDescription {
+    return Intl.message(
+      'Browse useful clients and companion apps',
+      name: 'popularAppsDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `View apps`
+  String get viewApps {
+    return Intl.message('View apps', name: 'viewApps', desc: '', args: []);
+  }
+
+  /// `Loading Cloudflare candidate IPs`
+  String get optimizationPreparing {
+    return Intl.message(
+      'Loading Cloudflare candidate IPs',
+      name: 'optimizationPreparing',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Testing connection latency`
+  String get optimizationLatency {
+    return Intl.message(
+      'Testing connection latency',
+      name: 'optimizationLatency',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Testing download speed`
+  String get optimizationDownload {
+    return Intl.message(
+      'Testing download speed',
+      name: 'optimizationDownload',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Optimization complete`
+  String get optimizationComplete {
+    return Intl.message(
+      'Optimization complete',
+      name: 'optimizationComplete',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No available Cloudflare IP was found. Check your connection and try again`
+  String get optimizationFailed {
+    return Intl.message(
+      'No available Cloudflare IP was found. Check your connection and try again',
+      name: 'optimizationFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Candidates`
+  String get candidateCount {
+    return Intl.message(
+      'Candidates',
+      name: 'candidateCount',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Available`
+  String get availableCount {
+    return Intl.message(
+      'Available',
+      name: 'availableCount',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Kept`
+  String get keptCount {
+    return Intl.message('Kept', name: 'keptCount', desc: '', args: []);
+  }
+
+  /// `Fastest download`
+  String get fastestDownload {
+    return Intl.message(
+      'Fastest download',
+      name: 'fastestDownload',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Lowest latency`
+  String get lowestLatency {
+    return Intl.message(
+      'Lowest latency',
+      name: 'lowestLatency',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Highest latency`
+  String get highestLatency {
+    return Intl.message(
+      'Highest latency',
+      name: 'highestLatency',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `IP address`
+  String get ipAddress {
+    return Intl.message('IP address', name: 'ipAddress', desc: '', args: []);
+  }
+
+  /// `Region`
+  String get region {
+    return Intl.message('Region', name: 'region', desc: '', args: []);
+  }
+
+  /// `Scan again`
+  String get rerunOptimization {
+    return Intl.message(
+      'Scan again',
+      name: 'rerunOptimization',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Apply all`
+  String get applyPreferredIps {
+    return Intl.message(
+      'Apply all',
+      name: 'applyPreferredIps',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No target domain configured`
+  String get cfTargetMissingTitle {
+    return Intl.message(
+      'No target domain configured',
+      name: 'cfTargetMissingTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Add the node domains that CF optimization may replace to the remote configuration first.`
+  String get cfTargetMissingMessage {
+    return Intl.message(
+      'Add the node domains that CF optimization may replace to the remote configuration first.',
+      name: 'cfTargetMissingMessage',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Validating target domains against preferred IPs`
+  String get validatingTargets {
+    return Intl.message(
+      'Validating target domains against preferred IPs',
+      name: 'validatingTargets',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Preferred CF IPs applied and the core configuration reloaded`
+  String get cfApplySuccess {
+    return Intl.message(
+      'Preferred CF IPs applied and the core configuration reloaded',
+      name: 'cfApplySuccess',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Failed to apply preferred CF IPs. The previous configuration was restored`
+  String get cfApplyFailed {
+    return Intl.message(
+      'Failed to apply preferred CF IPs. The previous configuration was restored',
+      name: 'cfApplyFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Preferred IPs failed TLS validation for the target domains. Nothing was changed`
+  String get cfTargetValidationFailed {
+    return Intl.message(
+      'Preferred IPs failed TLS validation for the target domains. Nothing was changed',
+      name: 'cfTargetValidationFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Public IP`
+  String get publicIp {
+    return Intl.message('Public IP', name: 'publicIp', desc: '', args: []);
+  }
+
+  /// `Country/region`
+  String get countryRegion {
+    return Intl.message(
+      'Country/region',
+      name: 'countryRegion',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `State/city`
+  String get provinceCity {
+    return Intl.message('State/city', name: 'provinceCity', desc: '', args: []);
+  }
+
+  /// `Carrier`
+  String get carrier {
+    return Intl.message('Carrier', name: 'carrier', desc: '', args: []);
+  }
+
+  /// `Organization`
+  String get organization {
+    return Intl.message(
+      'Organization',
+      name: 'organization',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `ASN`
+  String get asnLabel {
+    return Intl.message('ASN', name: 'asnLabel', desc: '', args: []);
+  }
+
+  /// `Time zone`
+  String get timezoneLabel {
+    return Intl.message('Time zone', name: 'timezoneLabel', desc: '', args: []);
+  }
+
+  /// `Data source`
+  String get dataSource {
+    return Intl.message('Data source', name: 'dataSource', desc: '', args: []);
+  }
+
+  /// `IP lookup failed. Check your connection and try again`
+  String get ipLookupFailed {
+    return Intl.message(
+      'IP lookup failed. Check your connection and try again',
+      name: 'ipLookupFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Platforms`
+  String get platformCount {
+    return Intl.message('Platforms', name: 'platformCount', desc: '', args: []);
+  }
+
+  /// `Completed`
+  String get completedCount {
+    return Intl.message(
+      'Completed',
+      name: 'completedCount',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Pending`
+  String get pendingTest {
+    return Intl.message('Pending', name: 'pendingTest', desc: '', args: []);
+  }
+
+  /// `Test all`
+  String get testAll {
+    return Intl.message('Test all', name: 'testAll', desc: '', args: []);
+  }
+
+  /// `Chain proxy is not enabled`
+  String get chainProxyDisabled {
+    return Intl.message(
+      'Chain proxy is not enabled',
+      name: 'chainProxyDisabled',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `When enabled, proxied traffic goes through the selected subscription node and then exits through this chain proxy. Only one can run at a time.`
+  String get chainProxySessionNotice {
+    return Intl.message(
+      'When enabled, proxied traffic goes through the selected subscription node and then exits through this chain proxy. Only one can run at a time.',
+      name: 'chainProxySessionNotice',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Add proxy`
+  String get addProxy {
+    return Intl.message('Add proxy', name: 'addProxy', desc: '', args: []);
+  }
+
+  /// `Protocol`
+  String get protocolLabel {
+    return Intl.message('Protocol', name: 'protocolLabel', desc: '', args: []);
+  }
+
+  /// `Server`
+  String get proxyServer {
+    return Intl.message('Server', name: 'proxyServer', desc: '', args: []);
+  }
+
+  /// `Username`
+  String get username {
+    return Intl.message('Username', name: 'username', desc: '', args: []);
+  }
+
+  /// `Enable`
+  String get enableProxy {
+    return Intl.message('Enable', name: 'enableProxy', desc: '', args: []);
+  }
+
+  /// `Stop`
+  String get disableProxy {
+    return Intl.message('Stop', name: 'disableProxy', desc: '', args: []);
+  }
+
+  /// `Chain proxy is running`
+  String get chainProxyActive {
+    return Intl.message(
+      'Chain proxy is running',
+      name: 'chainProxyActive',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Other entries are locked while a chain proxy is running`
+  String get chainProxyLocked {
+    return Intl.message(
+      'Other entries are locked while a chain proxy is running',
+      name: 'chainProxyLocked',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Validating proxy connection…`
+  String get validatingProxy {
+    return Intl.message(
+      'Validating proxy connection…',
+      name: 'validatingProxy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Cannot connect through this proxy. Check the server, port, username, and password`
+  String get proxyValidationFailed {
+    return Intl.message(
+      'Cannot connect through this proxy. Check the server, port, username, and password',
+      name: 'proxyValidationFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Incorrect protocol. Detected protocol:`
+  String get proxyProtocolMismatch {
+    return Intl.message(
+      'Incorrect protocol. Detected protocol:',
+      name: 'proxyProtocolMismatch',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This proxy name already exists`
+  String get proxyNameDuplicate {
+    return Intl.message(
+      'This proxy name already exists',
+      name: 'proxyNameDuplicate',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Chain proxy started`
+  String get chainProxyEnabled {
+    return Intl.message(
+      'Chain proxy started',
+      name: 'chainProxyEnabled',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Chain proxy stopped`
+  String get chainProxyStopped {
+    return Intl.message(
+      'Chain proxy stopped',
+      name: 'chainProxyStopped',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Failed to apply the core configuration. The previous configuration was restored`
+  String get chainProxyApplyFailed {
+    return Intl.message(
+      'Failed to apply the core configuration. The previous configuration was restored',
+      name: 'chainProxyApplyFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Switch the outbound mode to Rule or Global first`
+  String get chainProxyDirectModeUnsupported {
+    return Intl.message(
+      'Switch the outbound mode to Rule or Global first',
+      name: 'chainProxyDirectModeUnsupported',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No chain proxies`
+  String get noChainProxy {
+    return Intl.message(
+      'No chain proxies',
+      name: 'noChainProxy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Add a SOCKS5 or HTTP proxy to get started.`
+  String get noChainProxyDescription {
+    return Intl.message(
+      'Add a SOCKS5 or HTTP proxy to get started.',
+      name: 'noChainProxyDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Enter a valid port`
+  String get invalidPort {
+    return Intl.message(
+      'Enter a valid port',
+      name: 'invalidPort',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This field is required`
+  String get requiredField {
+    return Intl.message(
+      'This field is required',
+      name: 'requiredField',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Testing`
+  String get testingStatus {
+    return Intl.message('Testing', name: 'testingStatus', desc: '', args: []);
+  }
+
+  /// `Web page reachable`
+  String get streamingUnlocked {
+    return Intl.message(
+      'Web page reachable',
+      name: 'streamingUnlocked',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Web page reachable, deep status unconfirmed`
+  String get streamingReachable {
+    return Intl.message(
+      'Web page reachable, deep status unconfirmed',
+      name: 'streamingReachable',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Region restricted`
+  String get streamingRestricted {
+    return Intl.message(
+      'Region restricted',
+      name: 'streamingRestricted',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Connection failed`
+  String get streamingFailed {
+    return Intl.message(
+      'Connection failed',
+      name: 'streamingFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Test timed out. Try again`
+  String get streamingTimedOut {
+    return Intl.message(
+      'Test timed out. Try again',
+      name: 'streamingTimedOut',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Network connection failed`
+  String get streamingNetworkError {
+    return Intl.message(
+      'Network connection failed',
+      name: 'streamingNetworkError',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Service is temporarily unavailable`
+  String get streamingServiceError {
+    return Intl.message(
+      'Service is temporarily unavailable',
+      name: 'streamingServiceError',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Web page reachable, deep check timed out`
+  String get streamingReachableProbeTimedOut {
+    return Intl.message(
+      'Web page reachable, deep check timed out',
+      name: 'streamingReachableProbeTimedOut',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Web page reachable, deep status unconfirmed`
+  String get streamingReachableProbeFailed {
+    return Intl.message(
+      'Web page reachable, deep status unconfirmed',
+      name: 'streamingReachableProbeFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Exit region`
+  String get streamingExitRegion {
+    return Intl.message(
+      'Exit region',
+      name: 'streamingExitRegion',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Start acceleration and select a proxy node before testing`
+  String get streamingProxyRequired {
+    return Intl.message(
+      'Start acceleration and select a proxy node before testing',
+      name: 'streamingProxyRequired',
       desc: '',
       args: [],
     );

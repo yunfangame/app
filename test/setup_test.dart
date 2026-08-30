@@ -11,6 +11,7 @@ void main() {
       final results = setup.createSetupArgParser().parse(['android', '-v']);
 
       expect(results['verbose'], isTrue);
+      expect(results['env'], 'stable');
       expect(results.rest, ['android']);
     });
 
@@ -52,6 +53,38 @@ void main() {
         });
       },
     );
+
+    test('rejects a build without remote config keys', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'flclash-missing-remote-config-test-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+
+      expect(
+        () => setup.loadBuildEnvironment(root.path, 'pre'),
+        throwsFormatException,
+      );
+    });
+
+    test('writes the complete Debug build environment', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'flclash-debug-environment-test-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final keys = File('${root.path}/tooling/remote_config/keys.json');
+      await keys.parent.create(recursive: true);
+      await keys.writeAsString(
+        jsonEncode({'aesKey': 'aes-key', 'signingPublicKey': 'public-key'}),
+      );
+
+      final file = await setup.writeBuildEnvironmentFile(root.path, 'pre');
+
+      expect(jsonDecode(await file.readAsString()), {
+        'APP_ENV': 'pre',
+        'REMOTE_CONFIG_AES_KEY': 'aes-key',
+        'REMOTE_CONFIG_SIGNING_PUBLIC_KEY': 'public-key',
+      });
+    });
 
     test('omits verbose from flutter build args by default', () {
       final args = setup.createFlutterBuildArgs(

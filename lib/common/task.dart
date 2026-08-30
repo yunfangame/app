@@ -264,10 +264,24 @@ Future<VM2<String, String>> _makeRealProfileTask(
     rules = data.rules.map((item) => item.rawValue).toList();
   }
   if (data.proxyGroups.isNotEmpty) {
-    rawConfig['proxy-groups'] = data.proxyGroups;
+    rawConfig['proxy-groups'] = data.proxyGroups
+        .map(
+          (group) => group.url == null
+              ? group
+              : group.copyWith(url: reliableDelayProbeUrl(group.url)),
+        )
+        .toList();
   }
   rawConfig['rules'] = rules;
-  final yaml = await _encodeYaml(Map<String, dynamic>.from(rawConfig));
+  final finalConfig = applyChainProxyConfig(
+    Map<String, dynamic>.from(rawConfig),
+    data.chainProxy,
+    realPatchConfig.mode,
+    globalTarget: data.chainProxyGlobalTarget,
+    bypassDomains: data.chainProxyBypassDomains,
+  );
+  final normalizedConfig = normalizeRuntimeDelayProbeUrls(finalConfig);
+  final yaml = await _encodeYaml(normalizedConfig);
   return VM2(yaml, yaml.toMd5());
 }
 

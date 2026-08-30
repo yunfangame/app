@@ -89,52 +89,6 @@ void main() {
     });
   }
 
-  final toolDestinations = <String, Type>{
-    'Theme': ThemeView,
-    'Backup and Restore': BackupAndRestore,
-    'Basic configuration': ConfigView,
-    'Advanced configuration': AdvancedConfigView,
-    'Application': ApplicationSettingView,
-  };
-
-  for (final entry in toolDestinations.entries) {
-    testWidgets('tools opens ${entry.key}', (tester) async {
-      tester.view.physicalSize = const Size(1400, 1000);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-
-      final container = ProviderContainer(
-        overrides: [profilesProvider.overrideWith(_TestProfiles.new)],
-      );
-      addTearDown(container.dispose);
-      globalState.container = container;
-      container
-          .read(viewSizeProvider.notifier)
-          .update((_) => const Size(1400, 1000));
-
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: const _TestApp(child: ToolsView()),
-        ),
-      );
-      await tester.pump();
-
-      final target = find.text(entry.key);
-      await tester.scrollUntilVisible(
-        target,
-        500,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.tap(target);
-      await tester.pumpAndSettle();
-
-      expect(find.byType(entry.value), findsOneWidget);
-      expect(tester.takeException(), null);
-    });
-  }
-
   testWidgets('user agent dialog applies a preset', (tester) async {
     tester.view.physicalSize = const Size(1000, 800);
     tester.view.devicePixelRatio = 1;

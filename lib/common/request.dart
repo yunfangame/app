@@ -13,10 +13,25 @@ import 'package:flutter/cupertino.dart';
 class Request {
   late final Dio dio;
   late final Dio _clashDio;
+  late final Dio _directDio;
   String? userAgent;
 
   Request() {
     dio = Dio(BaseOptions(headers: {'User-Agent': browserUa}));
+    _directDio = Dio(
+      BaseOptions(
+        headers: {'User-Agent': browserUa},
+        connectTimeout: const Duration(seconds: 4),
+        receiveTimeout: const Duration(seconds: 8),
+      ),
+    );
+    _directDio.httpClientAdapter = IOHttpClientAdapter(
+      createHttpClient: () {
+        final client = HttpClient();
+        client.findProxy = (_) => 'DIRECT';
+        return client;
+      },
+    );
     _clashDio = Dio();
     _clashDio.httpClientAdapter = IOHttpClientAdapter(
       createHttpClient: () {
@@ -32,10 +47,17 @@ class Request {
 
   Future<Response<Uint8List>> getFileResponseForUrl(String url) async {
     try {
-      return await _clashDio.get<Uint8List>(
-        url,
-        options: Options(responseType: ResponseType.bytes),
-      );
+      try {
+        return await _directDio.get<Uint8List>(
+          url,
+          options: Options(responseType: ResponseType.bytes),
+        );
+      } catch (_) {
+        return await _clashDio.get<Uint8List>(
+          url,
+          options: Options(responseType: ResponseType.bytes),
+        );
+      }
     } catch (e) {
       commonPrint.log('getFileResponseForUrl error ${e.toString()}');
       if (e is DioException) {
@@ -50,12 +72,37 @@ class Request {
     }
   }
 
-  Future<Response<String>> getTextResponseForUrl(String url) async {
+  Future<Response<String>> getTextResponseForUrl(
+    String url, {
+    bool includeHttpErrors = false,
+  }) async {
     final response = await _clashDio.get<String>(
       url,
-      options: Options(responseType: ResponseType.plain),
+      options: Options(
+        responseType: ResponseType.plain,
+        validateStatus: includeHttpErrors
+            ? (status) => status != null && status < 600
+            : null,
+      ),
     );
     return response;
+  }
+
+  Future<Response<ResponseBody>> getStreamResponseForUrl(
+    String url, {
+    bool includeHttpErrors = false,
+    CancelToken? cancelToken,
+  }) async {
+    return _clashDio.get<ResponseBody>(
+      url,
+      cancelToken: cancelToken,
+      options: Options(
+        responseType: ResponseType.stream,
+        validateStatus: includeHttpErrors
+            ? (status) => status != null && status < 600
+            : null,
+      ),
+    );
   }
 
   Future<MemoryImage?> getImage(String url) async {

@@ -21,6 +21,7 @@ void main() {
 
     final updatedResources = <GeoResource>[];
     var campusCoreRestarts = 0;
+    var campusConfigLoads = 0;
     final container = ProviderContainer();
     addTearDown(container.dispose);
     globalState.container = container;
@@ -34,11 +35,17 @@ void main() {
             geoResourceUpdater: (resource) async {
               updatedResources.add(resource);
             },
-            campusNetworkConfigLoader: () async => const CampusNetworkConfig({
-              'telecom': {'base.fengwo1688.cc': '114.80.8.196'},
-              'unicom': {'base.fengwo1688.cc': '112.65.199.196'},
-              'mobile': {'base.fengwo1688.cc': '120.233.118.84'},
-            }),
+            campusNetworkConfigLoader: () async {
+              campusConfigLoads++;
+              if (campusConfigLoads > 1) {
+                throw StateError('campus API is unavailable');
+              }
+              return const CampusNetworkConfig({
+                'telecom': {'base.fengwo1688.cc': '114.80.8.196'},
+                'unicom': {'base.fengwo1688.cc': '112.65.199.196'},
+                'mobile': {'base.fengwo1688.cc': '120.233.118.84'},
+              });
+            },
             campusNetworkCoreRestarter: () async {
               campusCoreRestarts++;
             },
@@ -107,6 +114,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(container.read(appSettingProvider).campusNetworkEnabled, isTrue);
     expect(campusCoreRestarts, 1);
+    expect(campusConfigLoads, 1);
+
+    await tester.tap(campusSwitch);
+    await tester.pumpAndSettle();
+    expect(container.read(appSettingProvider).campusNetworkEnabled, isFalse);
+    expect(campusCoreRestarts, 2);
+
+    await tester.tap(campusSwitch);
+    await tester.pumpAndSettle();
+    expect(container.read(appSettingProvider).campusNetworkEnabled, isTrue);
+    expect(campusCoreRestarts, 3);
+    expect(campusConfigLoads, 1);
 
     expect(tester.takeException(), isNull);
   });
