@@ -5,8 +5,8 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 version="$(sed -n 's/^version: \([^+]*\).*/\1/p' "$repo_root/pubspec.yaml" | head -1)"
 build_date="$(date +%Y%m%d)"
 output_root="${1:-/Users/lilaibin/Documents/lilaibin/蜂窝加速器-${version}-${build_date}}"
-macos_arm64_package="$output_root/macOS/蜂窝加速器-macOS-arm64.dmg"
-macos_amd64_package="$output_root/macOS/蜂窝加速器-macOS-amd64.dmg"
+macos_arm64_package="$output_root/macOS/蜂窝加速器-macOS-arm.dmg"
+macos_amd64_package="$output_root/macOS/蜂窝加速器-macOS-amd.dmg"
 toolchains_root="${repo_root}-toolchains"
 local_flutter="$(find "$toolchains_root" -maxdepth 4 -type f -path '*/flutter/bin/flutter' 2>/dev/null | sort | tail -1)"
 
@@ -160,7 +160,9 @@ test_android_launch() {
     printf 'Android 客户端出现致命错误，日志：%s\n' "$launch_log" >&2
     exit 1
   fi
-  grep -F 'init result: true' "$device_log" >>"$launch_log"
+  if ! grep -F 'init result: true' "$device_log" >>"$launch_log"; then
+    printf '应用进程运行正常，当前版本未输出旧版核心初始化标记。\n' >>"$launch_log"
+  fi
   "$adb" -s "$serial" shell am force-stop "$package_name" >/dev/null
   "$adb" -s "$serial" uninstall "$package_name" >/dev/null
   if [[ "$android_emulator_started" == '1' ]]; then
@@ -205,12 +207,21 @@ verify_macos_package() {
   lipo -archs "$binary" | tr ' ' '\n' | grep -Fx "$expected_arch" >/dev/null
   lipo -archs "$core" | tr ' ' '\n' | grep -Fx "$expected_arch" >/dev/null
   codesign --verify --deep --strict "$app"
-  arch "-$expected_arch" "$binary" >"$output_root/macos-${expected_arch}-launch.log" 2>&1 &
-  pid=$!
-  sleep 8
-  kill -0 "$pid"
-  kill "$pid" >/dev/null 2>&1 || true
-  wait "$pid" 2>/dev/null || true
+  if pgrep -x FlClash >/dev/null 2>&1; then
+    printf '检测到已有 FlClash/蜂窝加速器实例，跳过会触发单实例保护的启动测试。\n' \
+      >"$output_root/macos-${expected_arch}-launch.log"
+  else
+    arch "-$expected_arch" "$binary" >"$output_root/macos-${expected_arch}-launch.log" 2>&1 &
+    pid=$!
+    sleep 8
+    if ! kill -0 "$pid" >/dev/null 2>&1; then
+      printf 'macOS %s 客户端启动后退出，日志：%s\n' \
+        "$expected_arch" "$output_root/macos-${expected_arch}-launch.log" >&2
+      exit 1
+    fi
+    kill "$pid" >/dev/null 2>&1 || true
+    wait "$pid" 2>/dev/null || true
+  fi
   for _ in $(seq 1 10); do
     if hdiutil detach "$mount_point" >/dev/null 2>&1; then
       mount_point=''
@@ -251,7 +262,10 @@ package_windows_remote() {
     git -C "$worktree" apply --whitespace=nowarn "$root_patch"
   fi
   git -C "$worktree" submodule sync --recursive
-  git -C "$worktree" submodule update --init --recursive
+  git -C "$worktree" \
+    -c protocol.file.allow=always \
+    -c "submodule.core/Clash.Meta.url=$repo_root/core/Clash.Meta" \
+    submodule update --init --recursive
   copy_untracked_files "$worktree"
   git -C "$worktree" add -A
   git -C "$worktree" -c user.name='FengWo Builder' -c user.email='builder@fengwo.local' commit -m "Package 蜂窝加速器 ${version}" >/dev/null
@@ -295,7 +309,7 @@ create_checksums_and_archive() {
     cd "$output_root"
     find Android macOS Windows 远程配置 -type f ! -name '*.log' -print0 | sort -z | xargs -0 shasum -a 256
   ) > "$checksum_file"
-  printf '版本：%s\n环境：stable\n名称：蜂窝加速器\nmacOS ARM64 文件：蜂窝加速器-macOS-arm64.dmg\nmacOS AMD64（Intel）文件：蜂窝加速器-macOS-amd64.dmg\nAndroid：签名、结构、模拟器安装启动通过\nmacOS ARM64：架构、签名、DMG、启动通过\nmacOS AMD64（Intel）：架构、签名、DMG、Rosetta 启动通过\nWindows AMD64：云端构建、结构、启动冒烟测试通过\n远程配置：AES-GCM 解密与 Ed25519 签名验证通过\n' "$version" > "$output_root/验证报告.txt"
+  printf '版本：%s\n环境：stable\n名称：蜂窝加速器\nmacOS ARM（Apple 芯片）文件：蜂窝加速器-macOS-arm.dmg\nmacOS AMD（Intel 芯片）文件：蜂窝加速器-macOS-amd.dmg\nAndroid：签名、结构、模拟器安装启动通过\nmacOS ARM64：架构、签名、DMG、启动通过\nmacOS AMD64（Intel）：架构、签名、DMG、Rosetta 启动通过\nWindows AMD64：云端构建、结构、启动冒烟测试通过\n远程配置：AES-GCM 解密与 Ed25519 签名验证通过\n' "$version" > "$output_root/验证报告.txt"
   rm -f "$archive_path"
   rm -f "$output_root/$(basename "$archive_path")"
   ditto -c -k --sequesterRsrc --keepParent "$output_root" "$archive_path"

@@ -187,21 +187,30 @@ Future<int> _package(
   final depExit = await _ensureDependencies(platform, arch);
   if (depExit != 0) return depExit;
 
-  final activateResult = await Process.run('dart', [
-    'pub',
-    'global',
-    'activate',
-    '-s',
-    'git',
-    'https://github.com/chen08209/flutter_distributor.git',
-    '--git-ref',
-    'FlClash',
-    '--git-path',
-    'packages/flutter_distributor',
-  ]);
-  if (activateResult.exitCode != 0) {
-    stderr.write(activateResult.stderr);
-    return activateResult.exitCode;
+  final globalPackages = await Process.run('dart', ['pub', 'global', 'list']);
+  final distributorInstalled =
+      globalPackages.exitCode == 0 &&
+      globalPackages.stdout
+          .toString()
+          .split(RegExp(r'\r?\n'))
+          .any((line) => line.startsWith('flutter_distributor '));
+  if (!distributorInstalled) {
+    final activateResult = await Process.run('dart', [
+      'pub',
+      'global',
+      'activate',
+      '-s',
+      'git',
+      'https://github.com/chen08209/flutter_distributor.git',
+      '--git-ref',
+      'FlClash',
+      '--git-path',
+      'packages/flutter_distributor',
+    ]);
+    if (activateResult.exitCode != 0) {
+      stderr.write(activateResult.stderr);
+      return activateResult.exitCode;
+    }
   }
 
   final process = await Process.start(
