@@ -49,3 +49,5 @@ export 'text.dart';
 export 'theme.dart';
 export 'wave.dart';
 export 'xboard_announcement_center.dart';
+export 'xboard_marquee_host.dart';
+export 'fengwo_marquee.dart';

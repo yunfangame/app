@@ -26,13 +26,9 @@ class AboutView extends StatelessWidget {
   const AboutView({super.key});
 
   Future<void> _checkUpdate(BuildContext context) async {
-    final data = await globalState.safeRun<Map<String, dynamic>?>(
-      request.checkForUpdate,
-      title: context.appLocalizations.checkUpdate,
-    );
-    globalState.container
+    await globalState.container
         .read(commonActionProvider.notifier)
-        .checkUpdateResultHandle(data: data, isUser: true);
+        .checkAppUpdate(isUser: true);
   }
 
   List<Widget> _buildMoreSection(BuildContext context) {

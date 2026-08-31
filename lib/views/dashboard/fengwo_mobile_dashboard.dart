@@ -10,6 +10,7 @@ import 'package:fl_clash/views/dashboard/widgets/global_mode_confirmation.dart';
 import 'package:fl_clash/views/proxies/common.dart';
 import 'package:fl_clash/views/tools.dart';
 import 'package:fl_clash/widgets/subscription_status_indicator.dart';
+import 'package:fl_clash/widgets/fengwo_marquee.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -133,6 +134,17 @@ class FengWoMobileDashboard extends ConsumerWidget {
                   onPurchase: () => ref
                       .read(currentPageLabelProvider.notifier)
                       .toPage(PageLabel.profiles),
+                ),
+                FengWoMarqueeBar(
+                  controller: globalState.xboardMarqueeController,
+                  compact: true,
+                  margin: const EdgeInsets.only(top: 14),
+                  onMessageTap: (message) => openFengWoMarqueeMessage(
+                    context: context,
+                    ref: ref,
+                    controller: globalState.xboardMarqueeController,
+                    message: message,
+                  ),
                 ),
                 const SizedBox(height: 22),
                 Center(

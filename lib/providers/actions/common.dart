@@ -2,6 +2,8 @@ part of '../action.dart';
 
 @Riverpod(keepAlive: true)
 class CommonAction extends _$CommonAction {
+  bool _checkingAppUpdate = false;
+
   @override
   void build() {}
 
@@ -46,46 +48,62 @@ class CommonAction extends _$CommonAction {
 
   Future<void> autoCheckUpdate() async {
     if (!ref.read(appSettingProvider).autoCheckUpdate) return;
-    final res = await request.checkForUpdate();
-    checkUpdateResultHandle(data: res);
+    await checkAppUpdate();
   }
 
-  Future<void> checkUpdateResultHandle({
-    Map<String, dynamic>? data,
-    bool isUser = false,
-  }) async {
-    if (data != null) {
-      final tagName = data['tag_name'];
-      final body = data['body'];
-      final submits = utils.parseReleaseBody(body);
-      final context = globalState.navigatorKey.currentContext!;
-      final textTheme = context.textTheme;
-      final res = await globalState.showMessage(
-        title: currentAppLocalizations.discoverNewVersion,
-        message: TextSpan(
-          text: '$tagName \n',
-          style: textTheme.headlineSmall,
-          children: [
-            TextSpan(text: '\n', style: textTheme.bodyMedium),
-            for (final submit in submits)
-              TextSpan(text: '- $submit \n', style: textTheme.bodyMedium),
-          ],
-        ),
-        confirmText: currentAppLocalizations.goDownload,
-        cancelText: isUser ? null : currentAppLocalizations.noLongerRemind,
+  Future<void> checkAppUpdate({bool isUser = false}) async {
+    if (_checkingAppUpdate) return;
+    _checkingAppUpdate = true;
+    try {
+      final packageInfo = globalState.packageInfo;
+      final currentVersion = packageInfo.buildNumber.trim().isEmpty
+          ? packageInfo.version
+          : '${packageInfo.version}+${packageInfo.buildNumber}';
+      final release = await appUpdateService.checkForUpdate(
+        currentVersion: currentVersion,
+        respectIgnored: !isUser,
       );
-      if (res == true) {
-        launchUrl(Uri.parse('https://github.com/$repository/releases/latest'));
-      } else if (!isUser && res == false) {
-        ref
-            .read(appSettingProvider.notifier)
-            .update((state) => state.copyWith(autoCheckUpdate: false));
+      if (release == null) {
+        if (isUser) {
+          await globalState.showMessage(
+            title: currentAppLocalizations.checkUpdate,
+            message: TextSpan(text: currentAppLocalizations.checkUpdateError),
+          );
+        }
+        return;
       }
-    } else if (isUser) {
-      globalState.showMessage(
-        title: currentAppLocalizations.checkUpdate,
-        message: TextSpan(text: currentAppLocalizations.checkUpdateError),
+      final context = globalState.navigatorKey.currentContext;
+      if (context == null || !context.mounted) return;
+      final decision = await showAppUpdateDialog(
+        context: context,
+        release: release,
+        currentVersion: currentVersion,
       );
+      switch (decision) {
+        case AppUpdateDecision.update:
+          await launchUrl(
+            release.downloadUri,
+            mode: LaunchMode.externalApplication,
+          );
+        case AppUpdateDecision.ignoreVersion:
+          await appUpdateService.ignore(release);
+        case AppUpdateDecision.later:
+        case null:
+          break;
+      }
+    } catch (error, stackTrace) {
+      commonPrint.log(
+        'check app update failed: $error, $stackTrace',
+        logLevel: LogLevel.warning,
+      );
+      if (isUser) {
+        await globalState.showMessage(
+          title: currentAppLocalizations.checkUpdate,
+          message: TextSpan(text: currentAppLocalizations.requestFailed),
+        );
+      }
+    } finally {
+      _checkingAppUpdate = false;
     }
   }
 }

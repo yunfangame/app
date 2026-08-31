@@ -1,4 +1,5 @@
 export 'app_localizations.dart';
+export 'app_update.dart';
 export 'chain_proxy.dart';
 export 'api_health.dart';
 export 'api_endpoint_preference.dart';
@@ -49,6 +50,7 @@ export 'tray.dart';
 export 'utils.dart';
 export 'window.dart';
 export 'xboard_auth.dart';
+export 'xboard_marquee.dart';
 export 'xboard_notice_preference.dart';
 export 'xboard_session_storage.dart';
 export 'yaml.dart';

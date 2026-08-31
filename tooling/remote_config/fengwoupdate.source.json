@@ -1,0 +1,61 @@
+{
+  "Authentication": "FengWo",
+  "format": "fengwo-update",
+  "schemaVersion": 1,
+  "packages": {
+    "android-arm64-v8a": {
+      "enabled": true,
+      "version": "0.8.96",
+      "title": "蜂窝加速器 Android 更新",
+      "downloadUrl": "https://house.zryc.tech/download/fengwo-android-arm64-v8a.apk",
+      "publishedAt": "2026-08-31T00:00:00+08:00",
+      "sha256": "",
+      "releaseNotesHtml": "<h3>蜂窝加速器 0.8.96</h3><ul><li>优化节点测速与在线状态显示</li><li>修复校园网模式二次开启问题</li><li>优化全球节点地图与链路动画</li></ul><p><strong>提示：</strong>下载完成后请覆盖安装。</p>"
+    },
+    "android-armeabi-v7a": {
+      "enabled": true,
+      "version": "0.8.96",
+      "title": "蜂窝加速器 Android 更新",
+      "downloadUrl": "https://house.zryc.tech/download/fengwo-android-armeabi-v7a.apk",
+      "publishedAt": "2026-08-31T00:00:00+08:00",
+      "sha256": "",
+      "releaseNotesHtml": "<h3>蜂窝加速器 0.8.96</h3><ul><li>优化节点测速与在线状态显示</li><li>修复校园网模式二次开启问题</li></ul>"
+    },
+    "android-x86_64": {
+      "enabled": true,
+      "version": "0.8.96",
+      "title": "蜂窝加速器 Android 更新",
+      "downloadUrl": "https://house.zryc.tech/download/fengwo-android-x86_64.apk",
+      "publishedAt": "2026-08-31T00:00:00+08:00",
+      "sha256": "",
+      "releaseNotesHtml": "<h3>蜂窝加速器 0.8.96</h3><p>本次更新包含稳定性与兼容性改进。</p>"
+    },
+    "windows-x64": {
+      "enabled": true,
+      "version": "0.8.96",
+      "title": "蜂窝加速器 Windows 更新",
+      "downloadUrl": "https://house.zryc.tech/download/fengwo-windows-amd64.exe",
+      "publishedAt": "2026-08-31T00:00:00+08:00",
+      "sha256": "",
+      "releaseNotesHtml": "<h3>蜂窝加速器 0.8.96</h3><ul><li>优化节点测速与在线状态显示</li><li>优化全球节点地图与链路动画</li></ul><p>请退出旧版本后运行新安装包。</p>"
+    },
+    "macos-arm64": {
+      "enabled": true,
+      "version": "0.8.96",
+      "title": "蜂窝加速器 macOS Apple 芯片更新",
+      "downloadUrl": "https://house.zryc.tech/download/fengwo-macos-arm.dmg",
+      "publishedAt": "2026-08-31T00:00:00+08:00",
+      "sha256": "",
+      "releaseNotesHtml": "<h3>蜂窝加速器 0.8.96</h3><ul><li>优化节点测速与在线状态显示</li><li>优化全球节点地图与链路动画</li></ul><p>适用于 Apple M 系列芯片。</p>"
+    },
+    "macos-x64": {
+      "enabled": true,
+      "version": "0.8.96",
+      "title": "蜂窝加速器 macOS Intel 芯片更新",
+      "downloadUrl": "https://house.zryc.tech/download/fengwo-macos-amd.dmg",
+      "publishedAt": "2026-08-31T00:00:00+08:00",
+      "sha256": "",
+      "releaseNotesHtml": "<h3>蜂窝加速器 0.8.96</h3><ul><li>优化节点测速与在线状态显示</li><li>优化全球节点地图与链路动画</li></ul><p>适用于 Intel 芯片 Mac。</p>"
+    }
+  }
+}

@@ -20,6 +20,7 @@ dart_bin="$(dirname "$flutter_bin")/dart"
 pub_cache="$toolchains_root/pub-cache"
 keys_path="$repo_root/tooling/remote_config/keys.json"
 source_config="$repo_root/tooling/remote_config/ConFigOss4.source.json"
+update_source_config="$repo_root/tooling/remote_config/fengwoupdate.source.json"
 android_sdk="$(sed -n 's/^sdk.dir=//p' "$repo_root/android/local.properties" | head -1)"
 windows_snapshot_root=''
 windows_worktree=''
@@ -62,18 +63,23 @@ cleanup_windows_snapshot() {
 
 trap cleanup_windows_snapshot EXIT
 
-if [[ ! -f "$keys_path" || ! -f "$source_config" ]]; then
+if [[ ! -f "$keys_path" || ! -f "$source_config" || ! -f "$update_source_config" ]]; then
   printf '缺少远程配置密钥或明文配置。\n' >&2
   exit 1
 fi
 
 mkdir -p "$output_root/Android" "$output_root/macOS" "$output_root/Windows" "$output_root/远程配置"
 cp -p "$source_config" "$output_root/远程配置/ConFigOss4.source.json"
+cp -p "$update_source_config" "$output_root/远程配置/fengwoupdate.source.json"
+cp -p "$repo_root/tooling/remote_config/fengwoupdate.README.md" "$output_root/远程配置/fengwoupdate.README.md"
 cp -p "$repo_root/tooling/加密远程配置.command" "$output_root/远程配置/加密远程配置.command"
+cp -p "$repo_root/tooling/加密更新配置.command" "$output_root/远程配置/加密更新配置.command"
 cp -p "$repo_root/tooling/一键打包.command" "$output_root/一键打包.command"
 chmod +x "$output_root/远程配置/加密远程配置.command"
+chmod +x "$output_root/远程配置/加密更新配置.command"
 chmod +x "$output_root/一键打包.command"
 "$repo_root/tooling/seal_remote_config.sh" "$source_config" "$output_root/远程配置/ConFigOss4.json" "$keys_path"
+"$repo_root/tooling/seal_remote_config.sh" "$update_source_config" "$output_root/远程配置/fengwoupdate.json" "$keys_path"
 
 verify_no_pre() {
   if find "$output_root" -type f -iname '*pre*' -print -quit | grep -q .; then
@@ -314,7 +320,7 @@ create_checksums_and_archive() {
     cd "$output_root"
     find Android macOS Windows 远程配置 -type f ! -name '*.log' -print0 | sort -z | xargs -0 shasum -a 256
   ) > "$checksum_file"
-  printf '版本：%s\n环境：stable\n名称：蜂窝加速器\nmacOS ARM（Apple 芯片）文件：蜂窝加速器-macOS-arm.dmg\nmacOS AMD（Intel 芯片）文件：蜂窝加速器-macOS-amd.dmg\nAndroid：签名、结构、模拟器安装启动通过\nmacOS ARM64：架构、签名、DMG、启动通过\nmacOS AMD64（Intel）：架构、签名、DMG、Rosetta 启动通过\nWindows AMD64：云端构建、结构、启动冒烟测试通过\n远程配置：AES-GCM 解密与 Ed25519 签名验证通过\n' "$version" > "$output_root/验证报告.txt"
+  printf '版本：%s\n环境：stable\n名称：蜂窝加速器\nmacOS ARM（Apple 芯片）文件：蜂窝加速器-macOS-arm.dmg\nmacOS AMD（Intel 芯片）文件：蜂窝加速器-macOS-amd.dmg\nAndroid：签名、结构、模拟器安装启动通过\nmacOS ARM64：架构、签名、DMG、启动通过\nmacOS AMD64（Intel）：架构、签名、DMG、Rosetta 启动通过\nWindows AMD64：云端构建、结构、启动冒烟测试通过\n远程配置：AES-GCM 解密与 Ed25519 签名验证通过\n更新配置：按平台独立版本、HTML 更新说明、AES-GCM 与 Ed25519 验证通过\n' "$version" > "$output_root/验证报告.txt"
   rm -f "$archive_path"
   rm -f "$output_root/$(basename "$archive_path")"
   ditto -c -k --sequesterRsrc --keepParent "$output_root" "$archive_path"
@@ -336,7 +342,7 @@ elif [[ "${FENGWO_RESUME_AFTER_INTEL:-0}" == '1' ]]; then
 else
   if [[ "${FENGWO_RESUME_AFTER_ANDROID:-0}" != '1' ]]; then
     "$flutter_bin" pub get
-    "$flutter_bin" test test/setup_test.dart test/common/remote_config_cipher_test.dart test/core/controller_test.dart test/core/protocol_contract_test.dart test/views/proxies/common_test.dart test/widgets/dashboard_layout_test.dart --reporter expanded
+    "$flutter_bin" test test/setup_test.dart test/common/remote_config_cipher_test.dart test/common/app_update_test.dart test/common/xboard_marquee_test.dart test/core/controller_test.dart test/core/protocol_contract_test.dart test/views/proxies/common_test.dart test/widgets/app_update_dialog_test.dart test/widgets/fengwo_marquee_test.dart test/widgets/dashboard_layout_test.dart --reporter expanded
     "$dart_bin" setup.dart android --env stable --targets apk
     copy_android_packages
   fi

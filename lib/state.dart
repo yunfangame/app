@@ -49,6 +49,7 @@ class GlobalState {
   bool _xboardAnnouncementPromptPending = false;
   final offlineModeNotifier = ValueNotifier(false);
   final xboardSessionRevisionNotifier = ValueNotifier<int>(0);
+  final xboardMarqueeController = XboardMarqueeController();
 
   XboardSubscriptionData? get xboardSubscription => xboardSession?.subscription;
 

@@ -11,6 +11,7 @@ import 'package:fl_clash/plugins/app.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/tools.dart';
+import 'package:fl_clash/widgets/xboard_marquee_host.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -700,10 +701,12 @@ class ApplicationState extends ConsumerState<Application> {
             GlobalWidgetsLocalizations.delegate,
           ],
           builder: (_, child) {
-            return AppEnvManager(
-              child: _buildApp(
-                child: _buildPlatformState(
-                  child: _buildState(child: _buildPlatformApp(child: child!)),
+            return XboardMarqueeHost(
+              child: AppEnvManager(
+                child: _buildApp(
+                  child: _buildPlatformState(
+                    child: _buildState(child: _buildPlatformApp(child: child!)),
+                  ),
                 ),
               ),
             );

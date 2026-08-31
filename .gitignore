@@ -69,6 +69,7 @@ docs/
 /env.json
 /tooling/remote_config/keys.json
 /tooling/remote_config/*.source.json
+!/tooling/remote_config/fengwoupdate.source.json
 /core_sha256.json
 /core/*.exe
 /plugins/rust_api/.claude/

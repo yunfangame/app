@@ -8,6 +8,7 @@ import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/dashboard/fengwo_node_selector.dart';
 import 'package:fl_clash/views/dashboard/widgets/global_mode_confirmation.dart';
 import 'package:fl_clash/views/proxies/common.dart';
+import 'package:fl_clash/widgets/fengwo_marquee.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -177,6 +178,16 @@ class FengWoDesktopDashboard extends ConsumerWidget {
               color: colors.contentBackground,
               child: Column(
                 children: [
+                  FengWoMarqueeBar(
+                    controller: globalState.xboardMarqueeController,
+                    margin: const EdgeInsets.fromLTRB(30, 12, 30, 0),
+                    onMessageTap: (message) => openFengWoMarqueeMessage(
+                      context: context,
+                      ref: ref,
+                      controller: globalState.xboardMarqueeController,
+                      message: message,
+                    ),
+                  ),
                   Expanded(
                     child: Stack(
                       children: [
