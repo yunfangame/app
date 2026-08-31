@@ -268,7 +268,12 @@ package_windows_remote() {
     submodule update --init --recursive
   copy_untracked_files "$worktree"
   git -C "$worktree" add -A
-  git -C "$worktree" -c user.name='FengWo Builder' -c user.email='builder@fengwo.local' commit -m "Package 蜂窝加速器 ${version}" >/dev/null
+  if ! git -C "$worktree" diff --cached --quiet; then
+    git -C "$worktree" \
+      -c user.name='FengWo Builder' \
+      -c user.email='builder@fengwo.local' \
+      commit -m "Package 蜂窝加速器 ${version}" >/dev/null
+  fi
   git -C "$worktree" tag "$tag"
   git -C "$worktree" push app "refs/tags/$tag"
   run_id=''
