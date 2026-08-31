@@ -380,6 +380,7 @@ class _HeroPanel extends ConsumerWidget {
               isStart: isStart,
               showRoute: false,
               interactive: true,
+              showAttribution: false,
               opacity: 0.3,
               nodeName: firstGroupSelected,
               nodeCount: nodeCount,
@@ -1287,6 +1288,7 @@ class _ThemedWorldMap extends StatefulWidget {
   final IpInfo? ipInfo;
   final int? nodeCount;
   final List<_WorldNode> nodes;
+  final bool showAttribution;
 
   const _ThemedWorldMap({
     super.key,
@@ -1299,6 +1301,7 @@ class _ThemedWorldMap extends StatefulWidget {
     this.ipInfo,
     this.nodeCount,
     this.nodes = const [],
+    this.showAttribution = true,
   });
 
   @override
@@ -1611,12 +1614,13 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
                     );
                   },
                 ),
-              const RichAttributionWidget(
-                showFlutterMapAttribution: false,
-                attributions: [
-                  TextSourceAttribution('Natural Earth (offline map)'),
-                ],
-              ),
+              if (widget.showAttribution)
+                const RichAttributionWidget(
+                  showFlutterMapAttribution: false,
+                  attributions: [
+                    TextSourceAttribution('Natural Earth (offline map)'),
+                  ],
+                ),
             ],
           ),
         ),
@@ -2311,17 +2315,19 @@ const _countryDisplayNames = <String, String>{
 LatLng? _geoLatLng(IpInfo? ipInfo) {
   final latitude = ipInfo?.latitude;
   final longitude = ipInfo?.longitude;
-  if (latitude == null ||
-      longitude == null ||
-      !latitude.isFinite ||
-      !longitude.isFinite ||
-      latitude < -90 ||
-      latitude > 90 ||
-      longitude < -180 ||
-      longitude > 180) {
-    return null;
+  if (latitude != null &&
+      longitude != null &&
+      latitude.isFinite &&
+      longitude.isFinite &&
+      latitude >= -90 &&
+      latitude <= 90 &&
+      longitude >= -180 &&
+      longitude <= 180) {
+    return LatLng(latitude, longitude);
   }
-  return LatLng(latitude, longitude);
+  final countryCode = ipInfo?.countryCode.trim().toUpperCase();
+  if (countryCode == null || countryCode.isEmpty) return null;
+  return _countryLatLng(countryCode);
 }
 
 bool _sameLatLng(LatLng? left, LatLng? right) {

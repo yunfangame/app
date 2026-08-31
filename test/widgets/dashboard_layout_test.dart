@@ -777,6 +777,40 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('fengwo-map-zoom-in')));
     await tester.pump();
     expect(map.mapController!.camera.zoom, greaterThan(initialZoom));
+    expect(find.byType(RichAttributionWidget), findsOneWidget);
+    expect(tester.takeException(), null);
+  });
+
+  testWidgets('world map centers a country-only IP result', (tester) async {
+    tester.view.physicalSize = const Size(820, 520);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const _TestApp(
+        child: SizedBox.expand(
+          child: FengWoWorldMap(
+            isStart: true,
+            showRoute: true,
+            interactive: false,
+            opacity: 0.8,
+            nodeName: '新加坡专线节点',
+            ipInfo: IpInfo(ip: '203.0.113.7', countryCode: 'sg'),
+            nodes: [FengWoWorldMapNode(name: '新加坡专线节点', delay: 82)],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final map = tester.widget<FlutterMap>(find.byType(FlutterMap));
+    expect(map.mapController!.camera.center.latitude, closeTo(1.35, 0.001));
+    expect(map.mapController!.camera.center.longitude, closeTo(103.8, 0.001));
+    expect(
+      find.byKey(const ValueKey('fengwo-user-focus-pulse')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), null);
   });
 
