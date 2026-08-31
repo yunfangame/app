@@ -152,6 +152,9 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
     final group = _currentGroup(groups, profile);
     final currentNode = _currentNode(group, profile);
     final isStart = ref.watch(isStartProvider);
+    final ipInfo = ref.watch(
+      networkDetectionProvider.select((state) => state.originIpInfo),
+    );
     final nodes = _xboardDisplayNodes(group?.all ?? const <Proxy>[], rawGroups);
     final nodeMetadata = _matchXboardNodes(nodes, _xboardNodes);
     final measuredDelays = <String, int?>{
@@ -221,6 +224,7 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
                 nodeMetadata: nodeMetadata,
                 mapNodes: mapNodes,
                 currentNode: currentNode,
+                ipInfo: ipInfo,
                 selectedName: selectedName,
                 isStart: isStart,
                 testingAll: _testingAll,
@@ -317,6 +321,7 @@ class _NodeStatusBody extends StatelessWidget {
   final Map<String, XboardNodeData> nodeMetadata;
   final List<FengWoWorldMapNode> mapNodes;
   final String currentNode;
+  final IpInfo? ipInfo;
   final String? selectedName;
   final bool isStart;
   final bool testingAll;
@@ -335,6 +340,7 @@ class _NodeStatusBody extends StatelessWidget {
     required this.nodeMetadata,
     required this.mapNodes,
     required this.currentNode,
+    required this.ipInfo,
     required this.selectedName,
     required this.isStart,
     required this.testingAll,
@@ -413,6 +419,7 @@ class _NodeStatusBody extends StatelessWidget {
                             colors: colors,
                             isStart: isStart,
                             currentNode: currentNode,
+                            ipInfo: ipInfo,
                             mapNodes: mapNodes,
                             countryCount: countryCount,
                             nodeCount: nodes.length,
@@ -574,6 +581,7 @@ class _NodeDistributionPanel extends StatelessWidget {
   final _NodeStatusColors colors;
   final bool isStart;
   final String currentNode;
+  final IpInfo? ipInfo;
   final List<FengWoWorldMapNode> mapNodes;
   final int countryCount;
   final int nodeCount;
@@ -585,6 +593,7 @@ class _NodeDistributionPanel extends StatelessWidget {
     required this.colors,
     required this.isStart,
     required this.currentNode,
+    required this.ipInfo,
     required this.mapNodes,
     required this.countryCount,
     required this.nodeCount,
@@ -609,10 +618,11 @@ class _NodeDistributionPanel extends StatelessWidget {
           Expanded(
             child: FengWoWorldMap(
               isStart: isStart,
-              showRoute: false,
+              showRoute: true,
               interactive: true,
               opacity: 0.54,
               nodeName: currentNode,
+              ipInfo: ipInfo,
               nodes: mapNodes,
             ),
           ),

@@ -15,6 +15,7 @@ import 'package:latlong2/latlong.dart' hide Path;
 
 const _neonRouteColor = Color(0xFF39FF14);
 const _staticWorldMapAsset = 'assets/images/world_map_static.png';
+const _beijingFallback = LatLng(39.9042, 116.4074);
 final _staticWorldMapBounds = LatLngBounds(
   const LatLng(-85.05112878, -180),
   const LatLng(85.05112878, 180),
@@ -145,7 +146,7 @@ class FengWoDesktopDashboard extends ConsumerWidget {
     final trafficHistory = ref.watch(trafficsProvider).list;
     final traffic = trafficHistory.safeLast(const Traffic());
     final ipInfo = ref.watch(
-      networkDetectionProvider.select((state) => state.ipInfo),
+      networkDetectionProvider.select((state) => state.originIpInfo),
     );
     final subscription = globalState.xboardSubscription;
     final xboardNodes = globalState.xboardNodes;
@@ -1330,7 +1331,8 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
       duration: const Duration(milliseconds: 2600),
     )..repeat();
     _mapController = MapController();
-    _mapZoom = _geoLatLng(widget.ipInfo) == null
+    _mapZoom =
+        _mapUserLatLng(widget.ipInfo, showRoute: widget.showRoute) == null
         ? _initialZoom
         : _userFocusZoom;
   }
@@ -1350,8 +1352,14 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
         !widget.nodes.any((node) => node.name == revealedNodeName)) {
       _revealedNodeName = null;
     }
-    final oldUserPosition = _geoLatLng(oldWidget.ipInfo);
-    final userPosition = _geoLatLng(widget.ipInfo);
+    final oldUserPosition = _mapUserLatLng(
+      oldWidget.ipInfo,
+      showRoute: oldWidget.showRoute,
+    );
+    final userPosition = _mapUserLatLng(
+      widget.ipInfo,
+      showRoute: widget.showRoute,
+    );
     if (userPosition != null &&
         !_sameLatLng(userPosition, oldUserPosition) &&
         _mapReady) {
@@ -1372,7 +1380,8 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
   void _moveMap(double zoom, {bool resetCenter = false}) {
     final target = zoom.clamp(_minZoom, _maxZoom).toDouble();
     final center = resetCenter
-        ? _geoLatLng(widget.ipInfo) ?? _initialCenter
+        ? _mapUserLatLng(widget.ipInfo, showRoute: widget.showRoute) ??
+              _initialCenter
         : _mapController.camera.center;
     _mapController.move(center, target);
     if ((target - _mapZoom).abs() > 0.001) {
@@ -1383,7 +1392,10 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
   @override
   Widget build(BuildContext context) {
     final nodeCode = fengWoNodeCountryCode(widget.nodeName);
-    final userPosition = _geoLatLng(widget.ipInfo);
+    final userPosition = _mapUserLatLng(
+      widget.ipInfo,
+      showRoute: widget.showRoute,
+    );
     final nodePosition = _countryLatLng(nodeCode);
     final canDrawRoute =
         widget.showRoute && userPosition != null && nodePosition != null;
@@ -1510,7 +1522,10 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
               ),
               onMapReady: () {
                 _mapReady = true;
-                final focus = _geoLatLng(widget.ipInfo);
+                final focus = _mapUserLatLng(
+                  widget.ipInfo,
+                  showRoute: widget.showRoute,
+                );
                 if (focus != null) {
                   _mapController.move(focus, _userFocusZoom);
                 }
@@ -1608,7 +1623,9 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
                             ),
                             width: 18,
                             height: 18,
-                            child: const _RouteProgressMarker(),
+                            child: const _RouteProgressMarker(
+                              key: ValueKey('fengwo-route-progress'),
+                            ),
                           ),
                       ],
                     );
@@ -1995,7 +2012,7 @@ class _UserFocusPulse extends StatelessWidget {
 }
 
 class _RouteProgressMarker extends StatelessWidget {
-  const _RouteProgressMarker();
+  const _RouteProgressMarker({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -2327,7 +2344,12 @@ LatLng? _geoLatLng(IpInfo? ipInfo) {
   }
   final countryCode = ipInfo?.countryCode.trim().toUpperCase();
   if (countryCode == null || countryCode.isEmpty) return null;
+  if (countryCode == 'CN') return _beijingFallback;
   return _countryLatLng(countryCode);
+}
+
+LatLng? _mapUserLatLng(IpInfo? ipInfo, {required bool showRoute}) {
+  return _geoLatLng(ipInfo) ?? (showRoute ? _beijingFallback : null);
 }
 
 bool _sameLatLng(LatLng? left, LatLng? right) {

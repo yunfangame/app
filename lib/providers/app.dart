@@ -410,7 +410,13 @@ class NetworkDetection extends _$NetworkDetection
       _delayTimeoutDisplay(version);
       return;
     }
-    state = state.copyWith(isLoading: false, ipInfo: ipInfo);
+    state = state.copyWith(
+      isLoading: false,
+      ipInfo: ipInfo,
+      // A disconnected lookup represents the user's origin network. Keep it
+      // when later connected lookups report the proxy exit address.
+      originIpInfo: isStart ? state.originIpInfo : ipInfo,
+    );
   }
 
   int _resetCheckSession(CancelToken? cancelToken) {

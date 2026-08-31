@@ -3786,7 +3786,7 @@ as int?,
 /// @nodoc
 mixin _$NetworkDetectionState {
 
- bool get isLoading; IpInfo? get ipInfo;
+ bool get isLoading; IpInfo? get ipInfo; IpInfo? get originIpInfo;
 /// Create a copy of NetworkDetectionState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -3797,16 +3797,16 @@ $NetworkDetectionStateCopyWith<NetworkDetectionState> get copyWith => _$NetworkD
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkDetectionState&&(identical(other.isLoading, isLoading) || other.isLoading == isLoading)&&(identical(other.ipInfo, ipInfo) || other.ipInfo == ipInfo));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NetworkDetectionState&&(identical(other.isLoading, isLoading) || other.isLoading == isLoading)&&(identical(other.ipInfo, ipInfo) || other.ipInfo == ipInfo)&&(identical(other.originIpInfo, originIpInfo) || other.originIpInfo == originIpInfo));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,isLoading,ipInfo);
+int get hashCode => Object.hash(runtimeType,isLoading,ipInfo,originIpInfo);
 
 @override
 String toString() {
-  return 'NetworkDetectionState(isLoading: $isLoading, ipInfo: $ipInfo)';
+  return 'NetworkDetectionState(isLoading: $isLoading, ipInfo: $ipInfo, originIpInfo: $originIpInfo)';
 }
 
 
@@ -3817,11 +3817,11 @@ abstract mixin class $NetworkDetectionStateCopyWith<$Res>  {
   factory $NetworkDetectionStateCopyWith(NetworkDetectionState value, $Res Function(NetworkDetectionState) _then) = _$NetworkDetectionStateCopyWithImpl;
 @useResult
 $Res call({
- bool isLoading, IpInfo? ipInfo
+ bool isLoading, IpInfo? ipInfo, IpInfo? originIpInfo
 });
 
 
-$IpInfoCopyWith<$Res>? get ipInfo;
+$IpInfoCopyWith<$Res>? get ipInfo;$IpInfoCopyWith<$Res>? get originIpInfo;
 
 }
 /// @nodoc
@@ -3834,10 +3834,11 @@ class _$NetworkDetectionStateCopyWithImpl<$Res>
 
 /// Create a copy of NetworkDetectionState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? isLoading = null,Object? ipInfo = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? isLoading = null,Object? ipInfo = freezed,Object? originIpInfo = freezed,}) {
   return _then(_self.copyWith(
 isLoading: null == isLoading ? _self.isLoading : isLoading // ignore: cast_nullable_to_non_nullable
 as bool,ipInfo: freezed == ipInfo ? _self.ipInfo : ipInfo // ignore: cast_nullable_to_non_nullable
+as IpInfo?,originIpInfo: freezed == originIpInfo ? _self.originIpInfo : originIpInfo // ignore: cast_nullable_to_non_nullable
 as IpInfo?,
   ));
 }
@@ -3852,6 +3853,18 @@ $IpInfoCopyWith<$Res>? get ipInfo {
 
   return $IpInfoCopyWith<$Res>(_self.ipInfo!, (value) {
     return _then(_self.copyWith(ipInfo: value));
+  });
+}/// Create a copy of NetworkDetectionState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$IpInfoCopyWith<$Res>? get originIpInfo {
+    if (_self.originIpInfo == null) {
+    return null;
+  }
+
+  return $IpInfoCopyWith<$Res>(_self.originIpInfo!, (value) {
+    return _then(_self.copyWith(originIpInfo: value));
   });
 }
 }
@@ -3935,10 +3948,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( bool isLoading,  IpInfo? ipInfo)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( bool isLoading,  IpInfo? ipInfo,  IpInfo? originIpInfo)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _NetworkDetectionState() when $default != null:
-return $default(_that.isLoading,_that.ipInfo);case _:
+return $default(_that.isLoading,_that.ipInfo,_that.originIpInfo);case _:
   return orElse();
 
 }
@@ -3956,10 +3969,10 @@ return $default(_that.isLoading,_that.ipInfo);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( bool isLoading,  IpInfo? ipInfo)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( bool isLoading,  IpInfo? ipInfo,  IpInfo? originIpInfo)  $default,) {final _that = this;
 switch (_that) {
 case _NetworkDetectionState():
-return $default(_that.isLoading,_that.ipInfo);case _:
+return $default(_that.isLoading,_that.ipInfo,_that.originIpInfo);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -3976,10 +3989,10 @@ return $default(_that.isLoading,_that.ipInfo);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( bool isLoading,  IpInfo? ipInfo)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( bool isLoading,  IpInfo? ipInfo,  IpInfo? originIpInfo)?  $default,) {final _that = this;
 switch (_that) {
 case _NetworkDetectionState() when $default != null:
-return $default(_that.isLoading,_that.ipInfo);case _:
+return $default(_that.isLoading,_that.ipInfo,_that.originIpInfo);case _:
   return null;
 
 }
@@ -3991,11 +4004,12 @@ return $default(_that.isLoading,_that.ipInfo);case _:
 
 
 class _NetworkDetectionState implements NetworkDetectionState {
-  const _NetworkDetectionState({required this.isLoading, required this.ipInfo});
+  const _NetworkDetectionState({required this.isLoading, required this.ipInfo, this.originIpInfo});
   
 
 @override final  bool isLoading;
 @override final  IpInfo? ipInfo;
+@override final  IpInfo? originIpInfo;
 
 /// Create a copy of NetworkDetectionState
 /// with the given fields replaced by the non-null parameter values.
@@ -4007,16 +4021,16 @@ _$NetworkDetectionStateCopyWith<_NetworkDetectionState> get copyWith => __$Netwo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NetworkDetectionState&&(identical(other.isLoading, isLoading) || other.isLoading == isLoading)&&(identical(other.ipInfo, ipInfo) || other.ipInfo == ipInfo));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NetworkDetectionState&&(identical(other.isLoading, isLoading) || other.isLoading == isLoading)&&(identical(other.ipInfo, ipInfo) || other.ipInfo == ipInfo)&&(identical(other.originIpInfo, originIpInfo) || other.originIpInfo == originIpInfo));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,isLoading,ipInfo);
+int get hashCode => Object.hash(runtimeType,isLoading,ipInfo,originIpInfo);
 
 @override
 String toString() {
-  return 'NetworkDetectionState(isLoading: $isLoading, ipInfo: $ipInfo)';
+  return 'NetworkDetectionState(isLoading: $isLoading, ipInfo: $ipInfo, originIpInfo: $originIpInfo)';
 }
 
 
@@ -4027,11 +4041,11 @@ abstract mixin class _$NetworkDetectionStateCopyWith<$Res> implements $NetworkDe
   factory _$NetworkDetectionStateCopyWith(_NetworkDetectionState value, $Res Function(_NetworkDetectionState) _then) = __$NetworkDetectionStateCopyWithImpl;
 @override @useResult
 $Res call({
- bool isLoading, IpInfo? ipInfo
+ bool isLoading, IpInfo? ipInfo, IpInfo? originIpInfo
 });
 
 
-@override $IpInfoCopyWith<$Res>? get ipInfo;
+@override $IpInfoCopyWith<$Res>? get ipInfo;@override $IpInfoCopyWith<$Res>? get originIpInfo;
 
 }
 /// @nodoc
@@ -4044,10 +4058,11 @@ class __$NetworkDetectionStateCopyWithImpl<$Res>
 
 /// Create a copy of NetworkDetectionState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? isLoading = null,Object? ipInfo = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? isLoading = null,Object? ipInfo = freezed,Object? originIpInfo = freezed,}) {
   return _then(_NetworkDetectionState(
 isLoading: null == isLoading ? _self.isLoading : isLoading // ignore: cast_nullable_to_non_nullable
 as bool,ipInfo: freezed == ipInfo ? _self.ipInfo : ipInfo // ignore: cast_nullable_to_non_nullable
+as IpInfo?,originIpInfo: freezed == originIpInfo ? _self.originIpInfo : originIpInfo // ignore: cast_nullable_to_non_nullable
 as IpInfo?,
   ));
 }
@@ -4063,6 +4078,18 @@ $IpInfoCopyWith<$Res>? get ipInfo {
 
   return $IpInfoCopyWith<$Res>(_self.ipInfo!, (value) {
     return _then(_self.copyWith(ipInfo: value));
+  });
+}/// Create a copy of NetworkDetectionState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$IpInfoCopyWith<$Res>? get originIpInfo {
+    if (_self.originIpInfo == null) {
+    return null;
+  }
+
+  return $IpInfoCopyWith<$Res>(_self.originIpInfo!, (value) {
+    return _then(_self.copyWith(originIpInfo: value));
   });
 }
 }

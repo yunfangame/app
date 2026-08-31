@@ -72,7 +72,7 @@ class FengWoMobileDashboard extends ConsumerWidget {
     final delay = connectionDelay ?? standardDelay ?? fallbackDelay;
     final traffic = ref.watch(trafficsProvider).list.safeLast(const Traffic());
     final ipInfo = ref.watch(
-      networkDetectionProvider.select((state) => state.ipInfo),
+      networkDetectionProvider.select((state) => state.originIpInfo),
     );
     final mapNodes = currentGroup == null
         ? const <FengWoWorldMapNode>[]

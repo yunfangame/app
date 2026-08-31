@@ -472,6 +472,12 @@ void main() {
                   latitude: 31.2304,
                   longitude: 121.4737,
                 ),
+                originIpInfo: IpInfo(
+                  ip: '198.51.100.8',
+                  countryCode: 'CN',
+                  latitude: 31.2304,
+                  longitude: 121.4737,
+                ),
               ),
             ),
             setupActionProvider.overrideWith(_RecordingSetupAction.new),
@@ -635,6 +641,12 @@ void main() {
           const NetworkDetectionState(
             isLoading: false,
             ipInfo: IpInfo(
+              ip: '198.51.100.1',
+              countryCode: 'CN',
+              latitude: 31.2304,
+              longitude: 121.4737,
+            ),
+            originIpInfo: IpInfo(
               ip: '198.51.100.1',
               countryCode: 'CN',
               latitude: 31.2304,
@@ -811,6 +823,42 @@ void main() {
       find.byKey(const ValueKey('fengwo-user-focus-pulse')),
       findsOneWidget,
     );
+    expect(tester.takeException(), null);
+  });
+
+  testWidgets('route map falls back to Beijing when public IP is unavailable', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(820, 520);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const _TestApp(
+        child: SizedBox.expand(
+          child: FengWoWorldMap(
+            isStart: true,
+            showRoute: true,
+            interactive: false,
+            opacity: 0.8,
+            nodeName: '新加坡专线节点',
+            nodes: [FengWoWorldMapNode(name: '新加坡专线节点', delay: 82)],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final map = tester.widget<FlutterMap>(find.byType(FlutterMap));
+    expect(map.mapController!.camera.center.latitude, closeTo(39.9042, 0.001));
+    expect(
+      map.mapController!.camera.center.longitude,
+      closeTo(116.4074, 0.001),
+    );
+    expect(find.byKey(const ValueKey('fengwo-route-user')), findsOneWidget);
+    expect(find.byKey(const ValueKey('fengwo-route-node')), findsOneWidget);
+    expect(find.byKey(const ValueKey('fengwo-route-progress')), findsOneWidget);
     expect(tester.takeException(), null);
   });
 
@@ -1031,14 +1079,14 @@ void main() {
       name: '优选线路',
       type: GroupType.Selector,
       hidden: false,
-      now: nodes.first.name,
+      now: nodes[2].name,
       all: [metadataNode, ...nodes],
     );
     final profile = Profile(
       id: 1,
       autoUpdateDuration: Duration.zero,
       currentGroupName: group.name,
-      selectedMap: {group.name: nodes.first.name},
+      selectedMap: {group.name: nodes[2].name},
     );
     final container = ProviderContainer(
       overrides: [
@@ -1047,6 +1095,24 @@ void main() {
           GroupsState(value: [group]),
         ),
         currentProfileProvider.overrideWithValue(profile),
+        isStartProvider.overrideWithValue(true),
+        networkDetectionProvider.overrideWithValue(
+          const NetworkDetectionState(
+            isLoading: false,
+            ipInfo: IpInfo(
+              ip: '198.51.100.1',
+              countryCode: 'CN',
+              latitude: 39.9042,
+              longitude: 116.4074,
+            ),
+            originIpInfo: IpInfo(
+              ip: '198.51.100.1',
+              countryCode: 'CN',
+              latitude: 39.9042,
+              longitude: 116.4074,
+            ),
+          ),
+        ),
         for (var index = 0; index < nodes.length; index++)
           delayProvider(proxyName: nodes[index].name).overrideWithValue(
             switch (index % 4) {
@@ -1103,6 +1169,13 @@ void main() {
       closeTo(tester.getRect(nodesPanel).top, 1),
     );
     expect(find.byType(FlutterMap), findsOneWidget);
+    expect(find.byKey(const ValueKey('fengwo-route-user')), findsOneWidget);
+    expect(find.byKey(const ValueKey('fengwo-route-node')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('fengwo-user-focus-pulse')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('fengwo-route-progress')), findsOneWidget);
     expect(find.text(metadataNode.name), findsNothing);
     expect(
       find.byKey(const ValueKey('fengwo-node-status-scrollable-list')),

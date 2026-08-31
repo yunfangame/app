@@ -389,7 +389,47 @@ void main() {
         expect(container.read(networkDetectionProvider).isLoading, false);
       },
     );
+
+    test('retains a disconnected lookup as the origin location', () async {
+      request.dio.httpClientAdapter = _StaticIpAdapter();
+      final container = ProviderContainer(
+        overrides: [
+          initProvider.overrideWithBuild((_, _) => true),
+          runTimeProvider.overrideWithBuild((_, _) => null),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      container.read(networkDetectionProvider.notifier).startCheck();
+      await Future.delayed(commonDuration + const Duration(milliseconds: 120));
+
+      final state = container.read(networkDetectionProvider);
+      expect(state.ipInfo?.countryCode, 'CN');
+      expect(state.originIpInfo?.countryCode, 'CN');
+      expect(state.originIpInfo?.latitude, closeTo(39.9042, 0.0001));
+    });
   });
+}
+
+class _StaticIpAdapter implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    return ResponseBody.fromString(
+      '{"ip":"198.51.100.8","country_code":"CN",'
+      '"latitude":39.9042,"longitude":116.4074}',
+      200,
+      headers: {
+        Headers.contentTypeHeader: ['application/json'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 class _DelayedCancelIpAdapter implements HttpClientAdapter {
