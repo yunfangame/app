@@ -65,14 +65,14 @@ Future<void> proxyDelayTest(Proxy proxy, [String? testUrl]) async {
       .read(proxiesActionProvider.notifier)
       .setDelay(Delay(url: currentTestUrl, name: state.proxyName, value: 0));
   try {
-    final probeUrl = reliableDelayProbeUrl(
+    // Keep FlClash's native delay-test path intact. Probe URLs are normalized
+    // once while the runtime profile is built, rather than being substituted
+    // independently for every node test.
+    final delay = await coreController.getDelay(
       currentTestUrl,
-      fallback: ref.read(realTestUrlProvider()),
+      state.proxyName,
     );
-    final delay = await coreController.getDelay(probeUrl, state.proxyName);
-    ref
-        .read(proxiesActionProvider.notifier)
-        .setDelay(delay.copyWith(url: currentTestUrl));
+    ref.read(proxiesActionProvider.notifier).setDelay(delay);
   } catch (error) {
     commonPrint.log(
       'Delay test failed for ${state.proxyName}: $error',

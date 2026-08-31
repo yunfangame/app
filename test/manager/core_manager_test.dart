@@ -20,6 +20,12 @@ void main() {
       ),
       isFalse,
     );
+    expect(
+      shouldNotifyCoreError(
+        'node Head "https://www.gstatic.com/generate_204": context canceled',
+      ),
+      isFalse,
+    );
     expect(shouldNotifyCoreError('TUN failed to start'), isTrue);
   });
 

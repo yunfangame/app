@@ -53,6 +53,20 @@ void main() {
       ),
       isTrue,
     );
+    expect(
+      isNoisyDelayProbeDiagnostic(
+        'node failed to get the second response from '
+        'https://www.gstatic.com/generate_204: context canceled',
+      ),
+      isTrue,
+    );
+    expect(
+      isNoisyDelayProbeDiagnostic(
+        'node Head "https://www.gstatic.com/generate_204": '
+        'context deadline exceeded',
+      ),
+      isTrue,
+    );
     expect(isNoisyDelayProbeDiagnostic('TUN failed to start'), isFalse);
   });
 }

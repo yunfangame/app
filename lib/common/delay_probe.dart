@@ -58,7 +58,14 @@ Map<String, dynamic> normalizeRuntimeDelayProbeUrls(
 /// not be exposed to users as a raw error toast.
 bool isNoisyDelayProbeDiagnostic(String payload) {
   final normalized = payload.toLowerCase();
-  return normalized.contains('failed to get the second response from') &&
-      (normalized.contains('generate_204') ||
-          normalized.contains('generate204'));
+  if (normalized.contains('failed to get the second response')) {
+    return true;
+  }
+  final isGenerate204Probe =
+      normalized.contains('generate_204') || normalized.contains('generate204');
+  final isExpectedProbeFailure =
+      normalized.contains('context deadline exceeded') ||
+      normalized.contains('context canceled') ||
+      normalized.contains('context cancelled');
+  return isGenerate204Probe && isExpectedProbeFailure;
 }
