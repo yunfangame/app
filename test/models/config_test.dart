@@ -175,10 +175,10 @@ void main() {
       expect(props.width, 0);
     });
 
-    test('size extension defaults to 680x580 when empty', () {
+    test('size extension defaults to 1280x720 when empty', () {
       const props = WindowProps();
-      expect(props.size.width, 680);
-      expect(props.size.height, 580);
+      expect(props.size.width, 1280);
+      expect(props.size.height, 720);
     });
 
     test('size extension uses actual values', () {
