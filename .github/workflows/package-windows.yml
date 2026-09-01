@@ -71,9 +71,21 @@ jobs:
           Expand-Archive $archive.FullName -DestinationPath verify-windows -Force
           $app = Get-ChildItem verify-windows -Recurse -Filter FlClash.exe | Where-Object { $_.FullName -notmatch 'Core' } | Select-Object -First 1
           $core = Get-ChildItem verify-windows -Recurse -Filter FlClashCore.exe | Select-Object -First 1
+          $wifiPlugin = Get-ChildItem verify-windows -Recurse -Filter wifi_ssid_plugin.dll | Select-Object -First 1
           if ($null -eq $app) { throw 'FlClash.exe not found' }
           if ($null -eq $core) { throw 'FlClashCore.exe not found' }
+          if ($null -eq $wifiPlugin) { throw 'wifi_ssid_plugin.dll not found' }
           if ($app.VersionInfo.ProductName -ne '蜂窝加速器') { throw "Unexpected product name: $($app.VersionInfo.ProductName)" }
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsInstall = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $dumpbin = Get-ChildItem "$vsInstall\VC\Tools\MSVC" -Recurse -Filter dumpbin.exe |
+            Where-Object { $_.FullName -match '\\Hostx64\\x64\\dumpbin\.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if ($null -eq $dumpbin) { throw 'dumpbin.exe not found' }
+          $wifiDependencies = & $dumpbin.FullName /DEPENDENTS $wifiPlugin.FullName | Out-String
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to inspect wifi_ssid_plugin.dll dependencies' }
+          if ($wifiDependencies -match '(?im)^\s*wlanapi\.dll\s*$') { throw 'wifi_ssid_plugin.dll statically imports wlanapi.dll' }
           $process = Start-Process -FilePath $app.FullName -PassThru
           Start-Sleep -Seconds 8
           if ($process.HasExited -and $process.ExitCode -ne 0) { throw "Application exited with $($process.ExitCode)" }

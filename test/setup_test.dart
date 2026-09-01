@@ -7,6 +7,31 @@ import '../setup.dart' as setup;
 
 void main() {
   group('setup.dart', () {
+    test('Windows Wi-Fi support loads wlanapi only when available', () {
+      final source = File(
+        'plugins/wifi_ssid/windows/wifi_ssid_plugin.cpp',
+      ).readAsStringSync();
+      final cmake = File(
+        'plugins/wifi_ssid/windows/CMakeLists.txt',
+      ).readAsStringSync();
+
+      expect(source, contains('GetSystemDirectoryW'));
+      expect(source, contains('LoadLibraryW'));
+      expect(source, contains('GetProcAddress'));
+      expect(source, contains('if (!api.is_available())'));
+      expect(
+        source,
+        isNot(
+          contains(
+            RegExp(
+              r'\bWlan(?:OpenHandle|CloseHandle|EnumInterfaces|QueryInterface|FreeMemory)\s*\(',
+            ),
+          ),
+        ),
+      );
+      expect(cmake, isNot(contains(RegExp(r'\bwlanapi\b'))));
+    });
+
     test('Linux DEB uses runtime libraries instead of build dependencies', () {
       final config = File(
         'linux/packaging/deb/make_config.yaml',
