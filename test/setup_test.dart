@@ -7,6 +7,17 @@ import '../setup.dart' as setup;
 
 void main() {
   group('setup.dart', () {
+    test('Linux DEB uses runtime libraries instead of build dependencies', () {
+      final config = File(
+        'linux/packaging/deb/make_config.yaml',
+      ).readAsStringSync();
+
+      expect(config, contains('libayatana-appindicator3-1'));
+      expect(config, contains('libkeybinder-3.0-0'));
+      expect(config, isNot(contains('libayatana-appindicator3-dev')));
+      expect(config, isNot(contains('libkeybinder-3.0-dev')));
+    });
+
     test('parses -v as verbose mode', () {
       final results = setup.createSetupArgParser().parse(['android', '-v']);
 
