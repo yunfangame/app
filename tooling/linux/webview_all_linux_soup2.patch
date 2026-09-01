@@ -107,7 +107,15 @@ index 65a9ea4..b531300 100644
      return;
    }
 +
-+  GBytes *bytes = soup_message_body_flatten(message->response_body);
++  SoupBuffer *response_body =
++      soup_message_body_flatten(message->response_body);
++  GBytes *bytes =
++      response_body == nullptr
++          ? nullptr
++          : g_bytes_new(response_body->data, response_body->length);
++  if (response_body != nullptr) {
++    soup_buffer_free(response_body);
++  }
    if (bytes == nullptr) {
      respond(pending->method_call,
              error_response("load_request_error", "No response body returned."));
