@@ -17,13 +17,17 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            os: ubuntu-24.04
+            os: ubuntu-22.04
             deb_arch: amd64
             elf_machine: 'Advanced Micro Devices X86-64'
+            webkit_build_package: libwebkit2gtk-4.0-dev
+            webkit_runtime_package: libwebkit2gtk-4.0-37
           - arch: arm64
             os: ubuntu-24.04-arm
             deb_arch: arm64
             elf_machine: AArch64
+            webkit_build_package: libwebkit2gtk-4.1-dev
+            webkit_runtime_package: libwebkit2gtk-4.1-0
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -70,9 +74,21 @@ jobs:
         run: flutter pub get
 
       - name: Install Linux webview build dependency
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+          WEBKIT_BUILD_PACKAGE: ${{ matrix.webkit_build_package }}
+          WEBKIT_RUNTIME_PACKAGE: ${{ matrix.webkit_runtime_package }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev
+          sudo apt-get install -y "$WEBKIT_BUILD_PACKAGE"
+          if [ "$TARGET_ARCH" = "amd64" ]; then
+            plugin_cmake="$(find "$HOME/.pub-cache" -path '*/webview_all_linux-*/linux/CMakeLists.txt' -print -quit)"
+            test -n "$plugin_cmake"
+            sed -i 's/webkit2gtk-4\.1/webkit2gtk-4.0/g' "$plugin_cmake"
+            grep -q 'webkit2gtk-4.0' "$plugin_cmake"
+          fi
+          sed -i "/  - libsecret-1-0/a\\  - $WEBKIT_RUNTIME_PACKAGE" linux/packaging/deb/make_config.yaml
+          grep -q "$WEBKIT_RUNTIME_PACKAGE" linux/packaging/deb/make_config.yaml
 
       - name: Test V2 and Linux packaging contracts
         run: |
