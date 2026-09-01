@@ -135,10 +135,14 @@ jobs:
           test "$(readelf -h "$app" | awk -F: '/Machine:/ {sub(/^[[:space:]]+/, "", $2); print $2}')" = "$EXPECTED_ELF_MACHINE"
           test "$(readelf -h "$core" | awk -F: '/Machine:/ {sub(/^[[:space:]]+/, "", $2); print $2}')" = "$EXPECTED_ELF_MACHINE"
           dpkg-deb --info "$package" >/dev/null
+          test -x dist/fengwo-linux-preflight.sh
+          bash -n dist/fengwo-linux-preflight.sh
 
       - name: Upload Linux package
         uses: actions/upload-artifact@v4
         with:
           name: fengwo-linux-${{ matrix.arch }}
-          path: dist/*.deb
+          path: |
+            dist/*.deb
+            dist/fengwo-linux-preflight.sh
           if-no-files-found: error

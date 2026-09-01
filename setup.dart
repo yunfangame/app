@@ -286,7 +286,34 @@ Future<int> _package(
     stderr.write(utf8.decode(data));
   });
   final exitCode = await process.exitCode;
+  if (exitCode == 0 && platform == 'linux') {
+    await copyLinuxPreflightScript(rootDir);
+  }
   return exitCode;
+}
+
+Future<File> copyLinuxPreflightScript(String rootDir) async {
+  final source = File(
+    p.join(rootDir, 'tooling', 'linux', 'fengwo-linux-preflight.sh'),
+  );
+  if (!await source.exists()) {
+    throw FileSystemException('Missing Linux preflight script', source.path);
+  }
+  final dist = Directory(p.join(rootDir, 'dist'));
+  await dist.create(recursive: true);
+  final output = await source.copy(
+    p.join(dist.path, 'fengwo-linux-preflight.sh'),
+  );
+  if (!Platform.isWindows) {
+    final chmod = await Process.run('chmod', ['0755', output.path]);
+    if (chmod.exitCode != 0) {
+      throw FileSystemException(
+        'Unable to mark Linux preflight script executable',
+        output.path,
+      );
+    }
+  }
+  return output;
 }
 
 String _detectArch() {

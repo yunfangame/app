@@ -37,10 +37,39 @@ void main() {
         'linux/packaging/deb/make_config.yaml',
       ).readAsStringSync();
 
+      expect(config, contains('fonts-noto-cjk'));
+      expect(config, contains('gnome-keyring'));
+      expect(config, contains('gstreamer1.0-plugins-bad'));
       expect(config, contains('libayatana-appindicator3-1'));
       expect(config, contains('libkeybinder-3.0-0'));
       expect(config, isNot(contains('libayatana-appindicator3-dev')));
       expect(config, isNot(contains('libkeybinder-3.0-dev')));
+    });
+
+    test('copies the Linux preflight script into dist', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'flclash-linux-preflight-test-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final source = File(
+        '${root.path}/tooling/linux/fengwo-linux-preflight.sh',
+      );
+      await source.parent.create(recursive: true);
+      await source.writeAsString('#!/usr/bin/env bash\nexit 0\n');
+
+      final output = await setup.copyLinuxPreflightScript(root.path);
+
+      expect(output.path, '${root.path}/dist/fengwo-linux-preflight.sh');
+      expect(await output.readAsString(), await source.readAsString());
+    });
+
+    test('Linux preflight script has valid Bash syntax', () async {
+      final result = await Process.run('bash', [
+        '-n',
+        'tooling/linux/fengwo-linux-preflight.sh',
+      ]);
+
+      expect(result.exitCode, 0, reason: result.stderr.toString());
     });
 
     test('parses -v as verbose mode', () {

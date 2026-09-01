@@ -11,7 +11,15 @@ essential: false
 icon: ./assets/images/icon.png
 
 dependencies:
+  - ca-certificates
+  - dbus-user-session
+  - fonts-noto-cjk
+  - gnome-keyring
+  - gstreamer1.0-plugins-bad
+  - gstreamer1.0-plugins-base
+  - gstreamer1.0-plugins-good
   - libayatana-appindicator3-1
+  - libglib2.0-bin
   - libkeybinder-3.0-0
   - libsecret-1-0
 
