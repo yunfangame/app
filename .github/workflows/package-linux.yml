@@ -1,0 +1,107 @@
+name: fengwo-linux-package
+
+on:
+  push:
+    tags:
+      - 'fengwo-package-linux-*'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            os: ubuntu-22.04
+            deb_arch: amd64
+            elf_machine: 'Advanced Micro Devices X86-64'
+          - arch: arm64
+            os: ubuntu-24.04-arm
+            deb_arch: arm64
+            elf_machine: AArch64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.4'
+          cache-dependency-path: core/go.sum
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.44.4'
+          cache: true
+
+      - name: Prepare build keys
+        env:
+          AES_KEY: ${{ secrets.REMOTE_CONFIG_AES_KEY }}
+          SIGNING_PUBLIC_KEY: ${{ secrets.REMOTE_CONFIG_SIGNING_PUBLIC_KEY }}
+        run: |
+          test -n "$AES_KEY"
+          test -n "$SIGNING_PUBLIC_KEY"
+          mkdir -p tooling/remote_config
+          jq -n \
+            --arg aesKey "$AES_KEY" \
+            --arg signingPublicKey "$SIGNING_PUBLIC_KEY" \
+            '{aesKey: $aesKey, signingPublicKey: $signingPublicKey}' \
+            > tooling/remote_config/keys.json
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Test V2 and Linux packaging contracts
+        run: |
+          flutter test \
+            test/setup_test.dart \
+            test/common/local_secret_store_test.dart \
+            test/common/network_test.dart \
+            test/common/subscription_v2_test.dart \
+            test/common/xboard_auth_test.dart \
+            test/common/xboard_session_storage_test.dart \
+            test/providers/action_test.dart \
+            test/providers/system_action_test.dart \
+            test/core/protocol_contract_test.dart \
+            --reporter expanded
+          (
+            cd core
+            CGO_ENABLED=0 go test .
+          )
+
+      - name: Package stable Linux release
+        run: dart setup.dart linux --env stable --targets deb -v
+
+      - name: Verify Linux package
+        env:
+          EXPECTED_DEB_ARCH: ${{ matrix.deb_arch }}
+          EXPECTED_ELF_MACHINE: ${{ matrix.elf_machine }}
+        run: |
+          package="$(find dist -maxdepth 1 -type f -name '*linux*.deb' -print -quit)"
+          test -n "$package"
+          test "$(dpkg-deb -f "$package" Architecture)" = "$EXPECTED_DEB_ARCH"
+          mkdir verify-linux
+          dpkg-deb -x "$package" verify-linux
+          app="$(find verify-linux -type f -name FlClash -print -quit)"
+          core="$(find verify-linux -type f -name FlClashCore -print -quit)"
+          test -n "$app"
+          test -n "$core"
+          test "$(readelf -h "$app" | awk -F: '/Machine:/ {sub(/^[[:space:]]+/, "", $2); print $2}')" = "$EXPECTED_ELF_MACHINE"
+          test "$(readelf -h "$core" | awk -F: '/Machine:/ {sub(/^[[:space:]]+/, "", $2); print $2}')" = "$EXPECTED_ELF_MACHINE"
+          dpkg-deb --info "$package" >/dev/null
+
+      - name: Upload Linux package
+        uses: actions/upload-artifact@v4
+        with:
+          name: fengwo-linux-${{ matrix.arch }}
+          path: dist/*.deb
+          if-no-files-found: error
