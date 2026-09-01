@@ -1,0 +1,155 @@
+diff --git a/linux/CMakeLists.txt b/linux/CMakeLists.txt
+index 9ab0408..f39816c 100644
+--- a/linux/CMakeLists.txt
++++ b/linux/CMakeLists.txt
+@@ -8,6 +8,6 @@ set(PLUGIN_NAME "${PROJECT_NAME}_plugin")
+ 
+ find_package(PkgConfig REQUIRED)
+-pkg_check_modules(WEBKIT REQUIRED IMPORTED_TARGET webkit2gtk-4.1)
++pkg_check_modules(WEBKIT REQUIRED IMPORTED_TARGET webkit2gtk-4.0)
+ 
+ add_library(${PLUGIN_NAME} SHARED
+   "src/common/method_channel_utils.cc"
+diff --git a/linux/src/webview/webview_method_handler.cc b/linux/src/webview/webview_method_handler.cc
+index 65a9ea4..b531300 100644
+--- a/linux/src/webview/webview_method_handler.cc
++++ b/linux/src/webview/webview_method_handler.cc
+@@ -52,6 +52,31 @@ void append_header_to_map(const char *name, const char *value,
+   fl_value_set_string_take(headers, name, fl_value_new_string(value));
+ }
+ 
++SoupStatus message_status(SoupMessage *message) {
++  return static_cast<SoupStatus>(message->status_code);
++}
++
++const gchar *message_method(SoupMessage *message) {
++  return message->method;
++}
++
++SoupMessageHeaders *message_request_headers(SoupMessage *message) {
++  return message->request_headers;
++}
++
++SoupMessageHeaders *message_response_headers(SoupMessage *message) {
++  return message->response_headers;
++}
++
++void set_message_request_body(SoupMessage *message, const gchar *content_type,
++                              GBytes *body) {
++  gsize length = 0;
++  const guint8 *data = static_cast<const guint8 *>(
++      g_bytes_get_data(body, &length));
++  soup_message_set_request(
++      message, content_type, SOUP_MEMORY_COPY,
++      reinterpret_cast<const gchar *>(data), length);
++}
++
+ void append_headers_from_value(SoupMessageHeaders *headers,
+                                FlValue *header_value) {
+   if (headers == nullptr || header_value == nullptr ||
+@@ -213,7 +238,7 @@ void clear_local_storage_finished_cb(GObject *object, GAsyncResult *result,
+ 
+ void emit_soup_http_error(LinuxWebView *webview, SoupMessage *message,
+                           const gchar *url) {
+-  const SoupStatus status = soup_message_get_status(message);
++  const SoupStatus status = message_status(message);
+   if (status < 400) {
+     return;
+   }
+@@ -224,14 +249,14 @@ void emit_soup_http_error(LinuxWebView *webview, SoupMessage *message,
+   fl_value_set_string_take(event, "statusCode",
+                            fl_value_new_int(static_cast<gint>(status)));
+ 
+-  const gchar *method = soup_message_get_method(message);
++  const gchar *method = message_method(message);
+   fl_value_set_string_take(
+       event, "method", fl_value_new_string(method != nullptr ? method : ""));
+   fl_value_set_string_take(event, "isForMainFrame", fl_value_new_bool(TRUE));
+ 
+   FlValue *request_headers = fl_value_new_map();
+   SoupMessageHeaders *raw_request_headers =
+-      soup_message_get_request_headers(message);
++      message_request_headers(message);
+   if (raw_request_headers != nullptr) {
+     soup_message_headers_foreach(raw_request_headers, append_header_to_map,
+                                  request_headers);
+@@ -240,7 +265,7 @@ void emit_soup_http_error(LinuxWebView *webview, SoupMessage *message,
+ 
+   FlValue *headers = fl_value_new_map();
+   SoupMessageHeaders *response_headers =
+-      soup_message_get_response_headers(message);
++      message_response_headers(message);
+   if (response_headers != nullptr) {
+     const gchar *mime_type =
+         soup_message_headers_get_content_type(response_headers, nullptr);
+@@ -255,25 +280,23 @@ void emit_soup_http_error(LinuxWebView *webview, SoupMessage *message,
+   send_event(webview, event);
+ }
+ 
+-void soup_load_request_cb(GObject *source_object, GAsyncResult *result,
++void soup_load_request_cb(SoupSession *session, SoupMessage *message,
+                           gpointer user_data) {
+   PendingSoupLoadRequest *pending =
+       static_cast<PendingSoupLoadRequest *>(user_data);
+-  GError *error = nullptr;
+-  GBytes *bytes =
+-      soup_session_send_and_read_finish(pending->session, result, &error);
+-
+-  if (error != nullptr) {
++  if (SOUP_STATUS_IS_TRANSPORT_ERROR(message->status_code)) {
++    const gchar *reason = message->reason_phrase;
+     respond(pending->method_call,
+-            error_response("load_request_error", error->message));
+-    g_clear_error(&error);
++            error_response("load_request_error",
++                           reason != nullptr ? reason : "Network error."));
+     destroy_pending_soup_load_request(pending);
+     return;
+   }
++
++  GBytes *bytes = soup_message_body_flatten(message->response_body);
+   if (bytes == nullptr) {
+     respond(pending->method_call,
+             error_response("load_request_error", "No response body returned."));
+@@ -287,7 +310,7 @@ void soup_load_request_cb(GObject *source_object, GAsyncResult *result,
+     emit_soup_http_error(webview, pending->message, pending->url);
+ 
+     SoupMessageHeaders *response_headers =
+-        soup_message_get_response_headers(pending->message);
++        message_response_headers(pending->message);
+     const gchar *mime_type =
+         response_headers == nullptr
+             ? nullptr
+@@ -318,7 +341,7 @@ void load_request_with_soup(WebKitWebView *web_view, FlMethodCall *method_call,
+   }
+ 
+   SoupMessageHeaders *request_headers =
+-      soup_message_get_request_headers(message);
++      message_request_headers(message);
+   append_headers_from_value(request_headers, headers);
+ 
+   GBytes *body = body_bytes_from_value(body_value);
+@@ -328,8 +351,8 @@ void load_request_with_soup(WebKitWebView *web_view, FlMethodCall *method_call,
+         request_headers == nullptr
+             ? nullptr
+             : soup_message_headers_get_content_type(request_headers, nullptr);
+-    soup_message_set_request_body_from_bytes(
+-        message,
++    set_message_request_body(
++        message,
+         content_type != nullptr ? content_type : "application/octet-stream",
+         body);
+     g_bytes_unref(body);
+@@ -343,10 +366,8 @@ void load_request_with_soup(WebKitWebView *web_view, FlMethodCall *method_call,
+   pending->message = SOUP_MESSAGE(g_object_ref(message));
+   pending->url = g_strdup(url);
+ 
+-  soup_session_send_and_read_async(pending->session, message,
+-                                   G_PRIORITY_DEFAULT, nullptr,
+-                                   soup_load_request_cb, pending);
+-  g_object_unref(message);
++  soup_session_queue_message(pending->session, message, soup_load_request_cb,
++                             pending);
+ }
+ 
+ } // namespace

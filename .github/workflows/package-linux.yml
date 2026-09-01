@@ -84,7 +84,12 @@ jobs:
           if [ "$TARGET_ARCH" = "amd64" ]; then
             plugin_cmake="$(find "$HOME/.pub-cache" -path '*/webview_all_linux-*/linux/CMakeLists.txt' -print -quit)"
             test -n "$plugin_cmake"
-            sed -i 's/webkit2gtk-4\.1/webkit2gtk-4.0/g' "$plugin_cmake"
+            plugin_root="$(dirname "$(dirname "$plugin_cmake")")"
+            (
+              cd "$plugin_root"
+              git apply --check --recount "$GITHUB_WORKSPACE/tooling/linux/webview_all_linux_soup2.patch"
+              git apply --recount "$GITHUB_WORKSPACE/tooling/linux/webview_all_linux_soup2.patch"
+            )
             grep -q 'webkit2gtk-4.0' "$plugin_cmake"
           fi
           sed -i "/  - libsecret-1-0/a\\  - $WEBKIT_RUNTIME_PACKAGE" linux/packaging/deb/make_config.yaml
