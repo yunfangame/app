@@ -93,7 +93,9 @@ jobs:
           )
 
       - name: Package stable Linux release
-        run: dart setup.dart linux --env stable --targets deb -v
+        run: |
+          export PATH="$HOME/.pub-cache/bin:$PATH"
+          dart setup.dart linux --env stable --targets deb -v
 
       - name: Verify Linux package
         env:
