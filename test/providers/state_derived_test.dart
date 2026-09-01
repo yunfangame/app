@@ -1,4 +1,5 @@
 import 'package:fl_clash/common/constant.dart';
+import 'package:fl_clash/common/network.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/app.dart';
@@ -220,7 +221,7 @@ void main() {
     final proxy = container.read(proxyStateProvider);
     expect(proxy.isStart, isTrue);
     expect(proxy.systemProxy, isFalse);
-    expect(proxy.bassDomain, ['localhost']);
+    expect(proxy.bassDomain, containsAll(localNetworkBypassDomains));
     expect(proxy.port, 8899);
     expect(container.read(isStartProvider), isTrue);
 

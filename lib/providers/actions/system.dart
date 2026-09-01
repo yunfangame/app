@@ -3,6 +3,7 @@ part of '../action.dart';
 @Riverpod(keepAlive: true)
 class SystemAction extends _$SystemAction {
   SystemExitCoordinator? _exitCoordinator;
+  final _trayScheduler = SerialTaskScheduler();
 
   @override
   void build() {}
@@ -26,6 +27,24 @@ class SystemAction extends _$SystemAction {
       exitApplication: exitApplication,
     );
     return coordinator.exit(cleanup: () => cleanupExitResources(needSave));
+  }
+
+  Future<void> handleLogout() async {
+    await Future.wait([stopRunningForLogout(), cleanupLogoutIntegrations()]);
+  }
+
+  @protected
+  Future<void> stopRunningForLogout() {
+    return ref.read(setupActionProvider.notifier).setRunning(false);
+  }
+
+  @protected
+  Future<void> cleanupLogoutIntegrations() async {
+    await Future.wait([
+      if (macOS != null) macOS!.updateDns(true),
+      if (proxy != null) proxy!.stopProxy(),
+      hideTray(),
+    ]);
   }
 
   @protected
@@ -95,8 +114,17 @@ class SystemAction extends _$SystemAction {
         .update((state) => state.copyWith(autoLaunch: !state.autoLaunch));
   }
 
-  Future<void> updateTray() async {
-    tray?.update(
+  @protected
+  bool get hasAuthenticatedSession => globalState.xboardSession != null;
+
+  @protected
+  Future<void> destroyTray() async {
+    await tray?.destroy();
+  }
+
+  @protected
+  Future<void> renderTray() async {
+    await tray?.update(
       trayState: ref.read(trayStateProvider),
       traffic: ref.read(
         trafficsProvider.select(
@@ -104,6 +132,15 @@ class SystemAction extends _$SystemAction {
         ),
       ),
     );
+  }
+
+  Future<void> hideTray() {
+    return _trayScheduler.run(destroyTray);
+  }
+
+  Future<void> updateTray() {
+    final shouldRender = hasAuthenticatedSession;
+    return _trayScheduler.run(shouldRender ? renderTray : destroyTray);
   }
 
   Future<void> updateLocalIp() async {

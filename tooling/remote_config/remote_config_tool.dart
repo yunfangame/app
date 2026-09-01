@@ -10,10 +10,10 @@ const defaultOutputPath = 'tooling/remote_config/ConFigOss4.json';
 
 Future<void> main(List<String> arguments) async {
   if (arguments.isEmpty ||
-      !{'keygen', 'seal', 'verify'}.contains(arguments[0])) {
+      !{'keygen', 'seal', 'verify', 'merge-v2'}.contains(arguments[0])) {
     stderr.writeln(
       'Usage: dart run tooling/remote_config/remote_config_tool.dart '
-      '<keygen|seal|verify> [path]',
+      '<keygen|seal|verify|merge-v2> [path]',
     );
     exitCode = 64;
     return;
@@ -35,7 +35,70 @@ Future<void> main(List<String> arguments) async {
         keysPath: arguments.elementAtOrNull(2) ?? defaultKeysPath,
       );
       return;
+    case 'merge-v2':
+      await _mergeSubscriptionV2(
+        sourcePath: arguments.elementAtOrNull(1) ?? defaultSourcePath,
+        publicConfigPath: arguments.elementAtOrNull(2) ?? '',
+        enabled: switch (arguments.elementAtOrNull(3)) {
+          'true' => true,
+          'false' => false,
+          _ => null,
+        },
+      );
+      return;
   }
+}
+
+Future<void> _mergeSubscriptionV2({
+  required String sourcePath,
+  required String publicConfigPath,
+  required bool? enabled,
+}) async {
+  if (publicConfigPath.isEmpty) {
+    throw const FormatException('V2 public config path is required');
+  }
+  final source = jsonDecode(await File(sourcePath).readAsString());
+  final publicConfig = jsonDecode(await File(publicConfigPath).readAsString());
+  if (source is! Map || publicConfig is! Map) {
+    throw const FormatException('V2 config inputs must be JSON objects');
+  }
+  final gatewayPath = publicConfig['gatewayPath']?.toString() ?? '';
+  final gateway = Uri.tryParse(gatewayPath);
+  final keyId = publicConfig['keyId']?.toString() ?? '';
+  final encryptionKey = decodeRemoteConfigBase64(
+    publicConfig['serverEncryptionPublicKey']?.toString() ?? '',
+  );
+  final signingKey = decodeRemoteConfigBase64(
+    publicConfig['serverSigningPublicKey']?.toString() ?? '',
+  );
+  if (gateway == null ||
+      gateway.isAbsolute ||
+      !gatewayPath.startsWith('/api/v2/') ||
+      gateway.hasQuery ||
+      gateway.hasFragment ||
+      keyId.isEmpty ||
+      encryptionKey.length != 32 ||
+      signingKey.length != 32) {
+    throw const FormatException('Invalid V2 public config');
+  }
+  final updated = Map<String, Object?>.from(
+    source.map((key, value) => MapEntry(key.toString(), value)),
+  );
+  updated['subscriptionV2'] = <String, Object?>{
+    'enabled': enabled ?? (publicConfig['enabled'] == true),
+    'gatewayPath': gatewayPath,
+    'keyId': keyId,
+    'serverEncryptionPublicKey': publicConfig['serverEncryptionPublicKey'],
+    'serverSigningPublicKey': publicConfig['serverSigningPublicKey'],
+  };
+  final sourceFile = File(sourcePath);
+  final temporary = File('$sourcePath.subscription-v2.tmp');
+  await temporary.writeAsString(
+    '${const JsonEncoder.withIndent('  ').convert(updated)}\n',
+    flush: true,
+  );
+  await temporary.rename(sourceFile.path);
+  stdout.writeln('Updated V2 public config in $sourcePath');
 }
 
 Future<void> _generateKeys(String keysPath) async {

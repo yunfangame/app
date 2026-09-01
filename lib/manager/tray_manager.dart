@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/providers/action.dart';
 import 'package:fl_clash/providers/state.dart';
+import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tray_manager/tray_manager.dart';
@@ -15,10 +18,17 @@ class TrayManager extends ConsumerStatefulWidget {
 }
 
 class _TrayContainerState extends ConsumerState<TrayManager> with TrayListener {
+  void _syncAuthenticationTray() {
+    unawaited(ref.read(systemActionProvider.notifier).updateTray());
+  }
+
   @override
   void initState() {
     super.initState();
     trayManager.addListener(this);
+    globalState.xboardSessionRevisionNotifier.addListener(
+      _syncAuthenticationTray,
+    );
     ref.listenManual(trayStateProvider, (prev, next) {
       if (prev != next) {
         ref.read(systemActionProvider.notifier).updateTray();
@@ -34,6 +44,9 @@ class _TrayContainerState extends ConsumerState<TrayManager> with TrayListener {
         }
       });
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _syncAuthenticationTray();
+    });
   }
 
   @override
@@ -60,6 +73,9 @@ class _TrayContainerState extends ConsumerState<TrayManager> with TrayListener {
 
   @override
   void dispose() {
+    globalState.xboardSessionRevisionNotifier.removeListener(
+      _syncAuthenticationTray,
+    );
     trayManager.removeListener(this);
     super.dispose();
   }

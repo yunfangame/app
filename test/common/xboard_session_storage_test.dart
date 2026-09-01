@@ -23,6 +23,7 @@ void main() {
       token: 'subscription-token',
       authData: 'Bearer login-token',
       isAdmin: false,
+      secureSubscription: true,
     );
 
     final stored = await storage.load();
@@ -33,8 +34,38 @@ void main() {
     expect(stored.email, 'user@example.com');
     expect(stored.token, 'subscription-token');
     expect(stored.authData, 'Bearer login-token');
+    expect(stored.secureSubscription, isTrue);
     expect(preferences.getKeys(), isNot(contains('xboard.token')));
     expect(preferences.getKeys(), isNot(contains('xboard.auth_data')));
+  });
+
+  test('macOS Debug storage avoids Keychain and persists a session', () async {
+    final storage = XboardSessionStorage(useLocalDebugStorage: true);
+
+    await storage.save(
+      email: 'debug@example.com',
+      rememberMe: true,
+      autoLogin: true,
+      endpoint: Uri.parse('https://api.example.com'),
+      token: 'debug-subscription-token',
+      authData: 'Bearer debug-login-token',
+      isAdmin: false,
+      secureSubscription: true,
+    );
+
+    final stored = await storage.load();
+    final preferences = await SharedPreferences.getInstance();
+    expect(stored.token, 'debug-subscription-token');
+    expect(stored.authData, 'Bearer debug-login-token');
+    expect(stored.secureSubscription, isTrue);
+    expect(preferences.getString('xboard.token'), isNull);
+    expect(preferences.getString('xboard.auth_data'), isNull);
+    expect(preferences.getString('xboard.debug.token'), isNotNull);
+    expect(preferences.getString('xboard.debug.auth_data'), isNotNull);
+
+    await storage.clear();
+    expect(preferences.getString('xboard.debug.token'), isNull);
+    expect(preferences.getString('xboard.debug.auth_data'), isNull);
   });
 
   test('disabling remember me clears all persisted login data', () async {
@@ -136,6 +167,7 @@ void main() {
       token: 'token',
       authData: 'Bearer auth',
       isAdmin: false,
+      secureSubscription: true,
       subscription: XboardSubscriptionData(
         endpoint: endpoint,
         subscribeUrl: Uri.parse('https://api.example.com/subscribe'),
@@ -178,6 +210,8 @@ void main() {
     expect(cache.subscription.plan?.name, 'Offline plan');
     expect(cache.nodes.single.rate, 1.5);
     expect(cache.nodes.single.tags, ['HK']);
+    expect(cache.secureSubscription, isTrue);
+    expect(cache.toSession().secureSubscription, isTrue);
     expect(cache.isUsableAt(verifiedAt.add(const Duration(days: 2))), isTrue);
     expect(cache.isUsableAt(verifiedAt.add(const Duration(days: 4))), isFalse);
 

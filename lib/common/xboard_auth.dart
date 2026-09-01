@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 
 import 'api_endpoint_preference.dart';
 import 'api_health.dart';
+import 'subscription_v2.dart';
 
 const xboardLoginPath = '/api/v1/passport/auth/login';
 const xboardSubscribePath = '/api/v1/user/getSubscribe';
@@ -72,6 +73,7 @@ class XboardLoginResult {
     required this.authData,
     required this.isAdmin,
     required this.subscription,
+    this.secureSubscription = false,
     this.rawData = const {},
   });
 
@@ -80,9 +82,10 @@ class XboardLoginResult {
   final String authData;
   final bool isAdmin;
   final XboardSubscriptionData subscription;
+  final bool secureSubscription;
   final Map<String, Object?> rawData;
 
-  Uri get subscribeUrl => subscription.subscribeUrl;
+  Uri? get subscribeUrl => subscription.subscribeUrl;
 }
 
 class XboardSubscriptionData {
@@ -106,7 +109,7 @@ class XboardSubscriptionData {
   });
 
   final Uri endpoint;
-  final Uri subscribeUrl;
+  final Uri? subscribeUrl;
   final int uploadBytes;
   final int downloadBytes;
   final int transferEnableBytes;
@@ -698,6 +701,7 @@ class XboardAuthService {
     XboardEmailVerificationRequester? emailVerificationRequester,
     XboardRegistrationRequester? registrationRequester,
     XboardPasswordResetRequester? passwordResetRequester,
+    SubscriptionV2Client? subscriptionV2Client,
   }) : _apiHealthService = apiHealthService ?? ApiHealthService(),
        _dio =
            dio ??
@@ -734,7 +738,8 @@ class XboardAuthService {
        _guestConfigRequester = guestConfigRequester,
        _emailVerificationRequester = emailVerificationRequester,
        _registrationRequester = registrationRequester,
-       _passwordResetRequester = passwordResetRequester;
+       _passwordResetRequester = passwordResetRequester,
+       _subscriptionV2Client = subscriptionV2Client;
 
   final ApiHealthService _apiHealthService;
   final Dio _dio;
@@ -765,6 +770,7 @@ class XboardAuthService {
   final XboardEmailVerificationRequester? _emailVerificationRequester;
   final XboardRegistrationRequester? _registrationRequester;
   final XboardPasswordResetRequester? _passwordResetRequester;
+  final SubscriptionV2Client? _subscriptionV2Client;
 
   XboardLoginResult? _currentSession;
   XboardGuestConfig? _currentGuestConfig;
@@ -1089,8 +1095,27 @@ class XboardAuthService {
   Future<XboardSubscriptionData> fetchSubscription({
     required Uri endpoint,
     required String authData,
+    String? userToken,
+    bool secureSubscription = false,
   }) async {
     final requestEndpoint = buildXboardSubscribeUri(endpoint);
+    if (secureSubscription) {
+      final normalizedToken = userToken?.trim() ?? '';
+      if (normalizedToken.isEmpty) {
+        throw XboardAuthException(
+          failure: XboardAuthFailure.authenticationRejected,
+          message: '本地安全订阅凭证不完整，请重新登录',
+          endpoint: requestEndpoint,
+        );
+      }
+      try {
+        final summary = await (_subscriptionV2Client ?? SubscriptionV2Client())
+            .fetchSummary(endpoint: endpoint, userToken: normalizedToken);
+        return _parseSubscriptionSuccess(requestEndpoint, {'data': summary});
+      } on SubscriptionV2Exception catch (error) {
+        throw _mapSubscriptionV2Error(error, requestEndpoint);
+      }
+    }
     final response = await (_subscriptionRequester ?? _requestSubscription)(
       requestEndpoint,
       authData,
@@ -1282,10 +1307,31 @@ class XboardAuthService {
     );
   }
 
-  Future<Uri> resetSecurity({
+  Future<Uri?> resetSecurity({
     required Uri endpoint,
     required String authData,
+    String? userToken,
+    bool secureSubscription = false,
   }) async {
+    if (secureSubscription) {
+      final normalizedToken = userToken?.trim() ?? '';
+      if (normalizedToken.isEmpty) {
+        throw XboardAuthException(
+          failure: XboardAuthFailure.authenticationRejected,
+          message: '本地安全订阅凭证不完整，请重新登录',
+          endpoint: endpoint,
+        );
+      }
+      try {
+        await (_subscriptionV2Client ?? SubscriptionV2Client()).resetSecurity(
+          endpoint: endpoint,
+          userToken: normalizedToken,
+        );
+        return null;
+      } on SubscriptionV2Exception catch (error) {
+        throw _mapSubscriptionV2Error(error, endpoint);
+      }
+    }
     final requestEndpoint = buildXboardResetSecurityUri(endpoint);
     final response = await (_resetSecurityRequester ?? _requestResetSecurity)(
       requestEndpoint,
@@ -1293,7 +1339,9 @@ class XboardAuthService {
     );
     final body = _decodeResponseMap(response.data, apiName: '重置订阅接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      final subscribeUrl = Uri.tryParse(body['data']?.toString().trim() ?? '');
+      final rawUrl = body['data']?.toString().trim() ?? '';
+      if (rawUrl.isEmpty) return null;
+      final subscribeUrl = Uri.tryParse(rawUrl);
       if (subscribeUrl == null ||
           !{'http', 'https'}.contains(subscribeUrl.scheme) ||
           subscribeUrl.host.isEmpty) {
@@ -1698,6 +1746,7 @@ class XboardAuthService {
     required String token,
     required String authData,
     bool isAdmin = false,
+    bool secureSubscription = false,
   }) async {
     final normalizedToken = token.trim();
     final normalizedAuthData = authData.trim();
@@ -1753,17 +1802,28 @@ class XboardAuthService {
         'is_admin': isAdmin,
       }),
     );
-    final subscription = await _fetchSubscription(
-      auth: auth,
-      preferredEndpoint: endpoints.first,
-      endpoints: endpoints,
-    );
+    late final XboardSubscriptionData subscription;
+    if (secureSubscription) {
+      subscription = await fetchSubscription(
+        endpoint: endpoints.first,
+        authData: normalizedAuthData,
+        userToken: normalizedToken,
+        secureSubscription: true,
+      );
+    } else {
+      subscription = await _fetchSubscription(
+        auth: auth,
+        preferredEndpoint: endpoints.first,
+        endpoints: endpoints,
+      );
+    }
     final result = XboardLoginResult(
       endpoint: auth.endpoint,
       token: auth.token,
       authData: auth.authData,
       isAdmin: auth.isAdmin,
       subscription: subscription,
+      secureSubscription: secureSubscription,
       rawData: auth.rawData,
     );
     _currentSession = result;
@@ -1773,6 +1833,8 @@ class XboardAuthService {
   Future<XboardLoginResult> login({
     required String email,
     required String password,
+    String appVersion = 'unknown',
+    String? platform,
   }) async {
     final endpoints = await (_endpointLoader ?? _loadAvailableEndpoints)();
     if (endpoints.isEmpty) {
@@ -1780,6 +1842,76 @@ class XboardAuthService {
         failure: XboardAuthFailure.noAvailableHost,
         message: '当前没有可用的 API 节点，请刷新后重试',
       );
+    }
+
+    final secureClient = _subscriptionV2Client;
+    if (secureClient != null) {
+      XboardAuthException? secureFailure;
+      var useLegacyLogin = false;
+      for (final baseEndpoint in endpoints) {
+        final loginEndpoint = buildXboardLoginUri(baseEndpoint);
+        try {
+          final secure = await secureClient.secureLogin(
+            endpoint: baseEndpoint,
+            email: email,
+            password: password,
+            appVersion: appVersion,
+            platform: platform,
+          );
+          if (secure == null) {
+            useLegacyLogin = true;
+            break;
+          }
+          final subscription = _parseSubscriptionSuccess(loginEndpoint, {
+            'data': secure.subscription,
+          });
+          final result = XboardLoginResult(
+            endpoint: loginEndpoint,
+            token: secure.token,
+            authData: secure.authData,
+            isAdmin: secure.isAdmin,
+            subscription: subscription,
+            secureSubscription: true,
+            rawData: secure.rawData,
+          );
+          _currentSession = result;
+          return result;
+        } on SubscriptionV2Exception catch (error) {
+          final mapped = _mapSubscriptionV2Error(error, loginEndpoint);
+          if (error.code != 'gateway_unavailable' &&
+              error.code != 'temporary_unavailable') {
+            throw mapped;
+          }
+          secureFailure = mapped;
+        } on DioException {
+          secureFailure = XboardAuthException(
+            failure: XboardAuthFailure.unavailable,
+            message: '安全登录网关连接失败',
+            endpoint: loginEndpoint,
+          );
+        } on TimeoutException {
+          secureFailure = XboardAuthException(
+            failure: XboardAuthFailure.unavailable,
+            message: '安全登录网关连接超时',
+            endpoint: loginEndpoint,
+          );
+        } on FormatException {
+          secureFailure = XboardAuthException(
+            failure: XboardAuthFailure.unavailable,
+            message: '安全登录配置校验失败',
+            endpoint: loginEndpoint,
+          );
+        } catch (_) {
+          secureFailure = XboardAuthException(
+            failure: XboardAuthFailure.unavailable,
+            message: '安全登录请求失败',
+            endpoint: loginEndpoint,
+          );
+        }
+      }
+      if (!useLegacyLogin && secureFailure != null) {
+        throw secureFailure;
+      }
     }
 
     XboardAuthException? lastFailure;
@@ -1813,6 +1945,7 @@ class XboardAuthService {
             authData: auth.authData,
             isAdmin: auth.isAdmin,
             subscription: subscription,
+            secureSubscription: false,
             rawData: auth.rawData,
           );
           _currentSession = result;
@@ -1878,6 +2011,53 @@ class XboardAuthService {
           failure: XboardAuthFailure.unavailable,
           message: '所有 API 节点均不可用，请稍后重试',
         );
+  }
+
+  XboardAuthException _mapSubscriptionV2Error(
+    SubscriptionV2Exception error,
+    Uri endpoint,
+  ) {
+    if (error.code == 'invalid_credentials') {
+      return XboardAuthException(
+        failure: XboardAuthFailure.authenticationRejected,
+        message: '邮箱或密码错误',
+        endpoint: endpoint,
+      );
+    }
+    if (error.code == 'rate_limited') {
+      return XboardAuthException(
+        failure: XboardAuthFailure.rateLimited,
+        message: '登录尝试过于频繁，请稍后再试',
+        endpoint: endpoint,
+      );
+    }
+    if (error.code == 'device_limit_reached') {
+      return XboardAuthException(
+        failure: XboardAuthFailure.authenticationRejected,
+        message: '已达到安全设备数量上限，请先在已登录设备退出账号',
+        endpoint: endpoint,
+      );
+    }
+    if (error.code == 'device_not_registered' ||
+        error.code == 'secure_config_disabled') {
+      return XboardAuthException(
+        failure: XboardAuthFailure.authenticationRejected,
+        message: '安全设备凭证已失效，请重新登录',
+        endpoint: endpoint,
+      );
+    }
+    if (error.code == 'subscription_unavailable') {
+      return XboardAuthException(
+        failure: XboardAuthFailure.subscriptionUnavailable,
+        message: '当前订阅不可用',
+        endpoint: endpoint,
+      );
+    }
+    return XboardAuthException(
+      failure: XboardAuthFailure.unavailable,
+      message: '安全订阅服务暂时不可用，请稍后重试',
+      endpoint: endpoint,
+    );
   }
 
   Future<List<Uri>> _loadAvailableEndpoints() async {
@@ -2583,9 +2763,10 @@ XboardSubscriptionData _parseSubscriptionSuccess(
   final subscribeUrl = subscribeUrlText == null
       ? null
       : Uri.tryParse(subscribeUrlText);
-  if (subscribeUrl == null ||
-      !{'http', 'https'}.contains(subscribeUrl.scheme) ||
-      subscribeUrl.host.isEmpty) {
+  if (subscribeUrlText != null &&
+      (subscribeUrl == null ||
+          !{'http', 'https'}.contains(subscribeUrl.scheme) ||
+          subscribeUrl.host.isEmpty)) {
     throw XboardAuthException(
       failure: XboardAuthFailure.invalidResponse,
       message: '订阅信息响应缺少有效的 subscribe_url',

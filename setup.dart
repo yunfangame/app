@@ -57,6 +57,7 @@ Future<void> main(List<String> args) async {
   final targets = _getTargets(platform, arch, results['targets']);
   final androidArch = results['arch'] as String?;
   final verbose = results['verbose'] as bool;
+  final macOsFileSecretStorage = results['macos-file-secret-storage'] as bool;
 
   final exitCode = await _package(
     platform,
@@ -66,6 +67,7 @@ Future<void> main(List<String> args) async {
     arch,
     androidArch: androidArch,
     verbose: verbose,
+    macOsFileSecretStorage: macOsFileSecretStorage,
   );
   exit(exitCode);
 }
@@ -94,6 +96,11 @@ ArgParser createSetupArgParser() {
       abbr: 'v',
       negatable: false,
       help: 'Enable verbose Flutter build output',
+    )
+    ..addFlag(
+      'macos-file-secret-storage',
+      negatable: false,
+      help: 'Use encrypted local secret storage for unsigned macOS builds',
     );
 }
 
@@ -117,8 +124,10 @@ Map<String, String> createBuildEnvironment(String env) {
 
 Future<Map<String, String>> loadBuildEnvironment(
   String rootDir,
-  String env,
-) async {
+  String env, {
+  String? apiHealthConfigUrl,
+  bool macOsFileSecretStorage = false,
+}) async {
   final environment = createBuildEnvironment(env);
   final keysFile = File(
     p.join(rootDir, 'tooling', 'remote_config', 'keys.json'),
@@ -137,13 +146,41 @@ Future<Map<String, String>> loadBuildEnvironment(
   environment['REMOTE_CONFIG_AES_KEY'] = decoded['aesKey'] as String;
   environment['REMOTE_CONFIG_SIGNING_PUBLIC_KEY'] =
       decoded['signingPublicKey'] as String;
+  final configUrl = apiHealthConfigUrl?.trim();
+  if (configUrl != null && configUrl.isNotEmpty) {
+    final uri = Uri.tryParse(configUrl);
+    if (uri == null ||
+        !uri.hasScheme ||
+        !uri.hasAuthority ||
+        (uri.scheme != 'http' && uri.scheme != 'https') ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
+      throw const FormatException('Invalid API health config URL');
+    }
+    environment['API_HEALTH_CONFIG_URL'] = uri.toString();
+  }
+  if (macOsFileSecretStorage) {
+    environment['MACOS_FILE_SECRET_STORAGE'] = 'true';
+  }
   return environment;
 }
 
-Future<File> writeBuildEnvironmentFile(String rootDir, String env) async {
+Future<File> writeBuildEnvironmentFile(
+  String rootDir,
+  String env, {
+  String? apiHealthConfigUrl,
+  bool macOsFileSecretStorage = false,
+}) async {
   final file = File(p.join(rootDir, 'env.json'));
   await file.writeAsString(
-    jsonEncode(await loadBuildEnvironment(rootDir, env)),
+    jsonEncode(
+      await loadBuildEnvironment(
+        rootDir,
+        env,
+        apiHealthConfigUrl: apiHealthConfigUrl,
+        macOsFileSecretStorage: macOsFileSecretStorage,
+      ),
+    ),
   );
   return file;
 }
@@ -172,8 +209,13 @@ Future<int> _package(
   String arch, {
   String? androidArch,
   required bool verbose,
+  required bool macOsFileSecretStorage,
 }) async {
-  await writeBuildEnvironmentFile(rootDir, env);
+  await writeBuildEnvironmentFile(
+    rootDir,
+    env,
+    macOsFileSecretStorage: macOsFileSecretStorage,
+  );
 
   final flutterBuildArgs = createFlutterBuildArgs(
     platform: platform,
@@ -187,7 +229,11 @@ Future<int> _package(
   final depExit = await _ensureDependencies(platform, arch);
   if (depExit != 0) return depExit;
 
-  final globalPackages = await Process.run('dart', ['pub', 'global', 'list']);
+  final globalPackages = await Process.run(Platform.resolvedExecutable, [
+    'pub',
+    'global',
+    'list',
+  ]);
   final distributorInstalled =
       globalPackages.exitCode == 0 &&
       globalPackages.stdout
@@ -195,7 +241,7 @@ Future<int> _package(
           .split(RegExp(r'\r?\n'))
           .any((line) => line.startsWith('flutter_distributor '));
   if (!distributorInstalled) {
-    final activateResult = await Process.run('dart', [
+    final activateResult = await Process.run(Platform.resolvedExecutable, [
       'pub',
       'global',
       'activate',

@@ -39,8 +39,12 @@ class ApplicationState extends ConsumerState<Application> {
   bool _offlineAvailable = false;
   _AuthenticationBootstrap _authenticationBootstrap =
       _AuthenticationBootstrap.loading;
-  final _xboardAuthService = XboardAuthService();
-  final _xboardSessionStorage = XboardSessionStorage();
+  final _xboardAuthService = XboardAuthService(
+    subscriptionV2Client: SubscriptionV2Client(),
+  );
+  final _xboardSessionStorage = XboardSessionStorage(
+    secretStore: createPlatformSecretStringStore(),
+  );
   final _appReadyCompleter = Completer<void>();
 
   void _openHome() {
@@ -120,6 +124,7 @@ class ApplicationState extends ConsumerState<Application> {
           token: storedSession.token!,
           authData: storedSession.authData!,
           isAdmin: storedSession.isAdmin,
+          secureSubscription: storedSession.secureSubscription,
         );
         if (!mounted) return;
         globalState.activateXboardSession(session);
@@ -190,6 +195,7 @@ class ApplicationState extends ConsumerState<Application> {
         token: session.token,
         authData: session.authData,
         isAdmin: session.isAdmin,
+        secureSubscription: session.secureSubscription,
       );
     } catch (error, stackTrace) {
       commonPrint.log('save XBoard session failed: $error, $stackTrace');
@@ -202,15 +208,44 @@ class ApplicationState extends ConsumerState<Application> {
     try {
       await _appReadyCompleter.future;
       final planName = session.subscription.plan?.name?.trim();
-      final subscriptionUrl = session.subscribeUrl.toString();
       final previousUrl = await _xboardSessionStorage.loadManagedProfileUrl();
+      final label = planName == null || planName.isEmpty
+          ? currentAppLocalizations.brandName
+          : planName;
+      final secureProfile = await SubscriptionV2Client().fetchProfile(
+        endpoint: session.endpoint,
+        userToken: session.token,
+        appVersion: globalState.packageInfo.version,
+        allowTokenRegistration: !session.secureSubscription,
+      );
+      if (secureProfile != null) {
+        await ref
+            .read(profilesActionProvider.notifier)
+            .syncSubscriptionProfileBytes(
+              secureProfile.bytes,
+              sourceId: secureProfile.sourceId,
+              label: label,
+              replacingUrl: previousUrl,
+              removeLegacyXboardProfiles: true,
+            );
+        await _xboardSessionStorage.setManagedProfileUrl(
+          secureProfile.sourceId,
+        );
+        return;
+      }
+      if (session.secureSubscription) {
+        throw const SubscriptionV2Exception('secure_profile_unavailable');
+      }
+      final legacyUrl = session.subscribeUrl;
+      if (legacyUrl == null) {
+        throw const SubscriptionV2Exception('legacy_subscription_unavailable');
+      }
+      final subscriptionUrl = legacyUrl.toString();
       await ref
           .read(profilesActionProvider.notifier)
           .syncSubscriptionProfile(
             subscriptionUrl,
-            label: planName == null || planName.isEmpty
-                ? currentAppLocalizations.brandName
-                : planName,
+            label: label,
             replacingUrl: previousUrl,
           );
       await _xboardSessionStorage.setManagedProfileUrl(subscriptionUrl);
@@ -245,14 +280,35 @@ class ApplicationState extends ConsumerState<Application> {
   }
 
   Future<void> _logoutXboard() async {
-    final activeSubscriptionUrl = globalState.xboardSession?.subscribeUrl
-        .toString();
+    final activeSession = globalState.xboardSession;
+    final activeSubscriptionUrl = activeSession?.subscribeUrl?.toString();
     final managedProfileUrl = await _xboardSessionStorage
         .loadManagedProfileUrl();
     final subscriptionUrls = <String>{
       ?activeSubscriptionUrl,
       ?managedProfileUrl,
     };
+    try {
+      await ref.read(systemActionProvider.notifier).handleLogout();
+    } catch (error, stackTrace) {
+      commonPrint.log(
+        'cleanup logout resources failed: $error, $stackTrace',
+        logLevel: LogLevel.warning,
+      );
+    }
+    if (activeSession != null && activeSession.token.isNotEmpty) {
+      try {
+        await SubscriptionV2Client().revokeDevice(
+          endpoint: activeSession.endpoint,
+          userToken: activeSession.token,
+        );
+      } catch (error, stackTrace) {
+        commonPrint.log(
+          'clear V2 device credential failed: $error, $stackTrace',
+          logLevel: LogLevel.warning,
+        );
+      }
+    }
     globalState.clearXboardSession();
     for (final url in subscriptionUrls) {
       try {
@@ -325,6 +381,7 @@ class ApplicationState extends ConsumerState<Application> {
         token: storedSession.token!,
         authData: storedSession.authData!,
         isAdmin: storedSession.isAdmin,
+        secureSubscription: storedSession.secureSubscription,
       );
       globalState.activateXboardSession(session);
       await _loadXboardNodes(session, ignoreOfflineMode: true);
@@ -365,6 +422,8 @@ class ApplicationState extends ConsumerState<Application> {
         final subscription = await _xboardAuthService.fetchSubscription(
           endpoint: activeSession.endpoint,
           authData: activeSession.authData,
+          userToken: activeSession.token,
+          secureSubscription: activeSession.secureSubscription,
         );
         if (!globalState.isActiveXboardSession(activeSession, activeRevision)) {
           return false;
@@ -374,17 +433,22 @@ class ApplicationState extends ConsumerState<Application> {
             _sameSubscriptionState(activeSession.subscription, subscription)) {
           continue;
         }
+        final refreshedToken = subscription.token?.trim();
         final updatedSession = XboardLoginResult(
           endpoint: activeSession.endpoint,
-          token: activeSession.token,
+          token: refreshedToken == null || refreshedToken.isEmpty
+              ? activeSession.token
+              : refreshedToken,
           authData: activeSession.authData,
           isAdmin: activeSession.isAdmin,
           subscription: subscription,
+          secureSubscription: activeSession.secureSubscription,
           rawData: activeSession.rawData,
         );
         final nodes = globalState.xboardNodes;
         globalState.activateXboardSession(updatedSession, nodes: nodes);
         try {
+          await _xboardSessionStorage.updateStoredToken(updatedSession.token);
           await _xboardSessionStorage.saveOfflineCache(
             session: updatedSession,
             nodes: nodes,
@@ -396,7 +460,7 @@ class ApplicationState extends ConsumerState<Application> {
             logLevel: LogLevel.warning,
           );
         }
-        unawaited(_syncSubscriptionAfterPayment(updatedSession));
+        await _syncSubscriptionProfile(updatedSession);
         return true;
       } catch (error, stackTrace) {
         lastError = error;
@@ -425,17 +489,6 @@ class ApplicationState extends ConsumerState<Application> {
         previous.transferEnableBytes == current.transferEnableBytes &&
         previous.expiredAtEpochSeconds == current.expiredAtEpochSeconds &&
         previous.nextResetAtEpochSeconds == current.nextResetAtEpochSeconds;
-  }
-
-  Future<void> _syncSubscriptionAfterPayment(XboardLoginResult session) async {
-    try {
-      await _syncSubscriptionProfile(session);
-    } catch (error, stackTrace) {
-      commonPrint.log(
-        'sync subscription profile after payment failed: $error, $stackTrace',
-        logLevel: LogLevel.warning,
-      );
-    }
   }
 
   Future<void> _openOfflineHome() async {
@@ -576,6 +629,7 @@ class ApplicationState extends ConsumerState<Application> {
         final session = await _xboardAuthService.login(
           email: email,
           password: password,
+          appVersion: globalState.packageInfo.version,
         );
         globalState.activateXboardSession(session);
         await _loadXboardNodes(session, ignoreOfflineMode: true);

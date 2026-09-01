@@ -56,12 +56,6 @@ class ProfilesAction extends _$ProfilesAction {
     ref.read(currentProfileIdProvider.notifier).value = profile.id;
   }
 
-  /// Downloads an authenticated subscription through the normal FlClash
-  /// profile pipeline, selects it, and waits until the core applies its nodes.
-  ///
-  /// A profile with the exact same subscription URL is updated in place so
-  /// repeated sign-ins do not create duplicates. Nothing is persisted until
-  /// the subscription has downloaded and passed core validation.
   Future<Profile> syncSubscriptionProfile(
     String url, {
     String? label,
@@ -108,6 +102,77 @@ class ProfilesAction extends _$ProfilesAction {
     return updatedProfile;
   }
 
+  Future<Profile> syncSubscriptionProfileBytes(
+    Uint8List bytes, {
+    required String sourceId,
+    String? label,
+    String? replacingUrl,
+    bool removeLegacyXboardProfiles = false,
+    Future<Profile> Function(Profile profile, Uint8List bytes)? loader,
+    Future<void> Function(int profileId)? effectClearer,
+  }) async {
+    if (!isSubscriptionV2ProfileSource(sourceId)) {
+      throw ArgumentError.value(sourceId, 'sourceId', 'Invalid V2 source');
+    }
+    final profiles = ref.read(profilesProvider);
+    Profile? existingProfile;
+    for (final profile in profiles) {
+      if (profile.url == sourceId) {
+        existingProfile = profile;
+        break;
+      }
+    }
+    if (existingProfile == null && replacingUrl != null) {
+      for (final profile in profiles) {
+        if (profile.url == replacingUrl) {
+          existingProfile = profile.copyWith(url: sourceId);
+          break;
+        }
+      }
+    }
+    final sourceProfile =
+        existingProfile ?? Profile.normal(label: label, url: sourceId);
+    final updatedProfile =
+        await (loader ?? (profile, content) => profile.saveFile(content))(
+          sourceProfile,
+          bytes,
+        );
+    ref.read(profilesProvider.notifier).put(updatedProfile);
+    ref.read(currentProfileIdProvider.notifier).value = updatedProfile.id;
+    await ref
+        .read(setupActionProvider.notifier)
+        .applyProfile(force: true, silence: true);
+    if (replacingUrl != null && replacingUrl != sourceId) {
+      await removeSubscriptionProfile(
+        replacingUrl,
+        effectClearer: effectClearer,
+      );
+    }
+    if (removeLegacyXboardProfiles) {
+      await removeLegacyXboardSubscriptionProfiles(
+        effectClearer: effectClearer,
+      );
+    }
+    return updatedProfile;
+  }
+
+  Future<void> removeLegacyXboardSubscriptionProfiles({
+    Future<void> Function(int profileId)? effectClearer,
+  }) async {
+    final legacyProfiles = ref
+        .read(profilesProvider)
+        .where(
+          (profile) => isLegacyXboardSubscriptionProfileSource(profile.url),
+        )
+        .toList(growable: false);
+    for (final profile in legacyProfiles) {
+      await removeSubscriptionProfile(
+        profile.url,
+        effectClearer: effectClearer,
+      );
+    }
+  }
+
   Future<void> removeSubscriptionProfile(
     String url, {
     Future<void> Function(int profileId)? effectClearer,
@@ -144,7 +209,9 @@ class ProfilesAction extends _$ProfilesAction {
         ref.read(isUpdatingProvider(profile.updatingKey).notifier).value = true;
       }
       ref.read(profilesProvider.notifier).put(profile);
-      final newProfile = await profile.update();
+      final newProfile = isSubscriptionV2ProfileSource(profile.url)
+          ? await _updateSubscriptionV2Profile(profile)
+          : await profile.update();
       ref.read(profilesProvider.notifier).put(newProfile);
       if (profile.id == ref.read(currentProfileIdProvider)) {
         ref
@@ -154,6 +221,26 @@ class ProfilesAction extends _$ProfilesAction {
     } finally {
       ref.read(isUpdatingProvider(profile.updatingKey).notifier).value = false;
     }
+  }
+
+  Future<Profile> _updateSubscriptionV2Profile(Profile profile) async {
+    final session = globalState.xboardSession;
+    if (session == null || globalState.isOfflineMode) {
+      throw const SubscriptionV2Exception('authenticated_session_required');
+    }
+    final result = await SubscriptionV2Client().fetchProfile(
+      endpoint: session.endpoint,
+      userToken: session.token,
+      appVersion: globalState.packageInfo.version,
+    );
+    if (result == null) {
+      throw const SubscriptionV2Exception('gray_access_removed');
+    }
+    final updated = await profile
+        .copyWith(url: result.sourceId)
+        .saveFile(result.bytes);
+    await XboardSessionStorage().setManagedProfileUrl(result.sourceId);
+    return updated;
   }
 
   Future<void> addProfileFormFile() async {

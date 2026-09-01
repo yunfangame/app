@@ -4,6 +4,8 @@ import 'package:fl_clash/common/xboard_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'local_secret_store.dart';
+
 const xboardOfflineGracePeriod = Duration(days: 3);
 
 class XboardOfflineCache {
@@ -12,12 +14,14 @@ class XboardOfflineCache {
     required this.subscription,
     required this.nodes,
     required this.isAdmin,
+    this.secureSubscription = false,
   });
 
   final DateTime verifiedAt;
   final XboardSubscriptionData subscription;
   final List<XboardNodeData> nodes;
   final bool isAdmin;
+  final bool secureSubscription;
 
   bool isUsableAt(DateTime now) {
     final expiresAt = subscription.expiresAt;
@@ -33,6 +37,7 @@ class XboardOfflineCache {
       authData: '',
       isAdmin: isAdmin,
       subscription: subscription,
+      secureSubscription: secureSubscription,
     );
   }
 }
@@ -46,6 +51,7 @@ class XboardStoredSession {
     this.token,
     this.authData,
     this.isAdmin = false,
+    this.secureSubscription = false,
   });
 
   final bool rememberMe;
@@ -55,6 +61,7 @@ class XboardStoredSession {
   final String? token;
   final String? authData;
   final bool isAdmin;
+  final bool secureSubscription;
 
   bool get canAutoLogin =>
       rememberMe &&
@@ -70,8 +77,11 @@ class XboardStoredSession {
 class XboardSessionStorage {
   XboardSessionStorage({
     FlutterSecureStorage? secureStorage,
+    SecretStringStore? secretStore,
     Future<SharedPreferences> Function()? preferencesLoader,
+    this.useLocalDebugStorage = false,
   }) : _secureStorage = secureStorage ?? const FlutterSecureStorage(),
+       _secretStore = secretStore,
        _preferencesLoader = preferencesLoader ?? SharedPreferences.getInstance;
 
   static const _rememberMeKey = 'xboard.remember_me';
@@ -79,14 +89,19 @@ class XboardSessionStorage {
   static const _emailKey = 'xboard.email';
   static const _endpointKey = 'xboard.endpoint';
   static const _isAdminKey = 'xboard.is_admin';
+  static const _secureSubscriptionKey = 'xboard.secure_subscription';
   static const _tokenKey = 'xboard.token';
   static const _authDataKey = 'xboard.auth_data';
+  static const _localDebugTokenKey = 'xboard.debug.token';
+  static const _localDebugAuthDataKey = 'xboard.debug.auth_data';
   static const _offlineModeKey = 'xboard.offline_mode';
   static const _offlineCacheKey = 'xboard.offline_cache';
   static const _managedProfileUrlKey = 'xboard.managed_profile_url';
 
   final FlutterSecureStorage _secureStorage;
+  final SecretStringStore? _secretStore;
   final Future<SharedPreferences> Function() _preferencesLoader;
+  final bool useLocalDebugStorage;
 
   Future<XboardStoredSession> load() async {
     final preferences = await _preferencesLoader();
@@ -96,8 +111,8 @@ class XboardSessionStorage {
     String? authData;
     try {
       final secrets = await Future.wait([
-        _secureStorage.read(key: _tokenKey),
-        _secureStorage.read(key: _authDataKey),
+        _readSecret(preferences, _tokenKey),
+        _readSecret(preferences, _authDataKey),
       ]);
       token = _nonEmpty(secrets[0]);
       authData = _nonEmpty(secrets[1]);
@@ -126,6 +141,7 @@ class XboardSessionStorage {
       token: token,
       authData: authData,
       isAdmin: preferences.getBool(_isAdminKey) ?? false,
+      secureSubscription: preferences.getBool(_secureSubscriptionKey) ?? false,
     );
   }
 
@@ -137,6 +153,7 @@ class XboardSessionStorage {
     required String token,
     required String authData,
     required bool isAdmin,
+    bool secureSubscription = false,
   }) async {
     if (!rememberMe) {
       await clear();
@@ -144,11 +161,12 @@ class XboardSessionStorage {
     }
     final preferences = await _preferencesLoader();
     await preferences.setBool(_autoLoginKey, false);
-    await _secureStorage.write(key: _tokenKey, value: token);
-    await _secureStorage.write(key: _authDataKey, value: authData);
+    await _writeSecret(preferences, _tokenKey, token);
+    await _writeSecret(preferences, _authDataKey, authData);
     await preferences.setString(_emailKey, email.trim());
     await preferences.setString(_endpointKey, endpoint.toString());
     await preferences.setBool(_isAdminKey, isAdmin);
+    await preferences.setBool(_secureSubscriptionKey, secureSubscription);
     await preferences.setBool(_rememberMeKey, true);
     await preferences.setBool(_autoLoginKey, autoLogin);
   }
@@ -159,11 +177,20 @@ class XboardSessionStorage {
     await preferences.setBool(_autoLoginKey, false);
     await preferences.remove(_endpointKey);
     await preferences.remove(_isAdminKey);
+    await preferences.remove(_secureSubscriptionKey);
   }
 
   Future<void> disableAutoLogin() async {
     final preferences = await _preferencesLoader();
     await preferences.setBool(_autoLoginKey, false);
+  }
+
+  Future<void> updateStoredToken(String token) async {
+    final preferences = await _preferencesLoader();
+    if (preferences.getBool(_rememberMeKey) != true || token.trim().isEmpty) {
+      return;
+    }
+    await _writeSecret(preferences, _tokenKey, token.trim());
   }
 
   Future<bool> loadOfflineMode() async {
@@ -185,6 +212,7 @@ class XboardSessionStorage {
     final payload = <String, Object?>{
       'verified_at': (verifiedAt ?? DateTime.now()).toUtc().toIso8601String(),
       'is_admin': session.isAdmin,
+      'secure_subscription': session.secureSubscription,
       'subscription': _subscriptionToJson(session.subscription),
       'nodes': nodes.map(_nodeToJson).toList(growable: false),
     };
@@ -213,6 +241,7 @@ class XboardSessionStorage {
         subscription: subscription,
         nodes: List.unmodifiable(nodes),
         isAdmin: data['is_admin'] == true,
+        secureSubscription: data['secure_subscription'] == true,
       );
     } catch (_) {
       return null;
@@ -248,22 +277,66 @@ class XboardSessionStorage {
     await preferences.remove(_emailKey);
     await preferences.remove(_endpointKey);
     await preferences.remove(_isAdminKey);
+    await preferences.remove(_secureSubscriptionKey);
   }
 
   Future<void> _deleteSecretsBestEffort() async {
+    final preferences = await _preferencesLoader();
     try {
-      await _secureStorage.delete(key: _tokenKey);
+      await _deleteSecret(preferences, _tokenKey);
     } catch (_) {}
     try {
-      await _secureStorage.delete(key: _authDataKey);
+      await _deleteSecret(preferences, _authDataKey);
     } catch (_) {}
   }
+
+  Future<String?> _readSecret(SharedPreferences preferences, String key) {
+    if (_secretStore != null) return _secretStore.read(key);
+    if (useLocalDebugStorage) {
+      return Future.value(preferences.getString(_localDebugKey(key)));
+    }
+    return _secureStorage.read(key: key);
+  }
+
+  Future<void> _writeSecret(
+    SharedPreferences preferences,
+    String key,
+    String value,
+  ) async {
+    if (_secretStore != null) {
+      await _secretStore.write(key, value);
+      return;
+    }
+    if (useLocalDebugStorage) {
+      await preferences.setString(_localDebugKey(key), value);
+      return;
+    }
+    await _secureStorage.write(key: key, value: value);
+  }
+
+  Future<void> _deleteSecret(SharedPreferences preferences, String key) async {
+    if (_secretStore != null) {
+      await _secretStore.delete(key);
+      return;
+    }
+    if (useLocalDebugStorage) {
+      await preferences.remove(_localDebugKey(key));
+      return;
+    }
+    await _secureStorage.delete(key: key);
+  }
+
+  String _localDebugKey(String key) => switch (key) {
+    _tokenKey => _localDebugTokenKey,
+    _authDataKey => _localDebugAuthDataKey,
+    _ => throw ArgumentError.value(key, 'key'),
+  };
 }
 
 Map<String, Object?> _subscriptionToJson(XboardSubscriptionData value) {
   return {
     'endpoint': value.endpoint.toString(),
-    'subscribe_url': value.subscribeUrl.toString(),
+    'subscribe_url': value.subscribeUrl?.toString(),
     'u': value.uploadBytes,
     'd': value.downloadBytes,
     'transfer_enable': value.transferEnableBytes,
@@ -290,8 +363,14 @@ XboardSubscriptionData? _subscriptionFromJson(Object? source) {
   if (source is! Map) return null;
   final data = source.map((key, value) => MapEntry(key.toString(), value));
   final endpoint = Uri.tryParse(data['endpoint']?.toString() ?? '');
-  final subscribeUrl = Uri.tryParse(data['subscribe_url']?.toString() ?? '');
-  if (endpoint == null || subscribeUrl == null) return null;
+  final subscribeUrlText = data['subscribe_url']?.toString() ?? '';
+  final subscribeUrl = subscribeUrlText.isEmpty
+      ? null
+      : Uri.tryParse(subscribeUrlText);
+  if (endpoint == null ||
+      (subscribeUrlText.isNotEmpty && subscribeUrl == null)) {
+    return null;
+  }
   final rawPlan = data['plan'];
   final planData = rawPlan is Map
       ? rawPlan.map((key, value) => MapEntry(key.toString(), value))

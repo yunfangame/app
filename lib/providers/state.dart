@@ -122,7 +122,7 @@ ProxyState proxyState(Ref ref) {
   return ProxyState(
     isStart: suspend ? false : isStart,
     systemProxy: vm2.a,
-    bassDomain: vm2.b,
+    bassDomain: withLocalNetworkBypassDomains(vm2.b),
     port: mixedPort,
   );
 }
@@ -631,7 +631,7 @@ SharedState sharedState(Ref ref) {
       dnsHijacking: vpnSetting.dnsHijacking,
       accessControlProps: vpnSetting.accessControlProps,
       allowBypass: vpnSetting.allowBypass,
-      bypassDomain: bypassDomain,
+      bypassDomain: withLocalNetworkBypassDomains(bypassDomain),
     ),
   );
 }

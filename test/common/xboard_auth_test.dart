@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:fl_clash/common/api_endpoint_preference.dart';
 import 'package:fl_clash/common/api_health.dart';
+import 'package:fl_clash/common/subscription_v2.dart';
 import 'package:fl_clash/common/xboard_auth.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1096,6 +1097,32 @@ void main() {
     expect(service.currentSession, same(result));
   });
 
+  test('accepts a subscription response without a legacy URL for V2', () async {
+    final service = XboardAuthService(
+      subscriptionRequester: (endpoint, authData) async {
+        return const XboardLoginResponse(
+          statusCode: 200,
+          data: {
+            'data': {
+              'token': '0123456789abcdef0123456789abcdef',
+              'u': 0,
+              'd': 0,
+              'transfer_enable': 1073741824,
+            },
+          },
+        );
+      },
+    );
+
+    final subscription = await service.fetchSubscription(
+      endpoint: Uri.parse('https://api.example.com'),
+      authData: 'Bearer saved-token',
+    );
+
+    expect(subscription.subscribeUrl, isNull);
+    expect(subscription.token, '0123456789abcdef0123456789abcdef');
+  });
+
   test('global API preference overrides the previously saved host', () async {
     final preferenceStore = ApiEndpointPreferenceStore();
     await preferenceStore.save(Uri.parse('https://two.example.com'));
@@ -1318,6 +1345,128 @@ void main() {
     );
   });
 
+  test(
+    'secure login bypasses the legacy login and subscription APIs',
+    () async {
+      var legacyRequests = 0;
+      final endpoint = Uri.parse('https://api.example.com');
+      final service = XboardAuthService(
+        endpointLoader: () async => [endpoint],
+        subscriptionV2Client: _FakeSubscriptionV2Client(
+          login: SubscriptionV2Login(
+            endpoint: endpoint,
+            token: 'secure-token',
+            authData: 'Bearer secure-auth',
+            isAdmin: false,
+            subscription: _secureSummary,
+            rawData: const {'protocol': 'v2'},
+          ),
+        ),
+        loginRequester: (endpoint, email, password) async {
+          legacyRequests++;
+          return _successfulLoginRequest(endpoint, email, password);
+        },
+        subscriptionRequester: (endpoint, authData) async {
+          legacyRequests++;
+          return _successfulSubscriptionResponse();
+        },
+      );
+
+      final session = await service.login(
+        email: 'gray@example.com',
+        password: 'secret',
+        appVersion: '1.9.0',
+      );
+
+      expect(session.secureSubscription, isTrue);
+      expect(session.token, 'secure-token');
+      expect(session.subscribeUrl, isNull);
+      expect(session.subscription.plan?.name, '安全套餐');
+      expect(legacyRequests, 0);
+    },
+  );
+
+  test('secure gateway failures never downgrade to legacy login', () async {
+    var legacyRequests = 0;
+    final service = XboardAuthService(
+      endpointLoader: () async => [Uri.parse('https://api.example.com')],
+      subscriptionV2Client: _FakeSubscriptionV2Client(
+        loginError: const SubscriptionV2Exception('gateway_unavailable'),
+      ),
+      loginRequester: (endpoint, email, password) async {
+        legacyRequests++;
+        return _successfulLoginRequest(endpoint, email, password);
+      },
+    );
+
+    await expectLater(
+      service.login(email: 'gray@example.com', password: 'secret'),
+      throwsA(
+        isA<XboardAuthException>().having(
+          (error) => error.failure,
+          'failure',
+          XboardAuthFailure.unavailable,
+        ),
+      ),
+    );
+    expect(legacyRequests, 0);
+  });
+
+  test(
+    'signed gray-list rejection is the only secure login downgrade',
+    () async {
+      var legacyRequests = 0;
+      final service = XboardAuthService(
+        endpointLoader: () async => [Uri.parse('https://api.example.com')],
+        subscriptionV2Client: _FakeSubscriptionV2Client(),
+        loginRequester: (endpoint, email, password) async {
+          legacyRequests++;
+          return _successfulLoginRequest(endpoint, email, password);
+        },
+        subscriptionRequester: (endpoint, authData) async {
+          legacyRequests++;
+          return _successfulSubscriptionResponse();
+        },
+      );
+
+      final session = await service.login(
+        email: 'public@example.com',
+        password: 'secret',
+      );
+
+      expect(session.secureSubscription, isFalse);
+      expect(legacyRequests, 2);
+    },
+  );
+
+  test(
+    'secure session restore fetches only the device-signed summary',
+    () async {
+      var legacyRequests = 0;
+      final service = XboardAuthService(
+        endpointLoader: () async => [Uri.parse('https://api.example.com')],
+        subscriptionV2Client: _FakeSubscriptionV2Client(
+          summary: _secureSummary,
+        ),
+        subscriptionRequester: (endpoint, authData) async {
+          legacyRequests++;
+          return _successfulSubscriptionResponse();
+        },
+      );
+
+      final session = await service.restoreSession(
+        preferredEndpoint: Uri.parse('https://api.example.com'),
+        token: 'secure-token',
+        authData: 'Bearer secure-auth',
+        secureSubscription: true,
+      );
+
+      expect(session.secureSubscription, isTrue);
+      expect(session.subscription.email, 'gray@example.com');
+      expect(legacyRequests, 0);
+    },
+  );
+
   test('successful response must contain token and auth_data', () async {
     final service = XboardAuthService(
       endpointLoader: () async => [Uri.parse('https://api.example.com')],
@@ -1343,6 +1492,52 @@ void main() {
       ),
     );
   });
+}
+
+const _secureSummary = <String, Object?>{
+  'plan_id': 7,
+  'email': 'gray@example.com',
+  'expired_at': null,
+  'u': 1,
+  'd': 2,
+  'transfer_enable': 100,
+  'device_limit': 3,
+  'speed_limit': null,
+  'next_reset_at': null,
+  'reset_day': 0,
+  'plan': {'id': 7, 'name': '安全套餐', 'transfer_enable': 100},
+};
+
+class _FakeSubscriptionV2Client extends SubscriptionV2Client {
+  _FakeSubscriptionV2Client({this.login, this.loginError, this.summary});
+
+  final SubscriptionV2Login? login;
+  final SubscriptionV2Exception? loginError;
+  final Map<String, Object?>? summary;
+
+  @override
+  Future<SubscriptionV2Login?> secureLogin({
+    required Uri endpoint,
+    required String email,
+    required String password,
+    required String appVersion,
+    String? platform,
+  }) async {
+    if (loginError case final error?) throw error;
+    return login;
+  }
+
+  @override
+  Future<Map<String, Object?>> fetchSummary({
+    required Uri endpoint,
+    required String userToken,
+  }) async {
+    final value = summary;
+    if (value == null) {
+      throw const SubscriptionV2Exception('device_not_registered');
+    }
+    return value;
+  }
 }
 
 class _RecordingAdapter implements HttpClientAdapter {

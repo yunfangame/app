@@ -182,20 +182,21 @@ class _FengWoPersonalCenterViewState
     if (confirmed != true || !mounted) return;
     final session = globalState.xboardSession;
     if (session == null) return;
-    final brandName = context.appLocalizations.brandName;
     setState(() => _resettingSubscription = true);
     try {
-      final subscribeUrl = await _authService.resetSecurity(
+      await _authService.resetSecurity(
         endpoint: session.endpoint,
         authData: session.authData,
+        userToken: session.token,
+        secureSubscription: session.secureSubscription,
       );
-      final planName = session.subscription.plan?.name?.trim();
-      await ref
-          .read(profilesActionProvider.notifier)
-          .syncSubscriptionProfile(
-            subscribeUrl.toString(),
-            label: planName == null || planName.isEmpty ? brandName : planName,
-          );
+      final refreshed = await globalState.refreshXboardSubscription?.call();
+      if (refreshed != true) {
+        throw const XboardAuthException(
+          failure: XboardAuthFailure.subscriptionUnavailable,
+          message: '订阅刷新失败，请稍后重试',
+        );
+      }
       if (!mounted) return;
       _showMessage(context.appLocalizations.subscriptionResetSuccess);
     } catch (error) {

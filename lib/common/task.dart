@@ -218,6 +218,14 @@ Future<VM2<String, String>> _makeRealProfileTask(
       rawConfig['dns']['nameserver'] = [...nameserver, systemDns];
     }
   }
+  final dnsConfig = rawConfig['dns'];
+  if (dnsConfig is Map) {
+    dnsConfig['fake-ip-filter'] = withLocalNetworkFakeIpFilters(
+      dnsConfig['fake-ip-filter'] is Iterable
+          ? dnsConfig['fake-ip-filter'] as Iterable<Object?>
+          : const [],
+    );
+  }
   List<String> rules = [];
   if (data.rules.isEmpty) {
     if (rawConfig['rules'] != null) {
@@ -263,6 +271,7 @@ Future<VM2<String, String>> _makeRealProfileTask(
   } else {
     rules = data.rules.map((item) => item.rawValue).toList();
   }
+  rules = withLocalNetworkDirectRules(rules);
   if (data.proxyGroups.isNotEmpty) {
     rawConfig['proxy-groups'] = data.proxyGroups
         .map(

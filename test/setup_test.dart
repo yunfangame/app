@@ -25,6 +25,15 @@ void main() {
       expect(results['env'], 'dev');
     });
 
+    test('accepts unsigned macOS encrypted secret storage mode', () {
+      final results = setup.createSetupArgParser().parse([
+        'macos',
+        '--macos-file-secret-storage',
+      ]);
+
+      expect(results['macos-file-secret-storage'], isTrue);
+    });
+
     test('Flutter build environment does not depend on Core SHA256', () {
       expect(setup.createBuildEnvironment('dev'), {'APP_ENV': 'dev'});
     });
@@ -84,6 +93,70 @@ void main() {
         'REMOTE_CONFIG_AES_KEY': 'aes-key',
         'REMOTE_CONFIG_SIGNING_PUBLIC_KEY': 'public-key',
       });
+    });
+
+    test('adds a validated encrypted config URL override', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'flclash-debug-config-url-test-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final keys = File('${root.path}/tooling/remote_config/keys.json');
+      await keys.parent.create(recursive: true);
+      await keys.writeAsString(
+        jsonEncode({'aesKey': 'aes-key', 'signingPublicKey': 'public-key'}),
+      );
+
+      final environment = await setup.loadBuildEnvironment(
+        root.path,
+        'pre',
+        apiHealthConfigUrl: 'http://127.0.0.1:18996/ConFigOss4.json',
+      );
+
+      expect(
+        environment['API_HEALTH_CONFIG_URL'],
+        'http://127.0.0.1:18996/ConFigOss4.json',
+      );
+    });
+
+    test('adds the unsigned macOS secret storage build define', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'flclash-macos-secret-storage-test-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final keys = File('${root.path}/tooling/remote_config/keys.json');
+      await keys.parent.create(recursive: true);
+      await keys.writeAsString(
+        jsonEncode({'aesKey': 'aes-key', 'signingPublicKey': 'public-key'}),
+      );
+
+      final environment = await setup.loadBuildEnvironment(
+        root.path,
+        'stable',
+        macOsFileSecretStorage: true,
+      );
+
+      expect(environment['MACOS_FILE_SECRET_STORAGE'], 'true');
+    });
+
+    test('rejects an unsafe config URL override', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'flclash-debug-invalid-config-url-test-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final keys = File('${root.path}/tooling/remote_config/keys.json');
+      await keys.parent.create(recursive: true);
+      await keys.writeAsString(
+        jsonEncode({'aesKey': 'aes-key', 'signingPublicKey': 'public-key'}),
+      );
+
+      expect(
+        () => setup.loadBuildEnvironment(
+          root.path,
+          'pre',
+          apiHealthConfigUrl: 'file:///tmp/ConFigOss4.json',
+        ),
+        throwsFormatException,
+      );
     });
 
     test('omits verbose from flutter build args by default', () {

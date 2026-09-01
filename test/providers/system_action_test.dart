@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:fl_clash/providers/action.dart';
 import 'package:fl_clash/providers/actions/system_exit.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:riverpod/riverpod.dart';
 
 void main() {
   test('coalesces repeated exit requests and runs cleanup once', () async {
@@ -72,4 +74,73 @@ void main() {
 
     expect(calls, ['cleanup', 'window', 'core', 'exit']);
   });
+
+  test('logout stops runtime and cleans integrations concurrently', () async {
+    final stopCompleter = Completer<void>();
+    final action = _TestSystemAction(stopCompleter: stopCompleter);
+    final container = ProviderContainer(
+      overrides: [systemActionProvider.overrideWith(() => action)],
+    );
+    addTearDown(container.dispose);
+
+    final operation = container
+        .read(systemActionProvider.notifier)
+        .handleLogout();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(action.calls, ['stop', 'integrations']);
+    stopCompleter.complete();
+    await operation;
+  });
+
+  test('tray visibility follows authentication state', () async {
+    final action = _TestSystemAction();
+    final container = ProviderContainer(
+      overrides: [systemActionProvider.overrideWith(() => action)],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(systemActionProvider.notifier).updateTray();
+    expect(action.destroyCount, 1);
+    expect(action.renderCount, 0);
+
+    action.authenticated = true;
+    await container.read(systemActionProvider.notifier).updateTray();
+    expect(action.destroyCount, 1);
+    expect(action.renderCount, 1);
+  });
+}
+
+class _TestSystemAction extends SystemAction {
+  final Completer<void>? stopCompleter;
+  final calls = <String>[];
+  bool authenticated = false;
+  int destroyCount = 0;
+  int renderCount = 0;
+
+  _TestSystemAction({this.stopCompleter});
+
+  @override
+  bool get hasAuthenticatedSession => authenticated;
+
+  @override
+  Future<void> stopRunningForLogout() async {
+    calls.add('stop');
+    await stopCompleter?.future;
+  }
+
+  @override
+  Future<void> cleanupLogoutIntegrations() async {
+    calls.add('integrations');
+  }
+
+  @override
+  Future<void> destroyTray() async {
+    destroyCount++;
+  }
+
+  @override
+  Future<void> renderTray() async {
+    renderCount++;
+  }
 }

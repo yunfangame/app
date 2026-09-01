@@ -72,6 +72,8 @@ class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView> {
             ? _authService.fetchSubscription(
                 endpoint: session.endpoint,
                 authData: session.authData,
+                userToken: session.token,
+                secureSubscription: session.secureSubscription,
               )
             : Future<XboardSubscriptionData>.value(session.subscription),
       ]);
@@ -86,6 +88,7 @@ class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView> {
           authData: session.authData,
           isAdmin: session.isAdmin,
           subscription: subscription,
+          secureSubscription: session.secureSubscription,
           rawData: session.rawData,
         );
       }

@@ -1,3 +1,4 @@
+import 'package:fl_clash/common/network.dart';
 import 'package:fl_clash/common/task.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
@@ -145,6 +146,10 @@ void main() {
         config['dns']['nameserver'],
         containsAll(['1.1.1.1', 'system://']),
       );
+      expect(
+        config['dns']['fake-ip-filter'],
+        containsAll(localNetworkFakeIpFilters),
+      );
       expect(config['hosts']['router.local'], ['192.168.1.1', '192.168.1.2']);
       expect(config['sniffer']['sniff']['HTTP']['ports'], ['80', '443']);
       expect(
@@ -153,17 +158,18 @@ void main() {
       );
       expect(
         config['proxy-providers']['remote']['health-check']['url'],
-        'https://cp.cloudflare.com/generate_204',
+        'https://www.gstatic.com/generate_204',
       );
       expect(
         config['proxy-groups'][0]['url'],
-        'https://cp.cloudflare.com/generate_204',
+        'https://www.gstatic.com/generate_204',
       );
       expect(
         config['rule-providers']['remote']['path'],
         startsWith('/profiles/providers/7/rules/'),
       );
-      expect(config['rules'], [
+      expect(config['rules'], containsAll(localNetworkDirectRules));
+      expect(config['rules'].skip(localNetworkDirectRules.length), [
         'DOMAIN-SUFFIX,added.example,Original',
         'DOMAIN,existing.example,DIRECT',
         'MATCH,Original',
@@ -204,8 +210,48 @@ void main() {
     expect(config['dns']['enable'], true);
     expect(config['dns']['nameserver'], contains('system://'));
     expect(config['proxy-groups'], hasLength(1));
-    expect(config['rules'], ['DOMAIN,custom.example,DIRECT']);
+    expect(config['rules'], containsAll(localNetworkDirectRules));
+    expect(config['rules'].skip(localNetworkDirectRules.length), [
+      'DOMAIN,custom.example,DIRECT',
+    ]);
   });
+
+  test(
+    'makeRealProfileTask protects local pages in subscription data',
+    () async {
+      final rawConfig = <String, dynamic>{
+        'dns': {
+          'enable': true,
+          'enhanced-mode': 'fake-ip',
+          'fake-ip-filter': ['printer.internal'],
+        },
+        'rules': ['MATCH,Proxy'],
+      };
+      final result = await makeRealProfileTask(
+        MakeRealProfileState(
+          profilesPath: '/profiles',
+          profileId: 10,
+          rawConfig: rawConfig,
+          realPatchConfig: const PatchClashConfig(),
+          overrideDns: false,
+          appendSystemDns: false,
+          proxyGroups: const [],
+          rules: const [],
+          addedRules: const [],
+          defaultUA: 'FlClash-Test',
+        ),
+      );
+      final config = loadYaml(result.a) as YamlMap;
+
+      expect(config['dns']['fake-ip-filter'], contains('printer.internal'));
+      expect(
+        config['dns']['fake-ip-filter'],
+        containsAll(localNetworkFakeIpFilters),
+      );
+      expect(config['rules'], containsAll(localNetworkDirectRules));
+      expect(config['rules'].last, 'MATCH,Proxy');
+    },
+  );
 
   test('log and list tasks produce stable mapped output', () async {
     final logs = [

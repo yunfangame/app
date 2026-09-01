@@ -182,7 +182,7 @@ package_macos() {
   local xcode_arch="$1"
   local output_arch="$2"
   local source target
-  FLUTTER_XCODE_ARCHS="$xcode_arch" "$dart_bin" setup.dart macos --env stable --targets dmg
+  FLUTTER_XCODE_ARCHS="$xcode_arch" "$dart_bin" setup.dart macos --env stable --targets dmg --macos-file-secret-storage
   source="$(find "$repo_root/dist" -maxdepth 1 -type f -name '*macos-*.dmg' -print | sort | tail -1)"
   if [[ -z "$source" ]]; then
     printf '找不到 macOS %s 安装包。\n' "$output_arch" >&2
@@ -342,7 +342,7 @@ elif [[ "${FENGWO_RESUME_AFTER_INTEL:-0}" == '1' ]]; then
 else
   if [[ "${FENGWO_RESUME_AFTER_ANDROID:-0}" != '1' ]]; then
     "$flutter_bin" pub get
-    "$flutter_bin" test test/setup_test.dart test/common/remote_config_cipher_test.dart test/common/app_update_test.dart test/common/xboard_marquee_test.dart test/core/controller_test.dart test/core/protocol_contract_test.dart test/views/proxies/common_test.dart test/widgets/app_update_dialog_test.dart test/widgets/fengwo_marquee_test.dart test/widgets/dashboard_layout_test.dart --reporter expanded
+    "$flutter_bin" test test/setup_test.dart test/common/remote_config_cipher_test.dart test/common/app_update_test.dart test/common/subscription_v2_test.dart test/common/xboard_auth_test.dart test/common/xboard_marquee_test.dart test/common/xboard_session_storage_test.dart test/providers/action_test.dart test/core/controller_test.dart test/core/protocol_contract_test.dart test/views/proxies/common_test.dart test/widgets/app_update_dialog_test.dart test/widgets/fengwo_marquee_test.dart test/widgets/dashboard_layout_test.dart --reporter expanded
     "$dart_bin" setup.dart android --env stable --targets apk
     copy_android_packages
   fi

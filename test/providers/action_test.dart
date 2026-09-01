@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:fl_clash/core/desktop/model.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -241,6 +243,128 @@ void main() {
         expect(clearedEffects, [oldProfile.id]);
       },
     );
+
+    test('replaces a legacy URL with a local V2 source identifier', () async {
+      const oldUrl = 'https://subscribe.example.com/client/account-a';
+      const sourceId = 'fengwo-v2://test-key/account-hash';
+      final oldProfile = Profile.normal(label: 'Account A', url: oldUrl);
+      late _TestSetupAction setupAction;
+      Profile? loadedProfile;
+      Uint8List? loadedBytes;
+      final container = ProviderContainer(
+        overrides: [
+          currentProfileIdProvider.overrideWithBuild((_, _) => oldProfile.id),
+          profilesProvider.overrideWith(() => _TestProfiles([oldProfile])),
+          setupActionProvider.overrideWith(() {
+            setupAction = _TestSetupAction();
+            return setupAction;
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+      final bytes = Uint8List.fromList(utf8.encode('proxies: []'));
+
+      final imported = await container
+          .read(profilesActionProvider.notifier)
+          .syncSubscriptionProfileBytes(
+            bytes,
+            sourceId: sourceId,
+            replacingUrl: oldUrl,
+            loader: (profile, content) async {
+              loadedProfile = profile;
+              loadedBytes = content;
+              return profile.copyWith(label: 'V2 Account');
+            },
+          );
+
+      expect(loadedProfile?.id, oldProfile.id);
+      expect(loadedProfile?.url, sourceId);
+      expect(loadedBytes, bytes);
+      expect(container.read(profilesProvider), [imported]);
+      expect(container.read(currentProfileIdProvider), oldProfile.id);
+      expect(setupAction.applyProfileCount, 1);
+    });
+
+    test('V2 migration removes stale XBoard profiles after applying', () async {
+      const sourceId = 'fengwo-v2://test-key/account-hash';
+      final staleLegacy = Profile.normal(
+        label: 'Stale account',
+        url: 'https://api.example.com/sakula/cddfa43b5a09bdd07b05d85955a7cf0f',
+      );
+      final manualProfile = Profile.normal(
+        label: 'Manual',
+        url: 'https://manual.example.com/config',
+      );
+      late _TestSetupAction setupAction;
+      final clearedEffects = <int>[];
+      final container = ProviderContainer(
+        overrides: [
+          currentProfileIdProvider.overrideWithBuild((_, _) => staleLegacy.id),
+          profilesProvider.overrideWith(
+            () => _TestProfiles([staleLegacy, manualProfile]),
+          ),
+          setupActionProvider.overrideWith(() {
+            setupAction = _TestSetupAction();
+            return setupAction;
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final imported = await container
+          .read(profilesActionProvider.notifier)
+          .syncSubscriptionProfileBytes(
+            Uint8List.fromList(utf8.encode('proxies: []')),
+            sourceId: sourceId,
+            removeLegacyXboardProfiles: true,
+            loader: (profile, _) async => profile.copyWith(label: 'V2 Account'),
+            effectClearer: (profileId) async => clearedEffects.add(profileId),
+          );
+
+      expect(container.read(profilesProvider), [manualProfile, imported]);
+      expect(container.read(currentProfileIdProvider), imported.id);
+      expect(setupAction.applyProfileCount, 1);
+      expect(clearedEffects, [staleLegacy.id]);
+    });
+
+    test('failed V2 migration preserves legacy XBoard profiles', () async {
+      final staleLegacy = Profile.normal(
+        label: 'Stale account',
+        url: 'https://api.example.com/sakula/cddfa43b5a09bdd07b05d85955a7cf0f',
+      );
+      late _TestSetupAction setupAction;
+      final clearedEffects = <int>[];
+      final container = ProviderContainer(
+        overrides: [
+          currentProfileIdProvider.overrideWithBuild((_, _) => staleLegacy.id),
+          profilesProvider.overrideWith(() => _TestProfiles([staleLegacy])),
+          setupActionProvider.overrideWith(() {
+            setupAction = _TestSetupAction();
+            return setupAction;
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(setupActionProvider);
+
+      await expectLater(
+        container
+            .read(profilesActionProvider.notifier)
+            .syncSubscriptionProfileBytes(
+              Uint8List.fromList(utf8.encode('proxies: []')),
+              sourceId: 'fengwo-v2://test-key/account-hash',
+              removeLegacyXboardProfiles: true,
+              loader: (_, _) async => throw StateError('download failed'),
+              effectClearer: (profileId) async => clearedEffects.add(profileId),
+            ),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(container.read(profilesProvider), [staleLegacy]);
+      expect(container.read(currentProfileIdProvider), staleLegacy.id);
+      expect(setupAction.applyProfileCount, 0);
+      expect(clearedEffects, isEmpty);
+    });
 
     test(
       'removing the signed-out account clears its active nodes only',

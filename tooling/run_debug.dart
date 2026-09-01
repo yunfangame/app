@@ -21,7 +21,11 @@ Future<void> main(List<String> arguments) async {
   }
 
   try {
-    await setup.writeBuildEnvironmentFile(rootDir, results['env'] as String);
+    await setup.writeBuildEnvironmentFile(
+      rootDir,
+      results['env'] as String,
+      apiHealthConfigUrl: results['config-url'] as String?,
+    );
   } on Object catch (error) {
     stderr.writeln('Unable to prepare encrypted remote config: $error');
     exitCode = 78;
@@ -53,6 +57,7 @@ ArgParser createDebugArgParser() {
       mandatory: !Platform.isMacOS,
     )
     ..addOption('env', defaultsTo: 'pre', allowed: ['dev', 'pre', 'stable'])
+    ..addOption('config-url')
     ..addOption('flutter')
     ..addOption('target');
 }
