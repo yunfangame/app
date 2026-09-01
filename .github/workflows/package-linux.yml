@@ -36,12 +36,21 @@ jobs:
           go-version: '1.26.4'
           cache-dependency-path: core/go.sum
 
-      - name: Setup Flutter
+      - name: Setup Flutter (amd64)
+        if: matrix.arch == 'amd64'
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           flutter-version: '3.44.4'
           cache: true
+
+      - name: Setup Flutter (arm64)
+        if: matrix.arch == 'arm64'
+        run: |
+          git clone --branch 3.44.4 --depth 1 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" config --enable-linux-desktop
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
 
       - name: Prepare build keys
         env:
