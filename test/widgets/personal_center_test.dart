@@ -121,7 +121,10 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(globalState.clearXboardSession);
+    addTearDown(() => globalState.logoutXboard = null);
     globalState.xboardSession = _testSession();
+    var logoutCalled = false;
+    globalState.logoutXboard = () async => logoutCalled = true;
 
     await tester.pumpWidget(
       _TestApp(
@@ -140,6 +143,8 @@ void main() {
     expect(find.byKey(const ValueKey('account-wallet-card')), findsOne);
     expect(find.byKey(const ValueKey('account-auto-renew-row')), findsOne);
     expect(find.byKey(const ValueKey('reset-subscription-card')), findsOne);
+    final logoutButton = find.byKey(const ValueKey('account-logout-button'));
+    expect(logoutButton, findsOneWidget);
     expect(find.byKey(const ValueKey('telegram-status-card')), findsNothing);
     expect(
       tester.getTopLeft(find.byKey(const ValueKey('account-profile-card'))).dy,
@@ -147,6 +152,18 @@ void main() {
         tester.getTopLeft(find.byKey(const ValueKey('account-wallet-card'))).dy,
       ),
     );
+    await tester.ensureVisible(logoutButton);
+    await tester.pumpAndSettle();
+    await tester.tap(logoutButton);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey('account-logout-confirm-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(logoutCalled, isTrue);
     expect(tester.takeException(), isNull);
   });
 }

@@ -6,6 +6,7 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/animated_visibility.dart';
+import 'package:fl_clash/widgets/fengwo_logout_button.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -188,38 +189,6 @@ class AppSidebarContainer extends ConsumerWidget {
     });
   }
 
-  Future<void> _handleLogout(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.logout_rounded),
-        title: Text(dialogContext.appLocalizations.logoutConfirmTitle),
-        content: Text(dialogContext.appLocalizations.logoutConfirmMessage),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(dialogContext.appLocalizations.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(dialogContext.appLocalizations.logoutAccount),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !context.mounted) return;
-    try {
-      final logout = globalState.logoutXboard;
-      if (logout != null) {
-        await logout();
-      } else {
-        globalState.clearXboardSession();
-      }
-    } catch (error) {
-      if (context.mounted) context.showNotifier(error.toString());
-    }
-  }
-
   Widget _buildSidebarFooter(BuildContext context) {
     final colors = context.colorScheme;
     final border = colors.outlineVariant.withValues(alpha: .65);
@@ -242,7 +211,7 @@ class AppSidebarContainer extends ConsumerWidget {
             ),
             child: InkWell(
               key: const ValueKey('fengwo-sidebar-logout'),
-              onTap: () => _handleLogout(context),
+              onTap: () => showFengWoLogoutDialog(context),
               borderRadius: BorderRadius.circular(20),
               child: SizedBox(
                 height: 56,
