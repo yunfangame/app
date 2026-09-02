@@ -70,6 +70,11 @@ class ApiHealthService {
     ApiEndpointProbe? endpointProbe,
     ApiEndpointPreferenceStore? preferenceStore,
     this.probeTimeout = const Duration(seconds: 3),
+    this.configRetryDelays = const [
+      Duration.zero,
+      Duration(milliseconds: 250),
+      Duration(milliseconds: 750),
+    ],
   }) : _configUri = _parseConfigUri(configUrl),
        _configLoader = configLoader,
        _endpointProbe = endpointProbe,
@@ -80,6 +85,7 @@ class ApiHealthService {
   final ApiEndpointProbe? _endpointProbe;
   final ApiEndpointPreferenceStore _preferenceStore;
   final Duration probeTimeout;
+  final List<Duration> configRetryDelays;
 
   static Uri? _parseConfigUri(String value) {
     final uri = Uri.tryParse(value.trim());
@@ -151,6 +157,38 @@ class ApiHealthService {
   }
 
   Future<Uri?> loadPreferredEndpoint() => _preferenceStore.load();
+
+  Future<List<Uri>> loadCandidateEndpoints() async {
+    Object? config;
+    var configLoaded = false;
+    final retryDelays = configRetryDelays.isEmpty
+        ? const [Duration.zero]
+        : configRetryDelays;
+    for (final delay in retryDelays) {
+      if (delay > Duration.zero) await Future<void>.delayed(delay);
+      try {
+        config = await loadConfig();
+        configLoaded = true;
+        break;
+      } catch (_) {}
+    }
+
+    final preferred = await loadPreferredEndpoint();
+    if (!configLoaded) {
+      return List.unmodifiable([?preferred]);
+    }
+
+    final endpoints = parseApiEndpoints(config).toList();
+    if (preferred == null) return List.unmodifiable(endpoints);
+    final preferredIndex = endpoints.indexWhere(
+      (endpoint) => isSameApiEndpoint(endpoint, preferred),
+    );
+    if (preferredIndex > 0) {
+      final selected = endpoints.removeAt(preferredIndex);
+      endpoints.insert(0, selected);
+    }
+    return List.unmodifiable(endpoints);
+  }
 
   Future<void> savePreferredEndpoint(Uri endpoint) =>
       _preferenceStore.save(endpoint);

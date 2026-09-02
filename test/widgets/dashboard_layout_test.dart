@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/theme.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -417,6 +419,88 @@ void main() {
     expect(
       tester.getSize(find.byType(FengWoNodeSelectorView)).width,
       lessThan(393),
+    );
+    expect(tester.takeException(), null);
+  });
+
+  testWidgets('traffic refresh icon updates the dashboard subscription', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(393, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final container = ProviderContainer(
+      overrides: [
+        viewSizeProvider.overrideWithBuild((_, _) => const Size(393, 800)),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(globalState.clearXboardSession);
+    addTearDown(() => globalState.refreshXboardSubscription = null);
+    globalState.container = container;
+    globalState.activateXboardSession(_testTrafficSession());
+    final refresh = Completer<bool>();
+    var refreshes = 0;
+    globalState.refreshXboardSubscription = () {
+      refreshes++;
+      return refresh.future;
+    };
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _TestApp(child: DashboardView()),
+      ),
+    );
+    await tester.pump();
+
+    final refreshButton = find.byKey(
+      const ValueKey('fengwo-dashboard-traffic-refresh'),
+    );
+    await tester.ensureVisible(refreshButton);
+    await tester.tap(refreshButton);
+    await tester.pump();
+    await tester.tap(refreshButton);
+    await tester.pump();
+
+    expect(refreshes, 1);
+    expect(
+      find.descendant(
+        of: refreshButton,
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+
+    final previous = globalState.xboardSession!;
+    globalState.activateXboardSession(
+      XboardLoginResult(
+        endpoint: previous.endpoint,
+        token: previous.token,
+        authData: previous.authData,
+        isAdmin: previous.isAdmin,
+        subscription: XboardSubscriptionData(
+          endpoint: previous.endpoint,
+          subscribeUrl: previous.subscribeUrl,
+          uploadBytes: bytesPerGigabyte * 300,
+          downloadBytes: bytesPerGigabyte * 400,
+          transferEnableBytes: bytesPerGigabyte * 2000,
+          rawData: const {},
+        ),
+      ),
+    );
+    refresh.complete(true);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final trafficDetails = find.byKey(
+      const ValueKey('fengwo-mobile-traffic-details'),
+    );
+    expect(
+      find.descendant(of: trafficDetails, matching: find.text('1300 GB')),
+      findsOneWidget,
     );
     expect(tester.takeException(), null);
   });

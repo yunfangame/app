@@ -6,6 +6,7 @@ import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/dashboard/fengwo_node_selector.dart';
+import 'package:fl_clash/views/dashboard/widgets/dashboard_subscription_refresh_button.dart';
 import 'package:fl_clash/views/dashboard/widgets/global_mode_confirmation.dart';
 import 'package:fl_clash/views/proxies/common.dart';
 import 'package:fl_clash/widgets/fengwo_marquee.dart';
@@ -994,6 +995,8 @@ class _TrafficDetailsMetricCard extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
+              const Spacer(),
+              const DashboardSubscriptionRefreshButton(),
             ],
           ),
           const SizedBox(height: 3),

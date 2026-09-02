@@ -104,6 +104,65 @@ void main() {
     expect(snapshot.total, 0);
   });
 
+  test('login candidates do not depend on health probes', () async {
+    var probes = 0;
+    final service = ApiHealthService(
+      configUrl: 'https://config.example.com/app.json',
+      configLoader: (_) async => {
+        'Authentication': 'FengWo',
+        'hosts': ['https://one.example.com', 'https://two.example.com'],
+      },
+      endpointProbe: (_) async {
+        probes++;
+        return false;
+      },
+    );
+
+    final endpoints = await service.loadCandidateEndpoints();
+
+    expect(endpoints.map((endpoint) => endpoint.host), [
+      'one.example.com',
+      'two.example.com',
+    ]);
+    expect(probes, 0);
+  });
+
+  test('login candidates retry a temporarily unavailable config', () async {
+    var configLoads = 0;
+    final service = ApiHealthService(
+      configUrl: 'https://config.example.com/app.json',
+      configRetryDelays: const [Duration.zero, Duration.zero, Duration.zero],
+      configLoader: (_) async {
+        configLoads++;
+        if (configLoads < 3) throw StateError('temporary failure');
+        return {
+          'Authentication': 'FengWo',
+          'hosts': ['https://api.example.com'],
+        };
+      },
+    );
+
+    final endpoints = await service.loadCandidateEndpoints();
+
+    expect(configLoads, 3);
+    expect(endpoints.single.host, 'api.example.com');
+  });
+
+  test('last successful endpoint backs up a failed config load', () async {
+    final store = ApiEndpointPreferenceStore();
+    await store.save(Uri.parse('https://last-good.example.com:15699'));
+    final service = ApiHealthService(
+      configUrl: 'https://config.example.com/app.json',
+      configRetryDelays: const [Duration.zero, Duration.zero],
+      preferenceStore: store,
+      configLoader: (_) async => throw StateError('config unavailable'),
+    );
+
+    final endpoints = await service.loadCandidateEndpoints();
+
+    expect(endpoints, [Uri.parse('https://last-good.example.com:15699')]);
+  });
+
   test('persists and prioritizes the selected healthy endpoint', () async {
     final store = ApiEndpointPreferenceStore();
     final service = ApiHealthService(preferenceStore: store);

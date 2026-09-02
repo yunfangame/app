@@ -1874,6 +1874,7 @@ class XboardAuthService {
             secureSubscription: true,
             rawData: secure.rawData,
           );
+          await _rememberSuccessfulEndpoint(baseEndpoint);
           _currentSession = result;
           return result;
         } on SubscriptionV2Exception catch (error) {
@@ -1948,6 +1949,7 @@ class XboardAuthService {
             secureSubscription: false,
             rawData: auth.rawData,
           );
+          await _rememberSuccessfulEndpoint(baseEndpoint);
           _currentSession = result;
           return result;
         }
@@ -2061,11 +2063,13 @@ class XboardAuthService {
   }
 
   Future<List<Uri>> _loadAvailableEndpoints() async {
-    final snapshot = await _apiHealthService.check();
-    final reachable = await _apiHealthService.orderedReachableEndpoints(
-      snapshot,
-    );
-    return List.unmodifiable(reachable.map((endpoint) => endpoint.endpoint));
+    return _apiHealthService.loadCandidateEndpoints();
+  }
+
+  Future<void> _rememberSuccessfulEndpoint(Uri endpoint) async {
+    try {
+      await _apiHealthService.savePreferredEndpoint(endpoint);
+    } catch (_) {}
   }
 
   Future<XboardSubscriptionData> _fetchSubscription({

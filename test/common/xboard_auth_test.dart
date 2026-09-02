@@ -1070,6 +1070,29 @@ void main() {
     expect(service.currentSession, same(result));
   });
 
+  test('successful login remembers the working API endpoint', () async {
+    final preferenceStore = ApiEndpointPreferenceStore();
+    final service = XboardAuthService(
+      apiHealthService: ApiHealthService(
+        configUrl: 'https://config.example.com/app.json',
+        preferenceStore: preferenceStore,
+        configLoader: (_) async => {
+          'Authentication': 'FengWo',
+          'hosts': ['https://api.example.com:15699'],
+        },
+      ),
+      loginRequester: _successfulLoginRequest,
+      subscriptionRequester: _successfulSubscriptionRequest,
+    );
+
+    await service.login(email: 'user@example.com', password: 'secret');
+
+    expect(
+      await preferenceStore.load(),
+      Uri.parse('https://api.example.com:15699'),
+    );
+  });
+
   test('restores a saved session by validating its subscription', () async {
     final subscriptionCalls = <Uri>[];
     final service = XboardAuthService(

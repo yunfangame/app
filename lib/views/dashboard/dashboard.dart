@@ -5,6 +5,7 @@ import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/core/core.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
+import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -196,10 +197,20 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     return _buildIsEdit((isEdit) {
       final showFengWoDashboard = !isMobileView && !isEdit;
       if (showFengWoDashboard) {
-        return const FengWoDesktopDashboard();
+        return ValueListenableBuilder<int>(
+          valueListenable: globalState.xboardSessionRevisionNotifier,
+          builder: (_, revision, _) => FengWoDesktopDashboard(
+            key: ValueKey('fengwo-desktop-dashboard-$revision'),
+          ),
+        );
       }
       if (isMobileView && !isEdit) {
-        return const FengWoMobileDashboard();
+        return ValueListenableBuilder<int>(
+          valueListenable: globalState.xboardSessionRevisionNotifier,
+          builder: (_, revision, _) => FengWoMobileDashboard(
+            key: ValueKey('fengwo-mobile-dashboard-$revision'),
+          ),
+        );
       }
       return CommonScaffold(
         title: context.appLocalizations.dashboard,
