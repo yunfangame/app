@@ -10,6 +10,8 @@ export 'context.dart';
 export 'converter.dart';
 export 'datetime.dart';
 export 'delay_probe.dart';
+export 'diagnostic_log.dart';
+export 'network_diagnostic.dart';
 export 'file.dart';
 export 'fixed.dart';
 export 'function.dart';

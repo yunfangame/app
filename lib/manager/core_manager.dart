@@ -107,6 +107,10 @@ class _CoreContainerState extends ConsumerState<CoreManager>
 
   @override
   Future<void> onCrash(String message) async {
+    commonPrint.event(
+      'core.crashed',
+      fields: {'message': message, 'status': ref.read(coreStatusProvider).name},
+    );
     if (ref.read(coreStatusProvider) != CoreStatus.connected) {
       return;
     }

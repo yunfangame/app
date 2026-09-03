@@ -123,6 +123,14 @@ void main() {
 
     expect(find.byType(FengWoDesktopDashboard), findsOneWidget);
     expect(find.byKey(const ValueKey('fengwo-power-button')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('fengwo-desktop-system-proxy')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('fengwo-desktop-system-proxy')));
+    await tester.pump();
+    expect(container.read(networkSettingProvider).systemProxy, isFalse);
 
     final action =
         container.read(setupActionProvider.notifier) as _RecordingSetupAction;
@@ -421,6 +429,59 @@ void main() {
       lessThan(393),
     );
     expect(tester.takeException(), null);
+  });
+
+  testWidgets('Android 16 large text shows the complete account summary', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final container = ProviderContainer(
+      overrides: [
+        viewSizeProvider.overrideWithBuild((_, _) => const Size(360, 800)),
+        profilesProvider.overrideWithValue(const []),
+        groupsProvider.overrideWithValue(const []),
+        setupActionProvider.overrideWith(_RecordingSetupAction.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(globalState.clearXboardSession);
+    globalState.container = container;
+    globalState.xboardSession = _android16TrafficSession();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _TestApp(
+          platform: TargetPlatform.android,
+          textScaler: TextScaler.linear(1.4),
+          child: FengWoMobileDashboard(),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('fengwo-mobile-account-stacked')),
+      findsOneWidget,
+    );
+    final planSummary = find.textContaining('☁Vip2-110G-包月-全平台-送emby');
+    expect(planSummary, findsOneWidget);
+    expect(tester.widget<Text>(planSummary).maxLines, isNull);
+    expect(tester.widget<Text>(planSummary).overflow, TextOverflow.visible);
+    final nextReset = find.byKey(
+      const ValueKey('fengwo-mobile-next-plan-reset'),
+    );
+    expect(nextReset, findsOneWidget);
+    expect(tester.widget<Text>(nextReset).maxLines, isNull);
+    expect(
+      find.byKey(const ValueKey('fengwo-mobile-purchase')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('traffic refresh icon updates the dashboard subscription', (
@@ -1433,6 +1494,32 @@ XboardLoginResult _testTrafficSession() {
   );
 }
 
+XboardLoginResult _android16TrafficSession() {
+  final endpoint = Uri.parse('https://api.example.com');
+  return XboardLoginResult(
+    endpoint: endpoint,
+    token: 'subscription-token',
+    authData: 'Bearer login-token',
+    isAdmin: false,
+    subscription: XboardSubscriptionData(
+      endpoint: endpoint,
+      subscribeUrl: Uri.parse('https://subscribe.example.com/client/token'),
+      uploadBytes: bytesPerGigabyte,
+      downloadBytes: bytesPerGigabyte,
+      transferEnableBytes: bytesPerGigabyte * 110,
+      email: 'member@example.com',
+      expiredAtEpochSeconds: 1819987200,
+      nextResetAtEpochSeconds: 1817395200,
+      plan: const XboardPlanData(
+        id: 7,
+        name: '☁Vip2-110G-包月-全平台-送emby',
+        rawData: {},
+      ),
+      rawData: const {},
+    ),
+  );
+}
+
 class _RecordingSetupAction extends SetupAction {
   final requests = <bool>[];
 
@@ -1469,11 +1556,13 @@ class _TestApp extends StatelessWidget {
   final Widget child;
   final ThemeMode themeMode;
   final TargetPlatform? platform;
+  final TextScaler? textScaler;
 
   const _TestApp({
     required this.child,
     this.themeMode = ThemeMode.light,
     this.platform,
+    this.textScaler,
   });
 
   @override
@@ -1500,9 +1589,19 @@ class _TestApp extends StatelessWidget {
       ],
       supportedLocales: AppLocalizations.delegate.supportedLocales,
       builder: (context, child) {
-        globalState.measure = Measure.of(context, 1);
-        globalState.theme = CommonTheme.of(context, 1);
-        return child!;
+        final content = Builder(
+          builder: (context) {
+            globalState.measure = Measure.of(context, 1);
+            globalState.theme = CommonTheme.of(context, 1);
+            return child!;
+          },
+        );
+        final scaler = textScaler;
+        if (scaler == null) return content;
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: scaler),
+          child: content,
+        );
       },
       home: child,
     );

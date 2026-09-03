@@ -228,7 +228,7 @@ final class ProxyStateProvider
   }
 }
 
-String _$proxyStateHash() => r'b4a316e7f67927d6903af702d2b4e542c11c11c8';
+String _$proxyStateHash() => r'3f19e02c3eb715f5647d4455e76c4e1950267f5a';
 
 @ProviderFor(trayState)
 final trayStateProvider = TrayStateProvider._();
@@ -2219,7 +2219,7 @@ final class SharedStateProvider
   }
 }
 
-String _$sharedStateHash() => r'eeae9ab857cd6263f761290054774460f9e86069';
+String _$sharedStateHash() => r'6f402bab8ac65aa86b637190f8ca3703c9cd94ed';
 
 @ProviderFor(overlayTopOffset)
 final overlayTopOffsetProvider = OverlayTopOffsetProvider._();

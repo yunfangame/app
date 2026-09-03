@@ -33,7 +33,13 @@ void main() {
         aesKey: fixture.aesKey,
         signingPublicKey: fixture.signingPublicKey,
       ),
-      throwsFormatException,
+      throwsA(
+        isA<RemoteConfigCipherException>().having(
+          (error) => error.failure,
+          'failure',
+          RemoteConfigCipherFailure.signature,
+        ),
+      ),
     );
   });
 
@@ -49,7 +55,13 @@ void main() {
         aesKey: fixture.aesKey,
         signingPublicKey: encodeRemoteConfigBase64(otherPublicKey.bytes),
       ),
-      throwsFormatException,
+      throwsA(
+        isA<RemoteConfigCipherException>().having(
+          (error) => error.failure,
+          'failure',
+          RemoteConfigCipherFailure.keyMismatch,
+        ),
+      ),
     );
   });
 }

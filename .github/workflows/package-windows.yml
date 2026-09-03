@@ -52,7 +52,7 @@ jobs:
       - name: Test latency and packaging contracts
         shell: pwsh
         run: |
-          flutter test test/core/controller_test.dart test/core/protocol_contract_test.dart test/views/proxies/common_test.dart --reporter expanded
+          flutter test test/core/controller_test.dart test/core/protocol_contract_test.dart test/views/proxies/common_test.dart test/common/task_test.dart test/models/config_test.dart test/common/windows_proxy_guard_test.dart test/common/network_diagnostic_test.dart --reporter expanded
           Push-Location core
           $env:CGO_ENABLED = '0'
           go test .
@@ -60,6 +60,13 @@ jobs:
 
       - name: Package stable Windows release
         run: dart setup.dart windows --env stable --targets exe,zip
+
+      - name: Test Windows system proxy round trip
+        shell: pwsh
+        run: |
+          cmake -S windows -B build/windows/x64 -Dinclude_proxy_tests=ON
+          cmake --build build/windows/x64 --config Release --target proxy_test
+          ctest --test-dir build/windows/x64 -C Release --output-on-failure -R proxy
 
       - name: Verify Windows package
         shell: pwsh
@@ -90,6 +97,71 @@ jobs:
           Start-Sleep -Seconds 8
           if ($process.HasExited -and $process.ExitCode -ne 0) { throw "Application exited with $($process.ExitCode)" }
           if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+
+      - name: Verify installed shortcut can reopen hidden window
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist -Filter '*windows*.exe' | Select-Object -First 1
+          if ($null -eq $installer) { throw 'Windows installer not found' }
+          $installDir = Join-Path $env:RUNNER_TEMP 'fengwo-shortcut-test'
+          $installArguments = @(
+            '/VERYSILENT',
+            '/SUPPRESSMSGBOXES',
+            '/NORESTART',
+            "/DIR=$installDir",
+            '/TASKS=desktopicon'
+          )
+          $install = Start-Process -FilePath $installer.FullName -ArgumentList $installArguments -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Installer exited with $($install.ExitCode)" }
+          $shortcutCandidates = @(
+            (Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) '蜂窝加速器.lnk'),
+            (Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) '蜂窝加速器.lnk'),
+            (Join-Path ([Environment]::GetFolderPath('CommonPrograms')) '蜂窝加速器.lnk'),
+            (Join-Path ([Environment]::GetFolderPath('Programs')) '蜂窝加速器.lnk')
+          )
+          $expectedTarget = Join-Path $installDir 'FlClash.exe'
+          if (-not (Test-Path -LiteralPath $expectedTarget -PathType Leaf)) {
+            throw "Installed executable not found: $expectedTarget"
+          }
+          $shortcutPath = $shortcutCandidates |
+            Select-Object -Unique |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            Select-Object -First 1
+          if ([string]::IsNullOrWhiteSpace($shortcutPath)) { throw 'Installed shortcut not found' }
+          Write-Host "Testing installed shortcut: $shortcutPath"
+          Start-Process -FilePath $shortcutPath
+          Start-Sleep -Seconds 8
+          $primary = Get-Process FlClash -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($null -eq $primary) { throw 'Installed application did not start' }
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class FengWoWindowTest {
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+            public static extern IntPtr FindWindow(string className, string windowName);
+            [DllImport("user32.dll")]
+            public static extern bool ShowWindow(IntPtr window, int command);
+            [DllImport("user32.dll")]
+            public static extern bool IsWindowVisible(IntPtr window);
+          }
+          '@
+          $window = [FengWoWindowTest]::FindWindow('FLUTTER_RUNNER_WIN32_WINDOW', '蜂窝加速器')
+          if ($window -ne [IntPtr]::Zero) {
+            [void][FengWoWindowTest]::ShowWindow($window, 0)
+            if ([FengWoWindowTest]::IsWindowVisible($window)) { throw 'Failed to hide the primary window for the reopen test' }
+          } else {
+            Write-Warning 'Runner has no interactive app window; validating native single-instance process behavior only'
+          }
+          $primaryId = $primary.Id
+          Start-Process -FilePath $shortcutPath
+          Start-Sleep -Seconds 4
+          $instances = @(Get-Process FlClash -ErrorAction SilentlyContinue)
+          if ($instances.Count -ne 1) { throw "Expected one FlClash instance, found $($instances.Count)" }
+          if ($instances[0].Id -ne $primaryId) { throw 'Second shortcut replaced the primary process' }
+          if ($window -ne [IntPtr]::Zero -and -not [FengWoWindowTest]::IsWindowVisible($window)) {
+            throw 'Shortcut did not restore the hidden primary window'
+          }
+          $instances | Stop-Process -Force
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v4

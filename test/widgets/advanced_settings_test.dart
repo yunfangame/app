@@ -22,6 +22,8 @@ void main() {
     final updatedResources = <GeoResource>[];
     var campusCoreRestarts = 0;
     var campusConfigLoads = 0;
+    var diagnosticExports = 0;
+    var diagnosticRuns = 0;
     final container = ProviderContainer();
     addTearDown(container.dispose);
     globalState.container = container;
@@ -49,6 +51,18 @@ void main() {
             campusNetworkCoreRestarter: () async {
               campusCoreRestarts++;
             },
+            diagnosticLogExporter: () async {
+              diagnosticExports++;
+              return true;
+            },
+            networkDiagnosticRunner: () async {
+              diagnosticRuns++;
+              return const NetworkDiagnosticReport(
+                code: 'W-NET-OK',
+                summary: 'ready',
+                steps: [],
+              );
+            },
           ),
         ),
       ),
@@ -63,10 +77,17 @@ void main() {
       findsOne,
     );
     expect(find.byKey(const ValueKey('advanced-dns-card')), findsOne);
+    expect(find.byKey(const ValueKey('advanced-diagnostic-card')), findsOne);
 
     await tester.tap(find.byKey(const ValueKey('advanced-allow-lan-switch')));
     await tester.pump();
     expect(container.read(patchClashConfigProvider).allowLan, isTrue);
+
+    await tester.tap(
+      find.byKey(const ValueKey('advanced-system-proxy-switch')),
+    );
+    await tester.pump();
+    expect(container.read(networkSettingProvider).systemProxy, isFalse);
 
     await tester.tap(find.byKey(const ValueKey('advanced-core-ipv6-switch')));
     await tester.pump();
@@ -116,6 +137,28 @@ void main() {
     expect(campusCoreRestarts, 1);
     expect(campusConfigLoads, 1);
 
+    final runDiagnostics = find.byKey(
+      const ValueKey('advanced-run-network-diagnostics'),
+    );
+    await tester.ensureVisible(runDiagnostics);
+    await tester.pumpAndSettle();
+    await tester.tap(runDiagnostics);
+    await tester.pumpAndSettle();
+    expect(diagnosticRuns, 1);
+    expect(
+      find.byKey(const ValueKey('advanced-network-diagnostic-result')),
+      findsOne,
+    );
+
+    final exportLogs = find.byKey(
+      const ValueKey('advanced-export-diagnostic-logs'),
+    );
+    await tester.ensureVisible(exportLogs);
+    await tester.pumpAndSettle();
+    await tester.tap(exportLogs);
+    await tester.pumpAndSettle();
+    expect(diagnosticExports, 1);
+
     await tester.tap(campusSwitch);
     await tester.pumpAndSettle();
     expect(container.read(appSettingProvider).campusNetworkEnabled, isFalse);
@@ -161,6 +204,7 @@ void main() {
       findsOne,
     );
     expect(find.byKey(const ValueKey('advanced-dns-card')), findsOne);
+    expect(find.byKey(const ValueKey('advanced-diagnostic-card')), findsOne);
     expect(tester.takeException(), isNull);
   });
 
@@ -192,6 +236,9 @@ void main() {
     final dns = tester.getTopLeft(
       find.byKey(const ValueKey('advanced-dns-card')),
     );
+    final diagnostics = tester.getTopLeft(
+      find.byKey(const ValueKey('advanced-diagnostic-card')),
+    );
 
     expect(ipv6.dx, greaterThan(proxy.dx));
     expect((ipv6.dy - proxy.dy).abs(), lessThan(1));
@@ -199,6 +246,7 @@ void main() {
     expect((dns.dy - campus.dy).abs(), lessThan(1));
     expect(campus.dy, greaterThan(proxy.dy));
     expect(geodata.dy, greaterThan(campus.dy));
+    expect(diagnostics.dy, greaterThan(geodata.dy));
     expect(
       (tester
                   .getSize(find.byKey(const ValueKey('advanced-proxy-card')))

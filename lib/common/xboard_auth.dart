@@ -772,6 +772,12 @@ class XboardAuthService {
   final XboardPasswordResetRequester? _passwordResetRequester;
   final SubscriptionV2Client? _subscriptionV2Client;
 
+  Future<void> prepareApiConfiguration() async {
+    try {
+      await _apiHealthService.loadCandidateEndpoints();
+    } catch (_) {}
+  }
+
   XboardLoginResult? _currentSession;
   XboardGuestConfig? _currentGuestConfig;
 
@@ -2063,7 +2069,16 @@ class XboardAuthService {
   }
 
   Future<List<Uri>> _loadAvailableEndpoints() async {
-    return _apiHealthService.loadCandidateEndpoints();
+    try {
+      return await _apiHealthService.loadCandidateEndpoints();
+    } on ApiRemoteConfigException catch (error) {
+      throw XboardAuthException(
+        failure: XboardAuthFailure.noAvailableHost,
+        message: error.userMessage,
+        statusCode: error.statusCode,
+        endpoint: error.source,
+      );
+    }
   }
 
   Future<void> _rememberSuccessfulEndpoint(Uri endpoint) async {

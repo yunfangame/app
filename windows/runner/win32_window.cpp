@@ -17,6 +17,8 @@ namespace {
 #endif
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
+constexpr const wchar_t kWindowActivationMessageName[] =
+    L"FengWoAccelerator.FlClash.ActivateMainWindow";
 
 /// Registry key for app theme preference.
 ///
@@ -54,6 +56,27 @@ void EnableFullDpiSupportIfAvailable(HWND hwnd) {
 }
 
 }  // namespace
+
+UINT GetFengWoWindowActivationMessage() {
+  static const UINT message =
+      RegisterWindowMessageW(kWindowActivationMessageName);
+  return message;
+}
+
+void ActivateFengWoWindow(HWND window) {
+  if (window == nullptr) {
+    return;
+  }
+  LONG_PTR extended_style = GetWindowLongPtrW(window, GWL_EXSTYLE);
+  extended_style |= WS_EX_APPWINDOW;
+  extended_style &= ~static_cast<LONG_PTR>(WS_EX_TOOLWINDOW);
+  SetWindowLongPtrW(window, GWL_EXSTYLE, extended_style);
+  ShowWindow(window, SW_RESTORE);
+  SetWindowPos(window, nullptr, 0, 0, 0, 0,
+               SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                   SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+  SetForegroundWindow(window);
+}
 
 // Manages the Win32Window's window class registration.
 class WindowClassRegistrar {
@@ -178,6 +201,10 @@ Win32Window::MessageHandler(HWND hwnd,
                             UINT const message,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
+  if (message == GetFengWoWindowActivationMessage()) {
+    ActivateFengWoWindow(hwnd);
+    return 0;
+  }
   switch (message) {
     case WM_DESTROY:
       window_handle_ = nullptr;

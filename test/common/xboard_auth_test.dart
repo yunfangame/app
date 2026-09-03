@@ -1368,6 +1368,33 @@ void main() {
     );
   });
 
+  test('remote config failures surface a specific login error', () async {
+    const failure = ApiRemoteConfigException(
+      failure: ApiRemoteConfigFailure.signature,
+    );
+    final service = XboardAuthService(
+      apiHealthService: ApiHealthService(
+        configUrl: 'https://config.example.com/app.json',
+        configRetryDelays: const [Duration.zero],
+        configLoader: (_) async => throw failure,
+        emergencyConfigLoader: () async => throw failure,
+      ),
+    );
+
+    await expectLater(
+      service.login(email: 'user@example.com', password: 'secret'),
+      throwsA(
+        isA<XboardAuthException>()
+            .having(
+              (error) => error.failure,
+              'failure',
+              XboardAuthFailure.noAvailableHost,
+            )
+            .having((error) => error.message, 'message', 'API 配置文件签名校验失败'),
+      ),
+    );
+  });
+
   test(
     'secure login bypasses the legacy login and subscription APIs',
     () async {

@@ -1604,6 +1604,230 @@ class AppLocalizations {
     );
   }
 
+  /// `Could not enable the system proxy ({code}). The switch was reverted. Export logs for diagnosis`
+  String systemProxyApplyFailed(Object code) {
+    return Intl.message(
+      'Could not enable the system proxy ($code). The switch was reverted. Export logs for diagnosis',
+      name: 'systemProxyApplyFailed',
+      desc: '',
+      args: [code],
+    );
+  }
+
+  /// `Could not disable the system proxy ({code}). Disable it manually in Windows Settings`
+  String systemProxyDisableFailed(Object code) {
+    return Intl.message(
+      'Could not disable the system proxy ($code). Disable it manually in Windows Settings',
+      name: 'systemProxyDisableFailed',
+      desc: '',
+      args: [code],
+    );
+  }
+
+  /// `The system proxy left by the previous abnormal exit was cleared`
+  String get systemProxyStaleCleaned {
+    return Intl.message(
+      'The system proxy left by the previous abnormal exit was cleared',
+      name: 'systemProxyStaleCleaned',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Run network diagnostics`
+  String get runNetworkDiagnostics {
+    return Intl.message(
+      'Run network diagnostics',
+      name: 'runNetworkDiagnostics',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No subscription profile is available. Log in again or refresh the subscription`
+  String get networkDiagnosticNoProfile {
+    return Intl.message(
+      'No subscription profile is available. Log in again or refresh the subscription',
+      name: 'networkDiagnosticNoProfile',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Configuration domains`
+  String get networkDiagnosticConfigDomains {
+    return Intl.message(
+      'Configuration domains',
+      name: 'networkDiagnosticConfigDomains',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{reachable}/{total} resolvable`
+  String networkDiagnosticConfigDomainsResult(Object reachable, Object total) {
+    return Intl.message(
+      '$reachable/$total resolvable',
+      name: 'networkDiagnosticConfigDomainsResult',
+      desc: '',
+      args: [reachable, total],
+    );
+  }
+
+  /// `The proxy core is not running`
+  String get networkDiagnosticCoreNotRunning {
+    return Intl.message(
+      'The proxy core is not running',
+      name: 'networkDiagnosticCoreNotRunning',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Local proxy port`
+  String get networkDiagnosticLocalProxyPort {
+    return Intl.message(
+      'Local proxy port',
+      name: 'networkDiagnosticLocalProxyPort',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{address} is listening`
+  String networkDiagnosticPortListening(Object address) {
+    return Intl.message(
+      '$address is listening',
+      name: 'networkDiagnosticPortListening',
+      desc: '',
+      args: [address],
+    );
+  }
+
+  /// `Cannot connect to {address}`
+  String networkDiagnosticPortUnavailable(Object address) {
+    return Intl.message(
+      'Cannot connect to $address',
+      name: 'networkDiagnosticPortUnavailable',
+      desc: '',
+      args: [address],
+    );
+  }
+
+  /// `The core is running, but the local proxy port is not listening`
+  String get networkDiagnosticPortNotListening {
+    return Intl.message(
+      'The core is running, but the local proxy port is not listening',
+      name: 'networkDiagnosticPortNotListening',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Windows system proxy`
+  String get networkDiagnosticWindowsSystemProxy {
+    return Intl.message(
+      'Windows system proxy',
+      name: 'networkDiagnosticWindowsSystemProxy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Readback verified {address}`
+  String networkDiagnosticProxyVerified(Object address) {
+    return Intl.message(
+      'Readback verified $address',
+      name: 'networkDiagnosticProxyVerified',
+      desc: '',
+      args: [address],
+    );
+  }
+
+  /// `{code} / {stage}{error}`
+  String networkDiagnosticProxyFailure(
+    Object code,
+    Object stage,
+    Object error,
+  ) {
+    return Intl.message(
+      '$code / $stage$error',
+      name: 'networkDiagnosticProxyFailure',
+      desc: '',
+      args: [code, stage, error],
+    );
+  }
+
+  /// `The Windows system proxy is not configured correctly`
+  String get networkDiagnosticSystemProxyInvalid {
+    return Intl.message(
+      'The Windows system proxy is not configured correctly',
+      name: 'networkDiagnosticSystemProxyInvalid',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Node internet access`
+  String get networkDiagnosticNodeInternet {
+    return Intl.message(
+      'Node internet access',
+      name: 'networkDiagnosticNodeInternet',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Internet access through the local proxy succeeded`
+  String get networkDiagnosticInternetSuccess {
+    return Intl.message(
+      'Internet access through the local proxy succeeded',
+      name: 'networkDiagnosticInternetSuccess',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Internet access through the local proxy failed`
+  String get networkDiagnosticInternetFailed {
+    return Intl.message(
+      'Internet access through the local proxy failed',
+      name: 'networkDiagnosticInternetFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The local port works, but the current node cannot access the internet`
+  String get networkDiagnosticNodeUnavailable {
+    return Intl.message(
+      'The local port works, but the current node cannot access the internet',
+      name: 'networkDiagnosticNodeUnavailable',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The node works, but neither system proxy nor TUN is enabled, so application traffic will not enter the core`
+  String get networkDiagnosticTrafficEntryMissing {
+    return Intl.message(
+      'The node works, but neither system proxy nor TUN is enabled, so application traffic will not enter the core',
+      name: 'networkDiagnosticTrafficEntryMissing',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Configuration, core, traffic entry, and current node are working`
+  String get networkDiagnosticSuccess {
+    return Intl.message(
+      'Configuration, core, traffic entry, and current node are working',
+      name: 'networkDiagnosticSuccess',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `User-Agent`
   String get userAgent {
     return Intl.message('User-Agent', name: 'userAgent', desc: '', args: []);
@@ -8699,6 +8923,26 @@ class AppLocalizations {
     return Intl.message(
       'Failed to apply the core configuration. The previous configuration was restored',
       name: 'chainProxyApplyFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Chain proxy connectivity test failed. It was disabled and the previous configuration was restored`
+  String get chainProxyConnectivityFailed {
+    return Intl.message(
+      'Chain proxy connectivity test failed. It was disabled and the previous configuration was restored',
+      name: 'chainProxyConnectivityFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The chain proxy failed and the previous configuration could not be restored. Restart the app`
+  String get chainProxyRollbackFailed {
+    return Intl.message(
+      'The chain proxy failed and the previous configuration could not be restored. Restart the app',
+      name: 'chainProxyRollbackFailed',
       desc: '',
       args: [],
     );

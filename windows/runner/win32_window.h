@@ -7,6 +7,13 @@
 #include <memory>
 #include <string>
 
+// Returns the process-independent registered message used by a second app
+// instance to ask the primary window to become visible again.
+UINT GetFengWoWindowActivationMessage();
+
+// Restores a hidden/minimized app window and puts it back on the taskbar.
+void ActivateFengWoWindow(HWND window);
+
 // A class abstraction for a high DPI-aware Win32 Window. Intended to be
 // inherited from by classes that wish to specialize with custom
 // rendering and input handling

@@ -23,63 +23,90 @@ void main() {
     port: 8080,
   );
 
-  testWidgets('validates before saving and rejects duplicate names', (
-    tester,
-  ) async {
-    final validation = Completer<ChainProxyValidationResult>();
-    var validationCount = 0;
+  testWidgets(
+    'saves without a direct network check and rejects duplicate names',
+    (tester) async {
+      var validationCount = 0;
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _TestApp(
+            child: ChainProxyDialog(
+              validator: (config) {
+                validationCount++;
+                return Future.value(
+                  const ChainProxyValidationResult(
+                    ChainProxyValidationStatus.unavailable,
+                  ),
+                );
+              },
+              coreRestarter: () async {},
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.widgetWithText(FilledButton, '添加代理'));
+      await tester.pumpAndSettle();
+      final fields = find.byType(TextFormField);
+      await tester.enterText(fields.at(0), 'Taiwan');
+      await tester.enterText(fields.at(1), '127.0.0.1');
+      await tester.enterText(fields.at(2), '1080');
+      await tester.tap(find.widgetWithText(FilledButton, '添加代理').last);
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(appSettingProvider).chainProxies.single.name,
+        'Taiwan',
+      );
+      expect(find.text('Taiwan'), findsOneWidget);
+      expect(validationCount, 0);
+
+      await tester.tap(find.widgetWithText(FilledButton, '添加代理'));
+      await tester.pumpAndSettle();
+      final duplicateFields = find.byType(TextFormField);
+      await tester.enterText(duplicateFields.at(0), ' taiwan ');
+      await tester.enterText(duplicateFields.at(1), '127.0.0.1');
+      await tester.enterText(duplicateFields.at(2), '1081');
+      await tester.tap(find.widgetWithText(FilledButton, '添加代理').last);
+      await tester.pump();
+
+      expect(find.text('代理名称已存在，请使用其他名称'), findsOneWidget);
+      expect(validationCount, 0);
+    },
+  );
+
+  testWidgets('can reveal and hide a chain proxy password', (tester) async {
     final container = ProviderContainer();
     addTearDown(container.dispose);
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: _TestApp(
-          child: ChainProxyDialog(
-            validator: (config) {
-              validationCount++;
-              return validation.future;
-            },
-            coreRestarter: () async {},
-          ),
-        ),
+        child: const _TestApp(child: ChainProxyDialog()),
       ),
     );
 
     await tester.tap(find.widgetWithText(FilledButton, '添加代理'));
     await tester.pumpAndSettle();
-    final fields = find.byType(TextFormField);
-    await tester.enterText(fields.at(0), 'Taiwan');
-    await tester.enterText(fields.at(1), '127.0.0.1');
-    await tester.enterText(fields.at(2), '1080');
-    await tester.tap(find.widgetWithText(FilledButton, '添加代理').last);
-    await tester.pump();
-
-    expect(find.text('正在验证代理网络…'), findsOneWidget);
-    expect(container.read(appSettingProvider).chainProxies, isEmpty);
-
-    validation.complete(
-      const ChainProxyValidationResult(ChainProxyValidationStatus.available),
+    final passwordField = find.byType(TextFormField).at(4);
+    final editableText = find.descendant(
+      of: passwordField,
+      matching: find.byType(EditableText),
     );
-    await tester.pumpAndSettle();
+    expect(tester.widget<EditableText>(editableText).obscureText, isTrue);
 
-    expect(
-      container.read(appSettingProvider).chainProxies.single.name,
-      'Taiwan',
+    final visibility = find.byKey(
+      const ValueKey('chain-proxy-password-visibility'),
     );
-    expect(find.text('Taiwan'), findsOneWidget);
-    expect(validationCount, 1);
-
-    await tester.tap(find.widgetWithText(FilledButton, '添加代理'));
-    await tester.pumpAndSettle();
-    final duplicateFields = find.byType(TextFormField);
-    await tester.enterText(duplicateFields.at(0), ' taiwan ');
-    await tester.enterText(duplicateFields.at(1), '127.0.0.1');
-    await tester.enterText(duplicateFields.at(2), '1081');
-    await tester.tap(find.widgetWithText(FilledButton, '添加代理').last);
+    await tester.tap(visibility);
     await tester.pump();
+    expect(tester.widget<EditableText>(editableText).obscureText, isFalse);
 
-    expect(find.text('代理名称已存在，请使用其他名称'), findsOneWidget);
-    expect(validationCount, 1);
+    await tester.tap(visibility);
+    await tester.pump();
+    expect(tester.widget<EditableText>(editableText).obscureText, isTrue);
   });
 
   testWidgets('only the active proxy can be stopped while running', (
@@ -175,7 +202,44 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(container.read(appSettingProvider).activeChainProxyName, 'Taiwan');
     expect(restartCount, 3);
-    expect(validationCount, 0);
+    expect(validationCount, 2);
+  });
+
+  testWidgets('failed runtime validation restores the previous configuration', (
+    tester,
+  ) async {
+    var restartCount = 0;
+    var validationCount = 0;
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.read(appSettingProvider.notifier).value = const AppSettingProps(
+      chainProxies: [first],
+    );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: _TestApp(
+          child: ChainProxyDialog(
+            validator: (_) async {
+              validationCount++;
+              return const ChainProxyValidationResult(
+                ChainProxyValidationStatus.unavailable,
+              );
+            },
+            coreRestarter: () async {
+              restartCount++;
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('chain-proxy-toggle-Taiwan')));
+    await tester.pumpAndSettle();
+
+    expect(container.read(appSettingProvider).activeChainProxyName, isNull);
+    expect(restartCount, 2);
+    expect(validationCount, 1);
   });
 }
 

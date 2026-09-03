@@ -106,6 +106,18 @@ class SetupAction extends _$SetupAction {
       running: running,
       initialize: running && initialize,
     );
+    final patchConfig = ref.read(patchClashConfigProvider);
+    commonPrint.event(
+      'connection.requested',
+      fields: {
+        'running': running,
+        'initialize': request.initialize,
+        'has_profile': ref.read(currentProfileIdProvider) != null,
+        'system_proxy_requested': ref.read(networkSettingProvider).systemProxy,
+        'tun_requested': patchConfig.tun.enable,
+        'mode': patchConfig.mode.name,
+      },
+    );
     _latestRunRequest = request;
     _setLocalRunning(running);
     if (request.initialize) {
@@ -149,12 +161,36 @@ class SetupAction extends _$SetupAction {
   Future<void> _setCoreRunning(_RunRequest request) {
     return _listenerScheduler.run(() async {
       if (!_isCurrent(request)) {
+        commonPrint.event(
+          'connection.core_transition.skipped',
+          fields: {'running': request.running, 'reason': 'stale_request'},
+        );
         return;
       }
       if (request.running && ref.read(suspendProvider)) {
+        commonPrint.event(
+          'connection.core_transition.skipped',
+          fields: {'running': request.running, 'reason': 'suspended'},
+        );
         return;
       }
-      await setCoreRunning(request.running);
+      try {
+        final succeeded = await setCoreRunning(request.running);
+        commonPrint.event(
+          'connection.core_transition.completed',
+          fields: {'running': request.running, 'success': succeeded},
+        );
+      } catch (error) {
+        commonPrint.event(
+          'connection.core_transition.failed',
+          fields: {
+            'running': request.running,
+            'error_type': error.runtimeType.toString(),
+            'error': '$error',
+          },
+        );
+        rethrow;
+      }
     });
   }
 
@@ -379,6 +415,14 @@ class SetupAction extends _$SetupAction {
     authorizationNotifier.value = TunAuthorizationState.unauthorized;
 
     final code = await authorizeCore();
+    commonPrint.event(
+      'tun.authorization.completed',
+      fields: {
+        'platform': Platform.operatingSystem,
+        'result': code.name,
+        'tun_requested': enableTun,
+      },
+    );
 
     switch (code) {
       case AuthorizeCode.success:
@@ -414,6 +458,16 @@ class SetupAction extends _$SetupAction {
     final realPatchConfig = patchConfig.copyWith.tun(
       enable: effectiveTunEnable,
     );
+    commonPrint.event(
+      'configuration.apply.started',
+      fields: {
+        'force': force,
+        'has_profile': profile != null,
+        'tun_requested': patchConfig.tun.enable,
+        'tun_effective': effectiveTunEnable,
+        'mode': patchConfig.mode.name,
+      },
+    );
     final setupState = await ref.read(setupStateProvider(profile?.id).future);
     final vm2 = await getProfile(
       setupState: setupState,
@@ -431,18 +485,37 @@ class SetupAction extends _$SetupAction {
     }
     await globalState.loadingRun(
       () async {
-        final configFilePath = await appPath.configFilePath;
-        await File(configFilePath).safeWriteAsString(yamlString);
-        final message = await coreController.setupConfig(
-          params: _setupParams,
-          preloadInvoke: preloadInvoke,
-        );
-        if (message.isNotEmpty && !message.endsWith('is empty')) {
-          throw message;
+        try {
+          final configFilePath = await appPath.configFilePath;
+          await File(configFilePath).safeWriteAsString(yamlString);
+          final message = await coreController.setupConfig(
+            params: _setupParams,
+            preloadInvoke: preloadInvoke,
+          );
+          if (message.isNotEmpty && !message.endsWith('is empty')) {
+            throw message;
+          }
+          globalState.lastConfigMd5 = yamlMd5;
+          ref.read(checkIpNumProvider.notifier).add();
+          await onUpdated?.call();
+          commonPrint.event(
+            'configuration.apply.succeeded',
+            fields: {
+              'has_profile': profile != null,
+              'tun_effective': effectiveTunEnable,
+            },
+          );
+        } catch (error) {
+          commonPrint.event(
+            'configuration.apply.failed',
+            fields: {
+              'error_type': error.runtimeType.toString(),
+              'error': '$error',
+              'tun_effective': effectiveTunEnable,
+            },
+          );
+          rethrow;
         }
-        globalState.lastConfigMd5 = yamlMd5;
-        ref.read(checkIpNumProvider.notifier).add();
-        await onUpdated?.call();
       },
       silence: true,
       tag: !silence ? LoadingTag.proxies : null,

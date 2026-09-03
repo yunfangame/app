@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -7,6 +8,7 @@ import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
+import 'package:fl_clash/state.dart';
 import 'package:flutter/services.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:wifi_ssid/wifi_ssid.dart';
@@ -24,6 +26,8 @@ class AuthorizedTunEnable extends _$AuthorizedTunEnable
 
 @Riverpod(keepAlive: true)
 class Logs extends _$Logs with AutoDisposeNotifierMixin {
+  NetworkDiagnosticReport? _latestNetworkDiagnostic;
+
   @override
   FixedList<Log> build() {
     return FixedList(0);
@@ -36,14 +40,99 @@ class Logs extends _$Logs with AutoDisposeNotifierMixin {
     this.value = state.copyWith()..add(value);
   }
 
+  Future<NetworkDiagnosticReport> runNetworkDiagnostics() async {
+    final port = ref.read(patchClashConfigProvider).mixedPort;
+    final input = NetworkDiagnosticInput(
+      hasProfile: ref.read(currentProfileIdProvider) != null,
+      running: ref.read(isStartProvider),
+      systemProxyRequested: ref.read(networkSettingProvider).systemProxy,
+      tunRequested: ref.read(patchClashConfigProvider).tun.enable,
+      port: port,
+    );
+    commonPrint.event(
+      'network.diagnostic.started',
+      fields: {
+        'running_requested': input.running,
+        'system_proxy_requested': input.systemProxyRequested,
+        'tun_requested': input.tunRequested,
+        'port': input.port,
+      },
+    );
+    final service = NetworkDiagnosticService(
+      proxyInspector: Platform.isWindows && proxy != null
+          ? proxy!.inspectProxy
+          : null,
+    );
+    final report = await service.run(input);
+    _latestNetworkDiagnostic = report;
+    commonPrint.event(
+      'network.diagnostic.completed',
+      fields: report.toDiagnosticFields(),
+    );
+    return report;
+  }
+
   Future<bool> exportLogs() async {
-    final logString = await encodeLogsTask(value.list);
+    commonPrint.event('diagnostic.export.requested');
+    await commonPrint.flushDiagnosticEvents();
+    final diagnosticEvents = await commonPrint.readDiagnosticEvents();
+    final runtimeLogs = sanitizeDiagnosticText(
+      await encodeLogsTask(value.list),
+      maxLength: null,
+    );
+    String appVersion = 'unknown';
+    String buildNumber = 'unknown';
+    try {
+      appVersion = globalState.packageInfo.version;
+      buildNumber = globalState.packageInfo.buildNumber;
+    } catch (_) {}
+    final snapshot = sanitizeDiagnosticFields({
+      'exported_at': DateTime.now().toUtc().toIso8601String(),
+      'platform': Platform.operatingSystem,
+      'platform_version': Platform.operatingSystemVersion,
+      'app_version': appVersion,
+      'build_number': buildNumber,
+      'core_status': ref.read(coreStatusProvider).name,
+      'running_requested': ref.read(isStartProvider),
+      'system_proxy_requested': ref.read(networkSettingProvider).systemProxy,
+      'tun_requested': ref.read(patchClashConfigProvider).tun.enable,
+      'tun_authorization': ref.read(authorizedTunEnableProvider).name,
+      'vpn_enabled': ref.read(vpnSettingProvider).enable,
+      'profile_count': ref.read(profilesProvider).length,
+      'has_current_profile': ref.read(currentProfileIdProvider) != null,
+      'mode': ref.read(patchClashConfigProvider).mode.name,
+      if (_latestNetworkDiagnostic != null)
+        'latest_network_diagnostic': _latestNetworkDiagnostic!
+            .toDiagnosticFields(),
+    });
+    final logString = [
+      '# FengWo diagnostic snapshot',
+      jsonEncode(snapshot),
+      '',
+      '# Diagnostic events',
+      diagnosticEvents.trimRight(),
+      '',
+      '# Runtime logs',
+      runtimeLogs.trimRight(),
+      '',
+    ].join('\n');
     final tempFilePath = await appPath.tempFilePath;
     final file = File(tempFilePath);
     await file.safeWriteAsString(logString);
-    bool res = false;
-    res = await picker.saveFileWithPath(utils.logFile, tempFilePath) != null;
-    return res;
+    try {
+      final saved = await picker.saveFileWithPath(utils.logFile, tempFilePath);
+      commonPrint.event(
+        'diagnostic.export.completed',
+        fields: {'success': saved != null},
+      );
+      return saved != null;
+    } catch (error) {
+      commonPrint.event(
+        'diagnostic.export.failed',
+        fields: {'error_type': error.runtimeType.toString(), 'error': '$error'},
+      );
+      rethrow;
+    }
   }
 }
 

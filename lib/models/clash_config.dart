@@ -219,6 +219,7 @@ abstract class Tun with _$Tun {
     @Default(false) bool enable,
     @Default(appName) String device,
     @JsonKey(name: 'auto-route') @Default(false) bool autoRoute,
+    @JsonKey(name: 'strict-route', includeIfNull: false) bool? strictRoute,
     @Default(TunStack.mixed) TunStack stack,
     @JsonKey(name: 'dns-hijack') @Default(['any:53']) List<String> dnsHijack,
     @JsonKey(name: 'route-address') @Default([]) List<String> routeAddress,
@@ -239,12 +240,18 @@ abstract class Tun with _$Tun {
 }
 
 extension TunExt on Tun {
-  Tun getRealTun(RouteMode routeMode) {
+  Tun getRealTun(RouteMode routeMode, {bool? isDesktop, bool? isWindows}) {
+    final desktop = isDesktop ?? system.isDesktop;
+    final windows = isWindows ?? system.isWindows;
     final mRouteAddress = routeMode == RouteMode.bypassPrivate
         ? defaultBypassPrivateRouteAddress
         : routeAddress;
-    return switch (system.isDesktop) {
-      true => copyWith(autoRoute: true, routeAddress: []),
+    return switch (desktop) {
+      true => copyWith(
+        autoRoute: true,
+        strictRoute: windows ? true : strictRoute,
+        routeAddress: [],
+      ),
       false => copyWith(
         autoRoute: mRouteAddress.isEmpty ? true : false,
         routeAddress: mRouteAddress,

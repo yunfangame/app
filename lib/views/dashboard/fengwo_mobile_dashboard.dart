@@ -406,62 +406,72 @@ class _AccountStatusCard extends StatelessWidget {
           ).format(nextResetAt);
     return _MobileCard(
       colors: colors,
-      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: colors.success.withValues(alpha: 0.14),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              subscription == null
-                  ? Icons.person_outline_rounded
-                  : Icons.check_circle_outline_rounded,
-              color: subscription == null ? colors.muted : colors.success,
-              size: 23,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  subscription == null ? l10n.noActivePlan : l10n.loggedIn,
-                  style: TextStyle(
-                    color: colors.text,
-                    fontWeight: FontWeight.w800,
-                  ),
+      padding: const EdgeInsets.all(12),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final scaledBodySize = MediaQuery.textScalerOf(context).scale(14);
+          final stacked = constraints.maxWidth < 430 || scaledBodySize > 16;
+          final accountSummary = Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: colors.success.withValues(alpha: 0.14),
+                  shape: BoxShape.circle,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  '$planName · $expiry',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: colors.muted, fontSize: 11),
+                child: Icon(
+                  subscription == null
+                      ? Icons.person_outline_rounded
+                      : Icons.check_circle_outline_rounded,
+                  color: subscription == null ? colors.muted : colors.success,
+                  size: 23,
                 ),
-                if (nextReset != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    l10n.nextPlanResetAt(nextReset),
-                    key: const ValueKey('fengwo-mobile-next-plan-reset'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: colors.primary,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      subscription == null ? l10n.noActivePlan : l10n.loggedIn,
+                      style: TextStyle(
+                        color: colors.text,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          FilledButton.tonalIcon(
+                    const SizedBox(height: 2),
+                    Text(
+                      '$planName · $expiry',
+                      maxLines: stacked ? null : 1,
+                      overflow: stacked
+                          ? TextOverflow.visible
+                          : TextOverflow.ellipsis,
+                      style: TextStyle(color: colors.muted, fontSize: 11),
+                    ),
+                    if (nextReset != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        l10n.nextPlanResetAt(nextReset),
+                        key: const ValueKey('fengwo-mobile-next-plan-reset'),
+                        maxLines: stacked ? null : 1,
+                        overflow: stacked
+                            ? TextOverflow.visible
+                            : TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors.primary,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          );
+          final purchaseButton = FilledButton.tonalIcon(
             key: const ValueKey('fengwo-mobile-purchase'),
             style: FilledButton.styleFrom(
               visualDensity: VisualDensity.compact,
@@ -470,8 +480,27 @@ class _AccountStatusCard extends StatelessWidget {
             onPressed: onPurchase,
             icon: const Icon(Icons.workspace_premium_outlined, size: 17),
             label: Text(l10n.purchasePlan),
-          ),
-        ],
+          );
+          if (stacked) {
+            return Column(
+              key: const ValueKey('fengwo-mobile-account-stacked'),
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                accountSummary,
+                const SizedBox(height: 10),
+                Align(alignment: Alignment.centerRight, child: purchaseButton),
+              ],
+            );
+          }
+          return Row(
+            key: const ValueKey('fengwo-mobile-account-inline'),
+            children: [
+              Expanded(child: accountSummary),
+              const SizedBox(width: 8),
+              purchaseButton,
+            ],
+          );
+        },
       ),
     );
   }
@@ -601,6 +630,9 @@ class _MobileModeSelector extends ConsumerWidget {
     final tunEnabled = ref.watch(
       patchClashConfigProvider.select((config) => config.tun.enable),
     );
+    final systemProxyEnabled = ref.watch(
+      networkSettingProvider.select((settings) => settings.systemProxy),
+    );
     final skipGlobalModeConfirmation = ref.watch(
       appSettingProvider.select((state) => state.skipGlobalModeConfirmation),
     );
@@ -644,6 +676,18 @@ class _MobileModeSelector extends ConsumerWidget {
               onTap: () => ref.read(systemActionProvider.notifier).updateTun(),
             ),
           ),
+          if (system.isDesktop)
+            Expanded(
+              child: _MobileModeItem(
+                key: const ValueKey('fengwo-mobile-system-proxy'),
+                colors: colors,
+                icon: Icons.lan_outlined,
+                label: l10n.systemProxy,
+                selected: systemProxyEnabled,
+                onTap: () =>
+                    ref.read(systemActionProvider.notifier).updateSystemProxy(),
+              ),
+            ),
         ],
       ),
     );
@@ -735,6 +779,7 @@ class _MobileWorldMapCard extends StatelessWidget {
               Icon(Icons.shield_outlined, color: colors.primary, size: 22),
               const SizedBox(width: 8),
               Expanded(
+                flex: 3,
                 child: Text(
                   l10n.globalAccelerationNetwork,
                   maxLines: 1,
@@ -747,14 +792,19 @@ class _MobileWorldMapCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Text(
-                l10n.countriesCount(countryCount),
-                key: const ValueKey('fengwo-mobile-map-country-count'),
-                maxLines: 1,
-                style: TextStyle(
-                  color: colors.muted,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
+              Flexible(
+                flex: 2,
+                child: Text(
+                  l10n.countriesCount(countryCount),
+                  key: const ValueKey('fengwo-mobile-map-country-count'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: TextStyle(
+                    color: colors.muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],

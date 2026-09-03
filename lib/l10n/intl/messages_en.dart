@@ -79,40 +79,56 @@ class MessageLookup extends MessageLookupByLibrary {
   static String m24(count) =>
       "${Intl.plural(count, one: '1 month ago', other: '${count} months ago')}";
 
-  static String m25(date) => "Next plan reset: ${date}";
+  static String m25(reachable, total) => "${reachable}/${total} resolvable";
 
-  static String m26(count) => "${count} nodes";
+  static String m26(address) => "${address} is listening";
 
-  static String m27(label) => "No ${label} yet";
+  static String m27(address) => "Cannot connect to ${address}";
 
-  static String m28(label) => "${label} must be a number";
+  static String m28(code, stage, error) => "${code} / ${stage}${error}";
 
-  static String m29(current, total) => "Page ${current} of ${total}";
+  static String m29(address) => "Readback verified ${address}";
 
-  static String m30(count) => "${count}";
+  static String m30(date) => "Next plan reset: ${date}";
 
-  static String m31(label) => "${label} must be between 1024 and 49151";
+  static String m31(count) => "${count} nodes";
 
-  static String m32(count) => "${count} saved; active when override is enabled";
+  static String m32(label) => "No ${label} yet";
 
-  static String m33(count) => "${count} seconds";
+  static String m33(label) => "${label} must be a number";
 
-  static String m34(count) => "${count} items have been selected";
+  static String m34(current, total) => "Page ${current} of ${total}";
 
-  static String m35(date) =>
+  static String m35(count) => "${count}";
+
+  static String m36(label) => "${label} must be between 1024 and 49151";
+
+  static String m37(count) => "${count} saved; active when override is enabled";
+
+  static String m38(count) => "${count} seconds";
+
+  static String m39(count) => "${count} items have been selected";
+
+  static String m40(date) =>
       "Your plan expired on ${date}. Renew it to continue using the service.";
 
-  static String m36(date) =>
+  static String m41(date) =>
       "Your plan expires on ${date}, in less than 3 days. Renew it soon.";
 
-  static String m37(remaining) =>
+  static String m42(remaining) =>
       "Only ${remaining} GB remains, which is below 10 GB. Purchase or renew a plan soon.";
 
-  static String m38(count) => "${count} orders";
+  static String m43(code) =>
+      "Could not enable the system proxy (${code}). The switch was reverted. Export logs for diagnosis";
 
-  static String m39(label) => "${label} must be a url";
+  static String m44(code) =>
+      "Could not disable the system proxy (${code}). Disable it manually in Windows Settings";
 
-  static String m40(count) =>
+  static String m45(count) => "${count} orders";
+
+  static String m46(label) => "${label} must be a url";
+
+  static String m47(count) =>
       "${Intl.plural(count, one: '1 year ago', other: '${count} years ago')}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
@@ -375,6 +391,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "chainProxyApplyFailed": MessageLookupByLibrary.simpleMessage(
       "Failed to apply the core configuration. The previous configuration was restored",
     ),
+    "chainProxyConnectivityFailed": MessageLookupByLibrary.simpleMessage(
+      "Chain proxy connectivity test failed. It was disabled and the previous configuration was restored",
+    ),
     "chainProxyDescription": MessageLookupByLibrary.simpleMessage(
       "Manage an additional SOCKS5 or HTTP egress proxy",
     ),
@@ -389,6 +408,9 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "chainProxyLocked": MessageLookupByLibrary.simpleMessage(
       "Other entries are locked while a chain proxy is running",
+    ),
+    "chainProxyRollbackFailed": MessageLookupByLibrary.simpleMessage(
+      "The chain proxy failed and the previous configuration could not be restored. Restart the app",
     ),
     "chainProxySessionNotice": MessageLookupByLibrary.simpleMessage(
       "When enabled, proxied traffic goes through the selected subscription node and then exits through this chain proxy. Only one can run at a time.",
@@ -1073,6 +1095,50 @@ class MessageLookup extends MessageLookupByLibrary {
     "networkDetection": MessageLookupByLibrary.simpleMessage(
       "Network detection",
     ),
+    "networkDiagnosticConfigDomains": MessageLookupByLibrary.simpleMessage(
+      "Configuration domains",
+    ),
+    "networkDiagnosticConfigDomainsResult": m25,
+    "networkDiagnosticCoreNotRunning": MessageLookupByLibrary.simpleMessage(
+      "The proxy core is not running",
+    ),
+    "networkDiagnosticInternetFailed": MessageLookupByLibrary.simpleMessage(
+      "Internet access through the local proxy failed",
+    ),
+    "networkDiagnosticInternetSuccess": MessageLookupByLibrary.simpleMessage(
+      "Internet access through the local proxy succeeded",
+    ),
+    "networkDiagnosticLocalProxyPort": MessageLookupByLibrary.simpleMessage(
+      "Local proxy port",
+    ),
+    "networkDiagnosticNoProfile": MessageLookupByLibrary.simpleMessage(
+      "No subscription profile is available. Log in again or refresh the subscription",
+    ),
+    "networkDiagnosticNodeInternet": MessageLookupByLibrary.simpleMessage(
+      "Node internet access",
+    ),
+    "networkDiagnosticNodeUnavailable": MessageLookupByLibrary.simpleMessage(
+      "The local port works, but the current node cannot access the internet",
+    ),
+    "networkDiagnosticPortListening": m26,
+    "networkDiagnosticPortNotListening": MessageLookupByLibrary.simpleMessage(
+      "The core is running, but the local proxy port is not listening",
+    ),
+    "networkDiagnosticPortUnavailable": m27,
+    "networkDiagnosticProxyFailure": m28,
+    "networkDiagnosticProxyVerified": m29,
+    "networkDiagnosticSuccess": MessageLookupByLibrary.simpleMessage(
+      "Configuration, core, traffic entry, and current node are working",
+    ),
+    "networkDiagnosticSystemProxyInvalid": MessageLookupByLibrary.simpleMessage(
+      "The Windows system proxy is not configured correctly",
+    ),
+    "networkDiagnosticTrafficEntryMissing": MessageLookupByLibrary.simpleMessage(
+      "The node works, but neither system proxy nor TUN is enabled, so application traffic will not enter the core",
+    ),
+    "networkDiagnosticWindowsSystemProxy": MessageLookupByLibrary.simpleMessage(
+      "Windows system proxy",
+    ),
     "networkException": MessageLookupByLibrary.simpleMessage(
       "Network exception, please check your connection and try again",
     ),
@@ -1082,7 +1148,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "newPassword": MessageLookupByLibrary.simpleMessage("New password"),
     "nextAnnouncement": MessageLookupByLibrary.simpleMessage("Next"),
     "nextPage": MessageLookupByLibrary.simpleMessage("Next"),
-    "nextPlanResetAt": m25,
+    "nextPlanResetAt": m30,
     "noActiveConnections": MessageLookupByLibrary.simpleMessage(
       "No active connections. Start the VPN and browse to see them here",
     ),
@@ -1149,7 +1215,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Choose the best node for a fast and stable connection",
     ),
     "nodeStatusUnknown": MessageLookupByLibrary.simpleMessage("Status unknown"),
-    "nodesCount": m26,
+    "nodesCount": m31,
     "none": MessageLookupByLibrary.simpleMessage("none"),
     "notEnabled": MessageLookupByLibrary.simpleMessage("Not enabled"),
     "notSelectedTip": MessageLookupByLibrary.simpleMessage(
@@ -1165,8 +1231,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "nullProfileDesc": MessageLookupByLibrary.simpleMessage(
       "No profile, Please add a profile",
     ),
-    "nullTip": m27,
-    "numberTip": m28,
+    "nullTip": m32,
+    "numberTip": m33,
     "offline": MessageLookupByLibrary.simpleMessage("Offline"),
     "offlineCacheContinues": MessageLookupByLibrary.simpleMessage(
       "Existing cache remains available on the dashboard and node pages.",
@@ -1248,7 +1314,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Unable to load orders",
     ),
     "orderNumber": MessageLookupByLibrary.simpleMessage("Order number"),
-    "orderPageIndicator": m29,
+    "orderPageIndicator": m34,
     "orderPeriod": MessageLookupByLibrary.simpleMessage("Period"),
     "orderPlan": MessageLookupByLibrary.simpleMessage("Plan"),
     "orderStatusCancelled": MessageLookupByLibrary.simpleMessage("Cancelled"),
@@ -1318,7 +1384,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Pending commission",
     ),
     "pendingTest": MessageLookupByLibrary.simpleMessage("Pending"),
-    "peopleCount": m30,
+    "peopleCount": m35,
     "personalCenter": MessageLookupByLibrary.simpleMessage("Account"),
     "planCatalogEmpty": MessageLookupByLibrary.simpleMessage(
       "No plans are available right now",
@@ -1356,7 +1422,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "portConflictTip": MessageLookupByLibrary.simpleMessage(
       "Please enter a different port",
     ),
-    "portTip": m31,
+    "portTip": m36,
     "practicalTools": MessageLookupByLibrary.simpleMessage("Utilities"),
     "practicalToolsSubtitle": MessageLookupByLibrary.simpleMessage(
       "Everyday network tools for a faster, easier online experience",
@@ -1726,9 +1792,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "ruleTypeHelp": MessageLookupByLibrary.simpleMessage(
       "DOMAIN matches the exact domain; DOMAIN-SUFFIX also matches subdomains",
     ),
+    "runNetworkDiagnostics": MessageLookupByLibrary.simpleMessage(
+      "Run network diagnostics",
+    ),
     "save": MessageLookupByLibrary.simpleMessage("Save"),
     "saveChanges": MessageLookupByLibrary.simpleMessage("Save changes"),
-    "savedDnsServersCount": m32,
+    "savedDnsServersCount": m37,
     "scanToPay": MessageLookupByLibrary.simpleMessage("Scan to pay"),
     "scanWithPaymentApp": MessageLookupByLibrary.simpleMessage(
       "Scan the QR code below with the matching payment app",
@@ -1742,7 +1811,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Search domain, IP, rule, or node",
     ),
     "seconds": MessageLookupByLibrary.simpleMessage("Seconds"),
-    "secondsCount": m33,
+    "secondsCount": m38,
     "selectAll": MessageLookupByLibrary.simpleMessage("Select all"),
     "selectPaymentMethod": MessageLookupByLibrary.simpleMessage(
       "Select a payment method",
@@ -1770,7 +1839,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Select a withdrawal method",
     ),
     "selected": MessageLookupByLibrary.simpleMessage("Selected"),
-    "selectedCountTitle": m34,
+    "selectedCountTitle": m39,
     "sendVerificationCode": MessageLookupByLibrary.simpleMessage("Send"),
     "sendingVerificationCode": MessageLookupByLibrary.simpleMessage(
       "Sending...",
@@ -1871,12 +1940,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "submitWithdrawalTicket": MessageLookupByLibrary.simpleMessage(
       "Submit withdrawal ticket",
     ),
-    "subscriptionExpiredWarning": m35,
-    "subscriptionExpiringWarning": m36,
+    "subscriptionExpiredWarning": m40,
+    "subscriptionExpiringWarning": m41,
     "subscriptionImportFailed": MessageLookupByLibrary.simpleMessage(
       "Failed to load subscription nodes. Check your network and try again",
     ),
-    "subscriptionLowTrafficWarning": m37,
+    "subscriptionLowTrafficWarning": m42,
     "subscriptionNormalTooltip": MessageLookupByLibrary.simpleMessage(
       "Plan status is normal. Click to view details",
     ),
@@ -1910,8 +1979,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "system": MessageLookupByLibrary.simpleMessage("System"),
     "systemApp": MessageLookupByLibrary.simpleMessage("System APP"),
     "systemProxy": MessageLookupByLibrary.simpleMessage("System proxy"),
+    "systemProxyApplyFailed": m43,
     "systemProxyDesc": MessageLookupByLibrary.simpleMessage(
       "Attach HTTP proxy to VpnService",
+    ),
+    "systemProxyDisableFailed": m44,
+    "systemProxyStaleCleaned": MessageLookupByLibrary.simpleMessage(
+      "The system proxy left by the previous abnormal exit was cleared",
     ),
     "tab": MessageLookupByLibrary.simpleMessage("Tab"),
     "tabAnimation": MessageLookupByLibrary.simpleMessage("Tab animation"),
@@ -1955,7 +2029,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "toolbox": MessageLookupByLibrary.simpleMessage("Toolbox"),
     "tools": MessageLookupByLibrary.simpleMessage("Tools"),
     "totalCommission": MessageLookupByLibrary.simpleMessage("Total commission"),
-    "totalOrders": m38,
+    "totalOrders": m45,
     "totalTrafficLabel": MessageLookupByLibrary.simpleMessage("Total"),
     "tproxyPort": MessageLookupByLibrary.simpleMessage("Tproxy Port"),
     "trafficDetailRecords": MessageLookupByLibrary.simpleMessage(
@@ -2008,7 +2082,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "urlDesc": MessageLookupByLibrary.simpleMessage(
       "Obtain profile through URL",
     ),
-    "urlTip": m39,
+    "urlTip": m46,
     "useHosts": MessageLookupByLibrary.simpleMessage("Use hosts"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage("Use system hosts"),
     "usedTrafficLabel": MessageLookupByLibrary.simpleMessage("Used"),
@@ -2086,7 +2160,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "A support ticket will be created in the system for an administrator to process.",
     ),
     "yearlyBilling": MessageLookupByLibrary.simpleMessage("Yearly"),
-    "yearsAgo": m40,
+    "yearsAgo": m47,
     "zh_CN": MessageLookupByLibrary.simpleMessage("Simplified Chinese"),
     "zoomIn": MessageLookupByLibrary.simpleMessage("Zoom in"),
     "zoomOut": MessageLookupByLibrary.simpleMessage("Zoom out"),

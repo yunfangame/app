@@ -42,9 +42,26 @@ class SystemAction extends _$SystemAction {
   Future<void> cleanupLogoutIntegrations() async {
     await Future.wait([
       if (macOS != null) macOS!.updateDns(true),
-      if (proxy != null) proxy!.stopProxy(),
+      cleanupSystemProxy('logout'),
       hideTray(),
     ]);
+  }
+
+  @protected
+  Future<void> cleanupSystemProxy(String reason) async {
+    final proxyService = proxy;
+    if (proxyService == null) return;
+    final port = ref.read(patchClashConfigProvider).mixedPort;
+    final result = await proxyService.stopProxyDetailed(
+      expectedPort: system.isWindows ? port : null,
+    );
+    commonPrint.event(
+      'system_proxy.cleanup.completed',
+      fields: {'reason': reason, ...result.toDiagnosticFields()},
+    );
+    if (!result.success) {
+      throw StateError('system proxy cleanup failed: ${result.diagnosticCode}');
+    }
   }
 
   @protected
@@ -55,7 +72,7 @@ class SystemAction extends _$SystemAction {
     await Future.wait([
       if (needSave) preferences.saveConfig(ref.read(configProvider)),
       if (macOS != null) macOS!.updateDns(true),
-      if (proxy != null) proxy!.stopProxy(),
+      cleanupSystemProxy('exit'),
       if (tray != null) tray!.destroy(),
     ]);
   }
@@ -97,12 +114,22 @@ class SystemAction extends _$SystemAction {
   }
 
   void updateTun() {
+    final previous = ref.read(patchClashConfigProvider).tun.enable;
+    commonPrint.event(
+      'tun.toggle.requested',
+      fields: {'previous': previous, 'next': !previous},
+    );
     ref
         .read(patchClashConfigProvider.notifier)
         .update((state) => state.copyWith.tun(enable: !state.tun.enable));
   }
 
   void updateSystemProxy() {
+    final previous = ref.read(networkSettingProvider).systemProxy;
+    commonPrint.event(
+      'system_proxy.toggle.requested',
+      fields: {'previous': previous, 'next': !previous},
+    );
     ref
         .read(networkSettingProvider.notifier)
         .update((state) => state.copyWith(systemProxy: !state.systemProxy));

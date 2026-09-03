@@ -289,6 +289,31 @@ void main() {
     });
   });
 
+  group('TUN routing', () {
+    test('Windows desktop enables strict routing to prevent DNS leaks', () {
+      final tun = const Tun().getRealTun(
+        RouteMode.config,
+        isDesktop: true,
+        isWindows: true,
+      );
+
+      expect(tun.autoRoute, isTrue);
+      expect(tun.strictRoute, isTrue);
+      expect(tun.toJson()['strict-route'], isTrue);
+    });
+
+    test('other desktop platforms do not override profile strict routing', () {
+      final tun = const Tun().getRealTun(
+        RouteMode.config,
+        isDesktop: true,
+        isWindows: false,
+      );
+
+      expect(tun.strictRoute, isNull);
+      expect(tun.toJson(), isNot(contains('strict-route')));
+    });
+  });
+
   group('ProxiesStyleProps JSON round-trip', () {
     test('default values', () {
       const props = ProxiesStyleProps();

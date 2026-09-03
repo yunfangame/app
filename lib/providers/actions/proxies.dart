@@ -80,13 +80,31 @@ class ProxiesAction extends _$ProxiesAction {
     required String groupName,
     required String proxyName,
   }) async {
-    await coreController.changeProxy(
-      ChangeProxyParams(groupName: groupName, proxyName: proxyName),
-    );
-    if (ref.read(appSettingProvider).closeConnections) {
-      await coreController.closeConnections();
-    } else {
-      await coreController.resetConnections();
+    final fields = {
+      'group_ref': diagnosticFingerprint(groupName),
+      'node_ref': diagnosticFingerprint(proxyName),
+    };
+    commonPrint.event('proxy.selection.started', fields: fields);
+    try {
+      await coreController.changeProxy(
+        ChangeProxyParams(groupName: groupName, proxyName: proxyName),
+      );
+      if (ref.read(appSettingProvider).closeConnections) {
+        await coreController.closeConnections();
+      } else {
+        await coreController.resetConnections();
+      }
+      commonPrint.event('proxy.selection.succeeded', fields: fields);
+    } catch (error) {
+      commonPrint.event(
+        'proxy.selection.failed',
+        fields: {
+          ...fields,
+          'error_type': error.runtimeType.toString(),
+          'error': '$error',
+        },
+      );
+      rethrow;
     }
     ref.read(checkIpNumProvider.notifier).add();
   }

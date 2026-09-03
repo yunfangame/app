@@ -13,6 +13,22 @@ const remoteConfigVersion = 1;
 const remoteConfigEncryptionAlgorithm = 'A256GCM';
 const remoteConfigSignatureAlgorithm = 'Ed25519';
 
+enum RemoteConfigCipherFailure {
+  invalidEnvelope,
+  invalidKeyMaterial,
+  keyMismatch,
+  signature,
+  decryption,
+  invalidPayload,
+}
+
+class RemoteConfigCipherException extends FormatException {
+  const RemoteConfigCipherException(this.failure, String message)
+    : super(message);
+
+  final RemoteConfigCipherFailure failure;
+}
+
 Future<Object?> decodeEncryptedRemoteConfig(
   Object? payload, {
   required String aesKey,
@@ -35,12 +51,18 @@ Future<Object?> decodeEncryptedRemoteConfig(
       nonce.length != 12 ||
       tag.length != 16 ||
       signatureBytes.length != 64) {
-    throw const FormatException('Invalid remote config key material');
+    throw const RemoteConfigCipherException(
+      RemoteConfigCipherFailure.invalidKeyMaterial,
+      'Invalid remote config key material',
+    );
   }
 
   final expectedKeyId = remoteConfigKeyId(publicKeyBytes);
   if (envelope['kid'] != expectedKeyId) {
-    throw const FormatException('Remote config key ID mismatch');
+    throw const RemoteConfigCipherException(
+      RemoteConfigCipherFailure.keyMismatch,
+      'Remote config key ID mismatch',
+    );
   }
 
   final signatureMessage = remoteConfigSignatureMessage(envelope);
@@ -52,17 +74,39 @@ Future<Object?> decodeEncryptedRemoteConfig(
     ),
   );
   if (!verified) {
-    throw const FormatException('Remote config signature verification failed');
+    throw const RemoteConfigCipherException(
+      RemoteConfigCipherFailure.signature,
+      'Remote config signature verification failed',
+    );
   }
 
-  final clearBytes = await AesGcm.with256bits().decrypt(
-    SecretBox(ciphertext, nonce: nonce, mac: Mac(tag)),
-    secretKey: SecretKey(keyBytes),
-    aad: remoteConfigAdditionalData(envelope),
-  );
-  final decoded = jsonDecode(utf8.decode(clearBytes));
+  late final List<int> clearBytes;
+  try {
+    clearBytes = await AesGcm.with256bits().decrypt(
+      SecretBox(ciphertext, nonce: nonce, mac: Mac(tag)),
+      secretKey: SecretKey(keyBytes),
+      aad: remoteConfigAdditionalData(envelope),
+    );
+  } catch (_) {
+    throw const RemoteConfigCipherException(
+      RemoteConfigCipherFailure.decryption,
+      'Remote config decryption failed',
+    );
+  }
+  late final Object? decoded;
+  try {
+    decoded = jsonDecode(utf8.decode(clearBytes));
+  } catch (_) {
+    throw const RemoteConfigCipherException(
+      RemoteConfigCipherFailure.invalidPayload,
+      'Invalid decrypted remote config',
+    );
+  }
   if (decoded is! Map && decoded is! List) {
-    throw const FormatException('Invalid decrypted remote config');
+    throw const RemoteConfigCipherException(
+      RemoteConfigCipherFailure.invalidPayload,
+      'Invalid decrypted remote config',
+    );
   }
   return decoded;
 }
@@ -102,7 +146,10 @@ List<int> decodeRemoteConfigBase64(String value) {
   try {
     return base64Url.decode(base64Url.normalize(value.trim()));
   } on FormatException {
-    throw const FormatException('Invalid remote config Base64URL value');
+    throw const RemoteConfigCipherException(
+      RemoteConfigCipherFailure.invalidEnvelope,
+      'Invalid remote config Base64URL value',
+    );
   }
 }
 
@@ -112,10 +159,20 @@ Map<String, Object?> _decodeEnvelope(Object? payload) {
     decoded = utf8.decode(payload);
   }
   if (decoded is String) {
-    decoded = jsonDecode(decoded.trim());
+    try {
+      decoded = jsonDecode(decoded.trim());
+    } catch (_) {
+      throw const RemoteConfigCipherException(
+        RemoteConfigCipherFailure.invalidEnvelope,
+        'Invalid remote config envelope',
+      );
+    }
   }
   if (decoded is! Map) {
-    throw const FormatException('Invalid remote config envelope');
+    throw const RemoteConfigCipherException(
+      RemoteConfigCipherFailure.invalidEnvelope,
+      'Invalid remote config envelope',
+    );
   }
   return decoded.map((key, value) => MapEntry(key.toString(), value));
 }
@@ -125,11 +182,17 @@ void _validateEnvelope(Map<String, Object?> envelope) {
       envelope['version'] != remoteConfigVersion ||
       envelope['alg'] != remoteConfigEncryptionAlgorithm ||
       envelope['sig'] != remoteConfigSignatureAlgorithm) {
-    throw const FormatException('Unsupported remote config envelope');
+    throw const RemoteConfigCipherException(
+      RemoteConfigCipherFailure.invalidEnvelope,
+      'Unsupported remote config envelope',
+    );
   }
   for (final key in ['kid', 'nonce', 'ciphertext', 'tag', 'signature']) {
     if (envelope[key] is! String || (envelope[key] as String).isEmpty) {
-      throw const FormatException('Incomplete remote config envelope');
+      throw const RemoteConfigCipherException(
+        RemoteConfigCipherFailure.invalidEnvelope,
+        'Incomplete remote config envelope',
+      );
     }
   }
 }

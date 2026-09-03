@@ -517,6 +517,9 @@ class _ModeSelector extends ConsumerWidget {
     final tunEnabled = ref.watch(
       patchClashConfigProvider.select((config) => config.tun.enable),
     );
+    final systemProxyEnabled = ref.watch(
+      networkSettingProvider.select((settings) => settings.systemProxy),
+    );
     final skipGlobalModeConfirmation = ref.watch(
       appSettingProvider.select((state) => state.skipGlobalModeConfirmation),
     );
@@ -566,6 +569,15 @@ class _ModeSelector extends ConsumerWidget {
             label: l10n.tun,
             selected: tunEnabled,
             onTap: () => ref.read(systemActionProvider.notifier).updateTun(),
+          ),
+          _ModeItem(
+            key: const ValueKey('fengwo-desktop-system-proxy'),
+            colors: colors,
+            icon: Icons.lan_outlined,
+            label: l10n.systemProxy,
+            selected: systemProxyEnabled,
+            onTap: () =>
+                ref.read(systemActionProvider.notifier).updateSystemProxy(),
           ),
         ],
       ),

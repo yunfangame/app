@@ -376,7 +376,7 @@ USB 10/100/1000 LAN
       final result = await proxy.startProxy(7890, const ['localhost']);
 
       expect(result, isTrue);
-      expect(capturedCall?.method, 'StartProxy');
+      expect(capturedCall?.method, 'StartProxyDetailed');
       expect(capturedCall?.arguments, {
         'port': 7890,
         'bypassDomain': ['localhost'],
@@ -388,6 +388,76 @@ USB 10/100/1000 LAN
           .setMockMethodCallHandler(proxy.methodChannel, (_) async => null);
 
       expect(await proxy.stopProxy(), isFalse);
+    });
+
+    test('sends the guarded Windows stop contract', () async {
+      MethodCall? capturedCall;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(proxy.methodChannel, (call) async {
+            capturedCall = call;
+            return {
+              'success': true,
+              'operation': 'stop',
+              'stage': 'verified',
+              'enabled': false,
+            };
+          });
+
+      final result = await proxy.stopProxyDetailed(expectedPort: 7890);
+
+      expect(result.success, isTrue);
+      expect(capturedCall?.method, 'StopProxyDetailed');
+      expect(capturedCall?.arguments, {'expectedPort': 7890});
+    });
+
+    test('parses detailed Windows proxy failures', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(proxy.methodChannel, (_) async {
+            return {
+              'success': false,
+              'operation': 'start',
+              'stage': 'registry_write',
+              'errorCode': 5,
+              'connectionName': 'Work VPN',
+              'enabled': false,
+              'server': '',
+              'fallbackUsed': true,
+              'rasFailureCount': 1,
+              'message': 'Access denied',
+            };
+          });
+
+      final result = await proxy.startProxyDetailed(7890, const []);
+
+      expect(result.success, isFalse);
+      expect(result.diagnosticCode, 'W-PROXY-03');
+      expect(result.errorCode, 5);
+      expect(result.connectionName, 'Work VPN');
+      expect(result.fallbackUsed, isTrue);
+      expect(result.rasFailureCount, 1);
+    });
+
+    test('inspects the effective Windows proxy state', () async {
+      MethodCall? capturedCall;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(proxy.methodChannel, (call) async {
+            capturedCall = call;
+            return {
+              'success': true,
+              'operation': 'inspect',
+              'stage': 'verified',
+              'enabled': true,
+              'server': '127.0.0.1:7890',
+            };
+          });
+
+      final result = await proxy.inspectProxy(7890);
+
+      expect(result.success, isTrue);
+      expect(result.enabled, isTrue);
+      expect(result.server, '127.0.0.1:7890');
+      expect(capturedCall?.method, 'InspectProxy');
+      expect(capturedCall?.arguments, {'expectedPort': 7890});
     });
   });
 }

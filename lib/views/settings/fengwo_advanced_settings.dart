@@ -3,6 +3,7 @@ import 'package:fl_clash/common/campus_network.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
+import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,17 +12,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 typedef GeoResourceUpdater = Future<void> Function(GeoResource resource);
 typedef CampusNetworkConfigLoader = Future<CampusNetworkConfig> Function();
 typedef CampusNetworkCoreRestarter = Future<void> Function();
+typedef DiagnosticLogExporter = Future<bool> Function();
+typedef NetworkDiagnosticRunner = Future<NetworkDiagnosticReport> Function();
 
 class FengWoAdvancedSettingsView extends ConsumerStatefulWidget {
   final GeoResourceUpdater? geoResourceUpdater;
   final CampusNetworkConfigLoader? campusNetworkConfigLoader;
   final CampusNetworkCoreRestarter? campusNetworkCoreRestarter;
+  final DiagnosticLogExporter? diagnosticLogExporter;
+  final NetworkDiagnosticRunner? networkDiagnosticRunner;
 
   const FengWoAdvancedSettingsView({
     super.key,
     this.geoResourceUpdater,
     this.campusNetworkConfigLoader,
     this.campusNetworkCoreRestarter,
+    this.diagnosticLogExporter,
+    this.networkDiagnosticRunner,
   });
 
   @override
@@ -34,6 +41,45 @@ class _FengWoAdvancedSettingsViewState
   final Set<GeoResource> _updatingResources = {};
   bool _updatingAll = false;
   bool _updatingCampusNetwork = false;
+  bool _exportingLogs = false;
+  bool _diagnosingNetwork = false;
+  NetworkDiagnosticReport? _networkDiagnosticReport;
+
+  Future<void> _runNetworkDiagnostics() async {
+    if (_diagnosingNetwork) return;
+    setState(() => _diagnosingNetwork = true);
+    try {
+      final report = await globalState.safeRun<NetworkDiagnosticReport>(
+        () =>
+            widget.networkDiagnosticRunner?.call() ??
+            ref.read(logsProvider.notifier).runNetworkDiagnostics(),
+        title: '网络诊断',
+      );
+      if (report == null || !mounted) return;
+      setState(() => _networkDiagnosticReport = report);
+      context.showNotifier('${report.code}：${report.summary}');
+    } finally {
+      if (mounted) setState(() => _diagnosingNetwork = false);
+    }
+  }
+
+  Future<void> _exportDiagnosticLogs() async {
+    if (_exportingLogs) return;
+    setState(() => _exportingLogs = true);
+    try {
+      final exported = await globalState.safeRun<bool>(
+        () =>
+            widget.diagnosticLogExporter?.call() ??
+            ref.read(logsProvider.notifier).exportLogs(),
+        title: context.appLocalizations.exportLogs,
+      );
+      if (exported == true && mounted) {
+        context.showNotifier(context.appLocalizations.exportSuccess);
+      }
+    } finally {
+      if (mounted) setState(() => _exportingLogs = false);
+    }
+  }
 
   Future<CampusNetworkConfig> _loadCampusNetworkConfig() async {
     final loader = widget.campusNetworkConfigLoader;
@@ -274,6 +320,8 @@ class _FengWoAdvancedSettingsViewState
                             _buildDnsCard(colors),
                             const SizedBox(height: 16),
                             _buildGeoCard(colors),
+                            const SizedBox(height: 16),
+                            _buildDiagnosticCard(colors),
                           ],
                         );
                       }
@@ -304,6 +352,8 @@ class _FengWoAdvancedSettingsViewState
                           ),
                           const SizedBox(height: 18),
                           _buildGeoCard(colors),
+                          const SizedBox(height: 18),
+                          _buildDiagnosticCard(colors),
                         ],
                       );
                     },
@@ -324,6 +374,9 @@ class _FengWoAdvancedSettingsViewState
     );
     final allowLan = ref.watch(
       patchClashConfigProvider.select((state) => state.allowLan),
+    );
+    final systemProxy = ref.watch(
+      networkSettingProvider.select((state) => state.systemProxy),
     );
     final address = '127.0.0.1:$mixedPort';
     return _AdvancedCard(
@@ -371,6 +424,25 @@ class _FengWoAdvancedSettingsViewState
               },
             ),
           ),
+          if (system.isDesktop) ...[
+            Divider(height: 1, color: colors.outline),
+            _SettingsRow(
+              colors: colors,
+              icon: Icons.lan_outlined,
+              iconColor: colors.green,
+              title: l10n.systemProxy,
+              subtitle: l10n.systemProxyDesc,
+              trailing: Switch(
+                key: const ValueKey('advanced-system-proxy-switch'),
+                value: systemProxy,
+                onChanged: (value) {
+                  ref
+                      .read(networkSettingProvider.notifier)
+                      .update((state) => state.copyWith(systemProxy: value));
+                },
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           Material(
             color: colors.surfaceSoft,
@@ -677,6 +749,75 @@ class _FengWoAdvancedSettingsViewState
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDiagnosticCard(_AdvancedColors colors) {
+    final l10n = context.appLocalizations;
+    return _AdvancedCard(
+      key: const ValueKey('advanced-diagnostic-card'),
+      colors: colors,
+      child: Column(
+        children: [
+          _CardHeading(
+            colors: colors,
+            icon: Icons.monitor_heart_outlined,
+            title: l10n.logs,
+            subtitle: l10n.logsDesc,
+            accent: colors.blue,
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              key: const ValueKey('advanced-run-network-diagnostics'),
+              onPressed: _diagnosingNetwork ? null : _runNetworkDiagnostics,
+              icon: _diagnosingNetwork
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.troubleshoot_rounded),
+              label: Text(l10n.runNetworkDiagnostics),
+            ),
+          ),
+          if (_networkDiagnosticReport case final report?) ...[
+            const SizedBox(height: 10),
+            Container(
+              key: const ValueKey('advanced-network-diagnostic-result'),
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: (report.success ? colors.green : colors.orange)
+                    .withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: report.success ? colors.green : colors.orange,
+                ),
+              ),
+              child: SelectableText(
+                report.displayText,
+                style: TextStyle(color: colors.text, fontSize: 12, height: 1.4),
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonalIcon(
+              key: const ValueKey('advanced-export-diagnostic-logs'),
+              onPressed: _exportingLogs ? null : _exportDiagnosticLogs,
+              icon: _exportingLogs
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save_as_outlined),
+              label: Text(l10n.exportLogs),
             ),
           ),
         ],

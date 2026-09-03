@@ -59,14 +59,26 @@ class ApplicationState extends ConsumerState<Application> {
   }) async {
     if (globalState.isOfflineMode && !ignoreOfflineMode) return;
     final revision = globalState.xboardSessionRevision;
+    commonPrint.event(
+      'subscription.nodes.fetch.started',
+      fields: {'session_revision': revision},
+    );
     try {
       final nodes = await _xboardAuthService.fetchNodes(
         endpoint: session.endpoint,
         authData: session.authData,
       );
       if (!globalState.setXboardNodesForSession(session, revision, nodes)) {
+        commonPrint.event(
+          'subscription.nodes.fetch.discarded',
+          fields: {'session_revision': revision},
+        );
         return;
       }
+      commonPrint.event(
+        'subscription.nodes.fetch.succeeded',
+        fields: {'node_count': nodes.length, 'session_revision': revision},
+      );
       await _xboardSessionStorage.saveOfflineCache(
         session: session,
         nodes: nodes,
@@ -74,6 +86,14 @@ class ApplicationState extends ConsumerState<Application> {
       if (!globalState.isActiveXboardSession(session, revision)) return;
       _offlineAvailable = true;
     } catch (error, stackTrace) {
+      commonPrint.event(
+        'subscription.nodes.fetch.failed',
+        fields: {
+          'error_type': error.runtimeType.toString(),
+          'error': '$error',
+          'session_revision': revision,
+        },
+      );
       globalState.setXboardNodesForSession(session, revision, const []);
       commonPrint.log(
         'load XBoard nodes failed: $error, $stackTrace',
@@ -205,6 +225,10 @@ class ApplicationState extends ConsumerState<Application> {
   }
 
   Future<void> _syncSubscriptionProfile(XboardLoginResult session) async {
+    commonPrint.event(
+      'subscription.profile.sync.started',
+      fields: {'secure_subscription': session.secureSubscription},
+    );
     try {
       await _appReadyCompleter.future;
       final planName = session.subscription.plan?.name?.trim();
@@ -231,6 +255,13 @@ class ApplicationState extends ConsumerState<Application> {
         await _xboardSessionStorage.setManagedProfileUrl(
           secureProfile.sourceId,
         );
+        commonPrint.event(
+          'subscription.profile.sync.succeeded',
+          fields: {
+            'protocol': 'v2',
+            'content_bytes': secureProfile.bytes.length,
+          },
+        );
         return;
       }
       if (session.secureSubscription) {
@@ -249,7 +280,19 @@ class ApplicationState extends ConsumerState<Application> {
             replacingUrl: previousUrl,
           );
       await _xboardSessionStorage.setManagedProfileUrl(subscriptionUrl);
+      commonPrint.event(
+        'subscription.profile.sync.succeeded',
+        fields: {'protocol': 'v1'},
+      );
     } catch (error, stackTrace) {
+      commonPrint.event(
+        'subscription.profile.sync.failed',
+        fields: {
+          'error_type': error.runtimeType.toString(),
+          'error': '$error',
+          'secure_subscription': session.secureSubscription,
+        },
+      );
       commonPrint.log(
         'sync XBoard subscription profile failed: $error, $stackTrace',
       );
@@ -280,6 +323,7 @@ class ApplicationState extends ConsumerState<Application> {
   }
 
   Future<void> _logoutXboard() async {
+    commonPrint.event('auth.logout.requested');
     final activeSession = globalState.xboardSession;
     final activeSubscriptionUrl = activeSession?.subscribeUrl?.toString();
     final managedProfileUrl = await _xboardSessionStorage
@@ -330,6 +374,7 @@ class ApplicationState extends ConsumerState<Application> {
     _loginPrefill = null;
     _initialRememberMe = false;
     _initialAutoLogin = false;
+    commonPrint.event('auth.logout.completed');
     if (!mounted) return;
     setState(() {
       _authenticationBootstrap = _AuthenticationBootstrap.login;
@@ -605,11 +650,20 @@ class ApplicationState extends ConsumerState<Application> {
     globalState.enableOfflineMode = _enableOfflineMode;
     globalState.restoreOnlineMode = _restoreOnlineMode;
     globalState.refreshXboardSubscription = _refreshXboardSubscription;
+    unawaited(_xboardAuthService.prepareApiConfiguration());
     unawaited(_restoreRememberedSession());
     SystemNavigator.setFrameworkHandlesBack(true);
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) async {
       if (globalState.navigatorKey.currentContext != null) {
         await globalState.attach();
+        commonPrint.event(
+          'app.ready',
+          fields: {
+            'platform': Platform.operatingSystem,
+            'app_version': globalState.packageInfo.version,
+            'build_number': globalState.packageInfo.buildNumber,
+          },
+        );
         if (!_appReadyCompleter.isCompleted) {
           _appReadyCompleter.complete();
         }
@@ -626,14 +680,39 @@ class ApplicationState extends ConsumerState<Application> {
     return LoginPage(
       onLogin: _openHome,
       authenticate: (email, password) async {
-        final session = await _xboardAuthService.login(
-          email: email,
-          password: password,
-          appVersion: globalState.packageInfo.version,
+        final accountRef = diagnosticFingerprint(email);
+        commonPrint.event(
+          'auth.login.started',
+          fields: {'account_ref': accountRef},
         );
-        globalState.activateXboardSession(session);
-        await _loadXboardNodes(session, ignoreOfflineMode: true);
-        return session;
+        try {
+          final session = await _xboardAuthService.login(
+            email: email,
+            password: password,
+            appVersion: globalState.packageInfo.version,
+          );
+          globalState.activateXboardSession(session);
+          await _loadXboardNodes(session, ignoreOfflineMode: true);
+          commonPrint.event(
+            'auth.login.succeeded',
+            fields: {
+              'account_ref': accountRef,
+              'secure_subscription': session.secureSubscription,
+              'node_count': globalState.xboardNodes.length,
+            },
+          );
+          return session;
+        } catch (error) {
+          commonPrint.event(
+            'auth.login.failed',
+            fields: {
+              'account_ref': accountRef,
+              'error_type': error.runtimeType.toString(),
+              'error': '$error',
+            },
+          );
+          rethrow;
+        }
       },
       onAuthenticated: _saveAuthenticatedSession,
       onLanguagePressed: ToolLocaleSelector.show,
@@ -709,6 +788,13 @@ class ApplicationState extends ConsumerState<Application> {
             commonPrint.log('connectivityChanged ${results.toString()}');
             ref.read(systemActionProvider.notifier).updateLocalIp();
             final hasVpn = results.contains(ConnectivityResult.vpn);
+            commonPrint.event(
+              'network.connectivity.changed',
+              fields: {
+                'transports': results.map((item) => item.name).toList(),
+                'has_vpn': hasVpn,
+              },
+            );
             if (_preHasVpn == hasVpn) {
               ref.read(checkIpNumProvider.notifier).add();
             }

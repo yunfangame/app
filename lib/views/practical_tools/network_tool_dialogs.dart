@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/streaming_unlock.dart';
+import 'package:fl_clash/core/core.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
@@ -677,13 +678,9 @@ class PopularAppsDialog extends StatelessWidget {
 }
 
 class ChainProxyDialog extends ConsumerStatefulWidget {
-  const ChainProxyDialog({
-    super.key,
-    this.validator = validateChainProxy,
-    this.coreRestarter,
-  });
+  const ChainProxyDialog({super.key, this.validator, this.coreRestarter});
 
-  final ChainProxyValidator validator;
+  final ChainProxyValidator? validator;
   final Future<void> Function()? coreRestarter;
 
   @override
@@ -701,7 +698,6 @@ class _ChainProxyDialogState extends ConsumerState<ChainProxyDialog> {
       builder: (_) => _ChainProxyFormDialog(
         existing: existing,
         entries: settings.chainProxies,
-        validator: widget.validator,
       ),
     );
     if (entry == null || !mounted) return;
@@ -729,9 +725,36 @@ class _ChainProxyDialogState extends ConsumerState<ChainProxyDialog> {
     );
   }
 
-  Future<void> _restartCore() {
-    return widget.coreRestarter?.call() ??
-        ref.read(coreActionProvider.notifier).restartCore();
+  Future<ChainProxyValidationResult> _validateActiveProxy(
+    ChainProxyConfig entry,
+    String testUrl,
+  ) async {
+    final validator = widget.validator;
+    if (validator != null) return validator(entry);
+    try {
+      final delay = await coreController.getDelay(
+        testUrl,
+        chainProxyRuntimeName,
+      );
+      final available = delay.value != null && delay.value! > 0;
+      commonPrint.event(
+        'chain_proxy.validation.completed',
+        fields: {'success': available, 'delay_ms': delay.value},
+      );
+      return ChainProxyValidationResult(
+        available
+            ? ChainProxyValidationStatus.available
+            : ChainProxyValidationStatus.unavailable,
+      );
+    } catch (error) {
+      commonPrint.event(
+        'chain_proxy.validation.failed',
+        fields: {'error_type': error.runtimeType.toString(), 'error': '$error'},
+      );
+      return const ChainProxyValidationResult(
+        ChainProxyValidationStatus.unavailable,
+      );
+    }
   }
 
   Future<void> _setActive(ChainProxyConfig entry, bool enabled) async {
@@ -744,12 +767,48 @@ class _ChainProxyDialogState extends ConsumerState<ChainProxyDialog> {
     }
     final previous = ref.read(appSettingProvider);
     if (enabled && previous.activeChainProxyName != null) return;
+    final settingsNotifier = ref.read(appSettingProvider.notifier);
+    final restartCore =
+        widget.coreRestarter ??
+        ref.read(coreActionProvider.notifier).restartCore;
+
+    Future<bool> restorePrevious() async {
+      settingsNotifier.value = previous;
+      try {
+        await restartCore();
+        return true;
+      } catch (error) {
+        commonPrint.event(
+          'chain_proxy.rollback.failed',
+          fields: {
+            'error_type': error.runtimeType.toString(),
+            'error': '$error',
+          },
+        );
+        return false;
+      }
+    }
+
     setState(() => _workingName = entry.name);
-    ref.read(appSettingProvider.notifier).value = previous.copyWith(
+    settingsNotifier.value = previous.copyWith(
       activeChainProxyName: enabled ? entry.name : null,
     );
     try {
-      await _restartCore();
+      await restartCore();
+      if (enabled) {
+        final validation = await _validateActiveProxy(entry, previous.testUrl);
+        if (!validation.isAvailable) {
+          final restored = await restorePrevious();
+          if (mounted) {
+            context.showNotifier(
+              restored
+                  ? context.appLocalizations.chainProxyConnectivityFailed
+                  : context.appLocalizations.chainProxyRollbackFailed,
+            );
+          }
+          return;
+        }
+      }
       if (mounted) {
         context.showNotifier(
           enabled
@@ -757,10 +816,18 @@ class _ChainProxyDialogState extends ConsumerState<ChainProxyDialog> {
               : context.appLocalizations.chainProxyStopped,
         );
       }
-    } catch (_) {
-      ref.read(appSettingProvider.notifier).value = previous;
+    } catch (error) {
+      commonPrint.event(
+        'chain_proxy.apply.failed',
+        fields: {'error_type': error.runtimeType.toString(), 'error': '$error'},
+      );
+      final restored = await restorePrevious();
       if (mounted) {
-        context.showNotifier(context.appLocalizations.chainProxyApplyFailed);
+        context.showNotifier(
+          restored
+              ? context.appLocalizations.chainProxyApplyFailed
+              : context.appLocalizations.chainProxyRollbackFailed,
+        );
       }
     } finally {
       if (mounted) setState(() => _workingName = null);
@@ -1068,14 +1135,9 @@ class _ChainProxyListItem extends StatelessWidget {
 }
 
 class _ChainProxyFormDialog extends StatefulWidget {
-  const _ChainProxyFormDialog({
-    required this.entries,
-    required this.validator,
-    this.existing,
-  });
+  const _ChainProxyFormDialog({required this.entries, this.existing});
 
   final List<ChainProxyConfig> entries;
-  final ChainProxyValidator validator;
   final ChainProxyConfig? existing;
 
   @override
@@ -1090,7 +1152,7 @@ class _ChainProxyFormDialogState extends State<_ChainProxyFormDialog> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   ChainProxyProtocol _protocol = ChainProxyProtocol.socks5;
-  bool _validating = false;
+  bool _obscurePassword = true;
   String? _validationError;
 
   @override
@@ -1116,7 +1178,7 @@ class _ChainProxyFormDialogState extends State<_ChainProxyFormDialog> {
     super.dispose();
   }
 
-  Future<void> _submit() async {
+  void _submit() {
     if (_formKey.currentState?.validate() != true) return;
     final entry = ChainProxyConfig(
       name: _nameController.text.trim(),
@@ -1136,24 +1198,7 @@ class _ChainProxyFormDialogState extends State<_ChainProxyFormDialog> {
       );
       return;
     }
-    setState(() {
-      _validating = true;
-      _validationError = null;
-    });
-    final result = await widget.validator(entry);
-    if (!mounted) return;
-    if (result.isAvailable) {
-      Navigator.of(context).pop(entry);
-      return;
-    }
-    final error = result.status == ChainProxyValidationStatus.wrongProtocol
-        ? '${context.appLocalizations.proxyProtocolMismatch} '
-              '${result.detectedProtocol!.name.toUpperCase()}'
-        : context.appLocalizations.proxyValidationFailed;
-    setState(() {
-      _validating = false;
-      _validationError = error;
-    });
+    Navigator.of(context).pop(entry);
   }
 
   @override
@@ -1235,39 +1280,45 @@ class _ChainProxyFormDialogState extends State<_ChainProxyFormDialog> {
                   _ProxyFormField(
                     child: TextFormField(
                       controller: _passwordController,
-                      obscureText: true,
+                      obscureText: _obscurePassword,
                       decoration: InputDecoration(
                         labelText: l10n.password,
                         hintText: l10n.optional,
+                        suffixIcon: IconButton(
+                          key: const ValueKey(
+                            'chain-proxy-password-visibility',
+                          ),
+                          tooltip: _obscurePassword
+                              ? l10n.showPassword
+                              : l10n.hidePassword,
+                          onPressed: () => setState(
+                            () => _obscurePassword = !_obscurePassword,
+                          ),
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ],
               ),
-              if (_validating || _validationError != null) ...[
+              if (_validationError != null) ...[
                 const SizedBox(height: 18),
                 Row(
                   children: [
-                    if (_validating)
-                      const SizedBox.square(
-                        dimension: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    else
-                      Icon(
-                        Icons.error_outline_rounded,
-                        color: context.colorScheme.error,
-                      ),
+                    Icon(
+                      Icons.error_outline_rounded,
+                      color: context.colorScheme.error,
+                    ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        _validating ? l10n.validatingProxy : _validationError!,
+                        _validationError!,
                         key: const ValueKey('chain-proxy-validation-status'),
-                        style: TextStyle(
-                          color: _validating
-                              ? context.colorScheme.onSurfaceVariant
-                              : context.colorScheme.error,
-                        ),
+                        style: TextStyle(color: context.colorScheme.error),
                       ),
                     ),
                   ],
@@ -1279,11 +1330,11 @@ class _ChainProxyFormDialogState extends State<_ChainProxyFormDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: _validating ? null : () => Navigator.of(context).pop(),
+          onPressed: () => Navigator.of(context).pop(),
           child: Text(l10n.cancel),
         ),
         FilledButton.icon(
-          onPressed: _validating ? null : _submit,
+          onPressed: _submit,
           icon: const Icon(Icons.save_outlined),
           label: Text(widget.existing == null ? l10n.addProxy : l10n.save),
         ),
