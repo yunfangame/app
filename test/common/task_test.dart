@@ -3,6 +3,7 @@ import 'package:fl_clash/common/task.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 int _double(int value) => value * 2;
@@ -158,7 +159,9 @@ void main() {
       expect(config['sniffer']['sniff']['HTTP']['ports'], ['80', '443']);
       expect(
         config['proxy-providers']['remote']['path'],
-        startsWith('/profiles/providers/7/proxies/'),
+        startsWith(
+          '${p.join('/profiles', 'providers', '7', 'proxies')}${p.separator}',
+        ),
       );
       expect(
         config['proxy-providers']['remote']['health-check']['url'],
@@ -170,7 +173,9 @@ void main() {
       );
       expect(
         config['rule-providers']['remote']['path'],
-        startsWith('/profiles/providers/7/rules/'),
+        startsWith(
+          '${p.join('/profiles', 'providers', '7', 'rules')}${p.separator}',
+        ),
       );
       expect(config['rules'], containsAll(localNetworkDirectRules));
       expect(config['rules'].skip(localNetworkDirectRules.length), [
