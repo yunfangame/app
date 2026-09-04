@@ -36,6 +36,7 @@ class WindowsProxyGuard {
     WindowsProxyPortProbe? portProbe,
     this.readyTimeout = const Duration(seconds: 5),
     this.retryInterval = const Duration(milliseconds: 200),
+    this.verificationDelay = const Duration(milliseconds: 300),
   }) : _inspector = inspector,
        _stopper = stopper,
        _portProbe = portProbe ?? _probeLoopbackPort;
@@ -45,6 +46,18 @@ class WindowsProxyGuard {
   final WindowsProxyPortProbe _portProbe;
   final Duration readyTimeout;
   final Duration retryInterval;
+  final Duration verificationDelay;
+
+  Future<ProxyOperationResult?> verifyAfterApply(
+    int port, {
+    bool Function()? isCancelled,
+  }) async {
+    if (isCancelled?.call() == true) return null;
+    await Future<void>.delayed(verificationDelay);
+    if (isCancelled?.call() == true) return null;
+    final result = await _inspector(port);
+    return isCancelled?.call() == true ? null : result;
+  }
 
   Future<bool> waitUntilReady(int port, {bool Function()? isCancelled}) async {
     final deadline = DateTime.now().add(readyTimeout);

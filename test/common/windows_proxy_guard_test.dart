@@ -24,6 +24,42 @@ void main() {
     enabled: false,
   );
 
+  test('delayed verification reports changed proxy without writing', () async {
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => foreign,
+      stopper: (_) async => throw StateError('must not write'),
+      verificationDelay: Duration.zero,
+    );
+    final result = await guard.verifyAfterApply(7890);
+    expect(result?.success, isFalse);
+    expect(result?.server, '127.0.0.1:8080');
+  });
+
+  test('cancelled delayed verification does not inspect', () async {
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => throw StateError('must not inspect'),
+      stopper: (_) async => cleaned,
+      verificationDelay: Duration.zero,
+    );
+    expect(await guard.verifyAfterApply(7890, isCancelled: () => true), isNull);
+  });
+
+  test('discards verification superseded while reading', () async {
+    var cancelled = false;
+    final guard = WindowsProxyGuard(
+      inspector: (_) async {
+        cancelled = true;
+        return owned;
+      },
+      stopper: (_) async => cleaned,
+      verificationDelay: Duration.zero,
+    );
+    expect(
+      await guard.verifyAfterApply(7890, isCancelled: () => cancelled),
+      isNull,
+    );
+  });
+
   test('waits until the local mixed port is listening', () async {
     var probes = 0;
     final guard = WindowsProxyGuard(

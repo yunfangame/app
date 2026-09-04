@@ -777,6 +777,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "network": MessageLookupByLibrary.simpleMessage("网络"),
     "networkDesc": MessageLookupByLibrary.simpleMessage("修改网络相关设置"),
     "networkDetection": MessageLookupByLibrary.simpleMessage("网络检测"),
+    "networkDiagnosticConfigDnsFailed": MessageLookupByLibrary.simpleMessage(
+      "本地代理联网成功，但配置域名均解析失败",
+    ),
     "networkDiagnosticConfigDomains": MessageLookupByLibrary.simpleMessage(
       "配置域名",
     ),
@@ -810,7 +813,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "networkDiagnosticProxyFailure": m28,
     "networkDiagnosticProxyVerified": m29,
     "networkDiagnosticSuccess": MessageLookupByLibrary.simpleMessage(
-      "配置、内核、流量入口和当前节点均正常",
+      "本地代理访问外网成功；不代表所有应用或 TUN 流量均已接管",
     ),
     "networkDiagnosticSystemProxyInvalid": MessageLookupByLibrary.simpleMessage(
       "Windows 系统代理未正确生效",

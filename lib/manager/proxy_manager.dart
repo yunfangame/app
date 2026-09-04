@@ -25,9 +25,10 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
   WindowsProxyGuard? _windowsProxyGuard;
   int _requestedRevision = 0;
 
-  bool _isCurrent(int revision) => revision == _requestedRevision;
+  bool _isCurrent(int revision) => mounted && revision == _requestedRevision;
 
   Future<void> _updateProxy(ProxyState proxyState, int revision) async {
+    if (!mounted || !_isCurrent(revision)) return;
     final isStart = proxyState.isStart;
     final systemProxy = proxyState.systemProxy;
     final port = proxyState.port;
@@ -57,6 +58,19 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
         }
       }
       result ??= await proxy?.startProxyDetailed(port, proxyState.bassDomain);
+      if (result?.success == true && guard != null) {
+        final verification = await guard.verifyAfterApply(
+          port,
+          isCancelled: () => !_isCurrent(revision),
+        );
+        if (verification != null) {
+          commonPrint.event(
+            'system_proxy.apply.recheck',
+            fields: verification.toDiagnosticFields(),
+          );
+          if (!verification.success) result = verification;
+        }
+      }
     } else {
       result = await proxy?.stopProxyDetailed(
         expectedPort: system.isWindows ? port : null,

@@ -6,6 +6,7 @@
 #include <WinInet.h>
 #include <Ras.h>
 #include <RasError.h>
+#include "proxy_settings.h"
 #include <algorithm>
 #include <cstdint>
 #include <memory>
@@ -177,92 +178,57 @@ bool ReadProxyRegistry(ProxyReadback& readback, DWORD& errorCode)
   return serverRead;
 }
 
-bool WriteProxyRegistry(
-    bool enabled,
-    const std::wstring& server,
-    const std::wstring& bypassList,
-    DWORD& errorCode)
+bool ReadProxySettings(ProxyReadback& readback, DWORD& errorCode)
 {
-  HKEY key = nullptr;
-  auto status = RegCreateKeyExW(
-      HKEY_CURRENT_USER, kInternetSettingsKey, 0, nullptr,
-      REG_OPTION_NON_VOLATILE, KEY_SET_VALUE | KEY_QUERY_VALUE, nullptr,
-      &key, nullptr);
-  if (status != ERROR_SUCCESS)
+  if (!proxy::settings::QueryProxy(
+          readback.enabled, readback.server, errorCode))
   {
-    errorCode = status;
     return false;
   }
-  if (enabled)
+  ProxyReadback registry;
+  if (!ReadProxyRegistry(registry, errorCode)) return false;
+  if (registry.enabled != readback.enabled ||
+      (readback.enabled && registry.server != readback.server))
   {
-    status = RegSetValueExW(
-        key, L"ProxyServer", 0, REG_SZ,
-        reinterpret_cast<const BYTE*>(server.c_str()),
-        static_cast<DWORD>((server.size() + 1) * sizeof(wchar_t)));
-  }
-  if (status == ERROR_SUCCESS && enabled)
-  {
-    status = RegSetValueExW(
-        key, L"ProxyOverride", 0, REG_SZ,
-        reinterpret_cast<const BYTE*>(bypassList.c_str()),
-        static_cast<DWORD>((bypassList.size() + 1) * sizeof(wchar_t)));
-  }
-  if (status == ERROR_SUCCESS)
-  {
-    const DWORD proxyEnabled = enabled ? 1 : 0;
-    status = RegSetValueExW(
-        key, L"ProxyEnable", 0, REG_DWORD,
-        reinterpret_cast<const BYTE*>(&proxyEnabled), sizeof(proxyEnabled));
-  }
-  RegCloseKey(key);
-  if (status != ERROR_SUCCESS)
-  {
-    errorCode = status;
+    errorCode = ERROR_INVALID_DATA;
     return false;
   }
+  errorCode = ERROR_SUCCESS;
   return true;
 }
 
 bool SetOptionsForConnection(
-    INTERNET_PER_CONN_OPTION_LIST& list,
-    LPTSTR connection,
-    DWORD& errorCode)
+    INTERNET_PER_CONN_OPTION_LISTW& list,
+    LPWSTR connection,
+    DWORD& errorCode,
+    bool& fallbackUsed)
 {
-  list.pszConnection = connection;
-  const bool success = InternetSetOption(
-      nullptr,
-      INTERNET_OPTION_PER_CONNECTION_OPTION,
-      &list,
-      sizeof(list)) != FALSE;
-  if (!success)
-  {
-    errorCode = GetLastError();
-  }
-  return success;
+  return proxy::settings::SetConnectionOptions(
+      list, connection, errorCode, fallbackUsed);
 }
 
 void ApplyOptionsToRasConnections(
-    INTERNET_PER_CONN_OPTION_LIST& list,
+    INTERNET_PER_CONN_OPTION_LISTW& list,
     ProxyOperationDetails& details)
 {
   DWORD size = 0;
   DWORD count = 0;
-  auto ret = RasEnumEntries(nullptr, nullptr, nullptr, &size, &count);
+  auto ret = RasEnumEntriesW(nullptr, nullptr, nullptr, &size, &count);
   if (ret == ERROR_BUFFER_TOO_SMALL && count > 0)
   {
-    std::vector<RASENTRYNAME> entries(count);
+    std::vector<RASENTRYNAMEW> entries(count);
     for (auto& entry : entries)
     {
-      entry.dwSize = sizeof(RASENTRYNAME);
+      entry.dwSize = sizeof(RASENTRYNAMEW);
     }
-    ret = RasEnumEntries(nullptr, nullptr, entries.data(), &size, &count);
+    ret = RasEnumEntriesW(nullptr, nullptr, entries.data(), &size, &count);
     if (ret == ERROR_SUCCESS)
     {
       for (DWORD i = 0; i < count; i++)
       {
         DWORD errorCode = ERROR_SUCCESS;
         if (!SetOptionsForConnection(
-                list, entries[i].szEntryName, errorCode))
+                list, entries[i].szEntryName, errorCode, details.fallbackUsed))
         {
           details.rasFailureCount++;
           if (details.connectionName.empty())
@@ -327,9 +293,9 @@ ProxyOperationDetails ApplyProxy(
       ? Utf8ToWide("127.0.0.1:" + std::to_string(port))
       : std::wstring();
   const auto bypassList = BuildBypassList(bypassDomain);
-  std::vector<INTERNET_PER_CONN_OPTION> options(enabled ? 3 : 1);
+  std::vector<INTERNET_PER_CONN_OPTIONW> options(enabled ? 3 : 1);
 
-  INTERNET_PER_CONN_OPTION_LIST list = {};
+  INTERNET_PER_CONN_OPTION_LISTW list = {};
   list.dwSize = sizeof(list);
   list.dwOptionCount = static_cast<DWORD>(options.size());
   list.pOptions = options.data();
@@ -348,20 +314,14 @@ ProxyOperationDetails ApplyProxy(
 
   DWORD applyError = ERROR_SUCCESS;
   const bool defaultApplied =
-      SetOptionsForConnection(list, nullptr, applyError);
-  ApplyOptionsToRasConnections(list, details);
+      SetOptionsForConnection(list, nullptr, applyError, details.fallbackUsed);
   if (!defaultApplied)
   {
     details.stage = "apply_default";
     details.errorCode = applyError;
-    details.fallbackUsed = true;
-    if (!WriteProxyRegistry(
-            enabled, server, bypassList, details.errorCode))
-    {
-      details.stage = "registry_write";
-      return details;
-    }
+    return details;
   }
+  ApplyOptionsToRasConnections(list, details);
 
   if (!NotifySettingsChanged(details))
   {
@@ -370,23 +330,7 @@ ProxyOperationDetails ApplyProxy(
 
   ProxyReadback readback;
   DWORD readError = ERROR_SUCCESS;
-  bool readSucceeded = ReadProxyRegistry(readback, readError);
-  if (!readSucceeded || !MatchesExpectedProxy(readback, enabled, server))
-  {
-    if (!details.fallbackUsed)
-    {
-      details.fallbackUsed = true;
-      details.stage = "registry_write";
-      if (!WriteProxyRegistry(
-              enabled, server, bypassList, details.errorCode) ||
-          !NotifySettingsChanged(details))
-      {
-        return details;
-      }
-      readError = ERROR_SUCCESS;
-      readSucceeded = ReadProxyRegistry(readback, readError);
-    }
-  }
+  const bool readSucceeded = ReadProxySettings(readback, readError);
 
   details.enabled = readback.enabled;
   details.server = readback.server;
@@ -403,9 +347,15 @@ ProxyOperationDetails ApplyProxy(
     return details;
   }
 
+  if (details.rasFailureCount > 0)
+  {
+    details.stage = "apply_ras";
+    return details;
+  }
   details.success = true;
+  details.errorCode = ERROR_SUCCESS;
   details.stage = details.fallbackUsed
-      ? "verified_registry_fallback"
+      ? "verified_ansi_fallback"
       : "verified";
   return details;
 }
@@ -417,7 +367,7 @@ ProxyOperationDetails StopProxy(const int* expectedPort)
     ProxyOperationDetails details;
     details.operation = "stop";
     ProxyReadback readback;
-    if (!ReadProxyRegistry(readback, details.errorCode))
+    if (!ReadProxySettings(readback, details.errorCode))
     {
       details.stage = "readback";
       return details;
@@ -448,7 +398,7 @@ ProxyOperationDetails InspectProxy(const int expectedPort)
   ProxyOperationDetails details;
   details.operation = "inspect";
   ProxyReadback readback;
-  if (!ReadProxyRegistry(readback, details.errorCode))
+  if (!ReadProxySettings(readback, details.errorCode))
   {
     details.stage = "readback";
     return details;

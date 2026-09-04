@@ -1818,11 +1818,21 @@ class AppLocalizations {
     );
   }
 
-  /// `Configuration, core, traffic entry, and current node are working`
+  /// `Internet access through the local proxy succeeded; application and TUN traffic capture is not verified`
   String get networkDiagnosticSuccess {
     return Intl.message(
-      'Configuration, core, traffic entry, and current node are working',
+      'Internet access through the local proxy succeeded; application and TUN traffic capture is not verified',
       name: 'networkDiagnosticSuccess',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The local proxy can access the internet, but no configuration domain resolves`
+  String get networkDiagnosticConfigDnsFailed {
+    return Intl.message(
+      'The local proxy can access the internet, but no configuration domain resolves',
+      name: 'networkDiagnosticConfigDnsFailed',
       desc: '',
       args: [],
     );

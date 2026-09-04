@@ -10,10 +10,11 @@ void main() {
   NetworkDiagnosticService service({
     bool portAvailable = true,
     bool internetAvailable = true,
+    bool dnsAvailable = true,
     ProxyOperationResult? proxyResult,
   }) {
     return NetworkDiagnosticService(
-      dnsProbe: (_) async => true,
+      dnsProbe: (_) async => dnsAvailable,
       portProbe: (_) async => portAvailable,
       internetProbe: (_) async => internetAvailable,
       proxyInspector: proxyResult == null ? null : (_) async => proxyResult,
@@ -60,6 +61,42 @@ void main() {
     ).run(base);
 
     expect(report.code, 'W-PROXY-04');
+    expect(report.steps.last.success, isTrue);
+  });
+
+  for (final internetAvailable in [true, false]) {
+    test(
+      'TUN cannot hide a proxy failure (internet=$internetAvailable)',
+      () async {
+        final report =
+            await service(
+              internetAvailable: internetAvailable,
+              proxyResult: const ProxyOperationResult(
+                success: false,
+                operation: 'inspect',
+                stage: 'readback_mismatch',
+                enabled: false,
+              ),
+            ).run(
+              const NetworkDiagnosticInput(
+                hasProfile: true,
+                running: true,
+                systemProxyRequested: true,
+                tunRequested: true,
+                port: 7890,
+              ),
+            );
+        expect(report.code, 'W-PROXY-04');
+        expect(report.success, isFalse);
+        expect(report.steps.last.success, internetAvailable);
+      },
+    );
+  }
+
+  test('does not report overall success when config DNS fails', () async {
+    final report = await service(dnsAvailable: false).run(base);
+    expect(report.code, 'W-DNS-01');
+    expect(report.success, isFalse);
   });
 
   test('distinguishes a node that cannot reach the internet', () async {
@@ -103,5 +140,6 @@ void main() {
 
     expect(report.code, 'W-NET-OK');
     expect(report.success, isTrue);
+    expect(report.summary, contains('not verified'));
   });
 }

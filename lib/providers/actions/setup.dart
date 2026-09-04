@@ -215,20 +215,49 @@ class SetupAction extends _$SetupAction {
   @visibleForTesting
   Future<void> updateConfig() async {
     await globalState.safeRun(() async {
-      final updateParams = ref.read(updateParamsProvider);
-      final shouldContinueSetup = await requestAdmin(updateParams.tun.enable);
-      if (!shouldContinueSetup) {
-        await _restartCoreAfterAuthorization();
-        return;
+      await _inspectSystemProxy('before_update');
+      try {
+        final updateParams = ref.read(updateParamsProvider);
+        final shouldContinueSetup = await requestAdmin(updateParams.tun.enable);
+        if (!shouldContinueSetup) {
+          await _restartCoreAfterAuthorization();
+          return;
+        }
+        final message = await coreController.updateConfig(
+          updateParams.copyWith.tun(
+            enable: _getEffectiveTunEnable(updateParams.tun.enable),
+          ),
+        );
+        ref.read(checkIpNumProvider.notifier).add();
+        if (message.isNotEmpty) throw message;
+      } finally {
+        await _inspectSystemProxy('after_update');
       }
-      final message = await coreController.updateConfig(
-        updateParams.copyWith.tun(
-          enable: _getEffectiveTunEnable(updateParams.tun.enable),
-        ),
-      );
-      ref.read(checkIpNumProvider.notifier).add();
-      if (message.isNotEmpty) throw message;
     });
+  }
+
+  Future<void> _inspectSystemProxy(String phase) async {
+    if (!system.isWindows || proxy == null) return;
+    try {
+      final config = ref.read(patchClashConfigProvider);
+      final result = await proxy!.inspectProxy(config.mixedPort);
+      commonPrint.event(
+        'system_proxy.configuration_snapshot',
+        fields: {
+          'phase': phase,
+          'tun_requested': config.tun.enable,
+          'system_proxy_requested': ref
+              .read(networkSettingProvider)
+              .systemProxy,
+          ...result.toDiagnosticFields(),
+        },
+      );
+    } catch (error) {
+      commonPrint.event(
+        'system_proxy.configuration_snapshot.failed',
+        fields: {'phase': phase, 'error_type': error.runtimeType.toString()},
+      );
+    }
   }
 
   void tryCheckIp() {
@@ -449,6 +478,7 @@ class SetupAction extends _$SetupAction {
       ref.read(profilesProvider.notifier).put(nextProfile);
     }
     commonPrint.log('setup ===> ${profile?.realLabel}');
+    await _inspectSystemProxy('before_setup');
     final patchConfig = ref.read(patchClashConfigProvider);
     final shouldContinueSetup = await requestAdmin(patchConfig.tun.enable);
     if (!shouldContinueSetup) {
@@ -515,6 +545,8 @@ class SetupAction extends _$SetupAction {
             },
           );
           rethrow;
+        } finally {
+          await _inspectSystemProxy('after_setup');
         }
       },
       silence: true,

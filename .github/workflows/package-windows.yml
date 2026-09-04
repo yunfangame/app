@@ -53,9 +53,11 @@ jobs:
         shell: pwsh
         run: |
           flutter test test/core/controller_test.dart test/core/protocol_contract_test.dart test/views/proxies/common_test.dart test/common/task_test.dart test/models/config_test.dart test/common/windows_proxy_guard_test.dart test/common/network_diagnostic_test.dart --reporter expanded
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter tests failed' }
           Push-Location core
           $env:CGO_ENABLED = '0'
           go test .
+          if ($LASTEXITCODE -ne 0) { throw 'Go tests failed' }
           Pop-Location
 
       - name: Package stable Windows release
@@ -63,10 +65,15 @@ jobs:
 
       - name: Test Windows system proxy round trip
         shell: pwsh
+        env:
+          FENGWO_PROXY_MUTATING_TEST: '1'
         run: |
           cmake -S windows -B build/windows/x64 -Dinclude_proxy_tests=ON
+          if ($LASTEXITCODE -ne 0) { throw 'Proxy test configuration failed' }
           cmake --build build/windows/x64 --config Release --target proxy_test
-          ctest --test-dir build/windows/x64 -C Release --output-on-failure -R proxy
+          if ($LASTEXITCODE -ne 0) { throw 'Proxy test compilation failed' }
+          ctest --test-dir build/windows/x64/plugins/proxy -C Release --output-on-failure --no-tests=error -R Proxy
+          if ($LASTEXITCODE -ne 0) { throw 'Proxy tests failed' }
 
       - name: Verify Windows package
         shell: pwsh

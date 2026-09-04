@@ -170,14 +170,6 @@ class NetworkDiagnosticService {
                 ),
         ),
       );
-      if (!proxyResult.success && !input.tunRequested) {
-        return NetworkDiagnosticReport(
-          code: proxyResult.diagnosticCode,
-          summary: l10n.networkDiagnosticSystemProxyInvalid,
-          steps: List.unmodifiable(steps),
-          proxyResult: proxyResult,
-        );
-      }
     }
 
     final internetAvailable = await _internetProbe(input.port);
@@ -190,6 +182,14 @@ class NetworkDiagnosticService {
             : l10n.networkDiagnosticInternetFailed,
       ),
     );
+    if (proxyResult != null && !proxyResult.success) {
+      return NetworkDiagnosticReport(
+        code: proxyResult.diagnosticCode,
+        summary: l10n.networkDiagnosticSystemProxyInvalid,
+        steps: List.unmodifiable(steps),
+        proxyResult: proxyResult,
+      );
+    }
     if (!internetAvailable) {
       return NetworkDiagnosticReport(
         code: 'W-NODE-05',
@@ -203,6 +203,15 @@ class NetworkDiagnosticService {
       return NetworkDiagnosticReport(
         code: 'W-ROUTE-08',
         summary: l10n.networkDiagnosticTrafficEntryMissing,
+        steps: List.unmodifiable(steps),
+        proxyResult: proxyResult,
+      );
+    }
+
+    if (reachableConfigCount == 0) {
+      return NetworkDiagnosticReport(
+        code: 'W-DNS-01',
+        summary: l10n.networkDiagnosticConfigDnsFailed,
         steps: List.unmodifiable(steps),
         proxyResult: proxyResult,
       );

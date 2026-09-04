@@ -1095,6 +1095,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "networkDetection": MessageLookupByLibrary.simpleMessage(
       "Network detection",
     ),
+    "networkDiagnosticConfigDnsFailed": MessageLookupByLibrary.simpleMessage(
+      "The local proxy can access the internet, but no configuration domain resolves",
+    ),
     "networkDiagnosticConfigDomains": MessageLookupByLibrary.simpleMessage(
       "Configuration domains",
     ),
@@ -1128,7 +1131,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "networkDiagnosticProxyFailure": m28,
     "networkDiagnosticProxyVerified": m29,
     "networkDiagnosticSuccess": MessageLookupByLibrary.simpleMessage(
-      "Configuration, core, traffic entry, and current node are working",
+      "Internet access through the local proxy succeeded; application and TUN traffic capture is not verified",
     ),
     "networkDiagnosticSystemProxyInvalid": MessageLookupByLibrary.simpleMessage(
       "The Windows system proxy is not configured correctly",

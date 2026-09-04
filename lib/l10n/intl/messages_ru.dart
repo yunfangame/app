@@ -1138,6 +1138,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "networkDetection": MessageLookupByLibrary.simpleMessage(
       "Обнаружение сети",
     ),
+    "networkDiagnosticConfigDnsFailed": MessageLookupByLibrary.simpleMessage(
+      "Локальный прокси имеет доступ в интернет, но домены конфигурации не разрешаются",
+    ),
     "networkDiagnosticConfigDomains": MessageLookupByLibrary.simpleMessage(
       "Домены конфигурации",
     ),
@@ -1171,7 +1174,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "networkDiagnosticProxyFailure": m28,
     "networkDiagnosticProxyVerified": m29,
     "networkDiagnosticSuccess": MessageLookupByLibrary.simpleMessage(
-      "Конфигурация, ядро, маршрут трафика и текущий узел работают нормально",
+      "Доступ в интернет через локальный прокси работает; перехват трафика приложений и TUN не проверен",
     ),
     "networkDiagnosticSystemProxyInvalid": MessageLookupByLibrary.simpleMessage(
       "Системный прокси Windows настроен неправильно",

@@ -891,6 +891,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "network": MessageLookupByLibrary.simpleMessage("ネットワーク"),
     "networkDesc": MessageLookupByLibrary.simpleMessage("ネットワーク関連設定の変更"),
     "networkDetection": MessageLookupByLibrary.simpleMessage("ネットワーク検出"),
+    "networkDiagnosticConfigDnsFailed": MessageLookupByLibrary.simpleMessage(
+      "ローカルプロキシは外部接続できますが、設定ドメインを名前解決できません",
+    ),
     "networkDiagnosticConfigDomains": MessageLookupByLibrary.simpleMessage(
       "設定ドメイン",
     ),
@@ -924,7 +927,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "networkDiagnosticProxyFailure": m28,
     "networkDiagnosticProxyVerified": m29,
     "networkDiagnosticSuccess": MessageLookupByLibrary.simpleMessage(
-      "設定、コア、通信経路、現在のノードはすべて正常です",
+      "ローカルプロキシ経由の外部接続に成功しました。各アプリや TUN の通信経路は未確認です",
     ),
     "networkDiagnosticSystemProxyInvalid": MessageLookupByLibrary.simpleMessage(
       "Windows システムプロキシが正しく設定されていません",

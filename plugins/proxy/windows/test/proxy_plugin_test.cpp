@@ -6,8 +6,10 @@
 #include <memory>
 #include <string>
 #include <variant>
+#include <cstring>
 
 #include "proxy_plugin.h"
+#include "proxy_settings.h"
 
 namespace proxy {
 namespace test {
@@ -15,6 +17,7 @@ namespace test {
 namespace {
 
 using flutter::EncodableMap;
+using flutter::EncodableList;
 using flutter::EncodableValue;
 using flutter::MethodCall;
 using flutter::MethodResultFunctions;
@@ -138,6 +141,9 @@ TEST(ProxyPlugin, InspectProxyRejectsMissingExpectedPort) {
 }
 
 TEST(ProxyPlugin, DetailedStartAndStopRoundTripCurrentUserProxy) {
+  if (GetEnvironmentVariableA("FENGWO_PROXY_MUTATING_TEST", nullptr, 0) == 0) {
+    GTEST_SKIP() << "Requires an isolated Windows account with no existing proxy";
+  }
   ProxyPlugin plugin;
   bool start_called = false;
   bool start_success = false;
@@ -212,6 +218,167 @@ TEST(ProxyPlugin, DetailedStartAndStopRoundTripCurrentUserProxy) {
   EXPECT_TRUE(stop_called);
   EXPECT_TRUE(stop_success);
   EXPECT_FALSE(stop_enabled);
+}
+
+TEST(ProxySettings, InvalidParameterRetriesTypedAnsiOptions) {
+  INTERNET_PER_CONN_OPTIONW options[3] = {};
+  options[0].dwOption = INTERNET_PER_CONN_FLAGS;
+  options[0].Value.dwValue = PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY;
+  options[1].dwOption = INTERNET_PER_CONN_PROXY_SERVER;
+  options[1].Value.pszValue = const_cast<wchar_t*>(L"127.0.0.1:7890");
+  options[2].dwOption = INTERNET_PER_CONN_PROXY_BYPASS;
+  options[2].Value.pszValue = const_cast<wchar_t*>(L"localhost;10.*");
+  INTERNET_PER_CONN_OPTION_LISTW list = {};
+  list.dwSize = sizeof(list);
+  list.dwOptionCount = 3;
+  list.pOptions = options;
+  DWORD error = 0;
+  bool fallback = false;
+  const bool success = settings::SetConnectionOptions(
+      list, nullptr, error, fallback,
+      [](HINTERNET, DWORD, LPVOID, DWORD) -> BOOL {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+      },
+      [](HINTERNET handle, DWORD option, LPVOID buffer, DWORD size) -> BOOL {
+        const auto* request = static_cast<INTERNET_PER_CONN_OPTION_LISTA*>(buffer);
+        EXPECT_EQ(handle, nullptr);
+        EXPECT_EQ(option, INTERNET_OPTION_PER_CONNECTION_OPTION);
+        EXPECT_EQ(size, sizeof(*request));
+        EXPECT_EQ(request->dwSize, sizeof(*request));
+        EXPECT_EQ(request->pszConnection, nullptr);
+        EXPECT_EQ(request->dwOptionCount, 3u);
+        EXPECT_EQ(request->pOptions[0].Value.dwValue,
+                  DWORD(PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY));
+        EXPECT_STREQ(request->pOptions[1].Value.pszValue, "127.0.0.1:7890");
+        EXPECT_STREQ(request->pOptions[2].Value.pszValue, "localhost;10.*");
+        return TRUE;
+      });
+  EXPECT_TRUE(success);
+  EXPECT_TRUE(fallback);
+  EXPECT_EQ(error, ERROR_SUCCESS);
+}
+
+TEST(ProxySettings, DoesNotBypassAccessDeniedWithAnotherWrite) {
+  INTERNET_PER_CONN_OPTION_LISTW list = {};
+  DWORD error = 0;
+  bool fallback = false;
+  EXPECT_FALSE(settings::SetConnectionOptions(
+      list, nullptr, error, fallback,
+      [](HINTERNET, DWORD, LPVOID, DWORD) -> BOOL {
+        SetLastError(ERROR_ACCESS_DENIED);
+        return FALSE;
+      },
+      [](HINTERNET, DWORD, LPVOID, DWORD) -> BOOL {
+        ADD_FAILURE() << "Access denied must not trigger fallback";
+        return TRUE;
+      }));
+  EXPECT_FALSE(fallback);
+  EXPECT_EQ(error, ERROR_ACCESS_DENIED);
+}
+
+TEST(ProxySettings, WideSuccessDoesNotInvokeFallback) {
+  INTERNET_PER_CONN_OPTION_LISTW list = {};
+  DWORD error = ERROR_INVALID_PARAMETER;
+  bool fallback = false;
+  EXPECT_TRUE(settings::SetConnectionOptions(
+      list, nullptr, error, fallback,
+      [](HINTERNET, DWORD, LPVOID, DWORD) -> BOOL { return TRUE; },
+      [](HINTERNET, DWORD, LPVOID, DWORD) -> BOOL {
+        ADD_FAILURE() << "A successful write must not be repeated";
+        return FALSE;
+      }));
+  EXPECT_FALSE(fallback);
+  EXPECT_EQ(error, ERROR_SUCCESS);
+}
+
+TEST(ProxySettings, ReportsAnsiFailureWithoutRegistryFallback) {
+  INTERNET_PER_CONN_OPTION_LISTW list = {};
+  DWORD error = 0;
+  bool fallback = false;
+  EXPECT_FALSE(settings::SetConnectionOptions(
+      list, nullptr, error, fallback,
+      [](HINTERNET, DWORD, LPVOID, DWORD) -> BOOL {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+      },
+      [](HINTERNET, DWORD, LPVOID, DWORD) -> BOOL {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+      }));
+  EXPECT_TRUE(fallback);
+  EXPECT_EQ(error, ERROR_INVALID_PARAMETER);
+}
+
+TEST(ProxySettings, ReadsActualConnectionFlagsAndServer) {
+  bool enabled = false;
+  std::wstring server;
+  DWORD error = 87;
+  EXPECT_TRUE(settings::QueryProxy(
+      enabled, server, error,
+      [](HINTERNET, DWORD option, LPVOID buffer, LPDWORD) -> BOOL {
+        auto* request = static_cast<INTERNET_PER_CONN_OPTION_LISTA*>(buffer);
+        EXPECT_EQ(option, INTERNET_OPTION_PER_CONNECTION_OPTION);
+        EXPECT_EQ(request->pOptions[0].dwOption, INTERNET_PER_CONN_FLAGS_UI);
+        request->pOptions[0].Value.dwValue = PROXY_TYPE_PROXY | PROXY_TYPE_DIRECT;
+        const char value[] = "127.0.0.1:7890";
+        auto* memory = static_cast<char*>(GlobalAlloc(GPTR, sizeof(value)));
+        if (memory == nullptr) return FALSE;
+        std::memcpy(memory, value, sizeof(value));
+        request->pOptions[1].Value.pszValue = memory;
+        return TRUE;
+      }));
+  EXPECT_TRUE(enabled);
+  EXPECT_EQ(server, L"127.0.0.1:7890");
+  EXPECT_EQ(error, ERROR_SUCCESS);
+}
+
+TEST(ProxySettings, DisabledConnectionIsNotMistakenForEnabled) {
+  bool enabled = true;
+  std::wstring server = L"127.0.0.1:7890";
+  DWORD error = 0;
+  EXPECT_TRUE(settings::QueryProxy(
+      enabled, server, error,
+      [](HINTERNET, DWORD, LPVOID buffer, LPDWORD) -> BOOL {
+        auto* request = static_cast<INTERNET_PER_CONN_OPTION_LISTA*>(buffer);
+        request->pOptions[0].Value.dwValue = PROXY_TYPE_DIRECT;
+        return TRUE;
+      }));
+  EXPECT_FALSE(enabled);
+  EXPECT_TRUE(server.empty());
+}
+
+TEST(ProxySettings, QueryFailureDoesNotBecomeSuccess) {
+  bool enabled = false;
+  std::wstring server;
+  DWORD error = 0;
+  EXPECT_FALSE(settings::QueryProxy(
+      enabled, server, error,
+      [](HINTERNET, DWORD, LPVOID, LPDWORD) -> BOOL {
+        SetLastError(ERROR_ACCESS_DENIED);
+        return FALSE;
+      }));
+  EXPECT_EQ(error, ERROR_ACCESS_DENIED);
+}
+
+TEST(ProxySettings, UnsupportedUiFlagsFallBackToConnectionFlags) {
+  bool enabled = false;
+  std::wstring server;
+  DWORD error = 0;
+  EXPECT_TRUE(settings::QueryProxy(
+      enabled, server, error,
+      [](HINTERNET, DWORD, LPVOID buffer, LPDWORD) -> BOOL {
+        auto* request = static_cast<INTERNET_PER_CONN_OPTION_LISTA*>(buffer);
+        if (request->pOptions[0].dwOption == INTERNET_PER_CONN_FLAGS_UI) {
+          SetLastError(ERROR_INVALID_PARAMETER);
+          return FALSE;
+        }
+        EXPECT_EQ(request->pOptions[0].dwOption, INTERNET_PER_CONN_FLAGS);
+        request->pOptions[0].Value.dwValue = PROXY_TYPE_DIRECT;
+        return TRUE;
+      }));
+  EXPECT_FALSE(enabled);
+  EXPECT_EQ(error, ERROR_SUCCESS);
 }
 
 }  // namespace test
