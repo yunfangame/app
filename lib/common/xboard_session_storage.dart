@@ -63,15 +63,18 @@ class XboardStoredSession {
   final bool isAdmin;
   final bool secureSubscription;
 
-  bool get canAutoLogin =>
-      rememberMe &&
-      autoLogin &&
-      endpoint != null &&
-      token != null &&
-      authData != null;
+  bool get canAutoLogin => autoLogin && canRestore;
 
   bool get canRestore =>
-      rememberMe && endpoint != null && token != null && authData != null;
+      rememberMe &&
+      endpoint != null &&
+      (token?.trim().isNotEmpty ?? false) &&
+      (authData?.trim().isNotEmpty ?? false);
+
+  bool canRestoreForEmail(String candidate) =>
+      canRestore &&
+      (email?.trim().isNotEmpty ?? false) &&
+      email!.trim().toLowerCase() == candidate.trim().toLowerCase();
 }
 
 class XboardSessionStorage {

@@ -52,7 +52,7 @@ jobs:
       - name: Test latency and packaging contracts
         shell: pwsh
         run: |
-          flutter test test/core/controller_test.dart test/core/protocol_contract_test.dart test/views/proxies/common_test.dart test/common/task_test.dart test/models/config_test.dart test/common/windows_proxy_guard_test.dart test/common/network_diagnostic_test.dart --reporter expanded
+          flutter test test/core/controller_test.dart test/core/protocol_contract_test.dart test/views/proxies/common_test.dart test/common/task_test.dart test/models/config_test.dart test/common/windows_proxy_guard_test.dart test/common/network_diagnostic_test.dart test/pages/login_test.dart test/common/xboard_session_storage_test.dart test/common/xboard_auth_test.dart --reporter expanded
           if ($LASTEXITCODE -ne 0) { throw 'Flutter tests failed' }
           Push-Location core
           $env:CGO_ENABLED = '0'

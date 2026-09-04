@@ -1638,6 +1638,12 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "remainingTrafficLabel": MessageLookupByLibrary.simpleMessage("Осталось"),
     "rememberMe": MessageLookupByLibrary.simpleMessage("Запомнить меня"),
+    "rememberedLoginHint": MessageLookupByLibrary.simpleMessage(
+      "Аккаунт сохранён — нажмите «Войти»",
+    ),
+    "rememberedLoginSaveFailed": MessageLookupByLibrary.simpleMessage(
+      "Вход выполнен, но не удалось безопасно сохранить данные входа. В следующий раз потребуется пароль.",
+    ),
     "rememberedPassword": MessageLookupByLibrary.simpleMessage(
       "Вспомнили пароль?",
     ),

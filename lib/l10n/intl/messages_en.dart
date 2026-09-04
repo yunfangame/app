@@ -1581,6 +1581,12 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "remainingTrafficLabel": MessageLookupByLibrary.simpleMessage("Remaining"),
     "rememberMe": MessageLookupByLibrary.simpleMessage("Remember me"),
+    "rememberedLoginHint": MessageLookupByLibrary.simpleMessage(
+      "Account remembered — click Log in",
+    ),
+    "rememberedLoginSaveFailed": MessageLookupByLibrary.simpleMessage(
+      "Login succeeded, but your credentials could not be saved securely. You will need your password next time.",
+    ),
     "rememberedPassword": MessageLookupByLibrary.simpleMessage(
       "Remembered your password?",
     ),

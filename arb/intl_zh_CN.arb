@@ -1,4 +1,6 @@
 {
+  "rememberedLoginHint": "已记住，可直接登录",
+  "rememberedLoginSaveFailed": "登录成功，但未能安全保存登录凭证，下次仍需输入密码",
   "rule": "规则",
   "global": "全局",
   "direct": "直连",

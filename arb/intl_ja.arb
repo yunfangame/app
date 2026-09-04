@@ -1,4 +1,6 @@
 {
+  "rememberedLoginHint": "保存済みです。そのままログインできます",
+  "rememberedLoginSaveFailed": "ログインしましたが、認証情報を安全に保存できませんでした。次回はパスワードが必要です。",
   "rule": "ルール",
   "global": "グローバル",
   "direct": "ダイレクト",

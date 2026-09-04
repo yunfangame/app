@@ -1134,6 +1134,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "remainingTraffic": MessageLookupByLibrary.simpleMessage("剩余流量"),
     "remainingTrafficLabel": MessageLookupByLibrary.simpleMessage("剩余"),
     "rememberMe": MessageLookupByLibrary.simpleMessage("记住我"),
+    "rememberedLoginHint": MessageLookupByLibrary.simpleMessage("已记住，可直接登录"),
+    "rememberedLoginSaveFailed": MessageLookupByLibrary.simpleMessage(
+      "登录成功，但未能安全保存登录凭证，下次仍需输入密码",
+    ),
     "rememberedPassword": MessageLookupByLibrary.simpleMessage("记起密码了？"),
     "remote": MessageLookupByLibrary.simpleMessage("远程"),
     "remoteBackupDesc": MessageLookupByLibrary.simpleMessage("备份数据到WebDAV"),

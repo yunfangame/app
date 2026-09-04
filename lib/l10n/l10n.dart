@@ -54,6 +54,26 @@ class AppLocalizations {
     return Localizations.of<AppLocalizations>(context, AppLocalizations);
   }
 
+  /// `Account remembered — click Log in`
+  String get rememberedLoginHint {
+    return Intl.message(
+      'Account remembered — click Log in',
+      name: 'rememberedLoginHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Login succeeded, but your credentials could not be saved securely. You will need your password next time.`
+  String get rememberedLoginSaveFailed {
+    return Intl.message(
+      'Login succeeded, but your credentials could not be saved securely. You will need your password next time.',
+      name: 'rememberedLoginSaveFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Rule`
   String get rule {
     return Intl.message('Rule', name: 'rule', desc: '', args: []);

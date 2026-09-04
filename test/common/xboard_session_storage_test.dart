@@ -39,6 +39,42 @@ void main() {
     expect(preferences.getKeys(), isNot(contains('xboard.auth_data')));
   });
 
+  test('remember only restores the same account without auto login', () async {
+    final storage = XboardSessionStorage();
+    await storage.save(
+      email: 'user@example.com',
+      rememberMe: true,
+      autoLogin: false,
+      endpoint: Uri.parse('https://api.example.com'),
+      token: 'subscription-token',
+      authData: 'Bearer login-token',
+      isAdmin: false,
+    );
+    final stored = await storage.load();
+    expect(stored.canAutoLogin, isFalse);
+    expect(stored.canRestoreForEmail(' USER@example.com '), isTrue);
+    expect(stored.canRestoreForEmail('other@example.com'), isFalse);
+    expect(stored.canRestoreForEmail(''), isFalse);
+    await storage.clearInvalidSession();
+    expect(
+      (await storage.load()).canRestoreForEmail('user@example.com'),
+      isFalse,
+    );
+  });
+
+  test('blank credentials cannot restore or auto login', () {
+    final stored = XboardStoredSession(
+      rememberMe: true,
+      autoLogin: true,
+      email: 'user@example.com',
+      endpoint: Uri.parse('https://api.example.com'),
+      token: ' ',
+      authData: 'Bearer token',
+    );
+    expect(stored.canRestore, isFalse);
+    expect(stored.canAutoLogin, isFalse);
+  });
+
   test('macOS Debug storage avoids Keychain and persists a session', () async {
     final storage = XboardSessionStorage(useLocalDebugStorage: true);
 

@@ -27,6 +27,8 @@ class LoginPage extends StatefulWidget {
     required this.onSupportPressed,
     required this.appVersion,
     this.authenticate,
+    this.rememberedEmail,
+    this.restoreRemembered,
     this.onRegisterPressed,
     this.onForgotPasswordPressed,
     this.configuredLocale,
@@ -48,6 +50,8 @@ class LoginPage extends StatefulWidget {
   final String appVersion;
   final Future<XboardLoginResult> Function(String email, String password)?
   authenticate;
+  final String? rememberedEmail;
+  final Future<XboardLoginResult> Function(String email)? restoreRemembered;
   final VoidCallback? onRegisterPressed;
   final VoidCallback? onForgotPasswordPressed;
   final String? configuredLocale;
@@ -78,6 +82,20 @@ class _LoginPageState extends State<LoginPage> {
   bool _submitted = false;
   bool _isSubmitting = false;
   bool _isOpeningOffline = false;
+  bool _rememberedLoginRejected = false;
+
+  bool get _canRestoreRemembered =>
+      _rememberMe &&
+      !_rememberedLoginRejected &&
+      widget.restoreRemembered != null &&
+      (widget.rememberedEmail?.trim().isNotEmpty ?? false) &&
+      widget.rememberedEmail!.trim().toLowerCase() ==
+          _emailController.text.trim().toLowerCase() &&
+      _passwordController.text.isEmpty;
+
+  void _credentialsChanged() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void initState() {
@@ -85,6 +103,8 @@ class _LoginPageState extends State<LoginPage> {
     _autoLogin = widget.initialAutoLogin;
     _rememberMe = widget.initialRememberMe || _autoLogin;
     _applyPrefill(widget.prefill);
+    _emailController.addListener(_credentialsChanged);
+    _passwordController.addListener(_credentialsChanged);
   }
 
   @override
@@ -110,6 +130,8 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
+    _emailController.removeListener(_credentialsChanged);
+    _passwordController.removeListener(_credentialsChanged);
     _emailController.dispose();
     _passwordController.dispose();
     _emailFocusNode.dispose();
@@ -118,7 +140,12 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _submit() async {
-    if (_isSubmitting) return;
+    if (_isSubmitting || _isOpeningOffline) return;
+    final useRemembered = _canRestoreRemembered;
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    final rememberMe = _rememberMe;
+    final autoLogin = _autoLogin;
     setState(() => _submitted = true);
     if (_formKey.currentState?.validate() != true) return;
     FocusScope.of(context).unfocus();
@@ -126,26 +153,33 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final authenticate = widget.authenticate;
       XboardLoginResult? session;
-      if (authenticate != null) {
-        session = await authenticate(
-          _emailController.text.trim(),
-          _passwordController.text,
-        );
+      if (useRemembered) {
+        session = await widget.restoreRemembered!(email);
+      } else if (authenticate != null) {
+        session = await authenticate(email, password);
       }
+      if (!mounted) return;
       final onAuthenticated = widget.onAuthenticated;
       if (session != null && onAuthenticated != null) {
-        await onAuthenticated(
-          session,
-          _emailController.text.trim(),
-          _rememberMe,
-          _autoLogin,
-        );
+        await onAuthenticated(session, email, rememberMe, autoLogin);
       }
       if (!mounted) return;
       widget.onLogin();
     } on XboardAuthException catch (error) {
       if (!mounted) return;
-      _showLoginError(error.message);
+      final expired =
+          useRemembered &&
+          error.failure == XboardAuthFailure.authenticationRejected;
+      if (expired) {
+        setState(() {
+          _rememberedLoginRejected = true;
+          _autoLogin = false;
+        });
+        _passwordFocusNode.requestFocus();
+      }
+      _showLoginError(
+        expired ? context.appLocalizations.loginSessionExpired : error.message,
+      );
     } catch (_) {
       if (!mounted) return;
       _showLoginError(context.appLocalizations.loginFailed);
@@ -155,7 +189,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _openOffline() async {
-    if (_isOpeningOffline || !widget.offlineAvailable) return;
+    if (_isSubmitting || _isOpeningOffline || !widget.offlineAvailable) return;
     final callback = widget.onOfflinePressed;
     if (callback == null) return;
     setState(() => _isOpeningOffline = true);
@@ -213,6 +247,7 @@ class _LoginPageState extends State<LoginPage> {
                         passwordFocusNode: _passwordFocusNode,
                         obscurePassword: _obscurePassword,
                         rememberMe: _rememberMe,
+                        canRestoreRemembered: _canRestoreRemembered,
                         autoLogin: _autoLogin,
                         submitted: _submitted,
                         isSubmitting: _isSubmitting,
@@ -222,13 +257,18 @@ class _LoginPageState extends State<LoginPage> {
                           setState(() => _obscurePassword = !_obscurePassword);
                         },
                         onRememberChanged: (value) {
+                          if (_isSubmitting) return;
                           setState(() {
                             _rememberMe = value;
-                            if (!value) _autoLogin = false;
+                            if (!value) {
+                              _autoLogin = false;
+                              _rememberedLoginRejected = true;
+                            }
                           });
                           if (!value) widget.onRememberMeDisabled?.call();
                         },
                         onAutoLoginChanged: (value) {
+                          if (_isSubmitting) return;
                           setState(() {
                             _autoLogin = value;
                             if (value) _rememberMe = true;
@@ -542,6 +582,7 @@ class _LoginFormPanel extends StatelessWidget {
     required this.passwordFocusNode,
     required this.obscurePassword,
     required this.rememberMe,
+    required this.canRestoreRemembered,
     required this.autoLogin,
     required this.submitted,
     required this.isSubmitting,
@@ -565,6 +606,7 @@ class _LoginFormPanel extends StatelessWidget {
   final FocusNode passwordFocusNode;
   final bool obscurePassword;
   final bool rememberMe;
+  final bool canRestoreRemembered;
   final bool autoLogin;
   final bool submitted;
   final bool isSubmitting;
@@ -629,6 +671,7 @@ class _LoginFormPanel extends StatelessWidget {
                           child: TextFormField(
                             key: const Key('login-email-field'),
                             controller: emailController,
+                            readOnly: isSubmitting,
                             focusNode: emailFocusNode,
                             keyboardType: TextInputType.emailAddress,
                             textInputAction: TextInputAction.next,
@@ -660,20 +703,24 @@ class _LoginFormPanel extends StatelessWidget {
                           child: TextFormField(
                             key: const Key('login-password-field'),
                             controller: passwordController,
+                            readOnly: isSubmitting,
                             focusNode: passwordFocusNode,
                             obscureText: obscurePassword,
                             textInputAction: TextInputAction.done,
                             autofillHints: const [AutofillHints.password],
                             onFieldSubmitted: (_) => onSubmit(),
                             validator: (value) {
-                              if (value == null || value.isEmpty) {
+                              if (!canRestoreRemembered &&
+                                  (value == null || value.isEmpty)) {
                                 return appLocalizations.enterPassword;
                               }
                               return null;
                             },
                             decoration: _inputDecoration(
                               colorScheme: colorScheme,
-                              hintText: appLocalizations.enterPassword,
+                              hintText: canRestoreRemembered
+                                  ? appLocalizations.rememberedLoginHint
+                                  : appLocalizations.enterPassword,
                               prefixIcon: Icons.lock_outline_rounded,
                               suffixIcon: IconButton(
                                 tooltip: obscurePassword

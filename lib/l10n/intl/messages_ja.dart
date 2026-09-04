@@ -1300,6 +1300,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "remainingTraffic": MessageLookupByLibrary.simpleMessage("残り通信量"),
     "remainingTrafficLabel": MessageLookupByLibrary.simpleMessage("残り"),
     "rememberMe": MessageLookupByLibrary.simpleMessage("ログイン情報を保存"),
+    "rememberedLoginHint": MessageLookupByLibrary.simpleMessage(
+      "保存済みです。そのままログインできます",
+    ),
+    "rememberedLoginSaveFailed": MessageLookupByLibrary.simpleMessage(
+      "ログインしましたが、認証情報を安全に保存できませんでした。次回はパスワードが必要です。",
+    ),
     "rememberedPassword": MessageLookupByLibrary.simpleMessage(
       "パスワードを思い出しましたか？",
     ),

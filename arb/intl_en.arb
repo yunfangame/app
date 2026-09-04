@@ -1,4 +1,6 @@
 {
+  "rememberedLoginHint": "Account remembered — click Log in",
+  "rememberedLoginSaveFailed": "Login succeeded, but your credentials could not be saved securely. You will need your password next time.",
   "rule": "Rule",
   "global": "Global",
   "direct": "Direct",
