@@ -103,6 +103,8 @@ jobs:
           $process = Start-Process -FilePath $app.FullName -PassThru
           Start-Sleep -Seconds 8
           if ($process.HasExited -and $process.ExitCode -ne 0) { throw "Application exited with $($process.ExitCode)" }
+          . ./tooling/verify_windows_title.ps1
+          [void](Assert-FengWoWindowTitle -ProcessId $process.Id)
           if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
 
       - name: Verify installed shortcut can reopen hidden window
@@ -144,30 +146,26 @@ jobs:
           using System;
           using System.Runtime.InteropServices;
           public static class FengWoWindowTest {
-            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-            public static extern IntPtr FindWindow(string className, string windowName);
             [DllImport("user32.dll")]
             public static extern bool ShowWindow(IntPtr window, int command);
             [DllImport("user32.dll")]
             public static extern bool IsWindowVisible(IntPtr window);
           }
           '@
-          $window = [FengWoWindowTest]::FindWindow('FLUTTER_RUNNER_WIN32_WINDOW', '蜂窝加速器')
-          if ($window -ne [IntPtr]::Zero) {
-            [void][FengWoWindowTest]::ShowWindow($window, 0)
-            if ([FengWoWindowTest]::IsWindowVisible($window)) { throw 'Failed to hide the primary window for the reopen test' }
-          } else {
-            Write-Warning 'Runner has no interactive app window; validating native single-instance process behavior only'
-          }
+          . ./tooling/verify_windows_title.ps1
+          $window = Assert-FengWoWindowTitle -ProcessId $primary.Id
+          [void][FengWoWindowTest]::ShowWindow($window, 0)
+          if ([FengWoWindowTest]::IsWindowVisible($window)) { throw 'Failed to hide the primary window for the reopen test' }
           $primaryId = $primary.Id
           Start-Process -FilePath $shortcutPath
           Start-Sleep -Seconds 4
           $instances = @(Get-Process FlClash -ErrorAction SilentlyContinue)
           if ($instances.Count -ne 1) { throw "Expected one FlClash instance, found $($instances.Count)" }
           if ($instances[0].Id -ne $primaryId) { throw 'Second shortcut replaced the primary process' }
-          if ($window -ne [IntPtr]::Zero -and -not [FengWoWindowTest]::IsWindowVisible($window)) {
+          if (-not [FengWoWindowTest]::IsWindowVisible($window)) {
             throw 'Shortcut did not restore the hidden primary window'
           }
+          [void](Assert-FengWoWindowTitle -ProcessId $primaryId)
           $instances | Stop-Process -Force
 
       - name: Upload Windows package
