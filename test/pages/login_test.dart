@@ -33,8 +33,9 @@ void main() {
           },
           authenticate: (_, _) async =>
               throw StateError('password login unexpected'),
-          onAuthenticated: (_, email, remember, automatic) async {
+          onAuthenticated: (_, email, password, remember, automatic) async {
             expect(email, 'user@example.com');
+            expect(password, isEmpty);
             expect(remember, isTrue);
             expect(automatic, isFalse);
             saved = true;
@@ -198,7 +199,7 @@ void main() {
     await tester.pumpWidget(
       _testApp(
         onLogin: () => fail('disposed page must not navigate'),
-        onAuthenticated: (_, _, _, _) async =>
+        onAuthenticated: (_, _, _, _, _) async =>
             fail('disposed page must not persist'),
         initialRememberMe: true,
         prefill: const LoginFormPrefill(
@@ -459,17 +460,20 @@ void main() {
   ) async {
     _useDesktopSize(tester);
     String? savedEmail;
+    String? savedPassword;
     bool? savedRememberMe;
     bool? savedAutoLogin;
     await tester.pumpWidget(
       _testApp(
         onLogin: () {},
         authenticate: (_, _) async => _testXboardSession(),
-        onAuthenticated: (session, email, rememberMe, autoLogin) async {
-          savedEmail = email;
-          savedRememberMe = rememberMe;
-          savedAutoLogin = autoLogin;
-        },
+        onAuthenticated:
+            (session, email, password, rememberMe, autoLogin) async {
+              savedEmail = email;
+              savedPassword = password;
+              savedRememberMe = rememberMe;
+              savedAutoLogin = autoLogin;
+            },
       ),
     );
     await tester.pumpAndSettle();
@@ -486,6 +490,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(savedEmail, 'user@example.com');
+    expect(savedPassword, 'password');
     expect(savedRememberMe, isTrue);
     expect(savedAutoLogin, isTrue);
   });

@@ -47,6 +47,7 @@ class XboardStoredSession {
     required this.rememberMe,
     required this.autoLogin,
     this.email,
+    this.password,
     this.endpoint,
     this.token,
     this.authData,
@@ -57,6 +58,7 @@ class XboardStoredSession {
   final bool rememberMe;
   final bool autoLogin;
   final String? email;
+  final String? password;
   final Uri? endpoint;
   final String? token;
   final String? authData;
@@ -95,8 +97,10 @@ class XboardSessionStorage {
   static const _secureSubscriptionKey = 'xboard.secure_subscription';
   static const _tokenKey = 'xboard.token';
   static const _authDataKey = 'xboard.auth_data';
+  static const _passwordKey = 'xboard.password';
   static const _localDebugTokenKey = 'xboard.debug.token';
   static const _localDebugAuthDataKey = 'xboard.debug.auth_data';
+  static const _localDebugPasswordKey = 'xboard.debug.password';
   static const _offlineModeKey = 'xboard.offline_mode';
   static const _offlineCacheKey = 'xboard.offline_cache';
   static const _managedProfileUrlKey = 'xboard.managed_profile_url';
@@ -112,16 +116,20 @@ class XboardSessionStorage {
     final requestedAutoLogin = preferences.getBool(_autoLoginKey) ?? false;
     String? token;
     String? authData;
+    String? password;
     try {
       final secrets = await Future.wait([
         _readSecret(preferences, _tokenKey),
         _readSecret(preferences, _authDataKey),
+        _readSecret(preferences, _passwordKey),
       ]);
       token = _nonEmpty(secrets[0]);
       authData = _nonEmpty(secrets[1]);
+      password = secrets[2]?.isEmpty ?? true ? null : secrets[2];
     } catch (_) {
       token = null;
       authData = null;
+      password = null;
     }
     final endpoint = Uri.tryParse(preferences.getString(_endpointKey) ?? '');
     final validEndpoint =
@@ -140,6 +148,7 @@ class XboardSessionStorage {
       rememberMe: rememberMe,
       autoLogin: autoLogin,
       email: _nonEmpty(preferences.getString(_emailKey)),
+      password: password,
       endpoint: validEndpoint,
       token: token,
       authData: authData,
@@ -150,6 +159,7 @@ class XboardSessionStorage {
 
   Future<void> save({
     required String email,
+    required String password,
     required bool rememberMe,
     required bool autoLogin,
     required Uri endpoint,
@@ -166,6 +176,9 @@ class XboardSessionStorage {
     await preferences.setBool(_autoLoginKey, false);
     await _writeSecret(preferences, _tokenKey, token);
     await _writeSecret(preferences, _authDataKey, authData);
+    if (password.isNotEmpty) {
+      await _writeSecret(preferences, _passwordKey, password);
+    }
     await preferences.setString(_emailKey, email.trim());
     await preferences.setString(_endpointKey, endpoint.toString());
     await preferences.setBool(_isAdminKey, isAdmin);
@@ -175,12 +188,27 @@ class XboardSessionStorage {
   }
 
   Future<void> clearInvalidSession() async {
-    await _deleteSecretsBestEffort();
+    await _deleteSessionSecretsBestEffort();
     final preferences = await _preferencesLoader();
     await preferences.setBool(_autoLoginKey, false);
     await preferences.remove(_endpointKey);
     await preferences.remove(_isAdminKey);
     await preferences.remove(_secureSubscriptionKey);
+  }
+
+  Future<XboardStoredSession> prepareForLogout() async {
+    final stored = await load();
+    if (!stored.rememberMe) {
+      await clear();
+      return const XboardStoredSession(rememberMe: false, autoLogin: false);
+    }
+    await clearInvalidSession();
+    return XboardStoredSession(
+      rememberMe: true,
+      autoLogin: false,
+      email: stored.email,
+      password: stored.password,
+    );
   }
 
   Future<void> disableAutoLogin() async {
@@ -273,8 +301,11 @@ class XboardSessionStorage {
   }
 
   Future<void> clear() async {
-    await _deleteSecretsBestEffort();
+    await _deleteSessionSecretsBestEffort();
     final preferences = await _preferencesLoader();
+    try {
+      await _deleteSecret(preferences, _passwordKey);
+    } catch (_) {}
     await preferences.remove(_rememberMeKey);
     await preferences.remove(_autoLoginKey);
     await preferences.remove(_emailKey);
@@ -283,7 +314,7 @@ class XboardSessionStorage {
     await preferences.remove(_secureSubscriptionKey);
   }
 
-  Future<void> _deleteSecretsBestEffort() async {
+  Future<void> _deleteSessionSecretsBestEffort() async {
     final preferences = await _preferencesLoader();
     try {
       await _deleteSecret(preferences, _tokenKey);
@@ -332,6 +363,7 @@ class XboardSessionStorage {
   String _localDebugKey(String key) => switch (key) {
     _tokenKey => _localDebugTokenKey,
     _authDataKey => _localDebugAuthDataKey,
+    _passwordKey => _localDebugPasswordKey,
     _ => throw ArgumentError.value(key, 'key'),
   };
 }

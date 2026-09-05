@@ -14,6 +14,7 @@ typedef LoginAuthenticatedCallback =
     Future<void> Function(
       XboardLoginResult session,
       String email,
+      String password,
       bool rememberMe,
       bool autoLogin,
     );
@@ -161,7 +162,7 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
       final onAuthenticated = widget.onAuthenticated;
       if (session != null && onAuthenticated != null) {
-        await onAuthenticated(session, email, rememberMe, autoLogin);
+        await onAuthenticated(session, email, password, rememberMe, autoLogin);
       }
       if (!mounted) return;
       widget.onLogin();

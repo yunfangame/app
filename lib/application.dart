@@ -117,7 +117,10 @@ class ApplicationState extends ConsumerState<Application> {
       if (!mounted) return;
       _loginPrefill = storedSession.email == null
           ? null
-          : LoginFormPrefill(email: storedSession.email!, password: '');
+          : LoginFormPrefill(
+              email: storedSession.email!,
+              password: storedSession.password ?? '',
+            );
       _initialRememberMe = storedSession.rememberMe;
       _initialAutoLogin = storedSession.autoLogin;
       _rememberedLoginEmail = storedSession.canRestore
@@ -262,6 +265,7 @@ class ApplicationState extends ConsumerState<Application> {
   Future<void> _saveAuthenticatedSession(
     XboardLoginResult session,
     String email,
+    String password,
     bool rememberMe,
     bool autoLogin,
   ) async {
@@ -271,6 +275,7 @@ class ApplicationState extends ConsumerState<Application> {
       await _sessionStorageScheduler.run(
         () => _xboardSessionStorage.save(
           email: email,
+          password: password,
           rememberMe: rememberMe,
           autoLogin: autoLogin,
           endpoint: session.endpoint,
@@ -438,12 +443,29 @@ class ApplicationState extends ConsumerState<Application> {
       }
     }
     await _xboardSessionStorage.clearManagedProfileUrl();
-    await _clearRememberedSession();
+    XboardStoredSession? rememberedLogin;
+    try {
+      rememberedLogin = await _sessionStorageScheduler.run(
+        _xboardSessionStorage.prepareForLogout,
+      );
+    } catch (error, stackTrace) {
+      commonPrint.log(
+        'prepare remembered login after logout failed: $error, $stackTrace',
+        logLevel: LogLevel.warning,
+      );
+      await _clearRememberedSession();
+    }
     await _xboardSessionStorage.clearOfflineCache();
     globalState.setOfflineMode(false);
     _offlineAvailable = false;
-    _loginPrefill = null;
-    _initialRememberMe = false;
+    _rememberedLoginEmail = null;
+    _loginPrefill = rememberedLogin?.email == null
+        ? null
+        : LoginFormPrefill(
+            email: rememberedLogin!.email!,
+            password: rememberedLogin.password ?? '',
+          );
+    _initialRememberMe = rememberedLogin?.rememberMe ?? false;
     _initialAutoLogin = false;
     commonPrint.event('auth.logout.completed');
     if (!mounted) return;

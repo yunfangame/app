@@ -17,6 +17,7 @@ void main() {
 
     await storage.save(
       email: 'user@example.com',
+      password: 'secret-password',
       rememberMe: true,
       autoLogin: true,
       endpoint: Uri.parse('https://api.example.com/api/v1/passport/auth/login'),
@@ -32,17 +33,20 @@ void main() {
     expect(stored.autoLogin, isTrue);
     expect(stored.canAutoLogin, isTrue);
     expect(stored.email, 'user@example.com');
+    expect(stored.password, 'secret-password');
     expect(stored.token, 'subscription-token');
     expect(stored.authData, 'Bearer login-token');
     expect(stored.secureSubscription, isTrue);
     expect(preferences.getKeys(), isNot(contains('xboard.token')));
     expect(preferences.getKeys(), isNot(contains('xboard.auth_data')));
+    expect(preferences.getKeys(), isNot(contains('xboard.password')));
   });
 
   test('remember only restores the same account without auto login', () async {
     final storage = XboardSessionStorage();
     await storage.save(
       email: 'user@example.com',
+      password: 'secret-password',
       rememberMe: true,
       autoLogin: false,
       endpoint: Uri.parse('https://api.example.com'),
@@ -80,6 +84,7 @@ void main() {
 
     await storage.save(
       email: 'debug@example.com',
+      password: 'debug-password',
       rememberMe: true,
       autoLogin: true,
       endpoint: Uri.parse('https://api.example.com'),
@@ -93,21 +98,25 @@ void main() {
     final preferences = await SharedPreferences.getInstance();
     expect(stored.token, 'debug-subscription-token');
     expect(stored.authData, 'Bearer debug-login-token');
+    expect(stored.password, 'debug-password');
     expect(stored.secureSubscription, isTrue);
     expect(preferences.getString('xboard.token'), isNull);
     expect(preferences.getString('xboard.auth_data'), isNull);
     expect(preferences.getString('xboard.debug.token'), isNotNull);
     expect(preferences.getString('xboard.debug.auth_data'), isNotNull);
+    expect(preferences.getString('xboard.debug.password'), isNotNull);
 
     await storage.clear();
     expect(preferences.getString('xboard.debug.token'), isNull);
     expect(preferences.getString('xboard.debug.auth_data'), isNull);
+    expect(preferences.getString('xboard.debug.password'), isNull);
   });
 
   test('disabling remember me clears all persisted login data', () async {
     final storage = XboardSessionStorage();
     await storage.save(
       email: 'user@example.com',
+      password: 'secret-password',
       rememberMe: true,
       autoLogin: true,
       endpoint: Uri.parse('https://api.example.com'),
@@ -118,6 +127,7 @@ void main() {
 
     await storage.save(
       email: 'user@example.com',
+      password: 'secret-password',
       rememberMe: false,
       autoLogin: false,
       endpoint: Uri.parse('https://api.example.com'),
@@ -132,12 +142,14 @@ void main() {
     expect(stored.email, isNull);
     expect(stored.token, isNull);
     expect(stored.authData, isNull);
+    expect(stored.password, isNull);
   });
 
-  test('an invalid server session keeps the remembered email only', () async {
+  test('an invalid server session keeps remembered credentials', () async {
     final storage = XboardSessionStorage();
     await storage.save(
       email: 'user@example.com',
+      password: 'secret-password',
       rememberMe: true,
       autoLogin: true,
       endpoint: Uri.parse('https://api.example.com'),
@@ -152,6 +164,7 @@ void main() {
     expect(stored.rememberMe, isTrue);
     expect(stored.autoLogin, isFalse);
     expect(stored.email, 'user@example.com');
+    expect(stored.password, 'secret-password');
     expect(stored.token, isNull);
     expect(stored.authData, isNull);
   });
@@ -162,6 +175,7 @@ void main() {
       final storage = XboardSessionStorage();
       await storage.save(
         email: 'user@example.com',
+        password: 'secret-password',
         rememberMe: true,
         autoLogin: true,
         endpoint: Uri.parse('https://api.example.com'),
@@ -178,8 +192,68 @@ void main() {
       expect(stored.email, 'user@example.com');
       expect(stored.token, 'subscription-token');
       expect(stored.authData, 'Bearer login-token');
+      expect(stored.password, 'secret-password');
     },
   );
+
+  test(
+    'logout keeps remembered credentials but revokes session reuse',
+    () async {
+      final storage = XboardSessionStorage();
+      await storage.save(
+        email: 'user@example.com',
+        password: 'secret-password',
+        rememberMe: true,
+        autoLogin: true,
+        endpoint: Uri.parse('https://api.example.com'),
+        token: 'subscription-token',
+        authData: 'Bearer login-token',
+        isAdmin: false,
+      );
+
+      final remembered = await storage.prepareForLogout();
+      final stored = await storage.load();
+
+      expect(remembered.rememberMe, isTrue);
+      expect(remembered.autoLogin, isFalse);
+      expect(remembered.email, 'user@example.com');
+      expect(remembered.password, 'secret-password');
+      expect(stored.rememberMe, isTrue);
+      expect(stored.autoLogin, isFalse);
+      expect(stored.email, 'user@example.com');
+      expect(stored.password, 'secret-password');
+      expect(stored.endpoint, isNull);
+      expect(stored.token, isNull);
+      expect(stored.authData, isNull);
+    },
+  );
+
+  test('token login does not overwrite the remembered password', () async {
+    final storage = XboardSessionStorage();
+    await storage.save(
+      email: 'user@example.com',
+      password: ' secret password ',
+      rememberMe: true,
+      autoLogin: false,
+      endpoint: Uri.parse('https://api.example.com'),
+      token: 'subscription-token',
+      authData: 'Bearer login-token',
+      isAdmin: false,
+    );
+
+    await storage.save(
+      email: 'user@example.com',
+      password: '',
+      rememberMe: true,
+      autoLogin: false,
+      endpoint: Uri.parse('https://api.example.com'),
+      token: 'refreshed-subscription-token',
+      authData: 'Bearer refreshed-login-token',
+      isAdmin: false,
+    );
+
+    expect((await storage.load()).password, ' secret password ');
+  });
 
   test('tracks the account-owned subscription profile independently', () async {
     final storage = XboardSessionStorage();
