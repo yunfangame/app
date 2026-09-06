@@ -79,6 +79,7 @@ jobs:
         env:
           CGO_ENABLED: 0
         run: |
+          dart ../tooling/apply_core_patches.dart
           go test .
           go vet .
 

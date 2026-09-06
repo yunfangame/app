@@ -1,4 +1,11 @@
 {
+  "listenerStartFailed": "本地代理启动失败（{code}，端口 {port}），已断开连接。请导出日志排查。",
+  "@listenerStartFailed": {
+    "placeholders": {
+      "port": {"type": "int"},
+      "code": {"type": "String"}
+    }
+  },
   "rememberedLoginHint": "已记住，可直接登录",
   "rememberedLoginSaveFailed": "登录成功，但未能安全保存登录凭证，下次仍需输入密码",
   "rememberedLoginClearFailed": "未能完整清除或禁用已保存的登录信息，请重试。",

@@ -56,6 +56,20 @@ callers must not try to reuse a closed platform implementation.
 - The provider is an orchestration and presentation layer, not a process owner. Platform lifecycle code remains responsible
   for determining whether a Core process/service is actually running.
 
+Windows listener readiness is separate from the desktop Core process connection. `SetupAction` keeps
+`connectionPendingProvider` true until configuration is applied, the Core confirms ownership of its mixed TCP/UDP
+listeners, and the expected IPv4 loopback endpoint is reachable. Only then does it publish runtime/connected state.
+Explicit authorized TUN-only configurations with a zero mixed port retain their existing no-mixed-listener behavior.
+Configuration changes during startup must repeat configuration and ownership verification, not just probe a new port.
+An excluded SSID preserves pending user intent; Windows suspension/resumption goes through `SetupAction.refreshSuspension`
+and the same readiness path. A later stop or start supersedes earlier completions. Android retains native service intent
+ownership and optimistic presentation.
+
+The tracked `core/patches/mixed-listener-readiness.patch` adds result reporting to the existing upstream listener owner.
+Build hooks verify/apply it against the locked submodule revision before dependency fingerprinting. Listener failures from
+start/setup/update use the existing RPC error envelope with code `listener_not_ready` and safe structured details;
+`CoreController` persists them independently of the optional bulk log subscription.
+
 Application exit is centralized in `SystemAction` and `SystemExitCoordinator`:
 
 1. Optionally save config and clean up DNS, system proxy, and tray resources in parallel.

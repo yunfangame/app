@@ -105,12 +105,14 @@ func sideUpdateExternalProvider(p cp.Provider, bytes []byte) error {
 	}
 }
 
-func updateListeners() {
+func updateListeners() error {
 	if !isRunning {
-		return
+		return nil
 	}
-	if currentConfig == nil {
-		return
+	if currentConfig == nil || currentConfig.General == nil {
+		isRunning = false
+		stopListeners()
+		return missingListenerConfig()
 	}
 	listeners := currentConfig.Listeners
 	general := currentConfig.General
@@ -128,13 +130,19 @@ func updateListeners() {
 	listener.ReCreateSocks(general.SocksPort, tunnel.Tunnel)
 	listener.ReCreateRedir(general.RedirPort, tunnel.Tunnel)
 	listener.ReCreateTProxy(general.TProxyPort, tunnel.Tunnel)
-	listener.ReCreateMixed(general.MixedPort, tunnel.Tunnel)
+	mixedResult := listener.ReCreateMixedWithResult(general.MixedPort, tunnel.Tunnel)
+	if failure := mixedListenerFailure(general, mixedResult); failure != nil {
+		isRunning = false
+		stopListeners()
+		return failure
+	}
 	listener.ReCreateShadowSocks(general.ShadowSocksConfig, tunnel.Tunnel)
 	listener.ReCreateVmess(general.VmessConfig, tunnel.Tunnel)
 	listener.ReCreateTuic(general.TuicServer, tunnel.Tunnel)
 	if !features.Android {
 		listener.ReCreateTun(general.Tun, tunnel.Tunnel)
 	}
+	return nil
 }
 
 func stopListeners() {
@@ -181,9 +189,14 @@ func readFile(path string) ([]byte, error) {
 	return data, err
 }
 
-func updateConfig(params *UpdateParams) {
+func updateConfig(params *UpdateParams) error {
 	runLock.Lock()
 	defer runLock.Unlock()
+	if currentConfig == nil || currentConfig.General == nil {
+		isRunning = false
+		stopListeners()
+		return missingListenerConfig()
+	}
 	general := currentConfig.General
 	if params.MixedPort != nil {
 		general.MixedPort = *params.MixedPort
@@ -253,10 +266,13 @@ func updateConfig(params *UpdateParams) {
 		updater.SetGeoUpdateInterval(*params.GeoUpdateInterval)
 	}
 
-	updateListeners()
+	if err := updateListeners(); err != nil {
+		return err
+	}
 	if updater.GeoAutoUpdate() {
 		updater.RegisterGeoUpdaterWithCancel()
 	}
+	return nil
 }
 
 func applyConfig(params *SetupParams) error {
@@ -271,11 +287,11 @@ func applyConfig(params *SetupParams) error {
 	}
 	hub.ApplyConfig(currentConfig)
 	patchSelectGroup(params.SelectedMap)
-	updateListeners()
+	listenerErr := updateListeners()
 	if updater.GeoAutoUpdate() {
 		updater.RegisterGeoUpdaterWithCancel()
 	}
-	return err
+	return errors.Join(err, listenerErr)
 }
 
 func UnmarshalJson(data []byte, v any) error {

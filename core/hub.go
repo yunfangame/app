@@ -46,12 +46,18 @@ func handleInitClash(params *InitParams) bool {
 }
 
 func handleStartListener() bool {
+	return startListenerWithResult() == nil
+}
+
+func startListenerWithResult() error {
 	runLock.Lock()
 	defer runLock.Unlock()
 	isRunning = true
-	updateListeners()
+	if err := updateListeners(); err != nil {
+		return err
+	}
 	resolver.ResetConnection()
-	return true
+	return nil
 }
 
 func handleStopListener() bool {
@@ -434,7 +440,9 @@ func handleCrash() {
 }
 
 func handleUpdateConfig(params *UpdateParams) string {
-	updateConfig(params)
+	if err := updateConfig(params); err != nil {
+		return err.Error()
+	}
 	return ""
 }
 

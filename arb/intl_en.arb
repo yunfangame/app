@@ -1,4 +1,11 @@
 {
+  "listenerStartFailed": "Local proxy failed to start ({code}, port {port}). Disconnected. Export logs for diagnosis.",
+  "@listenerStartFailed": {
+    "placeholders": {
+      "port": {"type": "int"},
+      "code": {"type": "String"}
+    }
+  },
   "rememberedLoginHint": "Account remembered — click Log in",
   "rememberedLoginSaveFailed": "Login succeeded, but your credentials could not be saved securely. You will need your password next time.",
   "rememberedLoginClearFailed": "Saved login information could not be fully cleared or disabled. Please retry.",

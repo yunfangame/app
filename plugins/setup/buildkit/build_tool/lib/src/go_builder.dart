@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import 'build_cache.dart';
+import 'core_patches.dart';
 import 'environment.dart';
 import 'error.dart';
 import 'fingerprint.dart';
@@ -47,8 +48,7 @@ class GoBuilder {
   String get _outputPath => p.join(rootDir, config.outputDir);
 
   Future<BuildExecution> build(Target target, {bool force = false}) async {
-    // Desktop: output directly to libclash/{platform}/
-    // Android: output to libclash/android/{abi}/
+    CorePatchApplier(rootDirectory: Directory(rootDir)).apply();
     final outDir = target.isLib
         ? p.join(_outputPath, target.platformDir, target.abi!)
         : p.join(_outputPath, target.platformDir);

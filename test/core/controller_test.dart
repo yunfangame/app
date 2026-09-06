@@ -132,7 +132,7 @@ void main() {
       final events = <String>[];
       when(() => mock.setupConfig(params)).thenAnswer((_) {
         events.add('setup');
-        return Future.value('ok');
+        return Future.value('');
       });
 
       final setupFuture = controller.setupConfig(
@@ -150,7 +150,37 @@ void main() {
       expect(completed, isFalse);
 
       preloadCompleter.complete();
-      expect(await setupFuture, 'ok');
+      expect(await setupFuture, '');
+    });
+
+    test('setupConfig completes before listeners are started', () async {
+      const params = SetupParams(selectedMap: {}, testUrl: 'http://x.com');
+      final setup = Completer<String>();
+      var started = false;
+      when(() => mock.setupConfig(params)).thenAnswer((_) => setup.future);
+      final pending = controller.setupConfig(
+        params: params,
+        preloadInvoke: () async => started = true,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(started, isFalse);
+      setup.complete('');
+      expect(await pending, isEmpty);
+      expect(started, isTrue);
+    });
+
+    test('failed config does not start listeners', () async {
+      const params = SetupParams(selectedMap: {}, testUrl: 'http://x.com');
+      var started = false;
+      when(() => mock.setupConfig(params)).thenAnswer((_) async => 'invalid');
+      expect(
+        await controller.setupConfig(
+          params: params,
+          preloadInvoke: () async => started = true,
+        ),
+        'invalid',
+      );
+      expect(started, isFalse);
     });
   });
 

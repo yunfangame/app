@@ -355,6 +355,9 @@ class _HeroPanel extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.appLocalizations;
     final runTime = ref.watch(runTimeProvider);
+    final pending = ref.watch(connectionPendingProvider);
+    final excludedNetwork = ref.watch(suspendProvider);
+    final suspended = pending && excludedNetwork;
     final groups = ref.watch(groupsProvider);
     final firstGroup = groups.isEmpty ? null : groups.first;
     final firstGroupSelected = firstGroup == null
@@ -414,11 +417,19 @@ class _HeroPanel extends ConsumerWidget {
                     _PowerButton(
                       colors: colors,
                       isStart: isStart,
+                      pending: pending,
+                      suspended: suspended,
                       onTap: onToggle,
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      isStart ? l10n.connected : l10n.disconnected,
+                      suspended
+                          ? l10n.suspended
+                          : pending
+                          ? l10n.connecting
+                          : isStart
+                          ? l10n.connected
+                          : l10n.disconnected,
                       style: TextStyle(
                         color: isStart ? colors.success : colors.muted,
                         fontSize: 17,
@@ -448,11 +459,15 @@ class _HeroPanel extends ConsumerWidget {
 class _PowerButton extends StatelessWidget {
   final _DashboardColors colors;
   final bool isStart;
+  final bool pending;
+  final bool suspended;
   final VoidCallback? onTap;
 
   const _PowerButton({
     required this.colors,
     required this.isStart,
+    required this.pending,
+    required this.suspended,
     required this.onTap,
   });
 
@@ -461,7 +476,7 @@ class _PowerButton extends StatelessWidget {
     final color = isStart ? colors.success : colors.primary;
     return Semantics(
       button: true,
-      label: isStart
+      label: isStart || pending
           ? context.appLocalizations.stopAcceleration
           : context.appLocalizations.startAcceleration,
       child: InkWell(
@@ -492,11 +507,19 @@ class _PowerButton extends StatelessWidget {
               ),
             ],
           ),
-          child: Icon(
-            Icons.power_settings_new_rounded,
-            color: isStart ? Colors.white : color,
-            size: 62,
-          ),
+          child: pending && !suspended
+              ? Center(
+                  child: SizedBox(
+                    width: 62,
+                    height: 62,
+                    child: CircularProgressIndicator(color: color),
+                  ),
+                )
+              : Icon(
+                  Icons.power_settings_new_rounded,
+                  color: isStart ? Colors.white : color,
+                  size: 62,
+                ),
         ),
       ),
     );

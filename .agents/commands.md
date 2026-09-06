@@ -6,6 +6,7 @@ Update submodules first. The ClashMeta Go core lives in `core/Clash.Meta/`.
 
 ```bash
 git submodule update --init --recursive
+dart tooling/apply_core_patches.dart
 ```
 
 Full package build, including Go core, Flutter, and packaging, runs through `setup.dart`:
@@ -37,6 +38,10 @@ Core builds use setup's input fingerprint cache. Pass `FORCE=1` to bypass it,
 for example `make core-macos ARCH=arm64 FORCE=1`.
 
 The Makefile wraps `plugins/setup/buildkit/run_build_tool.sh`; prefer the `make` entry points unless debugging the build tool itself.
+
+The build hook applies the tracked Core patch automatically. Before direct `go test` or `go vet`, run
+`dart tooling/apply_core_patches.dart` from the repository root. The applicator verifies the locked upstream commit and
+refuses overlapping local changes; do not replace the submodule revision with an unpublished local commit.
 
 ## Flutter Development
 

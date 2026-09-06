@@ -54,6 +54,16 @@ class AppLocalizations {
     return Localizations.of<AppLocalizations>(context, AppLocalizations);
   }
 
+  /// `Local proxy failed to start ({code}, port {port}). Disconnected. Export logs for diagnosis.`
+  String listenerStartFailed(int port, String code) {
+    return Intl.message(
+      'Local proxy failed to start ($code, port $port). Disconnected. Export logs for diagnosis.',
+      name: 'listenerStartFailed',
+      desc: '',
+      args: [port, code],
+    );
+  }
+
   /// `Account remembered — click Log in`
   String get rememberedLoginHint {
     return Intl.message(

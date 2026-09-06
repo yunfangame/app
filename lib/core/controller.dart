@@ -94,21 +94,39 @@ class CoreController {
   }
 
   Future<String> updateConfig(UpdateParams updateParams) async {
-    return _interface.updateConfig(updateParams);
+    return _withListenerDiagnostics(
+      'updateConfig',
+      () => _interface.updateConfig(updateParams),
+    );
   }
 
   Future<String> setupConfig({
     required SetupParams params,
     Future<void> Function()? preloadInvoke,
   }) async {
-    if (preloadInvoke == null) {
-      return _interface.setupConfig(params);
-    }
-    final (result, _) = await (
-      _interface.setupConfig(params),
-      preloadInvoke(),
-    ).wait;
+    final result = await _withListenerDiagnostics(
+      'setupConfig',
+      () => _interface.setupConfig(params),
+    );
+    if (result.isEmpty) await preloadInvoke?.call();
     return result;
+  }
+
+  Future<T> _withListenerDiagnostics<T>(
+    String operation,
+    Future<T> Function() invoke,
+  ) async {
+    try {
+      return await invoke();
+    } on CoreMethodException catch (error) {
+      if (error.code == 'listener_not_ready') {
+        commonPrint.event(
+          'core.listener.failed',
+          fields: {'operation': operation, 'details': error.details},
+        );
+      }
+      rethrow;
+    }
   }
 
   Future<List<Group>> getProxiesGroups({
@@ -178,7 +196,7 @@ class CoreController {
   }
 
   Future<bool> startListener() async {
-    return _interface.startListener();
+    return _withListenerDiagnostics('startListener', _interface.startListener);
   }
 
   Future<bool> stopListener() async {

@@ -8,7 +8,8 @@ class CommonAction extends _$CommonAction {
   void build() {}
 
   void toggleRunning() {
-    final running = !ref.read(isStartProvider);
+    final running =
+        !ref.read(isStartProvider) && !ref.read(connectionPendingProvider);
     ref
         .read(setupActionProvider.notifier)
         .setRunning(running, initialize: running && !ref.read(initProvider));

@@ -119,14 +119,30 @@ func handleMethodCall(call *MethodCall, response MethodResponse) {
 		if !decodeMethodArguments(call, response, &params) {
 			return
 		}
-		response.success(handleUpdateConfig(&params))
+		if err := updateConfig(&params); err != nil {
+			if !respondListenerFailure(response, err) {
+				response.success(err.Error())
+			}
+			return
+		}
+		response.success("")
 		return
 	case setupConfigMethod:
 		params := defaultSetupParams()
 		if !decodeMethodArguments(call, response, params) {
 			return
 		}
-		response.success(handleSetupConfig(params))
+		if !isInit.Load() {
+			response.success("not initialized")
+			return
+		}
+		if err := applyConfig(params); err != nil {
+			if !respondListenerFailure(response, err) {
+				response.success(err.Error())
+			}
+			return
+		}
+		response.success("")
 		return
 	case getProxiesMethod:
 		response.success(handleGetProxies())
@@ -242,7 +258,13 @@ func handleMethodCall(call *MethodCall, response MethodResponse) {
 		response.success(true)
 		return
 	case startListenerMethod:
-		response.success(handleStartListener())
+		if err := startListenerWithResult(); err != nil {
+			if !respondListenerFailure(response, err) {
+				response.failure("core_error", err.Error(), nil)
+			}
+			return
+		}
+		response.success(true)
 		return
 	case stopListenerMethod:
 		response.success(handleStopListener())

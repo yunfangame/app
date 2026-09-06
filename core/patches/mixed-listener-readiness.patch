@@ -1,0 +1,92 @@
+diff --git a/listener/listener.go b/listener/listener.go
+index ececbc41..a8df2009 100644
+--- a/listener/listener.go
++++ b/listener/listener.go
+@@ -441,58 +441,56 @@ func ReCreateTProxy(port int, tunnel C.Tunnel) {
+ }
+ 
+ func ReCreateMixed(port int, tunnel C.Tunnel) {
++	result := ReCreateMixedWithResult(port, tunnel)
++	if result.Error != nil {
++		log.Errorln("Start Mixed(http+socks) server error: %s", result.Error.Error())
++	}
++}
++
++type MixedListenerResult struct {
++	TCPReady bool
++	UDPReady bool
++	Network  string
++	Error    error
++}
++
++func ReCreateMixedWithResult(port int, tunnel C.Tunnel) MixedListenerResult {
+ 	mixedMux.Lock()
+ 	defer mixedMux.Unlock()
+ 
+-	var err error
+-	defer func() {
+-		if err != nil {
+-			log.Errorln("Start Mixed(http+socks) server error: %s", err.Error())
+-		}
+-	}()
+-
+ 	addr := genAddr(bindAddress, port, allowLan)
+-
+-	shouldTCPIgnore := false
+-	shouldUDPIgnore := false
+-
++	if mixedListener != nil && mixedUDPLister != nil &&
++		mixedListener.RawAddress() == addr && mixedUDPLister.RawAddress() == addr {
++		return MixedListenerResult{TCPReady: true, UDPReady: true}
++	}
+ 	if mixedListener != nil {
+-		if mixedListener.RawAddress() != addr {
+-			mixedListener.Close()
+-			mixedListener = nil
+-		} else {
+-			shouldTCPIgnore = true
+-		}
++		_ = mixedListener.Close()
++		mixedListener = nil
+ 	}
+ 	if mixedUDPLister != nil {
+-		if mixedUDPLister.RawAddress() != addr {
+-			mixedUDPLister.Close()
+-			mixedUDPLister = nil
+-		} else {
+-			shouldUDPIgnore = true
+-		}
+-	}
+-
+-	if shouldTCPIgnore && shouldUDPIgnore {
+-		return
++		_ = mixedUDPLister.Close()
++		mixedUDPLister = nil
+ 	}
+ 
+ 	if portIsZero(addr) {
+-		return
++		return MixedListenerResult{}
+ 	}
+ 
++	var err error
+ 	mixedListener, err = mixed.New(addr, tunnel)
+ 	if err != nil {
+-		return
++		return MixedListenerResult{Network: "tcp", Error: err}
+ 	}
+ 
+ 	mixedUDPLister, err = socks.NewUDP(addr, tunnel)
+ 	if err != nil {
+-		mixedListener.Close()
+-		return
++		_ = mixedListener.Close()
++		mixedListener = nil
++		return MixedListenerResult{Network: "udp", Error: err}
+ 	}
+ 
+ 	log.Infoln("Mixed(http+socks) proxy listening at: %s", mixedListener.Address())
++	return MixedListenerResult{TCPReady: true, UDPReady: true}
+ }
+ 
+ func ReCreateTun(tunConf LC.Tun, tunnel C.Tunnel) {

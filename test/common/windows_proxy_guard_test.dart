@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:fl_clash/common/windows_proxy_guard.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:proxy/proxy.dart';
@@ -74,6 +77,151 @@ void main() {
     expect(probes, 3);
   });
 
+  test('detailed readiness records attempts and loopback endpoint', () async {
+    var probes = 0;
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => owned,
+      stopper: (_) async => cleaned,
+      portProbe: (_) async => ++probes >= 3,
+      retryInterval: Duration.zero,
+    );
+
+    final result = await guard.waitUntilReadyDetailed(7890);
+
+    expect(result.status, WindowsProxyReadinessStatus.ready);
+    expect(result.ready, isTrue);
+    expect(result.attempts, 3);
+    expect(result.elapsed, greaterThanOrEqualTo(Duration.zero));
+    expect(result.toDiagnosticData(), containsPair('address', '127.0.0.1'));
+    expect(result.toDiagnosticData(), containsPair('port', 7890));
+    expect(result.toDiagnosticData(), containsPair('attempts', 3));
+  });
+
+  test('native loopback probe reaches an available TCP listener', () async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final subscription = server.listen((socket) => socket.destroy());
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => owned,
+      stopper: (_) async => cleaned,
+    );
+
+    try {
+      final result = await guard.waitUntilReadyDetailed(server.port);
+
+      expect(result.status, WindowsProxyReadinessStatus.ready);
+      expect(result.attempts, 1);
+      expect(result.lastErrorType, isNull);
+      expect(result.lastOsErrorCode, isNull);
+    } finally {
+      await subscription.cancel();
+      await server.close();
+    }
+  });
+
+  test('preserves numeric refusal error without exception contents', () async {
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => owned,
+      stopper: (_) async => cleaned,
+      portProbe: (_) async => throw const SocketException(
+        'private-account@example.com',
+        osError: OSError('private exception text', 10061),
+      ),
+      readyTimeout: const Duration(milliseconds: 20),
+      retryInterval: const Duration(seconds: 1),
+    );
+
+    final result = await guard.waitUntilReadyDetailed(7890);
+
+    expect(result.status, WindowsProxyReadinessStatus.timedOut);
+    expect(result.attempts, 1);
+    expect(result.lastErrorType, 'socket_exception');
+    expect(result.lastOsErrorCode, 10061);
+    expect(
+      result.toDiagnosticData(),
+      containsPair('last_os_error_code', 10061),
+    );
+    expect(result.toDiagnosticData().toString(), isNot(contains('private')));
+  });
+
+  test('slow startup succeeds within the total readiness budget', () async {
+    var probes = 0;
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => owned,
+      stopper: (_) async => cleaned,
+      portProbe: (_) async {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        return ++probes >= 3;
+      },
+      readyTimeout: const Duration(seconds: 1),
+      retryInterval: const Duration(milliseconds: 1),
+    );
+
+    final result = await guard.waitUntilReadyDetailed(7890);
+
+    expect(result.status, WindowsProxyReadinessStatus.ready);
+    expect(result.attempts, 3);
+  });
+
+  test('a hanging probe cannot exceed the total readiness budget', () async {
+    final neverCompletes = Completer<bool>();
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => owned,
+      stopper: (_) async => cleaned,
+      portProbe: (_) => neverCompletes.future,
+      readyTimeout: const Duration(milliseconds: 20),
+      probeTimeout: const Duration(seconds: 1),
+      retryInterval: const Duration(seconds: 1),
+    );
+
+    final result = await guard
+        .waitUntilReadyDetailed(7890)
+        .timeout(const Duration(seconds: 1));
+
+    expect(result.status, WindowsProxyReadinessStatus.timedOut);
+    expect(result.attempts, 1);
+    expect(result.lastErrorType, 'timeout');
+    expect(result.lastOsErrorCode, isNull);
+  });
+
+  test('a per-attempt timeout still permits later startup success', () async {
+    var probes = 0;
+    final neverCompletes = Completer<bool>();
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => owned,
+      stopper: (_) async => cleaned,
+      portProbe: (_) {
+        probes++;
+        return probes == 1 ? neverCompletes.future : Future.value(true);
+      },
+      readyTimeout: const Duration(seconds: 1),
+      probeTimeout: const Duration(milliseconds: 10),
+      retryInterval: Duration.zero,
+    );
+
+    final result = await guard.waitUntilReadyDetailed(7890);
+
+    expect(result.status, WindowsProxyReadinessStatus.ready);
+    expect(result.attempts, 2);
+    expect(result.lastErrorType, 'timeout');
+  });
+
+  test('invalid and expired requests never initiate a port probe', () async {
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => owned,
+      stopper: (_) async => cleaned,
+      portProbe: (_) async => throw StateError('must not probe'),
+      readyTimeout: Duration.zero,
+    );
+
+    final invalid = await guard.waitUntilReadyDetailed(65536);
+    final expired = await guard.waitUntilReadyDetailed(7890);
+
+    expect(invalid.status, WindowsProxyReadinessStatus.invalidPort);
+    expect(invalid.attempts, 0);
+    expect(expired.status, WindowsProxyReadinessStatus.timedOut);
+    expect(expired.attempts, 0);
+  });
+
   test('stops waiting when a newer request cancels startup', () async {
     var cancelled = false;
     final guard = WindowsProxyGuard(
@@ -91,6 +239,72 @@ void main() {
       await guard.waitUntilReady(7890, isCancelled: () => cancelled),
       isFalse,
     );
+  });
+
+  test('already cancelled readiness does not initiate a probe', () async {
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => owned,
+      stopper: (_) async => cleaned,
+      portProbe: (_) async => throw StateError('must not probe'),
+    );
+
+    final result = await guard.waitUntilReadyDetailed(
+      7890,
+      isCancelled: () => true,
+    );
+
+    expect(result.status, WindowsProxyReadinessStatus.cancelled);
+    expect(result.attempts, 0);
+  });
+
+  test('discards successful probe superseded while connecting', () async {
+    var cancelled = false;
+    final probe = Completer<bool>();
+    final started = Completer<void>();
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => owned,
+      stopper: (_) async => cleaned,
+      portProbe: (_) {
+        started.complete();
+        return probe.future;
+      },
+    );
+
+    final pending = guard.waitUntilReadyDetailed(
+      7890,
+      isCancelled: () => cancelled,
+    );
+    await started.future;
+    cancelled = true;
+    probe.complete(true);
+    final result = await pending;
+
+    expect(result.status, WindowsProxyReadinessStatus.cancelled);
+    expect(result.ready, isFalse);
+    expect(result.attempts, 1);
+  });
+
+  test('cancellation during retry prevents another probe', () async {
+    var cancelled = false;
+    var probes = 0;
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => owned,
+      stopper: (_) async => cleaned,
+      portProbe: (_) async {
+        probes++;
+        Timer.run(() => cancelled = true);
+        return false;
+      },
+      retryInterval: const Duration(milliseconds: 10),
+    );
+
+    final result = await guard.waitUntilReadyDetailed(
+      7890,
+      isCancelled: () => cancelled,
+    );
+
+    expect(result.status, WindowsProxyReadinessStatus.cancelled);
+    expect(probes, 1);
   });
 
   test('preserves a system proxy that is not owned by this port', () async {

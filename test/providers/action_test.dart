@@ -1062,6 +1062,9 @@ class _FailingRestartCoreAction extends CoreAction {
 final _restartFailure = Exception('restart failed');
 
 class _AuthorizationSetupAction extends SetupAction {
+  @override
+  bool get requiresListenerReadiness => false;
+
   final List<AuthorizeCode> authorizationResults;
   int authorizationRequestCount = 0;
 
@@ -1074,6 +1077,9 @@ class _AuthorizationSetupAction extends SetupAction {
 }
 
 class _RaceSetupAction extends SetupAction {
+  @override
+  bool get requiresListenerReadiness => false;
+
   int applyProfileDebounceCount = 0;
   int resetCoreTrafficCount = 0;
   final transitions = <bool>[];

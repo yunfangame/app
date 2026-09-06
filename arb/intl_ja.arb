@@ -1,4 +1,11 @@
 {
+  "listenerStartFailed": "ローカルプロキシを起動できませんでした（{code}、ポート {port}）。切断しました。診断用ログをエクスポートしてください。",
+  "@listenerStartFailed": {
+    "placeholders": {
+      "port": {"type": "int"},
+      "code": {"type": "String"}
+    }
+  },
   "rememberedLoginHint": "保存済みです。そのままログインできます",
   "rememberedLoginSaveFailed": "ログインしましたが、認証情報を安全に保存できませんでした。次回はパスワードが必要です。",
   "rememberedLoginClearFailed": "保存済みのログイン情報を完全に削除または無効化できませんでした。再試行してください。",

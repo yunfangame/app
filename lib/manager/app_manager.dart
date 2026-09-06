@@ -63,6 +63,10 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
       }
     });
     ref.listenManual(suspendProvider, (prev, next) {
+      if (system.isWindows && prev != next) {
+        unawaited(ref.read(setupActionProvider.notifier).refreshSuspension());
+        return;
+      }
       final isStart = ref.read(isStartProvider);
       if (prev != next && isStart) {
         debouncer.call(FunctionTag.suspend, () async {

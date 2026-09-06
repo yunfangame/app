@@ -49,15 +49,55 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Test latency and packaging contracts
+      - name: Apply pinned Core patches
+        run: dart tooling/apply_core_patches.dart
+
+      - name: Test Core patch application
+        working-directory: plugins/setup/buildkit/build_tool
         shell: pwsh
         run: |
-          flutter test test/core/controller_test.dart test/core/protocol_contract_test.dart test/views/proxies/common_test.dart test/common/task_test.dart test/models/config_test.dart test/common/windows_proxy_guard_test.dart test/common/network_diagnostic_test.dart test/pages/login_test.dart test/common/xboard_session_storage_test.dart test/common/xboard_auth_test.dart --reporter expanded
+          dart pub get
+          if ($LASTEXITCODE -ne 0) { throw 'Build tool dependencies failed' }
+          dart test test/core_patches_test.dart
+          if ($LASTEXITCODE -ne 0) { throw 'Core patch tests failed' }
+
+      - name: Test connection and credential regressions
+        shell: pwsh
+        run: |
+          $tests = @(
+            'test/core/controller_test.dart',
+            'test/core/protocol_contract_test.dart',
+            'test/views/proxies/common_test.dart',
+            'test/common/task_test.dart',
+            'test/models/config_test.dart',
+            'test/common/windows_proxy_guard_test.dart',
+            'test/common/network_diagnostic_test.dart',
+            'test/manager/core_manager_test.dart',
+            'test/manager/proxy_manager_test.dart',
+            'test/providers/action_test.dart',
+            'test/providers/windows_connection_test.dart',
+            'test/widgets/windows_connection_status_test.dart',
+            'test/pages/login_test.dart',
+            'test/pages/login_persistence_flow_test.dart',
+            'test/common/local_secret_store_test.dart',
+            'test/common/xboard_session_storage_test.dart',
+            'test/common/xboard_session_storage_failure_test.dart',
+            'test/common/xboard_login_persistence_test.dart',
+            'test/common/xboard_credential_diagnostics_test.dart',
+            'test/common/xboard_auth_test.dart'
+          )
+          flutter test @tests --reporter expanded
           if ($LASTEXITCODE -ne 0) { throw 'Flutter tests failed' }
+
+      - name: Test native Windows listeners
+        shell: pwsh
+        run: |
           Push-Location core
           $env:CGO_ENABLED = '0'
-          go test .
+          go test -count=1 -v .
           if ($LASTEXITCODE -ne 0) { throw 'Go tests failed' }
+          go vet .
+          if ($LASTEXITCODE -ne 0) { throw 'Go vet failed' }
           Pop-Location
 
       - name: Package stable Windows release

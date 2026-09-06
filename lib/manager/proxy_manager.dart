@@ -4,7 +4,7 @@ import 'package:fl_clash/common/proxy.dart';
 import 'package:fl_clash/common/system.dart';
 import 'package:fl_clash/common/windows_proxy_guard.dart';
 import 'package:fl_clash/enum/enum.dart';
-import 'package:fl_clash/models/models.dart';
+import 'package:fl_clash/models/models.dart' show ProxyState;
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
@@ -12,9 +12,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:proxy/proxy.dart';
 
 class ProxyManager extends ConsumerStatefulWidget {
+  final Proxy? proxyClient;
+  final WindowsProxyGuard? windowsProxyGuard;
+  final bool? isWindows;
+  final ValueChanged<String>? notify;
   final Widget child;
 
-  const ProxyManager({super.key, required this.child});
+  const ProxyManager({
+    super.key,
+    this.proxyClient,
+    this.windowsProxyGuard,
+    this.isWindows,
+    this.notify,
+    required this.child,
+  });
 
   @override
   ConsumerState createState() => _ProxyManagerState();
@@ -23,6 +34,8 @@ class ProxyManager extends ConsumerStatefulWidget {
 class _ProxyManagerState extends ConsumerState<ProxyManager> {
   Future<void> _pendingUpdate = Future.value();
   WindowsProxyGuard? _windowsProxyGuard;
+  late final Proxy? _proxyClient;
+  late final bool _isWindows;
   int _requestedRevision = 0;
 
   bool _isCurrent(int revision) => mounted && revision == _requestedRevision;
@@ -44,12 +57,19 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
     if (isStart && systemProxy) {
       final guard = _windowsProxyGuard;
       if (guard != null) {
-        final ready = await guard.waitUntilReady(
+        final readiness = await guard.waitUntilReadyDetailed(
           port,
           isCancelled: () => !_isCurrent(revision),
         );
+        commonPrint.event(
+          'system_proxy.local_port.completed',
+          fields: {
+            ...readiness.toDiagnosticData(),
+            'stale_request': !_isCurrent(revision),
+          },
+        );
         if (!_isCurrent(revision)) return;
-        if (!ready) {
+        if (!readiness.ready) {
           result = const ProxyOperationResult(
             success: false,
             operation: 'start',
@@ -57,23 +77,50 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
           );
         }
       }
-      result ??= await proxy?.startProxyDetailed(port, proxyState.bassDomain);
-      if (result?.success == true && guard != null) {
-        final verification = await guard.verifyAfterApply(
+      try {
+        result ??= await _proxyClient?.startProxyDetailed(
           port,
-          isCancelled: () => !_isCurrent(revision),
+          proxyState.bassDomain,
         );
-        if (verification != null) {
-          commonPrint.event(
-            'system_proxy.apply.recheck',
-            fields: verification.toDiagnosticFields(),
+      } catch (error) {
+        commonPrint.event(
+          'system_proxy.native_apply.failed',
+          fields: {'error_type': error.runtimeType.toString()},
+        );
+        result = const ProxyOperationResult(
+          success: false,
+          operation: 'start',
+          stage: 'native_exception',
+        );
+      }
+      if (result?.success == true && guard != null && _isCurrent(revision)) {
+        try {
+          final verification = await guard.verifyAfterApply(
+            port,
+            isCancelled: () => !_isCurrent(revision),
           );
-          if (!verification.success) result = verification;
+          if (verification != null) {
+            commonPrint.event(
+              'system_proxy.apply.recheck',
+              fields: verification.toDiagnosticFields(),
+            );
+            if (!verification.success) result = verification;
+          }
+        } catch (error) {
+          commonPrint.event(
+            'system_proxy.recheck.failed',
+            fields: {'error_type': error.runtimeType.toString()},
+          );
+          result = const ProxyOperationResult(
+            success: false,
+            operation: 'inspect',
+            stage: 'readback',
+          );
         }
       }
     } else {
-      result = await proxy?.stopProxyDetailed(
-        expectedPort: system.isWindows ? port : null,
+      result = await _proxyClient?.stopProxyDetailed(
+        expectedPort: _isWindows ? port : null,
       );
     }
     final succeeded = result?.success;
@@ -97,7 +144,7 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
     if (!mounted) return;
 
     if (!isStart || !systemProxy) {
-      globalState.showNotifier(
+      _showNotifier(
         currentAppLocalizations.systemProxyDisableFailed(
           result?.diagnosticCode ?? 'W-PROXY-09',
         ),
@@ -106,15 +153,36 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
     }
 
     final currentNetworkSetting = ref.read(networkSettingProvider);
+    final hasEffectiveTun =
+        ref.read(patchClashConfigProvider).tun.enable &&
+        ref.read(authorizedTunEnableProvider) ==
+            TunAuthorizationState.authorized;
+    final shouldStopRunning =
+        _isWindows &&
+        (result?.stage == 'local_port_unavailable' || !hasEffectiveTun);
+    final stopOperation = shouldStopRunning
+        ? ref.read(setupActionProvider.notifier).setRunning(false)
+        : null;
     if (currentNetworkSetting.systemProxy) {
       ref.read(networkSettingProvider.notifier).value = currentNetworkSetting
           .copyWith(systemProxy: false);
     }
-    globalState.showNotifier(
+    _showNotifier(
       currentAppLocalizations.systemProxyApplyFailed(
         result?.diagnosticCode ?? 'W-PROXY-09',
       ),
     );
+    await stopOperation;
+  }
+
+  void _showNotifier(String message) {
+    if (!mounted) return;
+    final notify = widget.notify;
+    if (notify != null) {
+      notify(message);
+    } else {
+      globalState.showNotifier(message);
+    }
   }
 
   void _scheduleUpdateProxy(ProxyState proxyState) {
@@ -142,6 +210,7 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
     final revision = ++_requestedRevision;
     _pendingUpdate = _pendingUpdate
         .then((_) async {
+          if (!_isCurrent(revision)) return;
           final result = await guard.repairStale(
             proxyState.port,
             isCancelled: () => !_isCurrent(revision),
@@ -157,11 +226,9 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
           );
           if (!_isCurrent(revision) || !mounted) return;
           if (result.status == WindowsProxyRepairStatus.cleaned) {
-            globalState.showNotifier(
-              currentAppLocalizations.systemProxyStaleCleaned,
-            );
+            _showNotifier(currentAppLocalizations.systemProxyStaleCleaned);
           } else if (result.status == WindowsProxyRepairStatus.cleanupFailed) {
-            globalState.showNotifier(
+            _showNotifier(
               currentAppLocalizations.systemProxyDisableFailed(
                 result.cleanup?.diagnosticCode ?? 'W-PROXY-09',
               ),
@@ -182,15 +249,18 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
   @override
   void initState() {
     super.initState();
-    if (system.isWindows && proxy != null) {
-      _windowsProxyGuard = WindowsProxyGuard(
-        inspector: proxy!.inspectProxy,
-        stopper: (port) => proxy!.stopProxyDetailed(expectedPort: port),
+    _proxyClient = widget.proxyClient ?? proxy;
+    _isWindows = widget.isWindows ?? system.isWindows;
+    _windowsProxyGuard = widget.windowsProxyGuard;
+    if (_isWindows && _proxyClient != null) {
+      _windowsProxyGuard ??= WindowsProxyGuard(
+        inspector: _proxyClient.inspectProxy,
+        stopper: (port) => _proxyClient.stopProxyDetailed(expectedPort: port),
       );
     }
     ref.listenManual(proxyStateProvider, (prev, next) {
       if (prev != next) {
-        if (prev == null && system.isWindows && !next.isStart) {
+        if (prev == null && _isWindows && !next.isStart) {
           _scheduleStartupRepair(next);
         } else {
           _scheduleUpdateProxy(next);

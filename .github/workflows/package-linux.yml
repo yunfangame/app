@@ -73,6 +73,9 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Apply pinned Core patches
+        run: dart tooling/apply_core_patches.dart
+
       - name: Install Linux webview build dependency
         env:
           TARGET_ARCH: ${{ matrix.arch }}

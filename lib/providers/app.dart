@@ -16,6 +16,13 @@ import 'package:wifi_ssid/wifi_ssid.dart';
 part 'generated/app.g.dart';
 
 @Riverpod(keepAlive: true)
+class ConnectionPending extends _$ConnectionPending
+    with AutoDisposeNotifierMixin {
+  @override
+  bool build() => false;
+}
+
+@Riverpod(keepAlive: true)
 class AuthorizedTunEnable extends _$AuthorizedTunEnable
     with AutoDisposeNotifierMixin {
   @override
@@ -94,6 +101,9 @@ class Logs extends _$Logs with AutoDisposeNotifierMixin {
       'build_number': buildNumber,
       'core_status': ref.read(coreStatusProvider).name,
       'running_requested': ref.read(isStartProvider),
+      'connection_pending': ref.read(connectionPendingProvider),
+      'mixed_port': ref.read(patchClashConfigProvider).mixedPort,
+      'allow_lan': ref.read(patchClashConfigProvider).allowLan,
       'system_proxy_requested': ref.read(networkSettingProvider).systemProxy,
       'tun_requested': ref.read(patchClashConfigProvider).tun.enable,
       'tun_authorization': ref.read(authorizedTunEnableProvider).name,

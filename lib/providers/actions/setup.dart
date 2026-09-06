@@ -20,7 +20,12 @@ class SetupAction extends _$SetupAction {
   bool get _isRunning => _startTime != null && _startTime!.isBeforeNow;
 
   @override
-  void build() {}
+  void build() {
+    ref.onDispose(() => _runtimeTimer?.cancel());
+  }
+
+  @protected
+  bool get requiresListenerReadiness => system.isWindows;
 
   SetupParams get _setupParams {
     final settings = ref.read(appSettingProvider);
@@ -119,11 +124,153 @@ class SetupAction extends _$SetupAction {
       },
     );
     _latestRunRequest = request;
-    _setLocalRunning(running);
+    ref.read(connectionPendingProvider.notifier).value =
+        running && requiresListenerReadiness;
+    _setLocalRunning(running && !requiresListenerReadiness);
     if (request.initialize) {
       globalState.needInitStatus = false;
     }
-    return running ? _start(request) : _stop(request);
+    return running
+        ? requiresListenerReadiness
+              ? _startVerified(request)
+              : _start(request)
+        : _stop(request);
+  }
+
+  @protected
+  Future<void> prepareListenerProfile() {
+    return _runSetup(force: true, silence: true, propagateErrors: true);
+  }
+
+  @protected
+  Future<void> verifyLocalListener(
+    int port, {
+    required bool Function() isCancelled,
+  }) async {
+    final guard = WindowsProxyGuard(
+      inspector: (port) => proxy!.inspectProxy(port),
+      stopper: (port) => proxy!.stopProxyDetailed(expectedPort: port),
+    );
+    final result = await guard.waitUntilReadyDetailed(
+      port,
+      isCancelled: isCancelled,
+    );
+    commonPrint.event(
+      'connection.listener.readiness',
+      fields: result.toDiagnosticData(),
+    );
+    if (!result.ready && !isCancelled()) {
+      throw CoreMethodException(
+        code: 'local_port_unavailable',
+        message: 'Local proxy endpoint is unavailable',
+        details: result.toDiagnosticData(),
+      );
+    }
+  }
+
+  Future<void> _startVerified(_RunRequest request) async {
+    try {
+      for (var attempt = 0; attempt < 3; attempt++) {
+        if (!_isCurrent(request)) return;
+        if (await _pauseIfSuspended(request)) return;
+        if (!_isCurrent(request)) return;
+        final config = ref.read(patchClashConfigProvider);
+        final port = config.mixedPort;
+        await prepareListenerProfile();
+        if (!_isCurrent(request)) return;
+        if (await _pauseIfSuspended(request)) return;
+        if (!_isCurrent(request)) return;
+        if (config != ref.read(patchClashConfigProvider)) continue;
+        await _setCoreRunning(request);
+        if (!_isCurrent(request)) return;
+        if (await _pauseIfSuspended(request)) return;
+        if (!_isCurrent(request)) return;
+        if (config != ref.read(patchClashConfigProvider)) continue;
+        final tunOnly =
+            port == 0 &&
+            !ref.read(networkSettingProvider).systemProxy &&
+            config.tun.enable &&
+            ref.read(authorizedTunEnableProvider) ==
+                TunAuthorizationState.authorized;
+        if (!tunOnly) {
+          await verifyLocalListener(
+            port,
+            isCancelled: () =>
+                !_isCurrent(request) ||
+                ref.read(suspendProvider) ||
+                config != ref.read(patchClashConfigProvider),
+          );
+        }
+        if (!_isCurrent(request)) return;
+        if (await _pauseIfSuspended(request)) return;
+        if (!_isCurrent(request)) return;
+        if (config != ref.read(patchClashConfigProvider)) continue;
+        ref.read(connectionPendingProvider.notifier).value = false;
+        _setLocalRunning(true);
+        commonPrint.event('connection.ready', fields: {'port': port});
+        return;
+      }
+      throw StateError('Listener configuration changed during startup');
+    } catch (error) {
+      await _failConnection(request, error);
+    }
+  }
+
+  Future<bool> _pauseIfSuspended(_RunRequest request) async {
+    if (!ref.read(suspendProvider)) return false;
+    await _listenerScheduler.run(() async {
+      if (!_isCurrent(request) || !ref.read(suspendProvider)) return;
+      await setCoreRunning(false);
+      commonPrint.event(
+        'connection.suspended',
+        fields: {'reason': 'excluded_ssid'},
+      );
+    });
+    return true;
+  }
+
+  Future<void> refreshSuspension() async {
+    final request = _latestRunRequest;
+    if (!requiresListenerReadiness || request?.running != true) return;
+    await setRunning(true, initialize: request!.initialize);
+  }
+
+  @protected
+  void notifyListenerFailure(int port) {
+    globalState.showNotifier(
+      currentAppLocalizations.listenerStartFailed(port, 'W-PORT-02'),
+    );
+  }
+
+  Future<void> _failConnection(_RunRequest request, Object error) async {
+    if (!_isCurrent(request)) return;
+    final port = ref.read(patchClashConfigProvider).mixedPort;
+    commonPrint.event(
+      'connection.failed',
+      fields: {
+        'port': port,
+        'error_type': error.runtimeType.toString(),
+        if (error is CoreMethodException) ...{
+          'error_code': error.code,
+          'details': error.details,
+        },
+      },
+    );
+    final settings = ref.read(networkSettingProvider);
+    if (settings.systemProxy) {
+      ref.read(networkSettingProvider.notifier).value = settings.copyWith(
+        systemProxy: false,
+      );
+    }
+    notifyListenerFailure(port);
+    try {
+      await setRunning(false);
+    } catch (stopError) {
+      commonPrint.event(
+        'connection.failure_cleanup.failed',
+        fields: {'error_type': stopError.runtimeType.toString()},
+      );
+    }
   }
 
   Future<void> _start(_RunRequest request) async {
@@ -180,6 +327,9 @@ class SetupAction extends _$SetupAction {
           'connection.core_transition.completed',
           fields: {'running': request.running, 'success': succeeded},
         );
+        if (!succeeded && request.running && requiresListenerReadiness) {
+          throw StateError('Core listener did not start');
+        }
       } catch (error) {
         commonPrint.event(
           'connection.core_transition.failed',
@@ -194,7 +344,8 @@ class SetupAction extends _$SetupAction {
     });
   }
 
-  bool _isCurrent(_RunRequest request) => identical(_latestRunRequest, request);
+  bool _isCurrent(_RunRequest request) =>
+      ref.mounted && identical(_latestRunRequest, request);
 
   Future<void> updateConfigDebounce() async {
     debouncer.call(FunctionTag.updateConfig, updateConfig);
@@ -214,26 +365,39 @@ class SetupAction extends _$SetupAction {
 
   @visibleForTesting
   Future<void> updateConfig() async {
+    final request = _latestRunRequest;
     await globalState.safeRun(() async {
       await _inspectSystemProxy('before_update');
       try {
         final updateParams = ref.read(updateParamsProvider);
         final shouldContinueSetup = await requestAdmin(updateParams.tun.enable);
+        if (!ref.mounted || !identical(request, _latestRunRequest)) return;
         if (!shouldContinueSetup) {
           await _restartCoreAfterAuthorization();
           return;
         }
-        final message = await coreController.updateConfig(
+        final message = await applyCoreUpdate(
           updateParams.copyWith.tun(
             enable: _getEffectiveTunEnable(updateParams.tun.enable),
           ),
         );
         ref.read(checkIpNumProvider.notifier).add();
         if (message.isNotEmpty) throw message;
+      } catch (error) {
+        if (requiresListenerReadiness && request?.running == true) {
+          await _failConnection(request!, error);
+        } else {
+          rethrow;
+        }
       } finally {
         await _inspectSystemProxy('after_update');
       }
     });
+  }
+
+  @protected
+  Future<String> applyCoreUpdate(UpdateParams params) {
+    return coreController.updateConfig(params);
   }
 
   Future<void> _inspectSystemProxy(String phase) async {
@@ -309,23 +473,59 @@ class SetupAction extends _$SetupAction {
     bool silence = false,
     bool force = false,
     Future<void> Function()? preloadInvoke,
+    bool propagateErrors = false,
   }) async {
-    final result = await _setupScheduler.run(() {
-      return _setupConfig(
-        force: force,
-        silence: silence,
-        preloadInvoke: preloadInvoke,
-        onUpdated: () async {
-          await ref.read(proxiesActionProvider.notifier).updateGroups();
-          await ref.read(providersProvider.notifier).syncProviders();
-        },
+    final request = _latestRunRequest;
+    try {
+      final result = await _setupScheduler.run(() {
+        return _setupConfig(
+          force: force,
+          silence: silence,
+          preloadInvoke: preloadInvoke,
+          onUpdated: () async {
+            await ref.read(proxiesActionProvider.notifier).updateGroups();
+            await ref.read(providersProvider.notifier).syncProviders();
+          },
+        );
+      });
+      if (result == _SetupTaskResult.handoffToCoreRestart) {
+        await _restartCoreAfterAuthorization();
+      }
+    } catch (error) {
+      if (!requiresListenerReadiness) rethrow;
+      if (request?.running == true) {
+        await _failConnection(request!, error);
+      } else if (!propagateErrors) {
+        notifyListenerFailure(ref.read(patchClashConfigProvider).mixedPort);
+      }
+      if (propagateErrors) rethrow;
+    }
+  }
+
+  Future<void> _applyWithFeedback(
+    Future<void> Function() apply, {
+    required bool silence,
+  }) async {
+    if (!requiresListenerReadiness) {
+      await globalState.loadingRun(
+        apply,
+        silence: true,
+        tag: !silence ? LoadingTag.proxies : null,
       );
-    });
-    if (result != _SetupTaskResult.handoffToCoreRestart) {
       return;
     }
-    // Release the current serial task before restartCore reapplies the profile.
-    await _restartCoreAfterAuthorization();
+    if (!silence) {
+      ref.read(loadingProvider(LoadingTag.proxies).notifier).start();
+    }
+    try {
+      await apply();
+    } finally {
+      if (!silence && ref.mounted) {
+        unawaited(
+          ref.read(loadingProvider(LoadingTag.proxies).notifier).stop(),
+        );
+      }
+    }
   }
 
   Future<void> _restartCoreAfterAuthorization() async {
@@ -513,45 +713,41 @@ class SetupAction extends _$SetupAction {
       final sharedState = ref.read(sharedStateProvider);
       await preferences.saveShareState(sharedState);
     }
-    await globalState.loadingRun(
-      () async {
-        try {
-          final configFilePath = await appPath.configFilePath;
-          await File(configFilePath).safeWriteAsString(yamlString);
-          final message = await coreController.setupConfig(
-            params: _setupParams,
-            preloadInvoke: preloadInvoke,
-          );
-          if (message.isNotEmpty && !message.endsWith('is empty')) {
-            throw message;
-          }
-          globalState.lastConfigMd5 = yamlMd5;
-          ref.read(checkIpNumProvider.notifier).add();
-          await onUpdated?.call();
-          commonPrint.event(
-            'configuration.apply.succeeded',
-            fields: {
-              'has_profile': profile != null,
-              'tun_effective': effectiveTunEnable,
-            },
-          );
-        } catch (error) {
-          commonPrint.event(
-            'configuration.apply.failed',
-            fields: {
-              'error_type': error.runtimeType.toString(),
-              'error': '$error',
-              'tun_effective': effectiveTunEnable,
-            },
-          );
-          rethrow;
-        } finally {
-          await _inspectSystemProxy('after_setup');
+    await _applyWithFeedback(() async {
+      try {
+        final configFilePath = await appPath.configFilePath;
+        await File(configFilePath).safeWriteAsString(yamlString);
+        final message = await coreController.setupConfig(
+          params: _setupParams,
+          preloadInvoke: preloadInvoke,
+        );
+        if (message.isNotEmpty && !message.endsWith('is empty')) {
+          throw message;
         }
-      },
-      silence: true,
-      tag: !silence ? LoadingTag.proxies : null,
-    );
+        globalState.lastConfigMd5 = yamlMd5;
+        ref.read(checkIpNumProvider.notifier).add();
+        await onUpdated?.call();
+        commonPrint.event(
+          'configuration.apply.succeeded',
+          fields: {
+            'has_profile': profile != null,
+            'tun_effective': effectiveTunEnable,
+          },
+        );
+      } catch (error) {
+        commonPrint.event(
+          'configuration.apply.failed',
+          fields: {
+            'error_type': error.runtimeType.toString(),
+            'error': '$error',
+            'tun_effective': effectiveTunEnable,
+          },
+        );
+        rethrow;
+      } finally {
+        await _inspectSystemProxy('after_setup');
+      }
+    }, silence: silence);
     return _SetupTaskResult.completed;
   }
 }

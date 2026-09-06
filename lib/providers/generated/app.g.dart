@@ -9,6 +9,58 @@ part of '../app.dart';
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // ignore_for_file: type=lint, type=warning
 
+@ProviderFor(ConnectionPending)
+final connectionPendingProvider = ConnectionPendingProvider._();
+
+final class ConnectionPendingProvider
+    extends $NotifierProvider<ConnectionPending, bool> {
+  ConnectionPendingProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'connectionPendingProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$connectionPendingHash();
+
+  @$internal
+  @override
+  ConnectionPending create() => ConnectionPending();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(bool value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<bool>(value),
+    );
+  }
+}
+
+String _$connectionPendingHash() => r'9c5c4116754aa07915570c5fab75046c52420616';
+
+abstract class _$ConnectionPending extends $Notifier<bool> {
+  bool build();
+  @$mustCallSuper
+  @override
+  WhenComplete runBuild() {
+    final ref = this.ref as $Ref<bool, bool>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<bool, bool>,
+              bool,
+              Object?,
+              Object?
+            >;
+    return element.handleCreate(ref, build);
+  }
+}
+
 @ProviderFor(AuthorizedTunEnable)
 final authorizedTunEnableProvider = AuthorizedTunEnableProvider._();
 
@@ -93,7 +145,7 @@ final class LogsProvider extends $NotifierProvider<Logs, FixedList<Log>> {
   }
 }
 
-String _$logsHash() => r'f09c58dd7d89c0eb1536e39abd22a9523aafaede';
+String _$logsHash() => r'f3487f4ecdd05b1c53c7b5086da9b3d2aedab02d';
 
 abstract class _$Logs extends $Notifier<FixedList<Log>> {
   FixedList<Log> build();
