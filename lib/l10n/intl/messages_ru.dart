@@ -104,33 +104,35 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m37(label) => "${label} должен быть числом от 1024 до 49151";
 
-  static String m38(count) =>
+  static String m38(value) => "Спр. ${value} мс";
+
+  static String m39(count) =>
       "Сохранено: ${count}; активно при включённой замене";
 
-  static String m39(count) => "${count} секунд";
+  static String m40(count) => "${count} секунд";
 
-  static String m40(count) => "Выбрано ${count} элементов";
-
-  static String m41(date) =>
-      "Срок действия тарифа истёк ${date}. Продлите его, чтобы продолжить работу.";
+  static String m41(count) => "Выбрано ${count} элементов";
 
   static String m42(date) =>
+      "Срок действия тарифа истёк ${date}. Продлите его, чтобы продолжить работу.";
+
+  static String m43(date) =>
       "Тариф истекает ${date}, менее чем через 3 дня. Продлите его заранее.";
 
-  static String m43(remaining) =>
+  static String m44(remaining) =>
       "Осталось только ${remaining} ГБ — меньше 10 ГБ. Купите или продлите тариф.";
 
-  static String m44(code) =>
+  static String m45(code) =>
       "Не удалось включить системный прокси (${code}). Переключатель возвращён назад. Экспортируйте журналы для диагностики";
 
-  static String m45(code) =>
+  static String m46(code) =>
       "Не удалось отключить системный прокси (${code}). Отключите его вручную в настройках Windows";
 
-  static String m46(count) => "Заказов: ${count}";
+  static String m47(count) => "Заказов: ${count}";
 
-  static String m47(label) => "${label} должен быть URL";
+  static String m48(label) => "${label} должен быть URL";
 
-  static String m48(count) =>
+  static String m49(count) =>
       "${Intl.plural(count, one: '${count} год назад', few: '${count} года назад', many: '${count} лет назад', other: '${count} года назад')}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
@@ -1609,6 +1611,19 @@ class MessageLookup extends MessageLookupByLibrary {
     "recurringPlans": MessageLookupByLibrary.simpleMessage("Периодические"),
     "redirPort": MessageLookupByLibrary.simpleMessage("Redir-порт"),
     "redo": MessageLookupByLibrary.simpleMessage("Повторить"),
+    "referenceConnectionDelay": MessageLookupByLibrary.simpleMessage(
+      "Справочная задержка соединения",
+    ),
+    "referenceCurrentNodeDelay": MessageLookupByLibrary.simpleMessage(
+      "Спр. задержка узла",
+    ),
+    "referenceDelayExplanation": MessageLookupByLibrary.simpleMessage(
+      "Меняется только отображение: до 100 мс без изменений; 101–150 мс отображается как 100 мс; выше 150 мс вычитается 50 мс. При неудачной проверке показывается статус от сервера, который не подтверждает доступность с этого устройства. Измерения, сортировка и журналы сохраняют реальные значения.",
+    ),
+    "referenceDelayValue": m38,
+    "referenceStandardizedDelay": MessageLookupByLibrary.simpleMessage(
+      "Справочный RTT",
+    ),
     "refreshApiStatus": MessageLookupByLibrary.simpleMessage(
       "Обновить состояние API",
     ),
@@ -1882,7 +1897,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "save": MessageLookupByLibrary.simpleMessage("Сохранить"),
     "saveChanges": MessageLookupByLibrary.simpleMessage("Сохранить изменения"),
-    "savedDnsServersCount": m38,
+    "savedDnsServersCount": m39,
     "scanToPay": MessageLookupByLibrary.simpleMessage("Сканируйте для оплаты"),
     "scanWithPaymentApp": MessageLookupByLibrary.simpleMessage(
       "Отсканируйте QR-код ниже подходящим платёжным приложением",
@@ -1896,7 +1911,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Поиск домена, IP, правила или узла",
     ),
     "seconds": MessageLookupByLibrary.simpleMessage("Секунд"),
-    "secondsCount": m39,
+    "secondsCount": m40,
     "selectAll": MessageLookupByLibrary.simpleMessage("Выбрать все"),
     "selectPaymentMethod": MessageLookupByLibrary.simpleMessage(
       "Выберите способ оплаты",
@@ -1924,7 +1939,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Выберите способ вывода",
     ),
     "selected": MessageLookupByLibrary.simpleMessage("Выбрано"),
-    "selectedCountTitle": m40,
+    "selectedCountTitle": m41,
     "sendVerificationCode": MessageLookupByLibrary.simpleMessage("Отправить"),
     "sendingVerificationCode": MessageLookupByLibrary.simpleMessage(
       "Отправка...",
@@ -2033,12 +2048,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "submitWithdrawalTicket": MessageLookupByLibrary.simpleMessage(
       "Отправить заявку",
     ),
-    "subscriptionExpiredWarning": m41,
-    "subscriptionExpiringWarning": m42,
+    "subscriptionExpiredWarning": m42,
+    "subscriptionExpiringWarning": m43,
     "subscriptionImportFailed": MessageLookupByLibrary.simpleMessage(
       "Не удалось загрузить узлы подписки. Проверьте сеть и повторите попытку",
     ),
-    "subscriptionLowTrafficWarning": m43,
+    "subscriptionLowTrafficWarning": m44,
     "subscriptionNormalTooltip": MessageLookupByLibrary.simpleMessage(
       "Тариф в норме. Нажмите, чтобы узнать подробности",
     ),
@@ -2072,11 +2087,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "system": MessageLookupByLibrary.simpleMessage("Система"),
     "systemApp": MessageLookupByLibrary.simpleMessage("Системное приложение"),
     "systemProxy": MessageLookupByLibrary.simpleMessage("Системный прокси"),
-    "systemProxyApplyFailed": m44,
+    "systemProxyApplyFailed": m45,
     "systemProxyDesc": MessageLookupByLibrary.simpleMessage(
       "Прикрепить HTTP-прокси к VpnService",
     ),
-    "systemProxyDisableFailed": m45,
+    "systemProxyDisableFailed": m46,
     "systemProxyStaleCleaned": MessageLookupByLibrary.simpleMessage(
       "Системный прокси, оставшийся после предыдущего аварийного завершения, очищен",
     ),
@@ -2130,7 +2145,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "toolbox": MessageLookupByLibrary.simpleMessage("Инструменты"),
     "tools": MessageLookupByLibrary.simpleMessage("Инструменты"),
     "totalCommission": MessageLookupByLibrary.simpleMessage("Всего заработано"),
-    "totalOrders": m46,
+    "totalOrders": m47,
     "totalTrafficLabel": MessageLookupByLibrary.simpleMessage("Всего"),
     "tproxyPort": MessageLookupByLibrary.simpleMessage("Tproxy-порт"),
     "trafficDetailRecords": MessageLookupByLibrary.simpleMessage(
@@ -2187,7 +2202,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "urlDesc": MessageLookupByLibrary.simpleMessage(
       "Получить профиль через URL",
     ),
-    "urlTip": m47,
+    "urlTip": m48,
     "useHosts": MessageLookupByLibrary.simpleMessage("Использовать hosts"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage(
       "Использовать системные hosts",
@@ -2265,7 +2280,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "В системе будет создана заявка, которую обработает администратор.",
     ),
     "yearlyBilling": MessageLookupByLibrary.simpleMessage("Год"),
-    "yearsAgo": m48,
+    "yearsAgo": m49,
     "zh_CN": MessageLookupByLibrary.simpleMessage("Упрощенный китайский"),
     "zoomIn": MessageLookupByLibrary.simpleMessage("Увеличить"),
     "zoomOut": MessageLookupByLibrary.simpleMessage("Уменьшить"),

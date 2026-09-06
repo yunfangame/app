@@ -36,6 +36,7 @@ class FengWoWorldMapNode {
   final int? connectionDelay;
   final int? standardDelay;
   final String? countryCode;
+  final XboardNodeDisplayStatus backendStatus;
 
   const FengWoWorldMapNode({
     required this.name,
@@ -43,6 +44,7 @@ class FengWoWorldMapNode {
     this.connectionDelay,
     this.standardDelay,
     this.countryCode,
+    this.backendStatus = XboardNodeDisplayStatus.unknown,
   });
 }
 
@@ -84,6 +86,7 @@ class FengWoWorldMap extends StatelessWidget {
               connectionDelay: node.connectionDelay,
               standardDelay: node.standardDelay,
               countryCode: node.countryCode,
+              backendStatus: node.backendStatus,
             ),
           )
           .toList(growable: false),
@@ -222,6 +225,17 @@ class FengWoDesktopDashboard extends ConsumerWidget {
                                   delay: delay,
                                   connectionDelay: connectionDelay,
                                   standardDelay: standardDelay,
+                                  backendStatus: resolveXboardNodeDisplayStatus(
+                                    ref
+                                        .watch(
+                                          realSelectedProxyStateProvider(
+                                            rawNodeName,
+                                          ),
+                                        )
+                                        .proxyName,
+                                    globalState.xboardNodes,
+                                    statusAvailable: !globalState.isOfflineMode,
+                                  ),
                                   traffic: traffic,
                                   trafficHistory: trafficHistory,
                                   subscription: subscription,
@@ -375,6 +389,13 @@ class _HeroPanel extends ConsumerWidget {
                       proxyName: proxy.name,
                       testUrl: firstGroup.testUrl,
                     ),
+                  ),
+                  backendStatus: resolveXboardNodeDisplayStatus(
+                    ref
+                        .watch(realSelectedProxyStateProvider(proxy.name))
+                        .proxyName,
+                    globalState.xboardNodes,
+                    statusAvailable: !globalState.isOfflineMode,
                   ),
                 ),
               )
@@ -659,6 +680,7 @@ class _ConnectionStatusPanel extends StatelessWidget {
   final int? delay;
   final int? connectionDelay;
   final int? standardDelay;
+  final XboardNodeDisplayStatus backendStatus;
   final Traffic traffic;
   final List<Traffic> trafficHistory;
   final XboardSubscriptionData? subscription;
@@ -672,6 +694,7 @@ class _ConnectionStatusPanel extends StatelessWidget {
     required this.delay,
     required this.connectionDelay,
     required this.standardDelay,
+    required this.backendStatus,
     required this.traffic,
     required this.trafficHistory,
     required this.subscription,
@@ -685,6 +708,9 @@ class _ConnectionStatusPanel extends StatelessWidget {
     final used = subscription?.usedGb ?? 0;
     final remaining = subscription?.remainingGb ?? 0;
     final total = subscription?.transferEnableGb ?? 0;
+    final standardDetail = standardDelay != null && standardDelay! < 0
+        ? formatXboardNodeDisplayStatus(backendStatus)
+        : '${referenceDelayMilliseconds(standardDelay)} ms';
     return _GlassPanel(
       colors: colors,
       padding: const EdgeInsets.all(18),
@@ -766,23 +792,31 @@ class _ConnectionStatusPanel extends StatelessWidget {
                   crossAxisSpacing: 10,
                   mainAxisSpacing: 10,
                   children: [
-                    _MetricCard(
-                      colors: colors,
-                      icon: Icons.equalizer_rounded,
-                      color: _delayColor(delay, colors),
-                      label: connectionDelay == null
-                          ? l10n.standardizedDelay
-                          : l10n.actualConnectionDelay,
-                      value: delay == null || delay! < 0 ? '--' : '$delay',
-                      unit: 'ms',
-                      footer: delay == null
-                          ? l10n.notTested
-                          : delay! < 0
-                          ? l10n.timeout
-                          : connectionDelay != null && standardDelay != null
-                          ? '${l10n.standardizedDelay} $standardDelay ms'
-                          : null,
-                      latency: delay,
+                    Tooltip(
+                      message: l10n.referenceDelayExplanation,
+                      child: _MetricCard(
+                        colors: colors,
+                        icon: Icons.equalizer_rounded,
+                        color: _delayColor(delay, colors),
+                        label: connectionDelay == null
+                            ? l10n.referenceStandardizedDelay
+                            : l10n.referenceConnectionDelay,
+                        value: switch (delay) {
+                          null => '--',
+                          < 0 => formatXboardNodeDisplayStatus(backendStatus),
+                          final value => '${referenceDelayMilliseconds(value)}',
+                        },
+                        fitValue: delay != null && delay! < 0,
+                        unit: delay != null && delay! < 0 ? '' : 'ms',
+                        footer: delay == null
+                            ? l10n.notTested
+                            : delay! < 0
+                            ? null
+                            : connectionDelay != null && standardDelay != null
+                            ? '${l10n.referenceStandardizedDelay} $standardDetail'
+                            : null,
+                        latency: delay,
+                      ),
                     ),
                     _MetricCard(
                       colors: colors,
@@ -867,6 +901,7 @@ class _MetricCard extends StatelessWidget {
   final String? footer;
   final List<num> samples;
   final int? latency;
+  final bool fitValue;
 
   const _MetricCard({
     required this.colors,
@@ -878,10 +913,21 @@ class _MetricCard extends StatelessWidget {
     this.footer,
     this.samples = const [],
     this.latency,
+    this.fitValue = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final valueText = Text(
+      value,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: colors.text,
+        fontSize: 20,
+        fontWeight: FontWeight.w900,
+      ),
+    );
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
       decoration: BoxDecoration(
@@ -920,16 +966,9 @@ class _MetricCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Flexible(
-                      child: Text(
-                        value,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: colors.text,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
+                      child: fitValue
+                          ? FittedBox(fit: BoxFit.scaleDown, child: valueText)
+                          : valueText,
                     ),
                     const SizedBox(width: 4),
                     Padding(
@@ -1270,6 +1309,13 @@ class _GlobalNetworkPanel extends ConsumerWidget {
                   delay: connectionDelay ?? standardDelay ?? fallbackDelay,
                   connectionDelay: connectionDelay,
                   standardDelay: standardDelay,
+                  backendStatus: resolveXboardNodeDisplayStatus(
+                    ref
+                        .watch(realSelectedProxyStateProvider(proxy.name))
+                        .proxyName,
+                    globalState.xboardNodes,
+                    statusAvailable: !globalState.isOfflineMode,
+                  ),
                 );
               })
               .toList(growable: false);
@@ -1503,7 +1549,7 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
         Marker(
           point: item.point,
           width: item.node.name == _revealedNodeName ? 280 : 40,
-          height: item.node.name == _revealedNodeName ? 82 : 40,
+          height: item.node.name == _revealedNodeName ? 160 : 40,
           alignment: item.node.name == _revealedNodeName
               ? Alignment.bottomCenter
               : Alignment.center,
@@ -1719,6 +1765,7 @@ class _WorldNode {
   final int? connectionDelay;
   final int? standardDelay;
   final String? countryCode;
+  final XboardNodeDisplayStatus backendStatus;
 
   const _WorldNode({
     required this.name,
@@ -1726,6 +1773,7 @@ class _WorldNode {
     this.connectionDelay,
     this.standardDelay,
     this.countryCode,
+    this.backendStatus = XboardNodeDisplayStatus.unknown,
   });
 }
 
@@ -1848,33 +1896,32 @@ class _NodeNameCallout extends StatelessWidget {
     final effectiveDetail = switch (node.delay) {
       null => l10n.notTested,
       0 => l10n.testingStatus,
-      < 0 => l10n.timeout,
-      final delay => '$delay ms',
+      < 0 => formatXboardNodeDisplayStatus(node.backendStatus),
+      final delay => formatReferenceDelay(delay),
     };
     final connectionDetail = switch (node.connectionDelay) {
       null => null,
       0 => l10n.testingStatus,
-      < 0 => l10n.timeout,
-      final delay => '$delay ms',
+      < 0 => formatXboardNodeDisplayStatus(node.backendStatus),
+      final delay => '${referenceDelayMilliseconds(delay)} ms',
     };
     final standardDetail = switch (node.standardDelay) {
       null || 0 => null,
-      < 0 => l10n.timeout,
-      final delay => '$delay ms',
+      < 0 => formatXboardNodeDisplayStatus(node.backendStatus),
+      final delay => '${referenceDelayMilliseconds(delay)} ms',
     };
     final detail = connectionDetail == null && standardDetail == null
         ? effectiveDetail
         : [
             if (connectionDetail != null)
-              '${l10n.actualConnectionDelay} $connectionDetail',
+              '${l10n.referenceConnectionDelay} $connectionDetail',
             if (standardDetail != null)
-              '${l10n.standardizedDelay} $standardDetail',
-          ].join(' · ');
+              '${l10n.referenceStandardizedDelay} $standardDetail',
+          ].join('\n');
     return IgnorePointer(
       child: Container(
-        height: 36,
         margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: colors.surface.withValues(alpha: 0.97),
@@ -1882,41 +1929,45 @@ class _NodeNameCallout extends StatelessWidget {
           border: Border.all(color: colors.outline),
           boxShadow: [BoxShadow(color: colors.shadow, blurRadius: 10)],
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Flexible(
-              child: Text(
-                node.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: colors.text,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 4,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: _delayColor(node.delay, colors),
+                    shape: BoxShape.circle,
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Container(
-              width: 4,
-              height: 4,
-              decoration: BoxDecoration(
-                color: _delayColor(node.delay, colors),
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 5),
-            Flexible(
-              child: Text(
-                detail,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: colors.muted,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
+                const SizedBox(width: 5),
+                Flexible(
+                  child: Text(
+                    node.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: colors.text,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              detail,
+              softWrap: true,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: colors.muted,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],

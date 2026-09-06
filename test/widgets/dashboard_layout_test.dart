@@ -13,6 +13,7 @@ import 'package:fl_clash/views/dashboard/fengwo_mobile_dashboard.dart';
 import 'package:fl_clash/views/dashboard/fengwo_node_selector.dart';
 import 'package:fl_clash/views/proxies/fengwo_node_status.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -88,6 +89,251 @@ void main() {
     );
     expect(tester.takeException(), null);
   });
+
+  for (final (mobile, locale) in [
+    (false, const Locale('en')),
+    (true, const Locale('en')),
+    (true, const Locale('zh', 'CN')),
+  ]) {
+    testWidgets(
+      '${mobile ? 'mobile' : 'desktop'} dashboard adjusts both displayed delays without changing measurements in $locale',
+      (tester) async {
+        final size = mobile ? const Size(360, 800) : const Size(1440, 900);
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        const nodeName = '日本双延迟节点';
+        const profile = Profile(
+          id: 1,
+          autoUpdateDuration: Duration.zero,
+          currentGroupName: '自动选择',
+          selectedMap: {'自动选择': nodeName},
+        );
+        const group = Group(
+          name: '自动选择',
+          type: GroupType.Selector,
+          hidden: false,
+          now: nodeName,
+          all: [Proxy(name: nodeName, type: 'ss')],
+        );
+        final container = ProviderContainer(
+          overrides: [
+            viewSizeProvider.overrideWithBuild((_, _) => size),
+            profilesProvider.overrideWithValue([profile]),
+            groupsProvider.overrideWithValue([group]),
+            currentProfileProvider.overrideWithValue(profile),
+            connectionDelayProvider(proxyName: nodeName).overrideWithValue(350),
+            standardDelayProvider(proxyName: nodeName).overrideWithValue(500),
+          ],
+        );
+        addTearDown(container.dispose);
+        globalState.container = container;
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: _TestApp(
+              locale: locale,
+              child: mobile
+                  ? const FengWoMobileDashboard()
+                  : const FengWoDesktopDashboard(),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final l10n = tester
+            .element(
+              find.byType(
+                mobile ? FengWoMobileDashboard : FengWoDesktopDashboard,
+              ),
+            )
+            .appLocalizations;
+        expect(
+          find.text(mobile ? l10n.referenceDelayValue(300) : '300'),
+          findsOneWidget,
+        );
+        expect(
+          find.text('${l10n.referenceStandardizedDelay} 450 ms'),
+          findsOneWidget,
+        );
+        expect(find.byTooltip(l10n.referenceDelayExplanation), findsWidgets);
+        if (mobile) {
+          for (final text in [
+            l10n.referenceDelayValue(300),
+            '${l10n.referenceStandardizedDelay} 450 ms',
+          ]) {
+            expect(
+              tester
+                  .renderObject<RenderParagraph>(find.text(text))
+                  .didExceedMaxLines,
+              isFalse,
+              reason: '$locale: $text',
+            );
+          }
+        }
+        if (!mobile) {
+          expect(find.text(l10n.referenceConnectionDelay), findsOneWidget);
+          expect(find.text(l10n.actualConnectionDelay), findsNothing);
+        }
+        expect(
+          container.read(connectionDelayProvider(proxyName: nodeName)),
+          350,
+        );
+        expect(container.read(standardDelayProvider(proxyName: nodeName)), 500);
+        expect(tester.takeException(), null);
+      },
+    );
+  }
+
+  for (final mobile in [false, true]) {
+    for (final measured in [-1, 350]) {
+      for (final (backendStatus, offlineMode) in [
+        (XboardNodeDisplayStatus.online, false),
+        (XboardNodeDisplayStatus.offline, false),
+        (XboardNodeDisplayStatus.unknown, false),
+        (XboardNodeDisplayStatus.online, true),
+      ]) {
+        testWidgets(
+          '${mobile ? 'mobile' : 'desktop'} failed delays use $backendStatus with measured $measured and offline mode $offlineMode',
+          (tester) async {
+            final size = mobile ? const Size(360, 800) : const Size(1440, 900);
+            tester.view.physicalSize = size;
+            tester.view.devicePixelRatio = 1;
+            addTearDown(tester.view.resetPhysicalSize);
+            addTearDown(tester.view.resetDevicePixelRatio);
+
+            const nodeName = '日本失败测试节点';
+            const resolvedNodeName = '日本实际叶子节点';
+            const profile = Profile(
+              id: 1,
+              autoUpdateDuration: Duration.zero,
+              currentGroupName: '自动选择',
+              selectedMap: {'自动选择': nodeName},
+            );
+            const group = Group(
+              name: '自动选择',
+              type: GroupType.Selector,
+              hidden: false,
+              now: nodeName,
+              all: [Proxy(name: nodeName, type: 'ss')],
+            );
+            final container = ProviderContainer(
+              overrides: [
+                viewSizeProvider.overrideWithBuild((_, _) => size),
+                profilesProvider.overrideWithValue([profile]),
+                groupsProvider.overrideWithValue([group]),
+                currentProfileProvider.overrideWithValue(profile),
+                realSelectedProxyStateProvider(nodeName).overrideWithValue(
+                  const SelectedProxyState(
+                    proxyName: resolvedNodeName,
+                    group: true,
+                  ),
+                ),
+                connectionDelayProvider(
+                  proxyName: nodeName,
+                ).overrideWithValue(measured),
+                standardDelayProvider(
+                  proxyName: nodeName,
+                ).overrideWithValue(-1),
+              ],
+            );
+            addTearDown(container.dispose);
+            globalState.container = container;
+            final previousNodes = globalState.xboardNodes;
+            final previousOfflineMode = globalState.isOfflineMode;
+            addTearDown(() {
+              globalState.xboardNodes = previousNodes;
+              globalState.setOfflineMode(previousOfflineMode);
+            });
+            globalState.xboardNodes = [
+              XboardNodeData(
+                name: resolvedNodeName,
+                type: 'ss',
+                rate: 1,
+                tags: const ['JP'],
+                isOnline: backendStatus != XboardNodeDisplayStatus.offline,
+                rawData: {
+                  if (backendStatus != XboardNodeDisplayStatus.unknown)
+                    'is_online':
+                        backendStatus == XboardNodeDisplayStatus.online,
+                },
+              ),
+            ];
+            globalState.setOfflineMode(offlineMode);
+
+            await tester.pumpWidget(
+              UncontrolledProviderScope(
+                container: container,
+                child: _TestApp(
+                  locale: const Locale('en'),
+                  child: mobile
+                      ? const FengWoMobileDashboard()
+                      : const FengWoDesktopDashboard(),
+                ),
+              ),
+            );
+            await tester.pump();
+
+            final l10n = tester
+                .element(
+                  find.byType(
+                    mobile ? FengWoMobileDashboard : FengWoDesktopDashboard,
+                  ),
+                )
+                .appLocalizations;
+            final status = formatXboardNodeDisplayStatus(
+              offlineMode ? XboardNodeDisplayStatus.unknown : backendStatus,
+            );
+            final mainText = measured < 0
+                ? status
+                : mobile
+                ? l10n.referenceDelayValue(300)
+                : '300';
+            expect(find.text(mainText), findsOneWidget);
+            expect(
+              tester
+                  .renderObject<RenderParagraph>(find.text(mainText))
+                  .didExceedMaxLines,
+              isFalse,
+            );
+            if (mobile || measured > 0) {
+              expect(
+                find.text('${l10n.referenceStandardizedDelay} $status'),
+                findsOneWidget,
+              );
+            }
+            if (mobile) {
+              expect(
+                tester
+                    .widget<FengWoWorldMap>(find.byType(FengWoWorldMap))
+                    .nodes
+                    .single
+                    .backendStatus,
+                offlineMode ? XboardNodeDisplayStatus.unknown : backendStatus,
+              );
+            }
+            if (!mobile && measured < 0) {
+              expect(find.text('ms'), findsNothing);
+            }
+            expect(find.text(l10n.timeout), findsNothing);
+            expect(find.textContaining('-1 ms'), findsNothing);
+            expect(
+              container.read(connectionDelayProvider(proxyName: nodeName)),
+              measured,
+            );
+            expect(
+              container.read(standardDelayProvider(proxyName: nodeName)),
+              -1,
+            );
+            expect(tester.takeException(), null);
+          },
+        );
+      }
+    }
+  }
 
   testWidgets('desktop dashboard uses the shared running state', (
     tester,
@@ -371,7 +617,13 @@ void main() {
         .element(find.byType(FengWoMobileDashboard))
         .appLocalizations;
     expect(find.text(nodeName), findsWidgets);
-    expect(find.text('128 ms'), findsOneWidget);
+    expect(find.text(l10n.referenceDelayValue(100)), findsOneWidget);
+    expect(
+      container.read(
+        delayProvider(proxyName: nodeName, testUrl: group.testUrl),
+      ),
+      128,
+    );
     final trafficDetails = find.byKey(
       const ValueKey('fengwo-mobile-traffic-details'),
     );
@@ -1050,7 +1302,12 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.descendant(of: label, matching: find.text('82 ms')),
+      find.descendant(
+        of: label,
+        matching: find.text(
+          tester.element(label).appLocalizations.referenceDelayValue(82),
+        ),
+      ),
       findsOneWidget,
     );
 
@@ -1061,51 +1318,231 @@ void main() {
     expect(tester.takeException(), null);
   });
 
-  testWidgets('world map distinguishes actual and standardized latency', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(620, 360);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+  for (final locale in [const Locale('en'), const Locale('zh', 'CN')]) {
+    for (final standardDelay in [500, -1]) {
+      testWidgets(
+        'world map keeps both reference details visible in $locale with standard delay $standardDelay',
+        (tester) async {
+          tester.view.physicalSize = const Size(620, 360);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
 
-    const nodeName = '日本双延迟节点';
-    await tester.pumpWidget(
-      const _TestApp(
-        child: SizedBox.expand(
-          child: FengWoWorldMap(
-            isStart: false,
-            showRoute: false,
-            interactive: true,
-            opacity: 0.8,
-            nodes: [
-              FengWoWorldMapNode(
-                name: nodeName,
-                delay: 96,
-                connectionDelay: 96,
-                standardDelay: 42,
+          const nodeName = '日本双延迟节点';
+          await tester.pumpWidget(
+            _TestApp(
+              locale: locale,
+              child: SizedBox.expand(
+                child: FengWoWorldMap(
+                  isStart: false,
+                  showRoute: false,
+                  interactive: true,
+                  opacity: 0.8,
+                  nodes: [
+                    FengWoWorldMapNode(
+                      name: nodeName,
+                      delay: 350,
+                      connectionDelay: 350,
+                      standardDelay: standardDelay,
+                      backendStatus: XboardNodeDisplayStatus.online,
+                    ),
+                  ],
+                ),
               ),
-            ],
+            ),
+          );
+          await tester.pump();
+
+          final marker = find.byKey(
+            const ValueKey('fengwo-map-node-$nodeName'),
+          );
+          await tester.tap(marker);
+          await tester.pump();
+
+          final label = find.byKey(
+            const ValueKey('fengwo-map-node-label-$nodeName'),
+          );
+          final l10n = tester.element(label).appLocalizations;
+          final standardDetail = standardDelay < 0
+              ? l10n.nodeBackendOnline
+              : '450 ms';
+          final detail = find.descendant(
+            of: label,
+            matching: find.text(
+              '${l10n.referenceConnectionDelay} 300 ms\n${l10n.referenceStandardizedDelay} $standardDetail',
+            ),
+          );
+          expect(detail, findsOneWidget);
+          expect(
+            tester.renderObject<RenderParagraph>(detail).didExceedMaxLines,
+            isFalse,
+          );
+          expect(
+            tester.getRect(detail).bottom,
+            lessThanOrEqualTo(tester.getRect(label).bottom),
+          );
+          expect(
+            tester.getRect(detail).width,
+            lessThanOrEqualTo(tester.getRect(label).width),
+          );
+          final node = tester
+              .widget<FengWoWorldMap>(find.byType(FengWoWorldMap))
+              .nodes
+              .single;
+          expect(node.delay, 350);
+          expect(node.connectionDelay, 350);
+          expect(node.standardDelay, standardDelay);
+          await tester.tap(marker);
+          await tester.pump();
+          expect(label, findsNothing);
+          expect(tester.takeException(), null);
+        },
+      );
+    }
+  }
+
+  for (final (measured, displayed) in <(int?, int?)>[
+    (null, null),
+    (0, 0),
+    (-1, -1),
+    (125, 100),
+    (280, 230),
+    (350, 300),
+    (500, 450),
+  ]) {
+    testWidgets('world map displays the reference or status for $measured', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(620, 360);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      const nodeName = '日本测试节点';
+      await tester.pumpWidget(
+        _TestApp(
+          child: SizedBox.expand(
+            child: FengWoWorldMap(
+              isStart: false,
+              showRoute: false,
+              opacity: 0.8,
+              nodes: [FengWoWorldMapNode(name: nodeName, delay: measured)],
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('fengwo-map-node-$nodeName')));
+      await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('fengwo-map-node-$nodeName')));
-    await tester.pump();
+      final label = find.byKey(
+        const ValueKey('fengwo-map-node-label-$nodeName'),
+      );
+      final l10n = tester.element(label).appLocalizations;
+      final expected = switch (displayed) {
+        null => l10n.notTested,
+        0 => l10n.testingStatus,
+        < 0 => l10n.nodeStatusUnknown,
+        final value => l10n.referenceDelayValue(value),
+      };
+      expect(
+        find.descendant(of: label, matching: find.text(expected)),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<FengWoWorldMap>(find.byType(FengWoWorldMap))
+            .nodes
+            .single
+            .delay,
+        measured,
+      );
+      expect(tester.takeException(), null);
+    });
+  }
 
-    final label = find.byKey(const ValueKey('fengwo-map-node-label-$nodeName'));
-    expect(
-      find.descendant(of: label, matching: find.textContaining('96 ms')),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(of: label, matching: find.textContaining('42 ms')),
-      findsOneWidget,
-    );
-    expect(tester.takeException(), null);
-  });
+  for (final (backendStatus, locale) in [
+    for (final backendStatus in XboardNodeDisplayStatus.values)
+      for (final locale in [const Locale('en'), const Locale('zh', 'CN')])
+        (backendStatus, locale),
+  ]) {
+    for (final dualDelays in [false, true]) {
+      testWidgets(
+        'world map failed latency uses $backendStatus with dual delays $dualDelays in $locale',
+        (tester) async {
+          tester.view.physicalSize = const Size(720, 420);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+
+          const nodeName = '日本状态测试节点';
+          await tester.pumpWidget(
+            _TestApp(
+              locale: locale,
+              child: SizedBox.expand(
+                child: FengWoWorldMap(
+                  isStart: false,
+                  showRoute: false,
+                  opacity: 0.8,
+                  nodes: [
+                    FengWoWorldMapNode(
+                      name: nodeName,
+                      delay: -1,
+                      connectionDelay: dualDelays ? -1 : null,
+                      standardDelay: dualDelays ? -1 : null,
+                      backendStatus: backendStatus,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+          await tester.tap(
+            find.byKey(const ValueKey('fengwo-map-node-$nodeName')),
+          );
+          await tester.pump();
+
+          final label = find.byKey(
+            const ValueKey('fengwo-map-node-label-$nodeName'),
+          );
+          final l10n = tester.element(label).appLocalizations;
+          final status = formatXboardNodeDisplayStatus(backendStatus);
+          final expected = dualDelays
+              ? '${l10n.referenceConnectionDelay} $status\n${l10n.referenceStandardizedDelay} $status'
+              : status;
+          final detail = find.descendant(
+            of: label,
+            matching: find.text(expected),
+          );
+          expect(detail, findsOneWidget);
+          expect(
+            tester.renderObject<RenderParagraph>(detail).didExceedMaxLines,
+            isFalse,
+          );
+          expect(
+            tester.getRect(detail).bottom,
+            lessThanOrEqualTo(tester.getRect(label).bottom),
+          );
+          expect(
+            tester.getRect(detail).width,
+            lessThanOrEqualTo(tester.getRect(label).width),
+          );
+          expect(find.textContaining(l10n.timeout), findsNothing);
+          expect(find.textContaining('-1 ms'), findsNothing);
+          final node = tester
+              .widget<FengWoWorldMap>(find.byType(FengWoWorldMap))
+              .nodes
+              .single;
+          expect(node.delay, -1);
+          expect(node.backendStatus, backendStatus);
+          expect(node.connectionDelay, dualDelays ? -1 : null);
+          expect(node.standardDelay, dualDelays ? -1 : null);
+          expect(tester.takeException(), null);
+        },
+      );
+    }
+  }
 
   testWidgets('world map colors markers by the required latency thresholds', (
     tester,
@@ -1296,7 +1733,8 @@ void main() {
     final localizations = tester.element(page).appLocalizations;
     expect(find.text(localizations.nodeBackendOffline), findsOneWidget);
     expect(find.text(localizations.nodeAvailable), findsWidgets);
-    expect(find.text(localizations.nodeLocallyUnreachable), findsWidgets);
+    expect(find.text(localizations.nodeStatusUnknown), findsWidgets);
+    expect(find.text(localizations.nodeLocallyUnreachable), findsNothing);
     expect(
       find.descendant(of: page, matching: find.byType(SingleChildScrollView)),
       findsNothing,
@@ -1457,10 +1895,10 @@ void main() {
     expect(find.text('自动选择'), findsWidgets);
     expect(find.text('日本大阪 1x'), findsWidgets);
     expect(find.text('新加坡 AWS 2x'), findsOneWidget);
-    expect(find.text('168 ms'), findsOneWidget);
     final localizations = tester
         .element(find.byType(FengWoNodeSelectorView))
         .appLocalizations;
+    expect(find.text(localizations.referenceDelayValue(118)), findsOneWidget);
     expect(find.text(localizations.nodeBackendOffline), findsOneWidget);
     final offlineTestButton = tester.widget<OutlinedButton>(
       find.byKey(const ValueKey('fengwo-selector-test-新加坡 AWS 2x')),
@@ -1557,18 +1995,21 @@ class _TestApp extends StatelessWidget {
   final ThemeMode themeMode;
   final TargetPlatform? platform;
   final TextScaler? textScaler;
+  final Locale? locale;
 
   const _TestApp({
     required this.child,
     this.themeMode = ThemeMode.light,
     this.platform,
     this.textScaler,
+    this.locale,
   });
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: globalState.navigatorKey,
+      locale: locale,
       theme: ThemeData(
         platform: platform,
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF0969DA)),

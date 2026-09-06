@@ -575,11 +575,19 @@ class _NodePane extends ConsumerWidget {
                       proxy.name,
                       globalState.xboardNodes,
                     );
+                    final backendStatus = resolveXboardNodeDisplayStatus(
+                      ref
+                          .watch(realSelectedProxyStateProvider(proxy.name))
+                          .proxyName,
+                      globalState.xboardNodes,
+                      statusAvailable: !globalState.isOfflineMode,
+                    );
                     return _NodeRow(
                       colors: colors,
                       proxy: proxy,
                       delay: delay,
                       offline: offline,
+                      backendStatus: backendStatus,
                       selected: selectedName == proxy.name,
                       onSelect: () => onSelect(proxy),
                       onTest: () => proxyDelayTest(proxy, group.testUrl),
@@ -597,6 +605,7 @@ class _NodeRow extends StatelessWidget {
   final Proxy proxy;
   final int? delay;
   final bool offline;
+  final XboardNodeDisplayStatus backendStatus;
   final bool selected;
   final VoidCallback onSelect;
   final VoidCallback onTest;
@@ -606,6 +615,7 @@ class _NodeRow extends StatelessWidget {
     required this.proxy,
     required this.delay,
     required this.offline,
+    required this.backendStatus,
     required this.selected,
     required this.onSelect,
     required this.onTest,
@@ -623,13 +633,14 @@ class _NodeRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _delayColor();
-    final text = offline
+    final text = delay != null && delay! < 0
+        ? formatXboardNodeDisplayStatus(backendStatus)
+        : offline
         ? context.appLocalizations.nodeBackendOffline
         : switch (delay) {
             null => context.appLocalizations.delayTest,
             0 => '',
-            < 0 => context.appLocalizations.timeout,
-            final value => '$value ms',
+            final value => formatReferenceDelay(value),
           };
     return Material(
       color: selected ? colors.primarySoft : colors.surfaceStrong,

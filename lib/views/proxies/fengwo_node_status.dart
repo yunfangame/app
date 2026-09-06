@@ -10,7 +10,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 class FengWoNodeStatusView extends ConsumerStatefulWidget {
-  const FengWoNodeStatusView({super.key});
+  final XboardAuthService? authService;
+
+  const FengWoNodeStatusView({super.key, @visibleForTesting this.authService});
 
   @override
   ConsumerState<FengWoNodeStatusView> createState() =>
@@ -19,7 +21,7 @@ class FengWoNodeStatusView extends ConsumerStatefulWidget {
 
 class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
   final _nodesScrollController = ScrollController();
-  final _xboardAuthService = XboardAuthService();
+  late final XboardAuthService _xboardAuthService;
   List<XboardNodeData> _xboardNodes = const [];
   final Set<String> _testingNodes = {};
   bool _loadingXboardNodes = false;
@@ -29,6 +31,7 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
   @override
   void initState() {
     super.initState();
+    _xboardAuthService = widget.authService ?? XboardAuthService();
     _xboardNodes = globalState.xboardNodes;
     _xboardStatusFresh = _xboardNodes.isNotEmpty;
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadXboardNodes());
@@ -62,13 +65,20 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
     }
     final session = activeSession ?? globalState.xboardSession;
     if (session == null || _loadingXboardNodes) return;
+    final sessionRevision = globalState.xboardSessionRevision;
     if (mounted) setState(() => _loadingXboardNodes = true);
     try {
       final nodes = await _xboardAuthService.fetchNodes(
         endpoint: session.endpoint,
         authData: session.authData,
       );
-      globalState.xboardNodes = nodes;
+      if (!globalState.setXboardNodesForSession(
+        session,
+        sessionRevision,
+        nodes,
+      )) {
+        return;
+      }
       if (mounted) {
         setState(() {
           _xboardNodes = nodes;
@@ -76,6 +86,13 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
         });
       }
     } catch (error, stackTrace) {
+      if (!globalState.setXboardNodesForSession(
+        session,
+        sessionRevision,
+        const [],
+      )) {
+        return;
+      }
       if (mounted) setState(() => _xboardStatusFresh = false);
       commonPrint.log(
         'load XBoard nodes failed: $error, $stackTrace',
@@ -178,6 +195,14 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
           standardDelayProvider(proxyName: proxy.name, testUrl: group?.testUrl),
         ),
     };
+    final backendStatuses = <String, XboardNodeDisplayStatus>{
+      for (final proxy in nodes)
+        proxy.name: resolveXboardNodeDisplayStatus(
+          proxy.name,
+          _xboardNodes,
+          statusAvailable: _xboardStatusFresh && !globalState.isOfflineMode,
+        ),
+    };
     final nodeStatuses = <String, _NodePresentationStatus>{
       for (final proxy in nodes)
         proxy.name: _resolveNodeStatus(
@@ -185,6 +210,7 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
           metadata: nodeMetadata[proxy.name],
           xboardStatusFresh: _xboardStatusFresh,
           isTesting: _testingNodes.contains(proxy.name),
+          backendStatus: backendStatuses[proxy.name]!,
         ),
     };
     final mapNodes = nodes
@@ -194,6 +220,7 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
             delay: nodeStatuses[proxy.name]?.mapDelay,
             connectionDelay: connectionDelays[proxy.name],
             standardDelay: standardDelays[proxy.name],
+            backendStatus: backendStatuses[proxy.name]!,
             countryCode: _countryCodeFromTags(
               nodeMetadata[proxy.name]?.tags ?? const [],
             ),
@@ -969,14 +996,15 @@ class _PreferredNodeRow extends StatelessWidget {
       _NodeConnectivityState.testing => context.appLocalizations.delayTest,
       _NodeConnectivityState.available =>
         context.appLocalizations.nodeAvailable,
-      _NodeConnectivityState.unreachable =>
-        context.appLocalizations.nodeLocallyUnreachable,
+      _NodeConnectivityState.unreachable => formatXboardNodeDisplayStatus(
+        status.backendStatus,
+      ),
       _NodeConnectivityState.unknown =>
         context.appLocalizations.nodeStatusUnknown,
     };
     final detailText = switch (status.state) {
       _NodeConnectivityState.available when status.delay != null =>
-        '${status.delay} ms',
+        formatReferenceDelay(status.delay!),
       _NodeConnectivityState.backendOnlineUntested =>
         context.appLocalizations.notTested,
       _ => null,
@@ -1180,13 +1208,15 @@ class _PreferredNodeRow extends StatelessWidget {
 
   String _delayText(BuildContext context) {
     return switch (status.state) {
-      _NodeConnectivityState.available => '${status.delay} ms',
+      _NodeConnectivityState.available => formatReferenceDelay(status.delay!),
       _NodeConnectivityState.backendOffline =>
         context.appLocalizations.nodeBackendOffline,
       _NodeConnectivityState.backendOnlineUntested =>
         context.appLocalizations.notTested,
       _NodeConnectivityState.testing => context.appLocalizations.delayTest,
-      _NodeConnectivityState.unreachable => context.appLocalizations.timeout,
+      _NodeConnectivityState.unreachable => formatXboardNodeDisplayStatus(
+        status.backendStatus,
+      ),
       _ => context.appLocalizations.nodeStatusUnknown,
     };
   }
@@ -1202,10 +1232,15 @@ enum _NodeConnectivityState {
 }
 
 class _NodePresentationStatus {
-  const _NodePresentationStatus({required this.state, this.delay});
+  const _NodePresentationStatus({
+    required this.state,
+    this.delay,
+    this.backendStatus = XboardNodeDisplayStatus.unknown,
+  });
 
   final _NodeConnectivityState state;
   final int? delay;
+  final XboardNodeDisplayStatus backendStatus;
 
   bool get countsAsAvailable =>
       state == _NodeConnectivityState.available ||
@@ -1224,7 +1259,16 @@ _NodePresentationStatus _resolveNodeStatus({
   required XboardNodeData? metadata,
   required bool xboardStatusFresh,
   required bool isTesting,
+  required XboardNodeDisplayStatus backendStatus,
 }) {
+  if (!isTesting && measuredDelay != null && measuredDelay < 0) {
+    return _NodePresentationStatus(
+      state: backendStatus == XboardNodeDisplayStatus.offline
+          ? _NodeConnectivityState.backendOffline
+          : _NodeConnectivityState.unreachable,
+      backendStatus: backendStatus,
+    );
+  }
   if (xboardStatusFresh && metadata?.isOnline == false) {
     return const _NodePresentationStatus(
       state: _NodeConnectivityState.backendOffline,
@@ -1237,11 +1281,6 @@ _NodePresentationStatus _resolveNodeStatus({
     return _NodePresentationStatus(
       state: _NodeConnectivityState.available,
       delay: measuredDelay,
-    );
-  }
-  if (measuredDelay != null && measuredDelay < 0) {
-    return const _NodePresentationStatus(
-      state: _NodeConnectivityState.unreachable,
     );
   }
   if (xboardStatusFresh && metadata?.isOnline == true) {

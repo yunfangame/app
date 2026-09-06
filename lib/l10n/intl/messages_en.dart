@@ -106,32 +106,34 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m37(label) => "${label} must be between 1024 and 49151";
 
-  static String m38(count) => "${count} saved; active when override is enabled";
+  static String m38(value) => "Ref. ${value} ms";
 
-  static String m39(count) => "${count} seconds";
+  static String m39(count) => "${count} saved; active when override is enabled";
 
-  static String m40(count) => "${count} items have been selected";
+  static String m40(count) => "${count} seconds";
 
-  static String m41(date) =>
-      "Your plan expired on ${date}. Renew it to continue using the service.";
+  static String m41(count) => "${count} items have been selected";
 
   static String m42(date) =>
+      "Your plan expired on ${date}. Renew it to continue using the service.";
+
+  static String m43(date) =>
       "Your plan expires on ${date}, in less than 3 days. Renew it soon.";
 
-  static String m43(remaining) =>
+  static String m44(remaining) =>
       "Only ${remaining} GB remains, which is below 10 GB. Purchase or renew a plan soon.";
 
-  static String m44(code) =>
+  static String m45(code) =>
       "Could not enable the system proxy (${code}). The switch was reverted. Export logs for diagnosis";
 
-  static String m45(code) =>
+  static String m46(code) =>
       "Could not disable the system proxy (${code}). Disable it manually in Windows Settings";
 
-  static String m46(count) => "${count} orders";
+  static String m47(count) => "${count} orders";
 
-  static String m47(label) => "${label} must be a url";
+  static String m48(label) => "${label} must be a url";
 
-  static String m48(count) =>
+  static String m49(count) =>
       "${Intl.plural(count, one: '1 year ago', other: '${count} years ago')}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
@@ -1552,6 +1554,19 @@ class MessageLookup extends MessageLookupByLibrary {
     "recurringPlans": MessageLookupByLibrary.simpleMessage("Recurring"),
     "redirPort": MessageLookupByLibrary.simpleMessage("Redir Port"),
     "redo": MessageLookupByLibrary.simpleMessage("redo"),
+    "referenceConnectionDelay": MessageLookupByLibrary.simpleMessage(
+      "Reference connection latency",
+    ),
+    "referenceCurrentNodeDelay": MessageLookupByLibrary.simpleMessage(
+      "Ref. node latency",
+    ),
+    "referenceDelayExplanation": MessageLookupByLibrary.simpleMessage(
+      "Display-only adjustment: up to 100 ms unchanged; 101–150 ms shown as 100 ms; above 150 ms reduced by 50 ms. Failed probes show the reported backend status, which does not confirm connectivity from this device. Measurements, sorting and diagnostics retain real values.",
+    ),
+    "referenceDelayValue": m38,
+    "referenceStandardizedDelay": MessageLookupByLibrary.simpleMessage(
+      "Reference RTT",
+    ),
     "refreshApiStatus": MessageLookupByLibrary.simpleMessage(
       "Refresh API status",
     ),
@@ -1813,7 +1828,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "save": MessageLookupByLibrary.simpleMessage("Save"),
     "saveChanges": MessageLookupByLibrary.simpleMessage("Save changes"),
-    "savedDnsServersCount": m38,
+    "savedDnsServersCount": m39,
     "scanToPay": MessageLookupByLibrary.simpleMessage("Scan to pay"),
     "scanWithPaymentApp": MessageLookupByLibrary.simpleMessage(
       "Scan the QR code below with the matching payment app",
@@ -1827,7 +1842,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Search domain, IP, rule, or node",
     ),
     "seconds": MessageLookupByLibrary.simpleMessage("Seconds"),
-    "secondsCount": m39,
+    "secondsCount": m40,
     "selectAll": MessageLookupByLibrary.simpleMessage("Select all"),
     "selectPaymentMethod": MessageLookupByLibrary.simpleMessage(
       "Select a payment method",
@@ -1855,7 +1870,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Select a withdrawal method",
     ),
     "selected": MessageLookupByLibrary.simpleMessage("Selected"),
-    "selectedCountTitle": m40,
+    "selectedCountTitle": m41,
     "sendVerificationCode": MessageLookupByLibrary.simpleMessage("Send"),
     "sendingVerificationCode": MessageLookupByLibrary.simpleMessage(
       "Sending...",
@@ -1956,12 +1971,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "submitWithdrawalTicket": MessageLookupByLibrary.simpleMessage(
       "Submit withdrawal ticket",
     ),
-    "subscriptionExpiredWarning": m41,
-    "subscriptionExpiringWarning": m42,
+    "subscriptionExpiredWarning": m42,
+    "subscriptionExpiringWarning": m43,
     "subscriptionImportFailed": MessageLookupByLibrary.simpleMessage(
       "Failed to load subscription nodes. Check your network and try again",
     ),
-    "subscriptionLowTrafficWarning": m43,
+    "subscriptionLowTrafficWarning": m44,
     "subscriptionNormalTooltip": MessageLookupByLibrary.simpleMessage(
       "Plan status is normal. Click to view details",
     ),
@@ -1995,11 +2010,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "system": MessageLookupByLibrary.simpleMessage("System"),
     "systemApp": MessageLookupByLibrary.simpleMessage("System APP"),
     "systemProxy": MessageLookupByLibrary.simpleMessage("System proxy"),
-    "systemProxyApplyFailed": m44,
+    "systemProxyApplyFailed": m45,
     "systemProxyDesc": MessageLookupByLibrary.simpleMessage(
       "Attach HTTP proxy to VpnService",
     ),
-    "systemProxyDisableFailed": m45,
+    "systemProxyDisableFailed": m46,
     "systemProxyStaleCleaned": MessageLookupByLibrary.simpleMessage(
       "The system proxy left by the previous abnormal exit was cleared",
     ),
@@ -2045,7 +2060,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "toolbox": MessageLookupByLibrary.simpleMessage("Toolbox"),
     "tools": MessageLookupByLibrary.simpleMessage("Tools"),
     "totalCommission": MessageLookupByLibrary.simpleMessage("Total commission"),
-    "totalOrders": m46,
+    "totalOrders": m47,
     "totalTrafficLabel": MessageLookupByLibrary.simpleMessage("Total"),
     "tproxyPort": MessageLookupByLibrary.simpleMessage("Tproxy Port"),
     "trafficDetailRecords": MessageLookupByLibrary.simpleMessage(
@@ -2098,7 +2113,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "urlDesc": MessageLookupByLibrary.simpleMessage(
       "Obtain profile through URL",
     ),
-    "urlTip": m47,
+    "urlTip": m48,
     "useHosts": MessageLookupByLibrary.simpleMessage("Use hosts"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage("Use system hosts"),
     "usedTrafficLabel": MessageLookupByLibrary.simpleMessage("Used"),
@@ -2176,7 +2191,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "A support ticket will be created in the system for an administrator to process.",
     ),
     "yearlyBilling": MessageLookupByLibrary.simpleMessage("Yearly"),
-    "yearsAgo": m48,
+    "yearsAgo": m49,
     "zh_CN": MessageLookupByLibrary.simpleMessage("Simplified Chinese"),
     "zoomIn": MessageLookupByLibrary.simpleMessage("Zoom in"),
     "zoomOut": MessageLookupByLibrary.simpleMessage("Zoom out"),

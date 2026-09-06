@@ -102,6 +102,11 @@ class FengWoMobileDashboard extends ConsumerWidget {
               delay: connectionDelay ?? standardDelay ?? fallbackDelay,
               connectionDelay: connectionDelay,
               standardDelay: standardDelay,
+              backendStatus: resolveXboardNodeDisplayStatus(
+                ref.watch(realSelectedProxyStateProvider(proxy.name)).proxyName,
+                globalState.xboardNodes,
+                statusAvailable: !globalState.isOfflineMode,
+              ),
             );
           }).toList();
     final subscription = globalState.xboardSubscription;
@@ -185,6 +190,13 @@ class FengWoMobileDashboard extends ConsumerWidget {
                   delay: delay,
                   connectionDelay: connectionDelay,
                   standardDelay: standardDelay,
+                  backendStatus: resolveXboardNodeDisplayStatus(
+                    ref
+                        .watch(realSelectedProxyStateProvider(rawNodeName))
+                        .proxyName,
+                    globalState.xboardNodes,
+                    statusAvailable: !globalState.isOfflineMode,
+                  ),
                   onOpenNodes: () => FengWoNodeSelector.show(context),
                   onRefresh: currentGroup == null
                       ? null
@@ -842,6 +854,7 @@ class _MobileNodeCard extends StatelessWidget {
   final int? delay;
   final int? connectionDelay;
   final int? standardDelay;
+  final XboardNodeDisplayStatus backendStatus;
   final VoidCallback onOpenNodes;
   final VoidCallback? onRefresh;
 
@@ -852,6 +865,7 @@ class _MobileNodeCard extends StatelessWidget {
     required this.delay,
     required this.connectionDelay,
     required this.standardDelay,
+    required this.backendStatus,
     required this.onOpenNodes,
     required this.onRefresh,
   });
@@ -861,8 +875,8 @@ class _MobileNodeCard extends StatelessWidget {
     final l10n = context.appLocalizations;
     final delayText = switch (delay) {
       null || 0 => l10n.notTested,
-      < 0 => l10n.timeout,
-      final value => '$value ms',
+      < 0 => formatXboardNodeDisplayStatus(backendStatus),
+      final value => formatReferenceDelay(value),
     };
     final delayColor = switch (delay) {
       null || 0 => colors.muted,
@@ -871,6 +885,9 @@ class _MobileNodeCard extends StatelessWidget {
       <= 400 => colors.primary,
       _ => const Color(0xFFF29C38),
     };
+    final standardDetail = standardDelay != null && standardDelay! < 0
+        ? formatXboardNodeDisplayStatus(backendStatus)
+        : '${referenceDelayMilliseconds(standardDelay)} ms';
     return _MobileCard(
       key: const ValueKey('fengwo-mobile-node-card'),
       colors: colors,
@@ -937,26 +954,31 @@ class _MobileNodeCard extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 88),
+                constraints: const BoxConstraints(maxWidth: 144),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(
-                      delayText,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: delayColor,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
+                    Tooltip(
+                      message: l10n.referenceDelayExplanation,
+                      child: Text(
+                        delayText,
+                        maxLines: 2,
+                        textAlign: TextAlign.end,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: delayColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                     if (connectionDelay != null && standardDelay != null)
                       Text(
-                        '${l10n.standardizedDelay} $standardDelay ms',
+                        '${l10n.referenceStandardizedDelay} $standardDetail',
                         key: const ValueKey('fengwo-mobile-standardized-delay'),
-                        maxLines: 1,
+                        maxLines: 2,
+                        textAlign: TextAlign.end,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(color: colors.muted, fontSize: 9),
                       ),

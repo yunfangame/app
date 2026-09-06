@@ -414,18 +414,21 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     }
   }
 
-  int? _currentDelay(WidgetRef ref) {
+  ({int? delay, String nodeName}) _currentDelay(WidgetRef ref) {
     final groups = ref.watch(groupsProvider);
     final profile = ref.watch(currentProfileProvider);
-    if (groups.isEmpty) return null;
+    if (groups.isEmpty) return (delay: null, nodeName: '');
     final group =
         groups.getGroup(profile?.currentGroupName ?? '') ?? groups.first;
     final proxyName = group.getCurrentSelectedName(
       profile?.selectedMap[group.name] ?? '',
     );
-    if (proxyName.isEmpty) return null;
-    return ref.watch(
-      delayProvider(proxyName: proxyName, testUrl: group.testUrl),
+    if (proxyName.isEmpty) return (delay: null, nodeName: '');
+    return (
+      delay: ref.watch(
+        delayProvider(proxyName: proxyName, testUrl: group.testUrl),
+      ),
+      nodeName: ref.watch(realSelectedProxyStateProvider(proxyName)).proxyName,
     );
   }
 
@@ -441,15 +444,25 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
   Widget build(BuildContext context) {
     final colors = _ConnectionColors.of(context);
     final delay = _currentDelay(ref);
+    final backendStatus = resolveXboardNodeDisplayStatus(
+      delay.nodeName,
+      globalState.xboardNodes,
+      statusAvailable: !globalState.isOfflineMode,
+    );
     final connections = _visibleConnections;
     return Material(
       color: colors.background,
       child: LayoutBuilder(
         builder: (context, constraints) {
           if (constraints.maxWidth >= 1050) {
-            return _buildDesktop(colors, connections, delay);
+            return _buildDesktop(
+              colors,
+              connections,
+              delay.delay,
+              backendStatus,
+            );
           }
-          return _buildMobile(colors, connections, delay);
+          return _buildMobile(colors, connections, delay.delay, backendStatus);
         },
       ),
     );
@@ -459,6 +472,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     _ConnectionColors colors,
     List<TrackerInfo> connections,
     int? delay,
+    XboardNodeDisplayStatus backendStatus,
   ) {
     return Column(
       children: [
@@ -491,6 +505,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
                   downloadSpeed: _downloadSpeed,
                   uploadSpeed: _uploadSpeed,
                   delay: delay,
+                  backendStatus: backendStatus,
                 ),
               ],
             ),
@@ -504,6 +519,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     _ConnectionColors colors,
     List<TrackerInfo> connections,
     int? delay,
+    XboardNodeDisplayStatus backendStatus,
   ) {
     return RefreshIndicator(
       onRefresh: _refresh,
@@ -538,6 +554,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
                 downloadSpeed: _downloadSpeed,
                 uploadSpeed: _uploadSpeed,
                 delay: delay,
+                backendStatus: backendStatus,
                 compact: true,
               ),
             ),
@@ -1105,6 +1122,7 @@ class _ConnectionSummaryRow extends StatelessWidget {
   final int downloadSpeed;
   final int uploadSpeed;
   final int? delay;
+  final XboardNodeDisplayStatus backendStatus;
   final bool compact;
 
   const _ConnectionSummaryRow({
@@ -1113,6 +1131,7 @@ class _ConnectionSummaryRow extends StatelessWidget {
     required this.downloadSpeed,
     required this.uploadSpeed,
     required this.delay,
+    required this.backendStatus,
     this.compact = false,
   });
 
@@ -1145,8 +1164,15 @@ class _ConnectionSummaryRow extends StatelessWidget {
         colors: colors,
         icon: Icons.sensors_rounded,
         accent: colors.success,
-        label: l10n.currentNodeDelay,
-        value: delay != null && delay! > 0 ? '${delay!} ms' : '-- ms',
+        label: l10n.referenceCurrentNodeDelay,
+        value: switch (delay) {
+          final value? when value > 0 =>
+            '${referenceDelayMilliseconds(value)} ms',
+          final value? when value < 0 => formatXboardNodeDisplayStatus(
+            backendStatus,
+          ),
+          _ => '-- ms',
+        },
       ),
     ];
     if (!compact) {
@@ -1229,14 +1255,17 @@ class _ConnectionSummaryCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 3),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colors.text,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: colors.text,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
               ],

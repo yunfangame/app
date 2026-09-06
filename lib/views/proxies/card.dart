@@ -38,6 +38,15 @@ class ProxyCard extends StatelessWidget {
           final delay = ref.watch(
             delayProvider(proxyName: proxy.name, testUrl: testUrl),
           );
+          final backendStatus = delay != null && delay < 0
+              ? resolveXboardNodeDisplayStatus(
+                  ref
+                      .watch(realSelectedProxyStateProvider(proxy.name))
+                      .proxyName,
+                  globalState.xboardNodes,
+                  statusAvailable: !globalState.isOfflineMode,
+                )
+              : XboardNodeDisplayStatus.unknown;
           return FadeThroughBox(
             alignment: type == ProxyCardType.expand
                 ? Alignment.centerLeft
@@ -58,7 +67,7 @@ class ProxyCard extends StatelessWidget {
                 : GestureDetector(
                     onTap: _handleTestCurrentDelay,
                     child: Text(
-                      delay > 0 ? '$delay ms' : 'Timeout',
+                      formatReferenceDelay(delay, backendStatus: backendStatus),
                       style: context.textTheme.labelSmall?.copyWith(
                         overflow: TextOverflow.ellipsis,
                         color: utils.getDelayColor(delay),

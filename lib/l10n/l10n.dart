@@ -54,6 +54,56 @@ class AppLocalizations {
     return Localizations.of<AppLocalizations>(context, AppLocalizations);
   }
 
+  /// `Reference connection latency`
+  String get referenceConnectionDelay {
+    return Intl.message(
+      'Reference connection latency',
+      name: 'referenceConnectionDelay',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reference RTT`
+  String get referenceStandardizedDelay {
+    return Intl.message(
+      'Reference RTT',
+      name: 'referenceStandardizedDelay',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Ref. node latency`
+  String get referenceCurrentNodeDelay {
+    return Intl.message(
+      'Ref. node latency',
+      name: 'referenceCurrentNodeDelay',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Display-only adjustment: up to 100 ms unchanged; 101–150 ms shown as 100 ms; above 150 ms reduced by 50 ms. Failed probes show the reported backend status, which does not confirm connectivity from this device. Measurements, sorting and diagnostics retain real values.`
+  String get referenceDelayExplanation {
+    return Intl.message(
+      'Display-only adjustment: up to 100 ms unchanged; 101–150 ms shown as 100 ms; above 150 ms reduced by 50 ms. Failed probes show the reported backend status, which does not confirm connectivity from this device. Measurements, sorting and diagnostics retain real values.',
+      name: 'referenceDelayExplanation',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Ref. {value} ms`
+  String referenceDelayValue(int value) {
+    return Intl.message(
+      'Ref. $value ms',
+      name: 'referenceDelayValue',
+      desc: '',
+      args: [value],
+    );
+  }
+
   /// `Local proxy failed to start ({code}, port {port}). Disconnected. Export logs for diagnosis.`
   String listenerStartFailed(int port, String code) {
     return Intl.message(
