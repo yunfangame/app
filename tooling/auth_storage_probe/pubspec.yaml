@@ -1,0 +1,15 @@
+name: fengwo_auth_storage_probe
+publish_to: none
+version: 1.0.0+1
+environment:
+  sdk: '>=3.8.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  crypto: 3.0.7
+  cryptography: 2.9.0
+  flutter_secure_storage: 10.3.1
+  path: 1.9.1
+  path_provider: 2.1.6
+dev_dependencies:
+  flutter_lints: 6.0.0

@@ -74,6 +74,16 @@ class AppLocalizations {
     );
   }
 
+  /// `Saved login information could not be fully cleared or disabled. Please retry.`
+  String get rememberedLoginClearFailed {
+    return Intl.message(
+      'Saved login information could not be fully cleared or disabled. Please retry.',
+      name: 'rememberedLoginClearFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Rule`
   String get rule {
     return Intl.message('Rule', name: 'rule', desc: '', args: []);

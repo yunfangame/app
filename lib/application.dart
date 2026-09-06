@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_login_persistence.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/manager/hotkey_manager.dart';
@@ -37,7 +38,7 @@ class ApplicationState extends ConsumerState<Application> {
   bool _initialRememberMe = false;
   bool _initialAutoLogin = false;
   String? _rememberedLoginEmail;
-  final _sessionStorageScheduler = SerialTaskScheduler();
+  bool _logoutInProgress = false;
   bool _offlineAvailable = false;
   _AuthenticationBootstrap _authenticationBootstrap =
       _AuthenticationBootstrap.loading;
@@ -46,6 +47,11 @@ class ApplicationState extends ConsumerState<Application> {
   );
   final _xboardSessionStorage = XboardSessionStorage(
     secretStore: createPlatformSecretStringStore(),
+    onDiagnostic: (event, fields) => commonPrint.event(event, fields: fields),
+  );
+  late final _loginPersistence = XboardLoginPersistence(
+    storage: _xboardSessionStorage,
+    onDiagnostic: (event, fields) => commonPrint.event(event, fields: fields),
   );
   final _appReadyCompleter = Completer<void>();
 
@@ -106,7 +112,9 @@ class ApplicationState extends ConsumerState<Application> {
 
   Future<void> _restoreRememberedSession() async {
     try {
-      final storedSession = await _xboardSessionStorage.load();
+      final storedSession = await _loginPersistence.load();
+      if (!mounted) return;
+      _applyRememberedLogin(storedSession);
       final offlineCache = await _xboardSessionStorage.loadOfflineCache();
       final offlineRequested = await _xboardSessionStorage.loadOfflineMode();
       final hasProfiles = ref.read(profilesProvider).isNotEmpty;
@@ -115,17 +123,6 @@ class ApplicationState extends ConsumerState<Application> {
           offlineCache != null &&
           offlineCache.isUsableAt(DateTime.now());
       if (!mounted) return;
-      _loginPrefill = storedSession.email == null
-          ? null
-          : LoginFormPrefill(
-              email: storedSession.email!,
-              password: storedSession.password ?? '',
-            );
-      _initialRememberMe = storedSession.rememberMe;
-      _initialAutoLogin = storedSession.autoLogin;
-      _rememberedLoginEmail = storedSession.canRestore
-          ? storedSession.email
-          : null;
       if (offlineRequested && _offlineAvailable) {
         globalState.activateXboardSession(
           offlineCache!.toSession(),
@@ -169,7 +166,7 @@ class ApplicationState extends ConsumerState<Application> {
         final sessionExpired =
             error.failure == XboardAuthFailure.authenticationRejected;
         if (sessionExpired) {
-          await _xboardSessionStorage.clearInvalidSession();
+          await _loginPersistence.invalidateSession();
           _initialAutoLogin = false;
           _rememberedLoginEmail = null;
         }
@@ -185,8 +182,11 @@ class ApplicationState extends ConsumerState<Application> {
               : currentAppLocalizations.automaticLoginUnavailable,
         );
       }
-    } catch (error, stackTrace) {
-      commonPrint.log('restore XBoard session failed: $error, $stackTrace');
+    } catch (error) {
+      commonPrint.event(
+        'auth.bootstrap.failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
       if (!mounted) return;
       setState(() {
         _authenticationBootstrap = _AuthenticationBootstrap.login;
@@ -201,9 +201,7 @@ class ApplicationState extends ConsumerState<Application> {
       'auth.remembered_login.started',
       fields: {'account_ref': accountRef},
     );
-    final stored = await _sessionStorageScheduler.run(
-      _xboardSessionStorage.load,
-    );
+    final stored = await _loginPersistence.load();
     if (!stored.canRestoreForEmail(email)) {
       _rememberedLoginEmail = null;
       throw XboardAuthException(
@@ -232,9 +230,7 @@ class ApplicationState extends ConsumerState<Application> {
         _rememberedLoginEmail = null;
         _initialAutoLogin = false;
         try {
-          await _sessionStorageScheduler.run(
-            _xboardSessionStorage.clearInvalidSession,
-          );
+          await _loginPersistence.invalidateSession();
         } catch (storageError) {
           commonPrint.event(
             'auth.remembered_login.clear_failed',
@@ -270,28 +266,24 @@ class ApplicationState extends ConsumerState<Application> {
     bool autoLogin,
   ) async {
     globalState.setOfflineMode(false);
-    await _xboardSessionStorage.setOfflineMode(false);
+    final saved = await _loginPersistence.saveAuthenticated(
+      session: session,
+      email: email,
+      password: password,
+      rememberMe: rememberMe,
+      autoLogin: autoLogin,
+    );
+    _applyRememberedLogin(_loginPersistence.state);
+    if (!saved && !rememberMe) {
+      _showStartupMessage(currentAppLocalizations.rememberedLoginClearFailed);
+    }
     try {
-      await _sessionStorageScheduler.run(
-        () => _xboardSessionStorage.save(
-          email: email,
-          password: password,
-          rememberMe: rememberMe,
-          autoLogin: autoLogin,
-          endpoint: session.endpoint,
-          token: session.token,
-          authData: session.authData,
-          isAdmin: session.isAdmin,
-          secureSubscription: session.secureSubscription,
-        ),
+      await _xboardSessionStorage.setOfflineMode(false);
+    } catch (error) {
+      commonPrint.event(
+        'auth.offline_preference.clear_failed',
+        fields: {'error_type': error.runtimeType.toString()},
       );
-      _rememberedLoginEmail = rememberMe ? email : null;
-    } catch (error, stackTrace) {
-      _rememberedLoginEmail = null;
-      commonPrint.log('save XBoard session failed: $error, $stackTrace');
-      if (rememberMe) {
-        _showStartupMessage(currentAppLocalizations.rememberedLoginSaveFailed);
-      }
     }
     await _syncSubscriptionProfile(session);
     globalState.requestXboardAnnouncementAutoPrompt();
@@ -377,33 +369,59 @@ class ApplicationState extends ConsumerState<Application> {
     }
   }
 
+  void _applyRememberedLogin(XboardStoredSession stored) {
+    _loginPrefill = stored.rememberMe && stored.email != null
+        ? LoginFormPrefill(
+            email: stored.email!,
+            password: stored.password ?? '',
+          )
+        : null;
+    _initialRememberMe = stored.rememberMe;
+    _initialAutoLogin = stored.autoLogin;
+    _rememberedLoginEmail = stored.canRestore ? stored.email : null;
+  }
+
   Future<void> _clearRememberedSession() async {
-    _rememberedLoginEmail = null;
-    try {
-      await _sessionStorageScheduler.run(_xboardSessionStorage.clear);
-    } catch (error, stackTrace) {
-      commonPrint.log('clear XBoard session failed: $error, $stackTrace');
+    final clearing = _loginPersistence.forget();
+    _applyRememberedLogin(_loginPersistence.state);
+    if (!await clearing) {
+      _showStartupMessage(currentAppLocalizations.rememberedLoginClearFailed);
     }
   }
 
   Future<void> _disableAutomaticLogin() async {
-    try {
-      await _sessionStorageScheduler.run(
-        _xboardSessionStorage.disableAutoLogin,
-      );
-    } catch (error, stackTrace) {
-      commonPrint.log(
-        'disable XBoard automatic login failed: $error, $stackTrace',
-      );
+    final disabling = _loginPersistence.disableAutoLogin();
+    _initialAutoLogin = false;
+    if (!await disabling) {
+      _showStartupMessage(currentAppLocalizations.rememberedLoginClearFailed);
     }
   }
 
   Future<void> _logoutXboard() async {
+    if (_logoutInProgress) return;
+    _logoutInProgress = true;
+    try {
+      await _performLogoutXboard();
+    } finally {
+      _logoutInProgress = false;
+    }
+  }
+
+  Future<void> _performLogoutXboard() async {
     commonPrint.event('auth.logout.requested');
+    final rememberedLogin = await _loginPersistence.prepareForLogout();
+    _applyRememberedLogin(rememberedLogin);
     final activeSession = globalState.xboardSession;
     final activeSubscriptionUrl = activeSession?.subscribeUrl?.toString();
-    final managedProfileUrl = await _xboardSessionStorage
-        .loadManagedProfileUrl();
+    String? managedProfileUrl;
+    try {
+      managedProfileUrl = await _xboardSessionStorage.loadManagedProfileUrl();
+    } catch (error) {
+      commonPrint.event(
+        'auth.logout.profile_reference.failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
+    }
     final subscriptionUrls = <String>{
       ?activeSubscriptionUrl,
       ?managedProfileUrl,
@@ -442,32 +460,36 @@ class ApplicationState extends ConsumerState<Application> {
         );
       }
     }
-    await _xboardSessionStorage.clearManagedProfileUrl();
-    XboardStoredSession? rememberedLogin;
-    try {
-      rememberedLogin = await _sessionStorageScheduler.run(
-        _xboardSessionStorage.prepareForLogout,
-      );
-    } catch (error, stackTrace) {
-      commonPrint.log(
-        'prepare remembered login after logout failed: $error, $stackTrace',
-        logLevel: LogLevel.warning,
-      );
-      await _clearRememberedSession();
+    var cleanupFailed = false;
+    for (final cleanup in [
+      _xboardSessionStorage.clearManagedProfileUrl,
+      _xboardSessionStorage.clearOfflineCache,
+    ]) {
+      try {
+        await cleanup();
+      } catch (error) {
+        cleanupFailed = true;
+        commonPrint.event(
+          'auth.logout.cache_cleanup.failed',
+          fields: {'error_type': error.runtimeType.toString()},
+        );
+      }
     }
-    await _xboardSessionStorage.clearOfflineCache();
     globalState.setOfflineMode(false);
     _offlineAvailable = false;
     _rememberedLoginEmail = null;
-    _loginPrefill = rememberedLogin?.email == null
-        ? null
-        : LoginFormPrefill(
-            email: rememberedLogin!.email!,
-            password: rememberedLogin.password ?? '',
-          );
-    _initialRememberMe = rememberedLogin?.rememberMe ?? false;
+    _applyRememberedLogin(rememberedLogin);
     _initialAutoLogin = false;
-    commonPrint.event('auth.logout.completed');
+    commonPrint.event(
+      'auth.logout.completed',
+      fields: {
+        'remember_requested': rememberedLogin.rememberMe,
+        'email_present': rememberedLogin.email?.isNotEmpty ?? false,
+        'password_present': rememberedLogin.password?.isNotEmpty ?? false,
+        'storage_error': rememberedLogin.hasStorageError,
+        'cache_cleanup_failed': cleanupFailed,
+      },
+    );
     if (!mounted) return;
     setState(() {
       _authenticationBootstrap = _AuthenticationBootstrap.login;
@@ -501,6 +523,7 @@ class ApplicationState extends ConsumerState<Application> {
 
   Future<void> _openLoginForOnlineRestore() async {
     if (!mounted) return;
+    _applyRememberedLogin(_loginPersistence.state);
     final locale = ref.read(appSettingProvider).locale;
     await globalState.navigatorKey.currentState?.pushReplacement<void, void>(
       MaterialPageRoute<void>(builder: (_) => _buildLoginPage(locale)),
@@ -508,7 +531,7 @@ class ApplicationState extends ConsumerState<Application> {
   }
 
   Future<bool> _restoreOnlineMode() async {
-    final storedSession = await _xboardSessionStorage.load();
+    final storedSession = await _loginPersistence.load();
     if (!storedSession.canRestore) {
       await _openLoginForOnlineRestore();
       return false;
@@ -530,7 +553,7 @@ class ApplicationState extends ConsumerState<Application> {
       return true;
     } on XboardAuthException catch (error) {
       if (error.failure == XboardAuthFailure.authenticationRejected) {
-        await _xboardSessionStorage.clearInvalidSession();
+        await _loginPersistence.invalidateSession();
         await _openLoginForOnlineRestore();
         return false;
       }
@@ -543,6 +566,7 @@ class ApplicationState extends ConsumerState<Application> {
     final activeSession = globalState.xboardSession;
     if (activeSession == null || activeSession.authData.isEmpty) return false;
     final activeRevision = globalState.xboardSessionRevision;
+    final activeEmail = _loginPersistence.state.email;
     const retryDelays = [
       Duration.zero,
       Duration(seconds: 1),
@@ -586,7 +610,13 @@ class ApplicationState extends ConsumerState<Application> {
         final nodes = globalState.xboardNodes;
         globalState.activateXboardSession(updatedSession, nodes: nodes);
         try {
-          await _xboardSessionStorage.updateStoredToken(updatedSession.token);
+          if (activeEmail != null) {
+            await _xboardSessionStorage.updateStoredToken(
+              updatedSession.token,
+              email: activeEmail,
+              expectedToken: activeSession.token,
+            );
+          }
           await _xboardSessionStorage.saveOfflineCache(
             session: updatedSession,
             nodes: nodes,

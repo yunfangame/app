@@ -99,17 +99,30 @@ class EncryptedFileSecretStringStore implements SecretStringStore {
     return directory;
   }
 
-  Future<SecretKey> _loadMasterKey(Directory directory) {
-    return _masterKeyFutures.putIfAbsent(
-      directory.absolute.path,
+  Future<SecretKey> _loadMasterKey(Directory directory) async {
+    final path = directory.absolute.path;
+    final future = _masterKeyFutures.putIfAbsent(
+      path,
       () => _readOrCreateMasterKey(directory),
     );
+    try {
+      return await future;
+    } catch (_) {
+      if (identical(_masterKeyFutures[path], future)) {
+        _masterKeyFutures.remove(path);
+      }
+      rethrow;
+    }
   }
 
   Future<SecretKey> _readOrCreateMasterKey(Directory directory) async {
     final file = File(p.join(directory.path, '.master-key'));
     if (await file.exists()) {
-      return SecretKey(base64Url.decode((await file.readAsString()).trim()));
+      final bytes = base64Url.decode((await file.readAsString()).trim());
+      if (bytes.length != 32) {
+        throw const FormatException('Invalid local secret master key length');
+      }
+      return SecretKey(bytes);
     }
     final bytes = _randomBytes(32);
     await _writeAtomically(file, utf8.encode(base64UrlEncode(bytes)));

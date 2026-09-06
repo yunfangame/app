@@ -1134,6 +1134,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "remainingTraffic": MessageLookupByLibrary.simpleMessage("剩余流量"),
     "remainingTrafficLabel": MessageLookupByLibrary.simpleMessage("剩余"),
     "rememberMe": MessageLookupByLibrary.simpleMessage("记住我"),
+    "rememberedLoginClearFailed": MessageLookupByLibrary.simpleMessage(
+      "未能完整清除或禁用已保存的登录信息，请重试。",
+    ),
     "rememberedLoginHint": MessageLookupByLibrary.simpleMessage("已记住，可直接登录"),
     "rememberedLoginSaveFailed": MessageLookupByLibrary.simpleMessage(
       "登录成功，但未能安全保存登录凭证，下次仍需输入密码",

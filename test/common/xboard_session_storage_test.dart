@@ -104,12 +104,14 @@ void main() {
     expect(preferences.getString('xboard.auth_data'), isNull);
     expect(preferences.getString('xboard.debug.token'), isNotNull);
     expect(preferences.getString('xboard.debug.auth_data'), isNotNull);
-    expect(preferences.getString('xboard.debug.password'), isNotNull);
+    expect(preferences.getString('xboard.debug.credentials_v2'), isNotNull);
+    expect(preferences.getString('xboard.debug.password'), isNull);
 
     await storage.clear();
     expect(preferences.getString('xboard.debug.token'), isNull);
     expect(preferences.getString('xboard.debug.auth_data'), isNull);
     expect(preferences.getString('xboard.debug.password'), isNull);
+    expect(preferences.getString('xboard.debug.credentials_v2'), isNull);
   });
 
   test('disabling remember me clears all persisted login data', () async {

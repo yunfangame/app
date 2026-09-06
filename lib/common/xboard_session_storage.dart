@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:fl_clash/common/xboard_auth.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -53,6 +54,7 @@ class XboardStoredSession {
     this.authData,
     this.isAdmin = false,
     this.secureSubscription = false,
+    this.hasStorageError = false,
   });
 
   final bool rememberMe;
@@ -64,10 +66,12 @@ class XboardStoredSession {
   final String? authData;
   final bool isAdmin;
   final bool secureSubscription;
+  final bool hasStorageError;
 
   bool get canAutoLogin => autoLogin && canRestore;
 
   bool get canRestore =>
+      !hasStorageError &&
       rememberMe &&
       endpoint != null &&
       (token?.trim().isNotEmpty ?? false) &&
@@ -79,12 +83,23 @@ class XboardStoredSession {
       email!.trim().toLowerCase() == candidate.trim().toLowerCase();
 }
 
+class XboardStorageException implements Exception {
+  const XboardStorageException(this.stage, this.errorCode);
+
+  final String stage;
+  final String errorCode;
+
+  @override
+  String toString() => 'XboardStorageException($stage, $errorCode)';
+}
+
 class XboardSessionStorage {
   XboardSessionStorage({
     FlutterSecureStorage? secureStorage,
     SecretStringStore? secretStore,
     Future<SharedPreferences> Function()? preferencesLoader,
     this.useLocalDebugStorage = false,
+    this.onDiagnostic,
   }) : _secureStorage = secureStorage ?? const FlutterSecureStorage(),
        _secretStore = secretStore,
        _preferencesLoader = preferencesLoader ?? SharedPreferences.getInstance;
@@ -98,6 +113,14 @@ class XboardSessionStorage {
   static const _tokenKey = 'xboard.token';
   static const _authDataKey = 'xboard.auth_data';
   static const _passwordKey = 'xboard.password';
+  static const _credentialsKey = 'xboard.credentials_v2';
+  static const _credentialsVersionKey = 'xboard.credentials_version';
+  static const _credentialsEnabledKey = 'xboard.credentials_enabled';
+  static const _sessionEnabledKey = 'xboard.session_enabled';
+  static const _sessionAccountKey = 'xboard.session_account';
+  static const _cleanupPendingKey = 'xboard.cleanup_pending';
+  static const _savePendingKey = 'xboard.save_pending';
+  static const _forgetRequestedKey = 'xboard.forget_requested';
   static const _localDebugTokenKey = 'xboard.debug.token';
   static const _localDebugAuthDataKey = 'xboard.debug.auth_data';
   static const _localDebugPasswordKey = 'xboard.debug.password';
@@ -109,52 +132,96 @@ class XboardSessionStorage {
   final SecretStringStore? _secretStore;
   final Future<SharedPreferences> Function() _preferencesLoader;
   final bool useLocalDebugStorage;
+  final void Function(String event, Map<String, Object?> fields)? onDiagnostic;
+  Future<void> _queue = Future<void>.value();
+  int _revision = 0;
+  int _credentialRevision = 0;
+  bool _sessionDisabled = false;
+  bool _credentialsDisabled = false;
 
-  Future<XboardStoredSession> load() async {
-    final preferences = await _preferencesLoader();
-    final rememberMe = preferences.getBool(_rememberMeKey) ?? false;
-    final requestedAutoLogin = preferences.getBool(_autoLoginKey) ?? false;
+  Future<XboardStoredSession> load() => _serialize(_load);
+
+  Future<XboardStoredSession> _load() async {
+    final failures = <XboardStorageException>[];
+    SharedPreferences? loadedPreferences;
+    await _attempt('load_preferences', failures, () async {
+      loadedPreferences = await _preferencesLoader();
+    });
+    final preferences = loadedPreferences;
+    if (preferences == null) {
+      return const XboardStoredSession(
+        rememberMe: false,
+        autoLogin: false,
+        hasStorageError: true,
+      );
+    }
+    final rememberMe =
+        !_credentialsDisabled &&
+        preferences.getBool(_forgetRequestedKey) != true &&
+        preferences.getBool(_rememberMeKey) == true;
+    final email = rememberMe
+        ? _nonEmpty(preferences.getString(_emailKey))
+        : null;
+    final password = rememberMe && email != null
+        ? await _readPassword(preferences, email, failures)
+        : null;
+    final sessionAccount = preferences.getString(_sessionAccountKey) ?? email;
+    final sessionAllowed =
+        rememberMe &&
+        !_sessionDisabled &&
+        preferences.getBool(_sessionEnabledKey) != false &&
+        email != null &&
+        _sameAccount(sessionAccount, email);
     String? token;
     String? authData;
-    String? password;
-    try {
-      final secrets = await Future.wait([
-        _readSecret(preferences, _tokenKey),
-        _readSecret(preferences, _authDataKey),
-        _readSecret(preferences, _passwordKey),
-      ]);
-      token = _nonEmpty(secrets[0]);
-      authData = _nonEmpty(secrets[1]);
-      password = secrets[2]?.isEmpty ?? true ? null : secrets[2];
-    } catch (_) {
-      token = null;
-      authData = null;
-      password = null;
+    if (sessionAllowed) {
+      await _attempt('read_token', failures, () async {
+        token = _nonEmpty(await _readSecret(preferences, _tokenKey));
+      });
+      await _attempt('read_auth_data', failures, () async {
+        authData = _nonEmpty(await _readSecret(preferences, _authDataKey));
+      });
     }
     final endpoint = Uri.tryParse(preferences.getString(_endpointKey) ?? '');
     final validEndpoint =
-        endpoint != null &&
+        sessionAllowed &&
+            endpoint != null &&
             {'http', 'https'}.contains(endpoint.scheme) &&
             endpoint.host.isNotEmpty
         ? endpoint
         : null;
+    final hasStorageError =
+        failures.isNotEmpty ||
+        preferences.getBool(_cleanupPendingKey) == true ||
+        preferences.getBool(_savePendingKey) == true;
     final autoLogin =
-        requestedAutoLogin &&
+        !hasStorageError &&
+        preferences.getBool(_autoLoginKey) == true &&
         rememberMe &&
         validEndpoint != null &&
         token != null &&
         authData != null;
-    return XboardStoredSession(
+    final stored = XboardStoredSession(
       rememberMe: rememberMe,
       autoLogin: autoLogin,
-      email: _nonEmpty(preferences.getString(_emailKey)),
+      email: email,
       password: password,
       endpoint: validEndpoint,
       token: token,
       authData: authData,
       isAdmin: preferences.getBool(_isAdminKey) ?? false,
       secureSubscription: preferences.getBool(_secureSubscriptionKey) ?? false,
+      hasStorageError: hasStorageError,
     );
+    _diagnostic('credentials_load', {
+      'has_error': stored.hasStorageError,
+      'remember_me': stored.rememberMe,
+      'auto_login': stored.autoLogin,
+      'has_email': stored.email != null,
+      'has_password': stored.password != null,
+      'has_session': stored.canRestore,
+    });
+    return stored;
   }
 
   Future<void> save({
@@ -167,61 +234,252 @@ class XboardSessionStorage {
     required String authData,
     required bool isAdmin,
     bool secureSubscription = false,
-  }) async {
+  }) {
     if (!rememberMe) {
-      await clear();
-      return;
+      return clear();
     }
-    final preferences = await _preferencesLoader();
-    await preferences.setBool(_autoLoginKey, false);
-    await _writeSecret(preferences, _tokenKey, token);
-    await _writeSecret(preferences, _authDataKey, authData);
-    if (password.isNotEmpty) {
-      await _writeSecret(preferences, _passwordKey, password);
-    }
-    await preferences.setString(_emailKey, email.trim());
-    await preferences.setString(_endpointKey, endpoint.toString());
-    await preferences.setBool(_isAdminKey, isAdmin);
-    await preferences.setBool(_secureSubscriptionKey, secureSubscription);
-    await preferences.setBool(_rememberMeKey, true);
-    await preferences.setBool(_autoLoginKey, autoLogin);
+    final revision = ++_revision;
+    final credentialRevision = ++_credentialRevision;
+    _sessionDisabled = true;
+    return _serialize(() async {
+      final failures = <XboardStorageException>[];
+      final preferences = await _preferences('save_preferences');
+      await _attempt('mark_save_pending', failures, () async {
+        await _checkPreference(preferences.setBool(_savePendingKey, true));
+      });
+      _diagnostic('credentials_save_requested', {
+        'remember_me': rememberMe,
+        'auto_login': autoLogin,
+        'has_email': email.trim().isNotEmpty,
+        'has_password': password.isNotEmpty,
+      });
+      final allowExistingCredentials =
+          !_credentialsDisabled &&
+          preferences.getBool(_forgetRequestedKey) != true &&
+          preferences.getBool(_rememberMeKey) == true &&
+          preferences.getBool(_credentialsEnabledKey) != false &&
+          _sameAccount(preferences.getString(_emailKey), email);
+      var savedPassword = password.isEmpty ? null : password;
+      var preserveUnreadableCredentials = false;
+      if (savedPassword == null &&
+          preferences.getBool(_rememberMeKey) == true &&
+          _sameAccount(preferences.getString(_emailKey), email)) {
+        final failuresBeforeRead = failures.length;
+        savedPassword = await _readPassword(preferences, email, failures);
+        preserveUnreadableCredentials =
+            savedPassword == null && failures.length > failuresBeforeRead;
+      }
+      await _disableSession(preferences, failures);
+      var metadataSaved = await _attempt('save_email', failures, () async {
+        await _checkPreference(preferences.setString(_emailKey, email.trim()));
+      });
+      metadataSaved =
+          await _attempt('save_remember_me', failures, () async {
+            await _checkPreference(preferences.setBool(_rememberMeKey, true));
+          }) &&
+          metadataSaved;
+      metadataSaved =
+          await _attempt('save_remember_intent', failures, () async {
+            await _checkPreference(
+              preferences.setBool(_forgetRequestedKey, false),
+            );
+          }) &&
+          metadataSaved;
+      if (metadataSaved && credentialRevision == _credentialRevision) {
+        _credentialsDisabled = false;
+      }
+      var credentialSaved = false;
+      if (!preserveUnreadableCredentials) {
+        await _attempt('disable_credentials', failures, () async {
+          await _checkPreference(
+            preferences.setBool(_credentialsEnabledKey, false),
+          );
+        });
+        final versionSaved = await _attempt(
+          'save_credentials_version',
+          failures,
+          () async {
+            await _checkPreference(
+              preferences.setInt(_credentialsVersionKey, 2),
+            );
+          },
+        );
+        credentialSaved = await _attempt(
+          'write_credentials',
+          failures,
+          () async {
+            await _writeVerifiedSecret(
+              preferences,
+              _credentialsKey,
+              jsonEncode({'email': email.trim(), 'password': savedPassword}),
+            );
+          },
+        );
+        if (metadataSaved &&
+            versionSaved &&
+            credentialSaved &&
+            credentialRevision == _credentialRevision) {
+          final enabled = await _attempt(
+            'enable_credentials',
+            failures,
+            () async {
+              await _checkPreference(
+                preferences.setBool(_credentialsEnabledKey, true),
+              );
+            },
+          );
+          if (enabled) _credentialsDisabled = false;
+          await _attempt('delete_legacy_password', failures, () async {
+            await _deleteVerifiedSecret(preferences, _passwordKey);
+          });
+        } else if (!credentialSaved &&
+            allowExistingCredentials &&
+            metadataSaved &&
+            versionSaved &&
+            credentialRevision == _credentialRevision) {
+          await _attempt('recover_account_credentials', failures, () async {
+            final source = await _readSecret(preferences, _credentialsKey);
+            if (source == null) return;
+            final decoded = jsonDecode(source);
+            if (decoded is! Map<String, dynamic> ||
+                decoded['email'] is! String ||
+                !_sameAccount(decoded['email'] as String, email) ||
+                decoded['password'] is! String ||
+                (decoded['password'] as String).isEmpty) {
+              return;
+            }
+            await _checkPreference(
+              preferences.setBool(_credentialsEnabledKey, true),
+            );
+          });
+        }
+      }
+      await _attempt('write_token', failures, () async {
+        await _writeVerifiedSecret(preferences, _tokenKey, token);
+      });
+      await _attempt('write_auth_data', failures, () async {
+        await _writeVerifiedSecret(preferences, _authDataKey, authData);
+      });
+      await _attempt('save_session_metadata', failures, () async {
+        await _checkPreference(
+          preferences.setString(_sessionAccountKey, email.trim()),
+        );
+        await _checkPreference(
+          preferences.setString(_endpointKey, endpoint.toString()),
+        );
+        await _checkPreference(preferences.setBool(_isAdminKey, isAdmin));
+        await _checkPreference(
+          preferences.setBool(_secureSubscriptionKey, secureSubscription),
+        );
+      });
+      if (failures.isEmpty && revision == _revision) {
+        await _attempt('enable_session', failures, () async {
+          await _checkPreference(
+            preferences.setBool(_cleanupPendingKey, false),
+          );
+          await _checkPreference(preferences.setBool(_savePendingKey, false));
+          await _checkPreference(preferences.setBool(_sessionEnabledKey, true));
+          await _checkPreference(preferences.setBool(_autoLoginKey, autoLogin));
+        });
+      }
+      if (failures.isNotEmpty || revision != _revision) {
+        await _disableSession(preferences, failures);
+        await _attempt('record_save_failure', failures, () async {
+          await _checkPreference(preferences.setBool(_savePendingKey, true));
+        });
+        if (failures.isEmpty) {
+          failures.add(const XboardStorageException('save', 'superseded'));
+        }
+      } else {
+        _sessionDisabled = false;
+      }
+      _diagnostic('credentials_save_completed', {
+        'has_error': failures.isNotEmpty,
+        'has_password': savedPassword != null && credentialSaved,
+        'has_session': !_sessionDisabled,
+      });
+      _throwFirst(failures);
+    });
   }
 
-  Future<void> clearInvalidSession() async {
-    await _deleteSessionSecretsBestEffort();
-    final preferences = await _preferencesLoader();
-    await preferences.setBool(_autoLoginKey, false);
-    await preferences.remove(_endpointKey);
-    await preferences.remove(_isAdminKey);
-    await preferences.remove(_secureSubscriptionKey);
+  Future<void> clearInvalidSession() {
+    ++_revision;
+    _sessionDisabled = true;
+    return _serialize(() async {
+      final failures = <XboardStorageException>[];
+      final preferences = await _preferences('revoke_preferences');
+      await _revokeSession(preferences, failures);
+      _throwFirst(failures);
+    });
   }
 
-  Future<XboardStoredSession> prepareForLogout() async {
-    final stored = await load();
-    if (!stored.rememberMe) {
-      await clear();
-      return const XboardStoredSession(rememberMe: false, autoLogin: false);
-    }
-    await clearInvalidSession();
-    return XboardStoredSession(
-      rememberMe: true,
-      autoLogin: false,
-      email: stored.email,
-      password: stored.password,
-    );
+  Future<XboardStoredSession> prepareForLogout() {
+    ++_revision;
+    _sessionDisabled = true;
+    return _serialize(() async {
+      final failures = <XboardStorageException>[];
+      await _attempt('logout_cleanup', failures, () async {
+        final preferences = await _preferences('logout_preferences');
+        await _revokeSession(preferences, failures);
+      });
+      final stored = await _load();
+      final result = XboardStoredSession(
+        rememberMe: stored.rememberMe,
+        autoLogin: false,
+        email: stored.email,
+        password: stored.password,
+        hasStorageError: failures.isNotEmpty || stored.hasStorageError,
+      );
+      _diagnostic('credentials_logout_completed', {
+        'has_error': result.hasStorageError,
+        'remember_me': result.rememberMe,
+        'has_email': result.email != null,
+        'has_password': result.password != null,
+      });
+      return result;
+    });
   }
 
-  Future<void> disableAutoLogin() async {
-    final preferences = await _preferencesLoader();
-    await preferences.setBool(_autoLoginKey, false);
-  }
+  Future<void> disableAutoLogin() => _serialize(() async {
+    final preferences = await _preferences('disable_auto_login_preferences');
+    final failures = <XboardStorageException>[];
+    await _attempt('disable_auto_login', failures, () async {
+      await _checkPreference(preferences.setBool(_autoLoginKey, false));
+    });
+    _throwFirst(failures);
+  });
 
-  Future<void> updateStoredToken(String token) async {
-    final preferences = await _preferencesLoader();
-    if (preferences.getBool(_rememberMeKey) != true || token.trim().isEmpty) {
-      return;
-    }
-    await _writeSecret(preferences, _tokenKey, token.trim());
+  Future<void> updateStoredToken(
+    String token, {
+    required String email,
+    required String expectedToken,
+  }) {
+    final revision = _revision;
+    return _serialize(() async {
+      if (revision != _revision || _sessionDisabled || token.trim().isEmpty) {
+        return;
+      }
+      final stored = await _load();
+      if (revision != _revision ||
+          _sessionDisabled ||
+          !stored.canRestoreForEmail(email) ||
+          stored.token != expectedToken) {
+        _diagnostic('credentials_token_refresh_skipped', {
+          'reason': 'session_changed',
+        });
+        return;
+      }
+      final preferences = await _preferences('refresh_preferences');
+      final failures = <XboardStorageException>[];
+      await _attempt('refresh_token', failures, () async {
+        await _writeVerifiedSecret(preferences, _tokenKey, token.trim());
+      });
+      if (failures.isNotEmpty) {
+        _sessionDisabled = true;
+        await _disableSession(preferences, failures);
+      }
+      _throwFirst(failures);
+    });
   }
 
   Future<bool> loadOfflineMode() async {
@@ -231,7 +489,7 @@ class XboardSessionStorage {
 
   Future<void> setOfflineMode(bool value) async {
     final preferences = await _preferencesLoader();
-    await preferences.setBool(_offlineModeKey, value);
+    await _checkPreference(preferences.setBool(_offlineModeKey, value));
   }
 
   Future<void> saveOfflineCache({
@@ -247,7 +505,9 @@ class XboardSessionStorage {
       'subscription': _subscriptionToJson(session.subscription),
       'nodes': nodes.map(_nodeToJson).toList(growable: false),
     };
-    await preferences.setString(_offlineCacheKey, jsonEncode(payload));
+    await _checkPreference(
+      preferences.setString(_offlineCacheKey, jsonEncode(payload)),
+    );
   }
 
   Future<XboardOfflineCache?> loadOfflineCache() async {
@@ -281,8 +541,8 @@ class XboardSessionStorage {
 
   Future<void> clearOfflineCache() async {
     final preferences = await _preferencesLoader();
-    await preferences.remove(_offlineModeKey);
-    await preferences.remove(_offlineCacheKey);
+    await _checkPreference(preferences.remove(_offlineModeKey));
+    await _checkPreference(preferences.remove(_offlineCacheKey));
   }
 
   Future<String?> loadManagedProfileUrl() async {
@@ -292,37 +552,257 @@ class XboardSessionStorage {
 
   Future<void> setManagedProfileUrl(String url) async {
     final preferences = await _preferencesLoader();
-    await preferences.setString(_managedProfileUrlKey, url);
+    await _checkPreference(preferences.setString(_managedProfileUrlKey, url));
   }
 
   Future<void> clearManagedProfileUrl() async {
     final preferences = await _preferencesLoader();
-    await preferences.remove(_managedProfileUrlKey);
+    await _checkPreference(preferences.remove(_managedProfileUrlKey));
   }
 
-  Future<void> clear() async {
-    await _deleteSessionSecretsBestEffort();
-    final preferences = await _preferencesLoader();
-    try {
-      await _deleteSecret(preferences, _passwordKey);
-    } catch (_) {}
-    await preferences.remove(_rememberMeKey);
-    await preferences.remove(_autoLoginKey);
-    await preferences.remove(_emailKey);
-    await preferences.remove(_endpointKey);
-    await preferences.remove(_isAdminKey);
-    await preferences.remove(_secureSubscriptionKey);
+  Future<void> clear() {
+    ++_revision;
+    ++_credentialRevision;
+    _credentialsDisabled = true;
+    _sessionDisabled = true;
+    return _serialize(() async {
+      final failures = <XboardStorageException>[];
+      final preferences = await _preferences('forget_preferences');
+      await _attempt('forget_intent', failures, () async {
+        await _checkPreference(preferences.setBool(_forgetRequestedKey, true));
+      });
+      await _attempt('forget_remember_me', failures, () async {
+        await _checkPreference(preferences.setBool(_rememberMeKey, false));
+      });
+      await _attempt('forget_credentials', failures, () async {
+        await _checkPreference(
+          preferences.setBool(_credentialsEnabledKey, false),
+        );
+      });
+      await _attempt('forget_legacy_migration', failures, () async {
+        await _checkPreference(preferences.setInt(_credentialsVersionKey, 2));
+      });
+      await _attempt('forget_email', failures, () async {
+        await _checkPreference(preferences.remove(_emailKey));
+      });
+      await _attempt('forget_save_state', failures, () async {
+        await _checkPreference(preferences.setBool(_savePendingKey, false));
+      });
+      await _revokeSession(preferences, failures);
+      for (final key in [_credentialsKey, _passwordKey]) {
+        await _attempt('forget_secret', failures, () async {
+          await _deleteVerifiedSecret(preferences, key);
+        });
+      }
+      await _recordCleanupPending(preferences, failures);
+      _diagnostic('credentials_forget_completed', {
+        'has_error': failures.isNotEmpty,
+      });
+      _throwFirst(failures);
+    });
   }
 
-  Future<void> _deleteSessionSecretsBestEffort() async {
-    final preferences = await _preferencesLoader();
+  Future<void> _disableSession(
+    SharedPreferences preferences,
+    List<XboardStorageException> failures,
+  ) async {
+    await _attempt('disable_session', failures, () async {
+      await _checkPreference(preferences.setBool(_sessionEnabledKey, false));
+    });
+    await _attempt('disable_auto_login', failures, () async {
+      await _checkPreference(preferences.setBool(_autoLoginKey, false));
+    });
+  }
+
+  Future<void> _revokeSession(
+    SharedPreferences preferences,
+    List<XboardStorageException> failures,
+  ) async {
+    await _disableSession(preferences, failures);
+    for (final key in [
+      _endpointKey,
+      _sessionAccountKey,
+      _isAdminKey,
+      _secureSubscriptionKey,
+    ]) {
+      await _attempt('revoke_session_metadata', failures, () async {
+        await _checkPreference(preferences.remove(key));
+      });
+    }
+    for (final key in [_tokenKey, _authDataKey]) {
+      await _attempt('revoke_session_secret', failures, () async {
+        await _deleteVerifiedSecret(preferences, key);
+      });
+    }
+    await _recordCleanupPending(preferences, failures);
+  }
+
+  Future<void> _recordCleanupPending(
+    SharedPreferences preferences,
+    List<XboardStorageException> failures,
+  ) async {
+    await _attempt('record_cleanup_result', failures, () async {
+      await _checkPreference(
+        preferences.setBool(_cleanupPendingKey, failures.isNotEmpty),
+      );
+    });
+  }
+
+  Future<String?> _readPassword(
+    SharedPreferences preferences,
+    String email,
+    List<XboardStorageException> failures,
+  ) async {
+    if (preferences.getBool(_credentialsEnabledKey) == false) return null;
+    String? source;
+    final read = await _attempt('read_credentials', failures, () async {
+      source = await _readSecret(preferences, _credentialsKey);
+    });
+    if (!read) return null;
+    if (source != null) {
+      String? password;
+      await _attempt('decode_credentials', failures, () async {
+        final decoded = jsonDecode(source!);
+        if (decoded is! Map<String, dynamic> ||
+            decoded['email'] is! String ||
+            (decoded['password'] != null && decoded['password'] is! String)) {
+          throw const XboardStorageException(
+            'decode_credentials',
+            'invalid_format',
+          );
+        }
+        if (!_sameAccount(decoded['email'] as String, email)) return;
+        final saved = decoded['password'] as String?;
+        password = saved == null || saved.isEmpty ? null : saved;
+      });
+      return password;
+    }
+    if (preferences.getInt(_credentialsVersionKey) == 2) return null;
+    String? legacyPassword;
+    await _attempt('read_legacy_password', failures, () async {
+      legacyPassword = await _readSecret(preferences, _passwordKey);
+    });
+    if (legacyPassword == null || legacyPassword!.isEmpty) return null;
+    final migrated = await _attempt('migrate_credentials', failures, () async {
+      await _writeVerifiedSecret(
+        preferences,
+        _credentialsKey,
+        jsonEncode({'email': email.trim(), 'password': legacyPassword}),
+      );
+      await _checkPreference(preferences.setInt(_credentialsVersionKey, 2));
+      await _checkPreference(preferences.setBool(_credentialsEnabledKey, true));
+    });
+    if (migrated) {
+      await _attempt('delete_legacy_password', failures, () async {
+        await _deleteVerifiedSecret(preferences, _passwordKey);
+      });
+    }
+    return legacyPassword;
+  }
+
+  Future<void> _writeVerifiedSecret(
+    SharedPreferences preferences,
+    String key,
+    String value,
+  ) async {
+    await _writeSecret(preferences, key, value);
+    if (await _readSecret(preferences, key) != value) {
+      throw const XboardStorageException('verify_write', 'readback_mismatch');
+    }
+  }
+
+  Future<void> _deleteVerifiedSecret(
+    SharedPreferences preferences,
+    String key,
+  ) async {
+    await _deleteSecret(preferences, key);
+    if (await _readSecret(preferences, key) != null) {
+      throw const XboardStorageException('verify_delete', 'readback_mismatch');
+    }
+  }
+
+  Future<SharedPreferences> _preferences(String stage) async {
     try {
-      await _deleteSecret(preferences, _tokenKey);
-    } catch (_) {}
+      return await _preferencesLoader();
+    } catch (error) {
+      final failure = _storageFailure(stage, error);
+      _reportFailure(failure, error);
+      throw failure;
+    }
+  }
+
+  Future<void> _checkPreference(Future<bool> operation) async {
+    if (!await operation) {
+      throw const XboardStorageException('write_preferences', 'write_rejected');
+    }
+  }
+
+  Future<bool> _attempt(
+    String stage,
+    List<XboardStorageException> failures,
+    Future<void> Function() operation,
+  ) async {
     try {
-      await _deleteSecret(preferences, _authDataKey);
+      await operation();
+      return true;
+    } catch (error) {
+      final failure = _storageFailure(stage, error);
+      failures.add(failure);
+      _reportFailure(failure, error);
+      return false;
+    }
+  }
+
+  XboardStorageException _storageFailure(String stage, Object error) {
+    final code = error is XboardStorageException
+        ? error.errorCode
+        : error is PlatformException &&
+              (RegExp(r'^-?\d{1,10}$').hasMatch(error.code) ||
+                  const {
+                    'storage_error',
+                    'read_error',
+                    'write_error',
+                    'delete_error',
+                    'read_failed',
+                    'write_failed',
+                    'delete_failed',
+                    'access_denied',
+                    'not_available',
+                    'not_found',
+                    'keychain_error',
+                    'Error',
+                  }.contains(error.code))
+        ? error.code
+        : 'storage_unavailable';
+    return XboardStorageException(stage, code);
+  }
+
+  void _reportFailure(XboardStorageException failure, Object error) {
+    _diagnostic('credentials_storage_error', {
+      'stage': failure.stage,
+      'error_code': failure.errorCode,
+      'error_type': error.runtimeType.toString(),
+    });
+  }
+
+  void _diagnostic(String event, Map<String, Object?> fields) {
+    try {
+      onDiagnostic?.call(event, fields);
     } catch (_) {}
   }
+
+  void _throwFirst(List<XboardStorageException> failures) {
+    if (failures.isNotEmpty) throw failures.first;
+  }
+
+  Future<T> _serialize<T>(Future<T> Function() operation) {
+    final result = _queue.then((_) => operation());
+    _queue = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return result;
+  }
+
+  bool _sameAccount(String? left, String right) =>
+      left != null && left.trim().toLowerCase() == right.trim().toLowerCase();
 
   Future<String?> _readSecret(SharedPreferences preferences, String key) {
     if (_secretStore != null) return _secretStore.read(key);
@@ -342,7 +822,7 @@ class XboardSessionStorage {
       return;
     }
     if (useLocalDebugStorage) {
-      await preferences.setString(_localDebugKey(key), value);
+      await _checkPreference(preferences.setString(_localDebugKey(key), value));
       return;
     }
     await _secureStorage.write(key: key, value: value);
@@ -354,7 +834,7 @@ class XboardSessionStorage {
       return;
     }
     if (useLocalDebugStorage) {
-      await preferences.remove(_localDebugKey(key));
+      await _checkPreference(preferences.remove(_localDebugKey(key)));
       return;
     }
     await _secureStorage.delete(key: key);
@@ -364,6 +844,7 @@ class XboardSessionStorage {
     _tokenKey => _localDebugTokenKey,
     _authDataKey => _localDebugAuthDataKey,
     _passwordKey => _localDebugPasswordKey,
+    _credentialsKey => 'xboard.debug.credentials_v2',
     _ => throw ArgumentError.value(key, 'key'),
   };
 }

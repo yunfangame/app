@@ -84,6 +84,9 @@ class _LoginPageState extends State<LoginPage> {
   bool _isSubmitting = false;
   bool _isOpeningOffline = false;
   bool _rememberedLoginRejected = false;
+  bool _applyingPrefill = false;
+  String? _prefilledAccount;
+  String? _prefilledPassword;
 
   bool get _canRestoreRemembered =>
       _rememberMe &&
@@ -95,6 +98,16 @@ class _LoginPageState extends State<LoginPage> {
       _passwordController.text.isEmpty;
 
   void _credentialsChanged() {
+    if (_applyingPrefill) return;
+    if (_prefilledPassword != null) {
+      if (_passwordController.text != _prefilledPassword) {
+        _prefilledPassword = null;
+      } else if (_emailController.text.trim().toLowerCase() !=
+          _prefilledAccount?.trim().toLowerCase()) {
+        _prefilledPassword = null;
+        _passwordController.clear();
+      }
+    }
     if (mounted) setState(() {});
   }
 
@@ -113,20 +126,36 @@ class _LoginPageState extends State<LoginPage> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.prefill, widget.prefill)) {
       _applyPrefill(widget.prefill);
+      _autoLogin = widget.initialAutoLogin;
+      _rememberMe = widget.initialRememberMe || _autoLogin;
+      _rememberedLoginRejected = false;
+    } else {
+      if (oldWidget.initialAutoLogin != widget.initialAutoLogin) {
+        _autoLogin = widget.initialAutoLogin;
+      }
+      if (oldWidget.initialRememberMe != widget.initialRememberMe) {
+        _rememberMe = widget.initialRememberMe;
+      }
+      if (_autoLogin) _rememberMe = true;
     }
   }
 
   void _applyPrefill(LoginFormPrefill? prefill) {
-    if (prefill == null) return;
+    _applyingPrefill = true;
+    final email = prefill?.email ?? '';
+    final password = prefill?.password ?? '';
+    _prefilledAccount = email;
+    _prefilledPassword = password.isEmpty ? null : password;
     _emailController.value = TextEditingValue(
-      text: prefill.email,
-      selection: TextSelection.collapsed(offset: prefill.email.length),
+      text: email,
+      selection: TextSelection.collapsed(offset: email.length),
     );
     _passwordController.value = TextEditingValue(
-      text: prefill.password,
-      selection: TextSelection.collapsed(offset: prefill.password.length),
+      text: password,
+      selection: TextSelection.collapsed(offset: password.length),
     );
     _submitted = false;
+    _applyingPrefill = false;
   }
 
   @override
