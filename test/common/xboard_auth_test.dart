@@ -45,6 +45,136 @@ void main() {
     );
   });
 
+  test('builds the XBoard V2 login IP paths from a configured host', () {
+    final endpoint = Uri.parse('https://api.example.com:15699/base');
+    expect(
+      buildXboardLoginIpFetchUri(endpoint),
+      Uri.parse('https://api.example.com:15699/api/v2/user/login-ip/fetch'),
+    );
+    expect(
+      buildXboardLoginIpBlockUri(endpoint),
+      Uri.parse('https://api.example.com:15699/api/v2/user/login-ip/block'),
+    );
+    expect(
+      buildXboardLoginIpUnblockUri(endpoint),
+      Uri.parse('https://api.example.com:15699/api/v2/user/login-ip/unblock'),
+    );
+  });
+
+  test('loads, blocks, and unblocks login IP records', () async {
+    String? blockedIp;
+    String? blockedReason;
+    String? unblockedIp;
+    final service = XboardAuthService(
+      loginIpFetchRequester: (endpoint, authData) async {
+        expect(endpoint.path, xboardLoginIpFetchPath);
+        expect(authData, 'Bearer login-ip-token');
+        return const XboardLoginResponse(
+          statusCode: 200,
+          data: {
+            'status': 'success',
+            'data': {
+              'items': [
+                {
+                  'id': 17,
+                  'ip': '178.94.14.100',
+                  'ip_version': 4,
+                  'client_type': 'app',
+                  'client_name': 'App',
+                  'location': '乌克兰 · 基辅',
+                  'user_agent': 'FlClash/0.8.96 Windows 11',
+                  'first_login_at': 1788693000,
+                  'last_login_at': 1788699000,
+                  'login_count': 4,
+                  'is_blocked': false,
+                  'blocked_at': null,
+                  'blocked_by': null,
+                  'reason': null,
+                  'last_attempt_at': null,
+                  'denied_count': 0,
+                },
+                {
+                  'id': null,
+                  'ip': '2001:4860:4860::8888',
+                  'client_type': null,
+                  'client_name': '未产生成功登录',
+                  'location': '未知',
+                  'user_agent': null,
+                  'first_login_at': null,
+                  'last_login_at': null,
+                  'login_count': 0,
+                  'is_blocked': 1,
+                  'blocked_at': 1788700000,
+                  'blocked_by': 1,
+                  'reason': '非本人登录',
+                  'last_attempt_at': 1788701000,
+                  'denied_count': 2,
+                },
+              ],
+              'summary': {
+                'record_count': 1,
+                'unique_ip_count': 1,
+                'blocked_ip_count': 1,
+                'total_login_count': 4,
+              },
+            },
+          },
+        );
+      },
+      loginIpBlockRequester: (endpoint, authData, ip, reason) async {
+        expect(endpoint.path, xboardLoginIpBlockPath);
+        expect(authData, 'Bearer login-ip-token');
+        blockedIp = ip;
+        blockedReason = reason;
+        return const XboardLoginResponse(
+          statusCode: 200,
+          data: {'status': 'success', 'data': true},
+        );
+      },
+      loginIpUnblockRequester: (endpoint, authData, ip) async {
+        expect(endpoint.path, xboardLoginIpUnblockPath);
+        expect(authData, 'Bearer login-ip-token');
+        unblockedIp = ip;
+        return const XboardLoginResponse(
+          statusCode: 200,
+          data: {'status': 'success', 'data': true},
+        );
+      },
+    );
+
+    final result = await service.fetchLoginIps(
+      endpoint: Uri.parse('https://api.example.com/login'),
+      authData: 'Bearer login-ip-token',
+    );
+    await service.blockLoginIp(
+      endpoint: Uri.parse('https://api.example.com/login'),
+      authData: 'Bearer login-ip-token',
+      ip: result.items.first.ip,
+      reason: 'Not mine',
+    );
+    await service.unblockLoginIp(
+      endpoint: Uri.parse('https://api.example.com/login'),
+      authData: 'Bearer login-ip-token',
+      ip: result.items.last.ip,
+    );
+
+    expect(result.items, hasLength(2));
+    expect(result.items.first.id, 17);
+    expect(result.items.first.clientType, 'app');
+    expect(result.items.first.loginCount, 4);
+    expect(result.items.first.lastLoginAt, isNotNull);
+    expect(result.items.last.ipVersion, 6);
+    expect(result.items.last.isBlocked, isTrue);
+    expect(result.items.last.reason, '非本人登录');
+    expect(result.items.last.deniedCount, 2);
+    expect(result.summary.uniqueIpCount, 1);
+    expect(result.summary.blockedIpCount, 1);
+    expect(result.summary.totalLoginCount, 4);
+    expect(blockedIp, '178.94.14.100');
+    expect(blockedReason, 'Not mine');
+    expect(unblockedIp, '2001:4860:4860::8888');
+  });
+
   test('loads every XBoard notice page with tags and HTML content', () async {
     var requests = 0;
     final service = XboardAuthService(

@@ -6768,6 +6768,281 @@ class AppLocalizations {
     );
   }
 
+  /// `Login IP records`
+  String get loginIpRecords {
+    return Intl.message(
+      'Login IP records',
+      name: 'loginIpRecords',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Review account login sources and manage suspicious IP addresses.`
+  String get loginIpDescription {
+    return Intl.message(
+      'Review account login sources and manage suspicious IP addresses.',
+      name: 'loginIpDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Recorded IPs`
+  String get loginIpCount {
+    return Intl.message(
+      'Recorded IPs',
+      name: 'loginIpCount',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Blocked`
+  String get blockedIpCount {
+    return Intl.message('Blocked', name: 'blockedIpCount', desc: '', args: []);
+  }
+
+  /// `Login count`
+  String get totalLoginCount {
+    return Intl.message(
+      'Login count',
+      name: 'totalLoginCount',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unable to load login IP records`
+  String get loginIpListLoadFailed {
+    return Intl.message(
+      'Unable to load login IP records',
+      name: 'loginIpListLoadFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No login IP records`
+  String get noLoginIpRecords {
+    return Intl.message(
+      'No login IP records',
+      name: 'noLoginIpRecords',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Blocking only prevents future logins from this IP and does not end existing sessions. Company, home, or carrier networks may share one public IP, so confirm before proceeding.`
+  String get loginIpSecurityHint {
+    return Intl.message(
+      'Blocking only prevents future logins from this IP and does not end existing sessions. Company, home, or carrier networks may share one public IP, so confirm before proceeding.',
+      name: 'loginIpSecurityHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Blocked`
+  String get loginIpBlockedStatus {
+    return Intl.message(
+      'Blocked',
+      name: 'loginIpBlockedStatus',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Allowed`
+  String get loginIpAllowedStatus {
+    return Intl.message(
+      'Allowed',
+      name: 'loginIpAllowedStatus',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unknown location`
+  String get unknownLocation {
+    return Intl.message(
+      'Unknown location',
+      name: 'unknownLocation',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unknown client`
+  String get unknownClient {
+    return Intl.message(
+      'Unknown client',
+      name: 'unknownClient',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No successful login recorded`
+  String get noSuccessfulLogin {
+    return Intl.message(
+      'No successful login recorded',
+      name: 'noSuccessfulLogin',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `First sign-in: {date}`
+  String firstLoginAt(Object date) {
+    return Intl.message(
+      'First sign-in: $date',
+      name: 'firstLoginAt',
+      desc: '',
+      args: [date],
+    );
+  }
+
+  /// `Last login: {date}`
+  String lastLoginAt(Object date) {
+    return Intl.message(
+      'Last login: $date',
+      name: 'lastLoginAt',
+      desc: '',
+      args: [date],
+    );
+  }
+
+  /// `{count} logins`
+  String loginIpLoginCount(Object count) {
+    return Intl.message(
+      '$count logins',
+      name: 'loginIpLoginCount',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Reason: {reason}`
+  String loginIpBlockReason(Object reason) {
+    return Intl.message(
+      'Reason: $reason',
+      name: 'loginIpBlockReason',
+      desc: '',
+      args: [reason],
+    );
+  }
+
+  /// `Block`
+  String get blockLoginIp {
+    return Intl.message('Block', name: 'blockLoginIp', desc: '', args: []);
+  }
+
+  /// `Unblock`
+  String get unblockLoginIp {
+    return Intl.message('Unblock', name: 'unblockLoginIp', desc: '', args: []);
+  }
+
+  /// `Block this login IP?`
+  String get blockLoginIpTitle {
+    return Intl.message(
+      'Block this login IP?',
+      name: 'blockLoginIpTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This IP will no longer be able to log in to the account, but existing sessions will not be disconnected. Shared networks may also affect your other devices.`
+  String get blockLoginIpWarning {
+    return Intl.message(
+      'This IP will no longer be able to log in to the account, but existing sessions will not be disconnected. Shared networks may also affect your other devices.',
+      name: 'blockLoginIpWarning',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reason (optional)`
+  String get blockReasonOptional {
+    return Intl.message(
+      'Reason (optional)',
+      name: 'blockReasonOptional',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `For example: This wasn't me`
+  String get blockReasonHint {
+    return Intl.message(
+      'For example: This wasn\'t me',
+      name: 'blockReasonHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Block IP`
+  String get confirmBlockLoginIp {
+    return Intl.message(
+      'Block IP',
+      name: 'confirmBlockLoginIp',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unblock this IP?`
+  String get unblockLoginIpTitle {
+    return Intl.message(
+      'Unblock this IP?',
+      name: 'unblockLoginIpTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `IP {ip} will be able to log in to this account again.`
+  String unblockLoginIpMessage(Object ip) {
+    return Intl.message(
+      'IP $ip will be able to log in to this account again.',
+      name: 'unblockLoginIpMessage',
+      desc: '',
+      args: [ip],
+    );
+  }
+
+  /// `Unblock IP`
+  String get confirmUnblockLoginIp {
+    return Intl.message(
+      'Unblock IP',
+      name: 'confirmUnblockLoginIp',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Login IP blocked`
+  String get loginIpBlocked {
+    return Intl.message(
+      'Login IP blocked',
+      name: 'loginIpBlocked',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Login IP unblocked`
+  String get loginIpUnblocked {
+    return Intl.message(
+      'Login IP unblocked',
+      name: 'loginIpUnblocked',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Change password`
   String get changePasswordTitle {
     return Intl.message(

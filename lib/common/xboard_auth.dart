@@ -20,6 +20,9 @@ const xboardOrderDetailPath = '/api/v1/user/order/detail';
 const xboardOrderCancelPath = '/api/v1/user/order/cancel';
 const xboardNoticeFetchPath = '/api/v1/user/notice/fetch';
 const xboardUserInfoPath = '/api/v1/user/info';
+const xboardLoginIpFetchPath = '/api/v2/user/login-ip/fetch';
+const xboardLoginIpBlockPath = '/api/v2/user/login-ip/block';
+const xboardLoginIpUnblockPath = '/api/v2/user/login-ip/unblock';
 const xboardUserUpdatePath = '/api/v1/user/update';
 const xboardChangePasswordPath = '/api/v1/user/changePassword';
 const xboardResetSecurityPath = '/api/v1/user/resetSecurity';
@@ -416,6 +419,83 @@ class XboardUserInfo {
         ).toLocal();
 }
 
+class XboardLoginIpRecord {
+  const XboardLoginIpRecord({
+    required this.ip,
+    required this.ipVersion,
+    required this.clientName,
+    required this.location,
+    required this.loginCount,
+    required this.isBlocked,
+    required this.deniedCount,
+    required this.rawData,
+    this.id,
+    this.clientType,
+    this.userAgent,
+    this.firstLoginAtEpochSeconds,
+    this.lastLoginAtEpochSeconds,
+    this.blockedAtEpochSeconds,
+    this.blockedBy,
+    this.reason,
+    this.lastAttemptAtEpochSeconds,
+  });
+
+  final int? id;
+  final String ip;
+  final int ipVersion;
+  final String? clientType;
+  final String clientName;
+  final String location;
+  final String? userAgent;
+  final int? firstLoginAtEpochSeconds;
+  final int? lastLoginAtEpochSeconds;
+  final int loginCount;
+  final bool isBlocked;
+  final int? blockedAtEpochSeconds;
+  final int? blockedBy;
+  final String? reason;
+  final int? lastAttemptAtEpochSeconds;
+  final int deniedCount;
+  final Map<String, Object?> rawData;
+
+  DateTime? get firstLoginAt => _dateFromEpoch(firstLoginAtEpochSeconds);
+
+  DateTime? get lastLoginAt => _dateFromEpoch(lastLoginAtEpochSeconds);
+
+  DateTime? get blockedAt => _dateFromEpoch(blockedAtEpochSeconds);
+
+  DateTime? get lastAttemptAt => _dateFromEpoch(lastAttemptAtEpochSeconds);
+
+  static DateTime? _dateFromEpoch(int? value) {
+    if (value == null) return null;
+    return DateTime.fromMillisecondsSinceEpoch(
+      value * 1000,
+      isUtc: true,
+    ).toLocal();
+  }
+}
+
+class XboardLoginIpSummary {
+  const XboardLoginIpSummary({
+    required this.recordCount,
+    required this.uniqueIpCount,
+    required this.blockedIpCount,
+    required this.totalLoginCount,
+  });
+
+  final int recordCount;
+  final int uniqueIpCount;
+  final int blockedIpCount;
+  final int totalLoginCount;
+}
+
+class XboardLoginIpList {
+  const XboardLoginIpList({required this.items, required this.summary});
+
+  final List<XboardLoginIpRecord> items;
+  final XboardLoginIpSummary summary;
+}
+
 class XboardInviteCode {
   const XboardInviteCode({
     required this.code,
@@ -613,6 +693,21 @@ typedef XboardOrderCancelRequester =
     );
 typedef XboardUserInfoRequester =
     Future<XboardLoginResponse> Function(Uri endpoint, String authData);
+typedef XboardLoginIpFetchRequester =
+    Future<XboardLoginResponse> Function(Uri endpoint, String authData);
+typedef XboardLoginIpBlockRequester =
+    Future<XboardLoginResponse> Function(
+      Uri endpoint,
+      String authData,
+      String ip,
+      String? reason,
+    );
+typedef XboardLoginIpUnblockRequester =
+    Future<XboardLoginResponse> Function(
+      Uri endpoint,
+      String authData,
+      String ip,
+    );
 typedef XboardTrafficLogsRequester =
     Future<XboardLoginResponse> Function(Uri endpoint, String authData);
 typedef XboardInviteRequester =
@@ -688,6 +783,9 @@ class XboardAuthService {
     XboardOrderCancelRequester? orderCancelRequester,
     XboardNoticesRequester? noticesRequester,
     XboardUserInfoRequester? userInfoRequester,
+    XboardLoginIpFetchRequester? loginIpFetchRequester,
+    XboardLoginIpBlockRequester? loginIpBlockRequester,
+    XboardLoginIpUnblockRequester? loginIpUnblockRequester,
     XboardTrafficLogsRequester? trafficLogsRequester,
     XboardInviteRequester? inviteFetchRequester,
     XboardInviteRequester? inviteSaveRequester,
@@ -726,6 +824,9 @@ class XboardAuthService {
        _orderCancelRequester = orderCancelRequester,
        _noticesRequester = noticesRequester,
        _userInfoRequester = userInfoRequester,
+       _loginIpFetchRequester = loginIpFetchRequester,
+       _loginIpBlockRequester = loginIpBlockRequester,
+       _loginIpUnblockRequester = loginIpUnblockRequester,
        _trafficLogsRequester = trafficLogsRequester,
        _inviteFetchRequester = inviteFetchRequester,
        _inviteSaveRequester = inviteSaveRequester,
@@ -757,6 +858,9 @@ class XboardAuthService {
   final XboardOrderCancelRequester? _orderCancelRequester;
   final XboardNoticesRequester? _noticesRequester;
   final XboardUserInfoRequester? _userInfoRequester;
+  final XboardLoginIpFetchRequester? _loginIpFetchRequester;
+  final XboardLoginIpBlockRequester? _loginIpBlockRequester;
+  final XboardLoginIpUnblockRequester? _loginIpUnblockRequester;
   final XboardTrafficLogsRequester? _trafficLogsRequester;
   final XboardInviteRequester? _inviteFetchRequester;
   final XboardInviteRequester? _inviteSaveRequester;
@@ -1095,6 +1199,71 @@ class XboardAuthService {
       statusCode: response.statusCode,
       body: body,
       fallbackMessage: '个人资料暂时不可用',
+    );
+  }
+
+  Future<XboardLoginIpList> fetchLoginIps({
+    required Uri endpoint,
+    required String authData,
+  }) async {
+    final requestEndpoint = buildXboardLoginIpFetchUri(endpoint);
+    final response = await (_loginIpFetchRequester ?? _requestLoginIps)(
+      requestEndpoint,
+      authData,
+    );
+    final body = _decodeResponseMap(response.data, apiName: '登录 IP 记录接口');
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return _parseLoginIpsSuccess(requestEndpoint, body);
+    }
+    _throwAuthenticatedRequestFailure(
+      endpoint: requestEndpoint,
+      statusCode: response.statusCode,
+      body: body,
+      fallbackMessage: '登录 IP 记录暂时不可用',
+    );
+  }
+
+  Future<void> blockLoginIp({
+    required Uri endpoint,
+    required String authData,
+    required String ip,
+    String? reason,
+  }) async {
+    final requestEndpoint = buildXboardLoginIpBlockUri(endpoint);
+    final response = await (_loginIpBlockRequester ?? _requestBlockLoginIp)(
+      requestEndpoint,
+      authData,
+      ip,
+      reason,
+    );
+    final body = _decodeResponseMap(response.data, apiName: '拉黑登录 IP 接口');
+    if (response.statusCode >= 200 && response.statusCode < 300) return;
+    _throwAuthenticatedRequestFailure(
+      endpoint: requestEndpoint,
+      statusCode: response.statusCode,
+      body: body,
+      fallbackMessage: '拉黑登录 IP 失败',
+    );
+  }
+
+  Future<void> unblockLoginIp({
+    required Uri endpoint,
+    required String authData,
+    required String ip,
+  }) async {
+    final requestEndpoint = buildXboardLoginIpUnblockUri(endpoint);
+    final response = await (_loginIpUnblockRequester ?? _requestUnblockLoginIp)(
+      requestEndpoint,
+      authData,
+      ip,
+    );
+    final body = _decodeResponseMap(response.data, apiName: '解除登录 IP 接口');
+    if (response.statusCode >= 200 && response.statusCode < 300) return;
+    _throwAuthenticatedRequestFailure(
+      endpoint: requestEndpoint,
+      statusCode: response.statusCode,
+      body: body,
+      fallbackMessage: '解除登录 IP 失败',
     );
   }
 
@@ -2374,6 +2543,56 @@ class XboardAuthService {
     );
   }
 
+  Future<XboardLoginResponse> _requestLoginIps(
+    Uri endpoint,
+    String authData,
+  ) async {
+    final response = await _dio.getUri<Object?>(
+      endpoint,
+      options: _authenticatedOptions(authData),
+    );
+    return XboardLoginResponse(
+      statusCode: response.statusCode ?? 0,
+      data: response.data,
+    );
+  }
+
+  Future<XboardLoginResponse> _requestBlockLoginIp(
+    Uri endpoint,
+    String authData,
+    String ip,
+    String? reason,
+  ) async {
+    final response = await _dio.postUri<Object?>(
+      endpoint,
+      data: FormData.fromMap({
+        'ip': ip,
+        if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+      }),
+      options: _authenticatedOptions(authData),
+    );
+    return XboardLoginResponse(
+      statusCode: response.statusCode ?? 0,
+      data: response.data,
+    );
+  }
+
+  Future<XboardLoginResponse> _requestUnblockLoginIp(
+    Uri endpoint,
+    String authData,
+    String ip,
+  ) async {
+    final response = await _dio.postUri<Object?>(
+      endpoint,
+      data: FormData.fromMap({'ip': ip}),
+      options: _authenticatedOptions(authData),
+    );
+    return XboardLoginResponse(
+      statusCode: response.statusCode ?? 0,
+      data: response.data,
+    );
+  }
+
   Future<XboardLoginResponse> _requestTrafficLogs(
     Uri endpoint,
     String authData,
@@ -2652,6 +2871,18 @@ Uri buildXboardNoticeFetchUri(Uri baseEndpoint, {int current = 1}) {
 
 Uri buildXboardUserInfoUri(Uri baseEndpoint) {
   return baseEndpoint.resolve(xboardUserInfoPath);
+}
+
+Uri buildXboardLoginIpFetchUri(Uri baseEndpoint) {
+  return baseEndpoint.resolve(xboardLoginIpFetchPath);
+}
+
+Uri buildXboardLoginIpBlockUri(Uri baseEndpoint) {
+  return baseEndpoint.resolve(xboardLoginIpBlockPath);
+}
+
+Uri buildXboardLoginIpUnblockUri(Uri baseEndpoint) {
+  return baseEndpoint.resolve(xboardLoginIpUnblockPath);
 }
 
 Uri buildXboardUserUpdateUri(Uri baseEndpoint) {
@@ -3175,6 +3406,83 @@ XboardUserInfo _parseUserInfoSuccess(
         ? null
         : expiredAt,
     rawData: Map.unmodifiable(data),
+  );
+}
+
+XboardLoginIpList _parseLoginIpsSuccess(
+  Uri endpoint,
+  Map<String, Object?> response,
+) {
+  final rawData = response['data'];
+  if (rawData is! Map) {
+    throw XboardAuthException(
+      failure: XboardAuthFailure.invalidResponse,
+      message: '登录 IP 记录接口响应缺少 data 字段',
+      endpoint: endpoint,
+    );
+  }
+  final data = rawData.map((key, value) => MapEntry(key.toString(), value));
+  final rawItems = data['items'];
+  final rawSummary = data['summary'];
+  if (rawItems is! List || rawSummary is! Map) {
+    throw XboardAuthException(
+      failure: XboardAuthFailure.invalidResponse,
+      message: '登录 IP 记录接口返回的数据不完整',
+      endpoint: endpoint,
+    );
+  }
+  final items = rawItems
+      .map((rawItem) {
+        if (rawItem is! Map) {
+          throw XboardAuthException(
+            failure: XboardAuthFailure.invalidResponse,
+            message: '登录 IP 记录格式不正确',
+            endpoint: endpoint,
+          );
+        }
+        final item = rawItem.map(
+          (key, value) => MapEntry(key.toString(), value),
+        );
+        final ip = _asString(item['ip']);
+        if (ip == null) {
+          throw XboardAuthException(
+            failure: XboardAuthFailure.invalidResponse,
+            message: '登录 IP 记录缺少 IP 地址',
+            endpoint: endpoint,
+          );
+        }
+        return XboardLoginIpRecord(
+          id: _asInt(item['id']),
+          ip: ip,
+          ipVersion: _asInt(item['ip_version']) ?? (ip.contains(':') ? 6 : 4),
+          clientType: _asString(item['client_type']),
+          clientName: _asString(item['client_name']) ?? '未知客户端',
+          location: _asString(item['location']) ?? '未知',
+          userAgent: _asString(item['user_agent']),
+          firstLoginAtEpochSeconds: _asEpochSeconds(item['first_login_at']),
+          lastLoginAtEpochSeconds: _asEpochSeconds(item['last_login_at']),
+          loginCount: _asInt(item['login_count']) ?? 0,
+          isBlocked: _asBool(item['is_blocked']),
+          blockedAtEpochSeconds: _asEpochSeconds(item['blocked_at']),
+          blockedBy: _asInt(item['blocked_by']),
+          reason: _asString(item['reason']),
+          lastAttemptAtEpochSeconds: _asEpochSeconds(item['last_attempt_at']),
+          deniedCount: _asInt(item['denied_count']) ?? 0,
+          rawData: Map.unmodifiable(item),
+        );
+      })
+      .toList(growable: false);
+  final summary = rawSummary.map(
+    (key, value) => MapEntry(key.toString(), value),
+  );
+  return XboardLoginIpList(
+    items: List.unmodifiable(items),
+    summary: XboardLoginIpSummary(
+      recordCount: _asInt(summary['record_count']) ?? items.length,
+      uniqueIpCount: _asInt(summary['unique_ip_count']) ?? 0,
+      blockedIpCount: _asInt(summary['blocked_ip_count']) ?? 0,
+      totalLoginCount: _asInt(summary['total_login_count']) ?? 0,
+    ),
   );
 }
 

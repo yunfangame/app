@@ -19,15 +19,15 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(globalState.clearXboardSession);
       globalState.xboardSession = _testSession();
-      var preferencesUpdated = false;
       var passwordChanged = false;
+      final loginIpState = _LoginIpTestState();
 
       await tester.pumpWidget(
         _TestApp(
           child: FengWoPersonalCenterView(
             authService: _testService(
-              onPreferencesUpdated: () => preferencesUpdated = true,
               onPasswordChanged: () => passwordChanged = true,
+              loginIpState: loginIpState,
             ),
           ),
         ),
@@ -48,10 +48,13 @@ void main() {
       );
       expect(find.byKey(const ValueKey('account-wallet-card')), findsOne);
       expect(find.byKey(const ValueKey('account-password-card')), findsOne);
+      expect(find.byKey(const ValueKey('account-login-ip-card')), findsOne);
       expect(
         find.byKey(const ValueKey('account-notifications-card')),
-        findsOne,
+        findsNothing,
       );
+      expect(find.byKey(const ValueKey('login-ip-17-app')), findsOne);
+      expect(find.byKey(const ValueKey('login-ip-18-web')), findsOne);
       expect(find.byKey(const ValueKey('account-auto-renew-row')), findsOne);
       expect(find.byKey(const ValueKey('reset-subscription-card')), findsOne);
       expect(find.byKey(const ValueKey('account-logout-button')), findsNothing);
@@ -74,15 +77,24 @@ void main() {
       expect(tester.widget<Switch>(autoRenewSwitch).value, isFalse);
       expect(tester.widget<Switch>(autoRenewSwitch).onChanged, isNull);
 
-      final reminderSwitch = find
-          .descendant(
-            of: find.byKey(const ValueKey('account-notifications-card')),
-            matching: find.byType(Switch),
-          )
-          .first;
-      await tester.tap(reminderSwitch);
+      final blockButton = find.byKey(
+        const ValueKey('block-login-ip-17-178.94.14.100'),
+      );
+      await tester.ensureVisible(blockButton);
       await tester.pumpAndSettle();
-      expect(preferencesUpdated, isTrue);
+      await tester.tap(blockButton);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('block-login-ip-reason-field')),
+        'not mine',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('confirm-block-login-ip-button')),
+      );
+      await tester.pumpAndSettle();
+      expect(loginIpState.blockedIp, '178.94.14.100');
+      expect(loginIpState.blockReason, 'not mine');
+      expect(loginIpState.firstIpBlocked, isTrue);
 
       await tester.enterText(
         find.descendant(
@@ -105,7 +117,12 @@ void main() {
         ),
         'new-secret',
       );
-      await tester.tap(find.byKey(const ValueKey('save-password-button')));
+      final savePasswordButton = find.byKey(
+        const ValueKey('save-password-button'),
+      );
+      await tester.ensureVisible(savePasswordButton);
+      await tester.pumpAndSettle();
+      await tester.tap(savePasswordButton);
       await tester.pumpAndSettle();
 
       expect(passwordChanged, isTrue);
@@ -142,6 +159,7 @@ void main() {
     expect(find.byKey(const ValueKey('account-profile-card')), findsOne);
     expect(find.byKey(const ValueKey('account-wallet-card')), findsOne);
     expect(find.byKey(const ValueKey('account-auto-renew-row')), findsOne);
+    expect(find.byKey(const ValueKey('account-login-ip-card')), findsOne);
     expect(find.byKey(const ValueKey('reset-subscription-card')), findsOne);
     final logoutButton = find.byKey(const ValueKey('account-logout-button'));
     expect(logoutButton, findsOneWidget);
@@ -166,12 +184,99 @@ void main() {
     expect(logoutCalled, isTrue);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('blocked login IP can be unblocked after confirmation', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(globalState.clearXboardSession);
+    globalState.xboardSession = _testSession();
+    final loginIpState = _LoginIpTestState();
+
+    await tester.pumpWidget(
+      _TestApp(
+        mobileLayout: true,
+        child: FengWoPersonalCenterView(
+          authService: _testService(loginIpState: loginIpState),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final unblockButton = find.byKey(
+      const ValueKey('unblock-login-ip-18-8.8.8.8'),
+    );
+    await tester.ensureVisible(unblockButton);
+    await tester.pumpAndSettle();
+    await tester.tap(unblockButton);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('confirm-unblock-login-ip-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(loginIpState.unblockedIp, '8.8.8.8');
+    expect(loginIpState.secondIpBlocked, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('login IP card exposes retry after an API failure', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(760, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(globalState.clearXboardSession);
+    globalState.xboardSession = _testSession();
+    final loginIpState = _LoginIpTestState()..failFetch = true;
+
+    await tester.pumpWidget(
+      _TestApp(
+        child: FengWoPersonalCenterView(
+          authService: _testService(loginIpState: loginIpState),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('login-ip-error-state')), findsOne);
+    expect(find.byKey(const ValueKey('retry-login-ip-list-button')), findsOne);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('login IP card renders an empty state', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(globalState.clearXboardSession);
+    globalState.xboardSession = _testSession();
+    final loginIpState = _LoginIpTestState()..empty = true;
+
+    await tester.pumpWidget(
+      _TestApp(
+        mobileLayout: true,
+        child: FengWoPersonalCenterView(
+          authService: _testService(loginIpState: loginIpState),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('login-ip-empty-state')), findsOne);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 XboardAuthService _testService({
-  VoidCallback? onPreferencesUpdated,
   VoidCallback? onPasswordChanged,
+  _LoginIpTestState? loginIpState,
 }) {
+  final state = loginIpState ?? _LoginIpTestState();
   return XboardAuthService(
     userInfoRequester: (endpoint, authData) async {
       return const XboardLoginResponse(
@@ -190,16 +295,77 @@ XboardAuthService _testService({
         },
       );
     },
-    userUpdateRequester:
-        (endpoint, authData, remindExpire, remindTraffic) async {
-          expect(remindExpire, isFalse);
-          expect(remindTraffic, isFalse);
-          onPreferencesUpdated?.call();
-          return const XboardLoginResponse(
-            statusCode: 200,
-            data: {'data': true},
-          );
+    loginIpFetchRequester: (endpoint, authData) async {
+      if (state.failFetch) {
+        return const XboardLoginResponse(
+          statusCode: 503,
+          data: {'message': 'temporary unavailable'},
+        );
+      }
+      return XboardLoginResponse(
+        statusCode: 200,
+        data: {
+          'data': {
+            'items': state.empty
+                ? const <Map<String, Object?>>[]
+                : [
+                    {
+                      'id': 17,
+                      'ip': '178.94.14.100',
+                      'ip_version': 4,
+                      'client_type': 'app',
+                      'client_name': 'App',
+                      'location': '乌克兰',
+                      'user_agent': 'FlClash/0.8.96 Windows 11',
+                      'first_login_at': 1788693000,
+                      'last_login_at': 1788699000,
+                      'login_count': 4,
+                      'is_blocked': state.firstIpBlocked,
+                      'reason': state.firstIpBlocked ? state.blockReason : null,
+                      'denied_count': 0,
+                    },
+                    {
+                      'id': 18,
+                      'ip': '8.8.8.8',
+                      'ip_version': 4,
+                      'client_type': 'web',
+                      'client_name': '网页端',
+                      'location': '美国',
+                      'user_agent': 'Chrome 140 macOS',
+                      'first_login_at': 1788600000,
+                      'last_login_at': 1788680000,
+                      'login_count': 3,
+                      'is_blocked': state.secondIpBlocked,
+                      'reason': state.secondIpBlocked ? '非本人登录' : null,
+                      'denied_count': 1,
+                    },
+                  ],
+            'summary': {
+              'record_count': state.empty ? 0 : 2,
+              'unique_ip_count': state.empty ? 0 : 2,
+              'blocked_ip_count':
+                  [
+                    state.firstIpBlocked,
+                    state.secondIpBlocked,
+                  ].where((value) => value).length *
+                  (state.empty ? 0 : 1),
+              'total_login_count': state.empty ? 0 : 7,
+            },
+          },
         },
+      );
+    },
+    loginIpBlockRequester: (endpoint, authData, ip, reason) async {
+      state.blockedIp = ip;
+      state.blockReason = reason;
+      if (ip == '178.94.14.100') state.firstIpBlocked = true;
+      return const XboardLoginResponse(statusCode: 200, data: {'data': true});
+    },
+    loginIpUnblockRequester: (endpoint, authData, ip) async {
+      state.unblockedIp = ip;
+      if (ip == '8.8.8.8') state.secondIpBlocked = false;
+      return const XboardLoginResponse(statusCode: 200, data: {'data': true});
+    },
     changePasswordRequester:
         (endpoint, authData, oldPassword, newPassword) async {
           expect(oldPassword, 'old-secret');
@@ -213,13 +379,24 @@ XboardAuthService _testService({
   );
 }
 
-XboardLoginResult _testSession() {
+class _LoginIpTestState {
+  bool firstIpBlocked = false;
+  bool secondIpBlocked = true;
+  bool failFetch = false;
+  bool empty = false;
+  String? blockedIp;
+  String? blockReason;
+  String? unblockedIp;
+}
+
+XboardLoginResult _testSession({bool secureSubscription = false}) {
   final endpoint = Uri.parse('https://api.example.com');
   return XboardLoginResult(
     endpoint: endpoint,
     token: 'subscription-token',
     authData: 'Bearer account-token',
     isAdmin: false,
+    secureSubscription: secureSubscription,
     subscription: XboardSubscriptionData(
       endpoint: endpoint,
       subscribeUrl: Uri.parse('https://api.example.com/subscribe'),
