@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:fl_clash/common/macos_proxy_guard.dart';
+import 'package:fl_clash/common/proxy.dart' show systemProxyRefreshSignal;
 import 'package:fl_clash/common/windows_proxy_guard.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
@@ -36,6 +38,13 @@ const _readbackFailure = ProxyOperationResult(
   operation: 'inspect',
   stage: 'readback_mismatch',
   enabled: false,
+);
+const _fallbackPending = ProxyOperationResult(
+  success: true,
+  operation: 'start',
+  stage: 'fallback_pending',
+  enabled: false,
+  fallbackUsed: true,
 );
 
 class _ProxyClient extends Proxy {
@@ -74,6 +83,7 @@ class _Guard extends WindowsProxyGuard {
   _Guard(_ProxyClient client)
     : super(
         inspector: client.inspectProxy,
+        starter: client.startProxyDetailed,
         stopper: (port) => client.stopProxyDetailed(expectedPort: port),
         verificationDelay: Duration.zero,
       );
@@ -97,6 +107,31 @@ class _Guard extends WindowsProxyGuard {
   }
 }
 
+class _MacGuard extends MacOSProxyGuard {
+  _MacGuard(_ProxyClient client)
+    : super(
+        inspector: client.inspectProxy,
+        starter: client.startProxyDetailed,
+        stopper: (port) => client.stopProxyDetailed(expectedPort: port),
+        verificationDelay: Duration.zero,
+      );
+
+  @override
+  Future<MacOSProxyReadinessResult> waitUntilReadyDetailed(
+    int port, {
+    bool Function()? isCancelled,
+  }) async {
+    return MacOSProxyReadinessResult(
+      status: isCancelled?.call() == true
+          ? MacOSProxyReadinessStatus.cancelled
+          : MacOSProxyReadinessStatus.ready,
+      port: port,
+      attempts: 1,
+      elapsed: Duration.zero,
+    );
+  }
+}
+
 class _Setup extends SetupAction {
   final requests = <bool>[];
   Completer<void>? stopCompletion;
@@ -113,6 +148,7 @@ class _Setup extends SetupAction {
 class _Rig {
   final client = _ProxyClient();
   late final guard = _Guard(client);
+  late final macGuard = _MacGuard(client);
   final notifications = <String>[];
   late final ProviderContainer container;
   late final _Setup setup;
@@ -122,6 +158,8 @@ class _Rig {
     bool tunRequested = false,
     bool tunAuthorized = false,
     bool isWindows = true,
+    bool isMacOS = false,
+    Duration macOSProxyGuardInterval = const Duration(seconds: 5),
   }) async {
     container = ProviderContainer(
       overrides: [
@@ -152,7 +190,10 @@ class _Rig {
           home: ProxyManager(
             proxyClient: client,
             windowsProxyGuard: isWindows ? guard : null,
+            macOSProxyGuard: isMacOS ? macGuard : null,
             isWindows: isWindows,
+            isMacOS: isMacOS,
+            macOSProxyGuardInterval: macOSProxyGuardInterval,
             notify: notifications.add,
             child: const SizedBox(),
           ),
@@ -404,5 +445,76 @@ void main() {
     expect(rig.setup.requests, isEmpty);
     expect(rig.container.read(runTimeProvider), 1);
     expect(rig.container.read(networkSettingProvider).systemProxy, isFalse);
+  });
+
+  testWidgets('macOS native failure rolls back the requested run state', (
+    tester,
+  ) async {
+    final rig = _Rig();
+    rig.client.start = (_) async => _writeFailure;
+
+    await rig.mount(tester, isWindows: false, isMacOS: true);
+    await tester.pumpAndSettle();
+
+    expect(rig.client.startPorts, [7890]);
+    expect(rig.setup.requests, [false]);
+    expect(rig.container.read(runTimeProvider), isNull);
+    expect(rig.container.read(networkSettingProvider).systemProxy, isFalse);
+  });
+
+  testWidgets('macOS network signal reapplies an overwritten system proxy', (
+    tester,
+  ) async {
+    final rig = _Rig();
+    rig.client.start = (_) async {
+      rig.client.inspection = _started;
+      return _started;
+    };
+
+    await rig.mount(tester, isWindows: false, isMacOS: true);
+    await tester.pumpAndSettle();
+    rig.client.inspection = _readbackFailure;
+    await systemProxyRefreshSignal.request();
+    await tester.pump();
+
+    expect(rig.client.startPorts, [7890, 7890]);
+    expect(rig.client.inspections, greaterThanOrEqualTo(2));
+    expect(rig.container.read(networkSettingProvider).systemProxy, isTrue);
+  });
+
+  testWidgets('Windows network signal reapplies an overwritten system proxy', (
+    tester,
+  ) async {
+    final rig = _Rig();
+    rig.client.start = (_) async {
+      rig.client.inspection = _started;
+      return _started;
+    };
+
+    await rig.mount(tester);
+    await tester.pumpAndSettle();
+    rig.client.inspection = _readbackFailure;
+    await systemProxyRefreshSignal.request();
+    await tester.pump();
+
+    expect(rig.client.startPorts, [7890, 7890]);
+    expect(rig.client.inspections, greaterThanOrEqualTo(3));
+    expect(rig.container.read(networkSettingProvider).systemProxy, isTrue);
+  });
+
+  testWidgets('macOS fallback stays armed while no primary network exists', (
+    tester,
+  ) async {
+    final rig = _Rig();
+    rig.client.start = (_) async => _fallbackPending;
+    rig.client.inspection = _readbackFailure;
+
+    await rig.mount(tester, isWindows: false, isMacOS: true);
+    await tester.pumpAndSettle();
+
+    expect(rig.client.startPorts, [7890]);
+    expect(rig.setup.requests, isEmpty);
+    expect(rig.container.read(runTimeProvider), 1);
+    expect(rig.container.read(networkSettingProvider).systemProxy, isTrue);
   });
 }

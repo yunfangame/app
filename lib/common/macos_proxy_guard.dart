@@ -3,18 +3,18 @@ import 'dart:io';
 
 import 'package:proxy/proxy.dart';
 
-typedef WindowsProxyInspector =
+typedef MacOSProxyInspector =
     Future<ProxyOperationResult> Function(int expectedPort);
-typedef WindowsProxyStarter =
+typedef MacOSProxyStarter =
     Future<ProxyOperationResult> Function(int port, List<String> bypassDomains);
-typedef WindowsProxyStopper =
+typedef MacOSProxyStopper =
     Future<ProxyOperationResult> Function(int expectedPort);
-typedef WindowsProxyPortProbe = Future<bool> Function(int port);
+typedef MacOSProxyPortProbe = Future<bool> Function(int port);
 
-enum WindowsProxyReadinessStatus { ready, timedOut, cancelled, invalidPort }
+enum MacOSProxyReadinessStatus { ready, timedOut, cancelled, invalidPort }
 
-class WindowsProxyReadinessResult {
-  const WindowsProxyReadinessResult({
+class MacOSProxyReadinessResult {
+  const MacOSProxyReadinessResult({
     required this.status,
     required this.port,
     required this.attempts,
@@ -23,14 +23,14 @@ class WindowsProxyReadinessResult {
     this.lastOsErrorCode,
   });
 
-  final WindowsProxyReadinessStatus status;
+  final MacOSProxyReadinessStatus status;
   final int port;
   final int attempts;
   final Duration elapsed;
   final String? lastErrorType;
   final int? lastOsErrorCode;
 
-  bool get ready => status == WindowsProxyReadinessStatus.ready;
+  bool get ready => status == MacOSProxyReadinessStatus.ready;
 
   Map<String, Object?> toDiagnosticData() => {
     'address': '127.0.0.1',
@@ -45,8 +45,8 @@ class WindowsProxyReadinessResult {
   };
 }
 
-class _WindowsProxyPortProbeResult {
-  const _WindowsProxyPortProbeResult({
+class _MacOSProxyPortProbeResult {
+  const _MacOSProxyPortProbeResult({
     required this.available,
     this.errorType,
     this.osErrorCode,
@@ -57,7 +57,7 @@ class _WindowsProxyPortProbeResult {
   final int? osErrorCode;
 }
 
-enum WindowsProxyRepairStatus {
+enum MacOSProxyRepairStatus {
   cancelled,
   notOwned,
   active,
@@ -65,40 +65,38 @@ enum WindowsProxyRepairStatus {
   cleanupFailed,
 }
 
-class WindowsProxyRepairResult {
-  const WindowsProxyRepairResult({
+class MacOSProxyRepairResult {
+  const MacOSProxyRepairResult({
     required this.status,
     required this.inspection,
     this.cleanup,
   });
 
-  final WindowsProxyRepairStatus status;
+  final MacOSProxyRepairStatus status;
   final ProxyOperationResult inspection;
   final ProxyOperationResult? cleanup;
 }
 
-class WindowsProxyReconcileResult {
-  const WindowsProxyReconcileResult({
+class MacOSProxyReconcileResult {
+  const MacOSProxyReconcileResult({
     required this.inspection,
     this.repair,
-    this.verification,
     this.readiness,
   });
 
   final ProxyOperationResult inspection;
   final ProxyOperationResult? repair;
-  final ProxyOperationResult? verification;
-  final WindowsProxyReadinessResult? readiness;
+  final MacOSProxyReadinessResult? readiness;
 
-  bool get repaired => repair?.success == true && verification?.success == true;
+  bool get repaired => repair?.success == true;
 }
 
-class WindowsProxyGuard {
-  WindowsProxyGuard({
-    required WindowsProxyInspector inspector,
-    WindowsProxyStarter? starter,
-    required WindowsProxyStopper stopper,
-    WindowsProxyPortProbe? portProbe,
+class MacOSProxyGuard {
+  MacOSProxyGuard({
+    required MacOSProxyInspector inspector,
+    required MacOSProxyStarter starter,
+    required MacOSProxyStopper stopper,
+    MacOSProxyPortProbe? portProbe,
     this.readyTimeout = const Duration(seconds: 5),
     this.probeTimeout = const Duration(milliseconds: 350),
     this.retryInterval = const Duration(milliseconds: 200),
@@ -108,10 +106,10 @@ class WindowsProxyGuard {
        _stopper = stopper,
        _portProbe = portProbe ?? _probeLoopbackPort;
 
-  final WindowsProxyInspector _inspector;
-  final WindowsProxyStarter? _starter;
-  final WindowsProxyStopper _stopper;
-  final WindowsProxyPortProbe _portProbe;
+  final MacOSProxyInspector _inspector;
+  final MacOSProxyStarter _starter;
+  final MacOSProxyStopper _stopper;
+  final MacOSProxyPortProbe _portProbe;
   final Duration readyTimeout;
   final Duration probeTimeout;
   final Duration retryInterval;
@@ -122,59 +120,13 @@ class WindowsProxyGuard {
     bool Function()? isCancelled,
   }) async {
     if (isCancelled?.call() == true) return null;
-    if (verificationDelay > Duration.zero) {
-      await Future<void>.delayed(verificationDelay);
-    }
+    await Future<void>.delayed(verificationDelay);
     if (isCancelled?.call() == true) return null;
     final result = await _inspector(port);
     return isCancelled?.call() == true ? null : result;
   }
 
-  Future<bool> waitUntilReady(int port, {bool Function()? isCancelled}) async {
-    return (await waitUntilReadyDetailed(port, isCancelled: isCancelled)).ready;
-  }
-
-  Future<WindowsProxyReconcileResult?> reconcile(
-    int port,
-    List<String> bypassDomains, {
-    bool Function()? isCancelled,
-  }) async {
-    if (isCancelled?.call() == true) return null;
-    final inspection = await _inspector(port);
-    if (isCancelled?.call() == true) return null;
-    if (inspection.success || _starter == null) {
-      return WindowsProxyReconcileResult(inspection: inspection);
-    }
-    final readiness = await waitUntilReadyDetailed(
-      port,
-      isCancelled: isCancelled,
-    );
-    if (!readiness.ready || isCancelled?.call() == true) {
-      return WindowsProxyReconcileResult(
-        inspection: inspection,
-        readiness: readiness,
-      );
-    }
-    final repair = await _starter(port, bypassDomains);
-    if (isCancelled?.call() == true) return null;
-    if (!repair.success) {
-      return WindowsProxyReconcileResult(
-        inspection: inspection,
-        repair: repair,
-        readiness: readiness,
-      );
-    }
-    final verification = await verifyAfterApply(port, isCancelled: isCancelled);
-    if (verification == null) return null;
-    return WindowsProxyReconcileResult(
-      inspection: inspection,
-      repair: repair,
-      verification: verification,
-      readiness: readiness,
-    );
-  }
-
-  Future<WindowsProxyReadinessResult> waitUntilReadyDetailed(
+  Future<MacOSProxyReadinessResult> waitUntilReadyDetailed(
     int port, {
     bool Function()? isCancelled,
   }) async {
@@ -183,9 +135,9 @@ class WindowsProxyGuard {
     String? lastErrorType;
     int? lastOsErrorCode;
 
-    WindowsProxyReadinessResult finish(WindowsProxyReadinessStatus status) {
+    MacOSProxyReadinessResult finish(MacOSProxyReadinessStatus status) {
       watch.stop();
-      return WindowsProxyReadinessResult(
+      return MacOSProxyReadinessResult(
         status: status,
         port: port,
         attempts: attempts,
@@ -197,14 +149,14 @@ class WindowsProxyGuard {
 
     while (true) {
       if (isCancelled?.call() == true) {
-        return finish(WindowsProxyReadinessStatus.cancelled);
+        return finish(MacOSProxyReadinessStatus.cancelled);
       }
       if (port < 1 || port > 65535) {
-        return finish(WindowsProxyReadinessStatus.invalidPort);
+        return finish(MacOSProxyReadinessStatus.invalidPort);
       }
       final remaining = readyTimeout - watch.elapsed;
       if (remaining <= Duration.zero) {
-        return finish(WindowsProxyReadinessStatus.timedOut);
+        return finish(MacOSProxyReadinessStatus.timedOut);
       }
       attempts++;
       final result = await _probePort(
@@ -216,13 +168,13 @@ class WindowsProxyGuard {
         lastOsErrorCode = result.osErrorCode;
       }
       if (isCancelled?.call() == true) {
-        return finish(WindowsProxyReadinessStatus.cancelled);
+        return finish(MacOSProxyReadinessStatus.cancelled);
       }
       if (watch.elapsed >= readyTimeout) {
-        return finish(WindowsProxyReadinessStatus.timedOut);
+        return finish(MacOSProxyReadinessStatus.timedOut);
       }
       if (result.available) {
-        return finish(WindowsProxyReadinessStatus.ready);
+        return finish(MacOSProxyReadinessStatus.ready);
       }
       final retryBudget = readyTimeout - watch.elapsed;
       await Future<void>.delayed(
@@ -231,70 +183,99 @@ class WindowsProxyGuard {
     }
   }
 
-  Future<WindowsProxyRepairResult> repairStale(
+  Future<MacOSProxyReconcileResult?> reconcile(
+    int port,
+    List<String> bypassDomains, {
+    bool Function()? isCancelled,
+  }) async {
+    if (isCancelled?.call() == true) return null;
+    final inspection = await _inspector(port);
+    if (isCancelled?.call() == true) return null;
+    if (inspection.success) {
+      return MacOSProxyReconcileResult(inspection: inspection);
+    }
+    final readiness = await waitUntilReadyDetailed(
+      port,
+      isCancelled: isCancelled,
+    );
+    if (!readiness.ready || isCancelled?.call() == true) {
+      return MacOSProxyReconcileResult(
+        inspection: inspection,
+        readiness: readiness,
+      );
+    }
+    final repair = await _starter(port, bypassDomains);
+    if (isCancelled?.call() == true) return null;
+    return MacOSProxyReconcileResult(
+      inspection: inspection,
+      repair: repair,
+      readiness: readiness,
+    );
+  }
+
+  Future<MacOSProxyRepairResult> repairStale(
     int port, {
     bool Function()? isCancelled,
   }) async {
     final inspection = await _inspector(port);
     if (isCancelled?.call() == true) {
-      return WindowsProxyRepairResult(
-        status: WindowsProxyRepairStatus.cancelled,
+      return MacOSProxyRepairResult(
+        status: MacOSProxyRepairStatus.cancelled,
         inspection: inspection,
       );
     }
-    final expectedServer = '127.0.0.1:$port';
-    if (inspection.enabled != true || inspection.server != expectedServer) {
-      return WindowsProxyRepairResult(
-        status: WindowsProxyRepairStatus.notOwned,
+    if (inspection.enabled != true || inspection.server != '127.0.0.1:$port') {
+      return MacOSProxyRepairResult(
+        status: MacOSProxyRepairStatus.notOwned,
         inspection: inspection,
       );
     }
     final portResult = await _probePort(port, timeout: probeTimeout);
     if (isCancelled?.call() == true) {
-      return WindowsProxyRepairResult(
-        status: WindowsProxyRepairStatus.cancelled,
+      return MacOSProxyRepairResult(
+        status: MacOSProxyRepairStatus.cancelled,
         inspection: inspection,
       );
     }
     if (portResult.available) {
-      return WindowsProxyRepairResult(
-        status: WindowsProxyRepairStatus.active,
+      return MacOSProxyRepairResult(
+        status: MacOSProxyRepairStatus.active,
         inspection: inspection,
       );
     }
     final cleanup = await _stopper(port);
-    return WindowsProxyRepairResult(
+    return MacOSProxyRepairResult(
       status: cleanup.success
-          ? WindowsProxyRepairStatus.cleaned
-          : WindowsProxyRepairStatus.cleanupFailed,
+          ? MacOSProxyRepairStatus.cleaned
+          : MacOSProxyRepairStatus.cleanupFailed,
       inspection: inspection,
       cleanup: cleanup,
     );
   }
 
-  Future<_WindowsProxyPortProbeResult> _probePort(
+  Future<_MacOSProxyPortProbeResult> _probePort(
     int port, {
     required Duration timeout,
   }) async {
     try {
       final available = await _portProbe(port).timeout(timeout);
-      return _WindowsProxyPortProbeResult(
+      return _MacOSProxyPortProbeResult(
         available: available,
         errorType: available ? null : 'unavailable',
       );
     } on SocketException catch (error) {
-      return _WindowsProxyPortProbeResult(
+      return _MacOSProxyPortProbeResult(
         available: false,
         errorType: 'socket_exception',
         osErrorCode: error.osError?.errorCode,
       );
     } on TimeoutException {
-      return const _WindowsProxyPortProbeResult(
+      return const _MacOSProxyPortProbeResult(
         available: false,
         errorType: 'timeout',
       );
     } catch (_) {
-      return const _WindowsProxyPortProbeResult(
+      return const _MacOSProxyPortProbeResult(
         available: false,
         errorType: 'probe_error',
       );

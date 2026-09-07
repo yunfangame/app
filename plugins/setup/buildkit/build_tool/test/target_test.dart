@@ -42,4 +42,31 @@ void main() {
       );
     });
   });
+
+  group('resolveMacosTargets', () {
+    test('resolves a Universal 2 build to both macOS architectures', () {
+      final targets = Target.resolveMacosTargets(
+        archName: 'universal',
+        hostArch: 'arm64',
+      );
+
+      expect(targets, [Target.macosArm64, Target.macosAmd64]);
+    });
+
+    test('uses the host architecture when no override is provided', () {
+      final targets = Target.resolveMacosTargets(hostArch: 'amd64');
+
+      expect(targets, [Target.macosAmd64]);
+    });
+
+    test('rejects unsupported macOS architectures', () {
+      expect(
+        () => Target.resolveMacosTargets(
+          archName: 'riscv64',
+          hostArch: 'arm64',
+        ),
+        throwsA(isA<BuildException>()),
+      );
+    });
+  });
 }

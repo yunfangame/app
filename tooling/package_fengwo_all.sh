@@ -5,8 +5,7 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 version="$(sed -n 's/^version: \([^+]*\).*/\1/p' "$repo_root/pubspec.yaml" | head -1)"
 build_date="$(date +%Y%m%d)"
 output_root="${1:-/Users/lilaibin/Documents/lilaibin/蜂窝加速器-${version}-${build_date}}"
-macos_arm64_package="$output_root/macOS/蜂窝加速器-macOS-arm.dmg"
-macos_amd64_package="$output_root/macOS/蜂窝加速器-macOS-amd.dmg"
+macos_universal_package="$output_root/macOS/蜂窝加速器-macOS-Universal2.pkg"
 toolchains_root="${repo_root}-toolchains"
 local_flutter="$(find "$toolchains_root" -maxdepth 4 -type f -path '*/flutter/bin/flutter' 2>/dev/null | sort | tail -1)"
 
@@ -179,64 +178,53 @@ test_android_launch() {
 }
 
 package_macos() {
-  local xcode_arch="$1"
-  local output_arch="$2"
   local source target
-  FLUTTER_XCODE_ARCHS="$xcode_arch" "$dart_bin" setup.dart macos --env stable --targets dmg --macos-file-secret-storage
-  source="$(find "$repo_root/dist" -maxdepth 1 -type f -name '*macos-*.dmg' -print | sort | tail -1)"
+  "$dart_bin" setup.dart macos --env stable --targets pkg --macos-file-secret-storage
+  source="$(find "$repo_root/dist" -maxdepth 1 -type f -name '*macos-universal.pkg' -print | sort | tail -1)"
   if [[ -z "$source" ]]; then
-    printf '找不到 macOS %s 安装包。\n' "$output_arch" >&2
+    printf '找不到 macOS Universal 2 安装包。\n' >&2
     exit 1
   fi
-  case "$output_arch" in
-    arm64) target="$macos_arm64_package" ;;
-    amd64) target="$macos_amd64_package" ;;
-    *) printf '不支持的 macOS 输出架构：%s\n' "$output_arch" >&2; exit 1 ;;
-  esac
+  target="$macos_universal_package"
   cp -p "$source" "$target"
 }
 
 verify_macos_package() {
-  local dmg="$1"
-  local expected_arch="$2"
-  local attach_output mount_point app binary core pid
-  attach_output="$(hdiutil attach -nobrowse -readonly "$dmg")"
-  mount_point="$(printf '%s\n' "$attach_output" | sed -n 's#^.*\(/Volumes/.*\)$#\1#p' | tail -1)"
-  if [[ -z "$mount_point" ]]; then
-    printf '无法挂载 %s\n' "$dmg" >&2
+  local pkg="$1"
+  local app binary core pid expected_arch
+  if ! pkgutil --payload-files "$pkg" | grep -F '蜂窝加速器.app/Contents/MacOS/FlClash' >/dev/null; then
+    printf 'macOS PKG 中缺少蜂窝加速器。\n' >&2
     exit 1
   fi
-  app="$mount_point/蜂窝加速器.app"
+  app="$(find "$repo_root/build/macos/Build/Products/Release" -maxdepth 1 -type d -name '*.app' -print | head -1)"
+  if [[ -z "$app" ]]; then
+    printf '找不到 macOS Release 应用。\n' >&2
+    exit 1
+  fi
   binary="$app/Contents/MacOS/FlClash"
   core="$app/Contents/MacOS/FlClashCore"
   /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$app/Contents/Info.plist" | grep -Fx '蜂窝加速器' >/dev/null
-  lipo -archs "$binary" | tr ' ' '\n' | grep -Fx "$expected_arch" >/dev/null
-  lipo -archs "$core" | tr ' ' '\n' | grep -Fx "$expected_arch" >/dev/null
+  for expected_arch in arm64 x86_64; do
+    lipo -archs "$binary" | tr ' ' '\n' | grep -Fx "$expected_arch" >/dev/null
+    lipo -archs "$core" | tr ' ' '\n' | grep -Fx "$expected_arch" >/dev/null
+  done
   codesign --verify --deep --strict "$app"
   if pgrep -x FlClash >/dev/null 2>&1; then
     printf '检测到已有 FlClash/蜂窝加速器实例，跳过会触发单实例保护的启动测试。\n' \
-      >"$output_root/macos-${expected_arch}-launch.log"
+      >"$output_root/macos-universal-launch.log"
   else
-    arch "-$expected_arch" "$binary" >"$output_root/macos-${expected_arch}-launch.log" 2>&1 &
-    pid=$!
-    sleep 8
-    if ! kill -0 "$pid" >/dev/null 2>&1; then
-      printf 'macOS %s 客户端启动后退出，日志：%s\n' \
-        "$expected_arch" "$output_root/macos-${expected_arch}-launch.log" >&2
-      exit 1
-    fi
-    kill "$pid" >/dev/null 2>&1 || true
-    wait "$pid" 2>/dev/null || true
-  fi
-  for _ in $(seq 1 10); do
-    if hdiutil detach "$mount_point" >/dev/null 2>&1; then
-      mount_point=''
-      break
-    fi
-    sleep 1
-  done
-  if [[ -n "$mount_point" ]]; then
-    hdiutil detach -force "$mount_point" >/dev/null
+    for expected_arch in arm64 x86_64; do
+      arch "-$expected_arch" "$binary" >>"$output_root/macos-universal-launch.log" 2>&1 &
+      pid=$!
+      sleep 8
+      if ! kill -0 "$pid" >/dev/null 2>&1; then
+        printf 'macOS %s 客户端启动后退出，日志：%s\n' \
+          "$expected_arch" "$output_root/macos-universal-launch.log" >&2
+        exit 1
+      fi
+      kill "$pid" >/dev/null 2>&1 || true
+      wait "$pid" 2>/dev/null || true
+    done
   fi
 }
 
@@ -320,7 +308,7 @@ create_checksums_and_archive() {
     cd "$output_root"
     find Android macOS Windows 远程配置 -type f ! -name '*.log' -print0 | sort -z | xargs -0 shasum -a 256
   ) > "$checksum_file"
-  printf '版本：%s\n环境：stable\n名称：蜂窝加速器\nmacOS ARM（Apple 芯片）文件：蜂窝加速器-macOS-arm.dmg\nmacOS AMD（Intel 芯片）文件：蜂窝加速器-macOS-amd.dmg\nAndroid：签名、结构、模拟器安装启动通过\nmacOS ARM64：架构、签名、DMG、启动通过\nmacOS AMD64（Intel）：架构、签名、DMG、Rosetta 启动通过\nWindows AMD64：云端构建、结构、启动冒烟测试通过\n远程配置：AES-GCM 解密与 Ed25519 签名验证通过\n更新配置：按平台独立版本、HTML 更新说明、AES-GCM 与 Ed25519 验证通过\n' "$version" > "$output_root/验证报告.txt"
+  printf '版本：%s\n环境：stable\n名称：蜂窝加速器\nmacOS Universal 2 文件：蜂窝加速器-macOS-Universal2.pkg\nAndroid：签名、结构、模拟器安装启动通过\nmacOS：主程序、Flutter 引擎、插件和代理内核均通过 ARM64 与 X86_64 双架构校验\nWindows AMD64：云端构建、结构、启动冒烟测试通过\n远程配置：AES-GCM 解密与 Ed25519 签名验证通过\n更新配置：按平台独立版本、HTML 更新说明、AES-GCM 与 Ed25519 验证通过\n' "$version" > "$output_root/验证报告.txt"
   rm -f "$archive_path"
   rm -f "$output_root/$(basename "$archive_path")"
   ditto -c -k --sequesterRsrc --keepParent "$output_root" "$archive_path"
@@ -332,13 +320,11 @@ if [[ "${FENGWO_FINALIZE_ONLY:-0}" == '1' ]]; then
   verify_android_packages
 elif [[ "${FENGWO_RESUME_AFTER_MACOS:-0}" == '1' ]]; then
   verify_android_packages
-  verify_macos_package "$macos_amd64_package" x86_64
-  verify_macos_package "$macos_arm64_package" arm64
+  verify_macos_package "$macos_universal_package"
 elif [[ "${FENGWO_RESUME_AFTER_INTEL:-0}" == '1' ]]; then
   verify_android_packages
-  verify_macos_package "$macos_amd64_package" x86_64
-  package_macos arm64 arm64
-  verify_macos_package "$macos_arm64_package" arm64
+  package_macos
+  verify_macos_package "$macos_universal_package"
 else
   if [[ "${FENGWO_RESUME_AFTER_ANDROID:-0}" != '1' ]]; then
     "$flutter_bin" pub get
@@ -348,10 +334,8 @@ else
   fi
   verify_android_packages
   test_android_launch
-  package_macos x86_64 amd64
-  verify_macos_package "$macos_amd64_package" x86_64
-  package_macos arm64 arm64
-  verify_macos_package "$macos_arm64_package" arm64
+  package_macos
+  verify_macos_package "$macos_universal_package"
 fi
 if [[ "${FENGWO_FINALIZE_ONLY:-0}" != '1' ]]; then
   package_windows_remote

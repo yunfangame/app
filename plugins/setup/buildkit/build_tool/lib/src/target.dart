@@ -107,6 +107,20 @@ class Target {
     return targets;
   }
 
+  static List<Target> resolveMacosTargets({
+    String? archName,
+    required String hostArch,
+  }) {
+    final targets = forPlatform('darwin');
+    final arch = archName ?? hostArch;
+    if (arch == 'universal') return targets;
+    final resolved = targets.where((target) => target.goarch == arch).toList();
+    if (resolved.isEmpty) {
+      throw BuildException('Invalid arch: $arch');
+    }
+    return resolved;
+  }
+
   String get dynamicLibExtension {
     switch (goos) {
       case 'android':

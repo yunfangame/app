@@ -119,11 +119,8 @@ jobs:
             os: ubuntu-22.04
             arch: amd64
           - platform: macos
-            os: macos-15-intel
-            arch: amd64
-          - platform: macos
             os: macos-latest
-            arch: arm64
+            arch: universal
           - platform: windows
             os: windows-11-arm
             arch: arm64
@@ -325,14 +322,12 @@ jobs:
         if: ${{ env.IS_STABLE == 'true' }}
         run: |
           version=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          arm_sha=$(sha256sum "./dist/FlClash-${version}-macos-arm64.dmg" | awk '{print $1}')
-          amd_sha=$(sha256sum "./dist/FlClash-${version}-macos-amd64.dmg" | awk '{print $1}')
+          universal_sha=$(sha256sum "./dist/FlClash-${version}-macos-universal.pkg" | awk '{print $1}')
 
           mkdir -p ./brew/Casks
           sed \
             -e "s|VERSION|$version|g" \
-            -e "s|ARM_SHA256|$arm_sha|g" \
-            -e "s|AMD_SHA256|$amd_sha|g" \
+            -e "s|UNIVERSAL_SHA256|$universal_sha|g" \
             ./.github/homebrew_cask_template.rb > ./brew/Casks/flclash.rb
 
       - name: Push to Homebrew tap

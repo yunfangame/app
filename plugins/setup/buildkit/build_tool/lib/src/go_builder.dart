@@ -47,17 +47,22 @@ class GoBuilder {
   String get _corePath => p.join(rootDir, config.coreDir);
   String get _outputPath => p.join(rootDir, config.outputDir);
 
-  Future<BuildExecution> build(Target target, {bool force = false}) async {
+  Future<BuildExecution> build(
+    Target target, {
+    bool force = false,
+    String? outputFile,
+  }) async {
     CorePatchApplier(rootDirectory: Directory(rootDir)).apply();
-    final outDir = target.isLib
+    final defaultOutDir = target.isLib
         ? p.join(_outputPath, target.platformDir, target.abi!)
         : p.join(_outputPath, target.platformDir);
+    final outDir = outputFile == null ? defaultOutDir : p.dirname(outputFile);
     ensureDir(outDir);
 
     final fileName = target.isLib
         ? '${config.libName}${target.dynamicLibExtension}'
         : '${config.coreName}${target.executableExtension}';
-    final outFile = p.join(outDir, fileName);
+    final outFile = outputFile ?? p.join(outDir, fileName);
 
     return cache.run(
       key: '${target.platformDir}-${target.goarch}-core',

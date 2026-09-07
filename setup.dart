@@ -7,7 +7,7 @@ import 'package:path/path.dart' as p;
 const _allTargets = <String, String>{
   'android': 'apk',
   'linux': 'deb', // appimage + rpm added for amd64 only
-  'macos': 'dmg',
+  'macos': 'pkg',
   'windows': 'exe,zip',
 };
 
@@ -82,7 +82,7 @@ ArgParser createSetupArgParser() {
     )
     ..addOption(
       'targets',
-      valueHelp: 'exe,zip,dmg,apk,...',
+      valueHelp: 'exe,zip,pkg,apk,...',
       help: 'Package targets (default: all for platform)',
     )
     ..addOption(
@@ -223,10 +223,13 @@ Future<int> _package(
   );
   final descriptionArgs = <String>[];
   if (platform != 'android') {
-    descriptionArgs.addAll(['--description', arch]);
+    descriptionArgs.addAll([
+      '--description',
+      platform == 'macos' ? 'universal' : arch,
+    ]);
   }
 
-  final depExit = await _ensureDependencies(platform, arch);
+  final depExit = await _ensureDependencies(platform, arch, targets);
   if (depExit != 0) return depExit;
 
   final globalPackages = await Process.run(Platform.resolvedExecutable, [
@@ -286,6 +289,14 @@ Future<int> _package(
     stderr.write(utf8.decode(data));
   });
   final exitCode = await process.exitCode;
+  if (exitCode == 0 && platform == 'macos') {
+    try {
+      await verifyUniversalMacosBuild(rootDir);
+    } on Object catch (error) {
+      stderr.writeln(error);
+      return 1;
+    }
+  }
   if (exitCode == 0 && platform == 'linux') {
     await copyLinuxPreflightScript(rootDir);
   }
@@ -335,10 +346,14 @@ Future<bool> _hasCommand(String cmd) async {
   return result.exitCode == 0;
 }
 
-Future<int> _ensureDependencies(String platform, String arch) async {
+Future<int> _ensureDependencies(
+  String platform,
+  String arch,
+  String targets,
+) async {
   switch (platform) {
     case 'macos':
-      return _ensureMacosDependencies();
+      return _ensureMacosDependencies(targets);
     case 'linux':
       return _ensureLinuxDependencies(arch);
     default:
@@ -346,7 +361,12 @@ Future<int> _ensureDependencies(String platform, String arch) async {
   }
 }
 
-Future<int> _ensureMacosDependencies() async {
+bool macosTargetsNeedAppDmg(String targets) {
+  return targets.split(',').map((target) => target.trim()).contains('dmg');
+}
+
+Future<int> _ensureMacosDependencies(String targets) async {
+  if (!macosTargetsNeedAppDmg(targets)) return 0;
   if (await _hasCommand('appdmg')) {
     stdout.writeln('appdmg already installed, skipping.');
     return 0;
@@ -357,6 +377,67 @@ Future<int> _ensureMacosDependencies() async {
     stderr.write(result.stderr);
   }
   return result.exitCode;
+}
+
+bool hasUniversalMacosArchitectures(String architectures) {
+  final values = architectures.trim().split(RegExp(r'\s+')).toSet();
+  return values.containsAll({'arm64', 'x86_64'});
+}
+
+Future<int> verifyUniversalMacosBuild(String rootDir) async {
+  final releaseDirectory = Directory(
+    p.join(rootDir, 'build', 'macos', 'Build', 'Products', 'Release'),
+  );
+  if (!await releaseDirectory.exists()) {
+    throw FileSystemException(
+      'Missing macOS Release build directory',
+      releaseDirectory.path,
+    );
+  }
+  final appBundles = await releaseDirectory
+      .list(followLinks: false)
+      .where((entity) => entity is Directory && entity.path.endsWith('.app'))
+      .cast<Directory>()
+      .toList();
+  if (appBundles.length != 1) {
+    throw StateError(
+      'Expected one macOS Release app, found ${appBundles.length}',
+    );
+  }
+
+  var binaryCount = 0;
+  final incomplete = <String>[];
+  await for (final entity in appBundles.single.list(
+    recursive: true,
+    followLinks: false,
+  )) {
+    if (entity is! File) continue;
+    final fileResult = await Process.run('/usr/bin/file', ['-b', entity.path]);
+    if (fileResult.exitCode != 0 ||
+        !fileResult.stdout.toString().contains('Mach-O')) {
+      continue;
+    }
+    binaryCount++;
+    final lipoResult = await Process.run('xcrun', [
+      'lipo',
+      '-archs',
+      entity.path,
+    ]);
+    if (lipoResult.exitCode != 0 ||
+        !hasUniversalMacosArchitectures(lipoResult.stdout.toString())) {
+      incomplete.add(p.relative(entity.path, from: appBundles.single.path));
+    }
+  }
+  if (binaryCount == 0) {
+    throw StateError('No Mach-O binaries found in ${appBundles.single.path}');
+  }
+  if (incomplete.isNotEmpty) {
+    throw StateError(
+      'macOS app is not Universal 2; incomplete binaries: '
+      '${incomplete.join(', ')}',
+    );
+  }
+  return binaryCount;
 }
 
 Future<int> _ensureLinuxDependencies(String arch) async {

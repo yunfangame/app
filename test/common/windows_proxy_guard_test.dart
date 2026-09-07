@@ -26,6 +26,102 @@ void main() {
     stage: 'verified',
     enabled: false,
   );
+  const changed = ProxyOperationResult(
+    success: false,
+    operation: 'inspect',
+    stage: 'readback_mismatch',
+    enabled: false,
+  );
+  const repaired = ProxyOperationResult(
+    success: true,
+    operation: 'start',
+    stage: 'verified',
+    enabled: true,
+    server: '127.0.0.1:7890',
+  );
+
+  test('does not rewrite an effective proxy during reconciliation', () async {
+    var starts = 0;
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => owned,
+      starter: (_, _) async {
+        starts++;
+        return repaired;
+      },
+      stopper: (_) async => cleaned,
+      portProbe: (_) async => true,
+    );
+
+    final result = await guard.reconcile(7890, const ['localhost']);
+
+    expect(result?.inspection.success, isTrue);
+    expect(result?.repair, isNull);
+    expect(starts, 0);
+  });
+
+  test(
+    'reapplies and verifies a changed proxy after network restore',
+    () async {
+      var starts = 0;
+      var inspections = 0;
+      final guard = WindowsProxyGuard(
+        inspector: (_) async => ++inspections == 1 ? changed : owned,
+        starter: (port, bypassDomains) async {
+          starts++;
+          expect(port, 7890);
+          expect(bypassDomains, ['localhost']);
+          return repaired;
+        },
+        stopper: (_) async => cleaned,
+        portProbe: (_) async => true,
+        verificationDelay: Duration.zero,
+      );
+
+      final result = await guard.reconcile(7890, const ['localhost']);
+
+      expect(result?.repaired, isTrue);
+      expect(result?.readiness?.ready, isTrue);
+      expect(result?.verification?.success, isTrue);
+      expect(starts, 1);
+      expect(inspections, 2);
+    },
+  );
+
+  test('does not rewrite when the local listener is unavailable', () async {
+    var starts = 0;
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => changed,
+      starter: (_, _) async {
+        starts++;
+        return repaired;
+      },
+      stopper: (_) async => cleaned,
+      portProbe: (_) async => false,
+      readyTimeout: Duration.zero,
+    );
+
+    final result = await guard.reconcile(7890, const []);
+
+    expect(result?.readiness?.status, WindowsProxyReadinessStatus.timedOut);
+    expect(result?.repair, isNull);
+    expect(starts, 0);
+  });
+
+  test('failed readback is not reported as a successful repair', () async {
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => changed,
+      starter: (_, _) async => repaired,
+      stopper: (_) async => cleaned,
+      portProbe: (_) async => true,
+      verificationDelay: Duration.zero,
+    );
+
+    final result = await guard.reconcile(7890, const []);
+
+    expect(result?.repair?.success, isTrue);
+    expect(result?.verification?.success, isFalse);
+    expect(result?.repaired, isFalse);
+  });
 
   test('delayed verification reports changed proxy without writing', () async {
     final guard = WindowsProxyGuard(

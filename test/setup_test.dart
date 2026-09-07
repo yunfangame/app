@@ -99,6 +99,17 @@ void main() {
       expect(results['macos-file-secret-storage'], isTrue);
     });
 
+    test('detects whether macOS packaging needs the DMG dependency', () {
+      expect(setup.macosTargetsNeedAppDmg('pkg'), isFalse);
+      expect(setup.macosTargetsNeedAppDmg('pkg,dmg'), isTrue);
+    });
+
+    test('requires both architectures for a Universal 2 build', () {
+      expect(setup.hasUniversalMacosArchitectures('x86_64 arm64'), isTrue);
+      expect(setup.hasUniversalMacosArchitectures('arm64'), isFalse);
+      expect(setup.hasUniversalMacosArchitectures('x86_64'), isFalse);
+    });
+
     test('Flutter build environment does not depend on Core SHA256', () {
       expect(setup.createBuildEnvironment('dev'), {'APP_ENV': 'dev'});
     });

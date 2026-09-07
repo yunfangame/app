@@ -53,7 +53,7 @@ class SystemAction extends _$SystemAction {
     if (proxyService == null) return;
     final port = ref.read(patchClashConfigProvider).mixedPort;
     final result = await proxyService.stopProxyDetailed(
-      expectedPort: system.isWindows ? port : null,
+      expectedPort: system.isWindows || system.isMacOS ? port : null,
     );
     commonPrint.event(
       'system_proxy.cleanup.completed',

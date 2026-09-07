@@ -346,7 +346,7 @@ Windows helper integrity/version check:
 
 Build configuration defaults live in `build_tool/lib/src/options.dart` and can be overridden via a root `build_config.yaml`.
 
-Architecture detection is automatic. The `--description` flag passed to `flutter_distributor` adds arch suffixes to artifact names, such as `FlClash-0.8.93-macos-arm64.dmg`.
+Architecture detection is automatic. macOS release builds produce one Universal 2 PKG whose app and Go core contain both `arm64` and `x86_64`; other desktop platforms keep architecture suffixes through `--description`.
 
 ## Local Plugins
 

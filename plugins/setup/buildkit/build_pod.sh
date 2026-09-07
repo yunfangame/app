@@ -25,14 +25,14 @@ if [ -z "${APP_ENV:-}" ]; then
 fi
 
 build_args=(macos)
-case "${ARCHS:-}" in
-  arm64)
-    build_args+=(--arch arm64)
-    ;;
-  x86_64)
-    build_args+=(--arch amd64)
-    ;;
-esac
+archs=" ${ARCHS:-} "
+if [[ "$archs" == *" arm64 "* && "$archs" == *" x86_64 "* ]]; then
+  build_args+=(--arch universal)
+elif [[ "$archs" == *" arm64 "* ]]; then
+  build_args+=(--arch arm64)
+elif [[ "$archs" == *" x86_64 "* ]]; then
+  build_args+=(--arch amd64)
+fi
 
 "$SCRIPT_DIR/run_build_tool.sh" "${build_args[@]}"
 

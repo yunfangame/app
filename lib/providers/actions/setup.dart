@@ -539,6 +539,19 @@ class SetupAction extends _$SetupAction {
       return;
     }
 
+    if ((system.isWindows || system.isMacOS) && networkSettings.systemProxy) {
+      await systemProxyRefreshSignal.request();
+      skipReason = _physicalNetworkRecoverySkipReason(
+        request: request,
+        revision: revision,
+        isConfigurationCurrent: configurationCurrent,
+      );
+      if (skipReason != null) {
+        _logPhysicalNetworkRecoverySkipped(skipReason);
+        return;
+      }
+    }
+
     final watch = Stopwatch()..start();
     commonPrint.event(
       'network.recovery.diagnostic.started',

@@ -81,7 +81,7 @@ class Logs extends _$Logs with AutoDisposeNotifierMixin {
       },
     );
     final service = NetworkDiagnosticService(
-      proxyInspector: Platform.isWindows && proxy != null
+      proxyInspector: (Platform.isWindows || Platform.isMacOS) && proxy != null
           ? proxy!.inspectProxy
           : null,
     );

@@ -327,12 +327,223 @@ USB 10/100/1000 LAN
       ]);
 
       final firstStateCommand = commands.indexWhere(
-        (command) => command.args.first.endsWith('proxystate'),
+        (command) =>
+            command.args.first == '-setwebproxystate' ||
+            command.args.first == '-setsecurewebproxystate' ||
+            command.args.first == '-setsocksfirewallproxystate',
       );
 
-      expect(firstStateCommand, 4);
-      expect(commands[3].args.first, '-setproxybypassdomains');
+      expect(commands.first.args, ['-setautoproxystate', 'Wi-Fi', 'off']);
+      expect(firstStateCommand, 5);
+      expect(commands[4].args.first, '-setproxybypassdomains');
     });
+
+    test('finds the primary network service from the default device', () {
+      expect(
+        MacosProxyCommands.parseDefaultDevice('''
+   route to: default
+destination: default
+  interface: en0
+'''),
+        'en0',
+      );
+      expect(
+        MacosProxyCommands.parseNetworkServiceOrder('''
+(1) Wi-Fi
+(Hardware Port: Wi-Fi, Device: en0)
+(2) USB LAN
+(Hardware Port: USB LAN, Device: en7)
+'''),
+        {'en0': 'Wi-Fi', 'en7': 'USB LAN'},
+      );
+    });
+
+    test('requires HTTP HTTPS and SOCKS effective readback to match', () {
+      final state = MacosEffectiveProxyState.parse('''
+<dictionary> {
+  HTTPEnable : 1
+  HTTPPort : 7890
+  HTTPProxy : 127.0.0.1
+  HTTPSEnable : 1
+  HTTPSPort : 7890
+  HTTPSProxy : 127.0.0.1
+  SOCKSEnable : 1
+  SOCKSPort : 7890
+  SOCKSProxy : 127.0.0.1
+}
+''');
+
+      expect(state.matches(7890), isTrue);
+      expect(state.matches(7891), isFalse);
+      expect(state.primaryServer, '127.0.0.1:7890');
+    });
+
+    test(
+      'uses primary service and restores its original proxy state',
+      () async {
+        final calls = <List<String>>[];
+        var effectiveEnabled = false;
+        final proxy = MacosProxy(
+          commandRunner: ProxyCommandRunner((
+            executable,
+            arguments, {
+            runInShell = false,
+          }) async {
+            calls.add([executable, ...arguments]);
+            if (arguments.firstOrNull == '-listallnetworkservices') {
+              return ProcessResult(1, 0, 'Wi-Fi\nUSB LAN\n', '');
+            }
+            if (executable == '/sbin/route') {
+              return ProcessResult(1, 0, 'interface: en0\n', '');
+            }
+            if (arguments.firstOrNull == '-listnetworkserviceorder') {
+              return ProcessResult(
+                1,
+                0,
+                '(1) Wi-Fi\n(Hardware Port: Wi-Fi, Device: en0)\n'
+                    '(2) USB LAN\n(Hardware Port: USB LAN, Device: en7)\n',
+                '',
+              );
+            }
+            if ({
+              '-getwebproxy',
+              '-getsecurewebproxy',
+              '-getsocksfirewallproxy',
+            }.contains(arguments.firstOrNull)) {
+              return ProcessResult(
+                1,
+                0,
+                'Enabled: No\nServer: old.proxy\nPort: 8080\n',
+                '',
+              );
+            }
+            if (arguments.firstOrNull == '-getautoproxyurl') {
+              return ProcessResult(
+                1,
+                0,
+                'URL: http://old/pac\nEnabled: Yes\n',
+                '',
+              );
+            }
+            if (arguments.firstOrNull == '-getproxybypassdomains') {
+              return ProcessResult(1, 0, 'localhost\n', '');
+            }
+            if (executable == '/usr/sbin/scutil') {
+              return ProcessResult(
+                1,
+                0,
+                effectiveEnabled
+                    ? '''
+HTTPEnable : 1
+HTTPPort : 7890
+HTTPProxy : 127.0.0.1
+HTTPSEnable : 1
+HTTPSPort : 7890
+HTTPSProxy : 127.0.0.1
+SOCKSEnable : 1
+SOCKSPort : 7890
+SOCKSProxy : 127.0.0.1
+'''
+                    : '<dictionary> {\n}\n',
+                '',
+              );
+            }
+            if (arguments.firstOrNull == '-setsocksfirewallproxystate' &&
+                arguments.last == 'on') {
+              effectiveEnabled = true;
+            }
+            if (arguments.firstOrNull == '-setsocksfirewallproxystate' &&
+                arguments.last == 'off') {
+              effectiveEnabled = false;
+            }
+            return ProcessResult(1, 0, '', '');
+          }),
+        );
+
+        final started = await proxy.startDetailed(7890, const ['localhost']);
+        final stopped = await proxy.stopDetailed(expectedPort: 7890);
+
+        expect(started.success, isTrue);
+        expect(started.connectionName, 'Wi-Fi');
+        expect(stopped.success, isTrue);
+        expect(
+          calls.where((call) => call.contains('-setwebproxy')).toList(),
+          containsAll([
+            [
+              '/usr/sbin/networksetup',
+              '-setwebproxy',
+              'Wi-Fi',
+              '127.0.0.1',
+              '7890',
+            ],
+            [
+              '/usr/sbin/networksetup',
+              '-setwebproxy',
+              'Wi-Fi',
+              'old.proxy',
+              '8080',
+            ],
+          ]),
+        );
+        expect(
+          calls
+              .where((call) => call.contains('-setwebproxy'))
+              .any((call) => call.contains('USB LAN')),
+          isFalse,
+        );
+      },
+    );
+
+    test(
+      'keeps fallback services armed while no primary route exists',
+      () async {
+        final proxy = MacosProxy(
+          commandRunner: ProxyCommandRunner((
+            executable,
+            arguments, {
+            runInShell = false,
+          }) async {
+            if (arguments.firstOrNull == '-listallnetworkservices') {
+              return ProcessResult(1, 0, 'Wi-Fi\n', '');
+            }
+            if (executable == '/sbin/route') {
+              return ProcessResult(1, 1, '', 'no route');
+            }
+            if (arguments.firstOrNull == '-listnetworkserviceorder') {
+              return ProcessResult(1, 0, '', '');
+            }
+            if ({
+              '-getwebproxy',
+              '-getsecurewebproxy',
+              '-getsocksfirewallproxy',
+            }.contains(arguments.firstOrNull)) {
+              return ProcessResult(1, 0, 'Enabled: No\nServer:\nPort: 0\n', '');
+            }
+            if (arguments.firstOrNull == '-getautoproxyurl') {
+              return ProcessResult(1, 0, 'URL:\nEnabled: No\n', '');
+            }
+            if (arguments.firstOrNull == '-getproxybypassdomains') {
+              return ProcessResult(
+                1,
+                0,
+                "There aren't any bypass domains set on Wi-Fi.\n",
+                '',
+              );
+            }
+            if (executable == '/usr/sbin/scutil') {
+              return ProcessResult(1, 0, '<dictionary> {\n}\n', '');
+            }
+            return ProcessResult(1, 0, '', '');
+          }),
+        );
+
+        final result = await proxy.startDetailed(7890, const []);
+
+        expect(result.success, isTrue);
+        expect(result.stage, 'fallback_pending');
+        expect(result.fallbackUsed, isTrue);
+      },
+    );
 
     test('reports failure when no active network service is found', () async {
       var callCount = 0;

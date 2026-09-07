@@ -240,7 +240,7 @@ class BuildMacosCommand extends BuildCommand {
   BuildMacosCommand() {
     argParser.addOption(
       'arch',
-      valueHelp: 'arm64,amd64',
+      valueHelp: 'arm64,amd64,universal',
       help: 'Target architecture (default: auto-detect)',
     );
   }
@@ -256,13 +256,10 @@ class BuildMacosCommand extends BuildCommand {
     final archName = argResults?['arch'] as String?;
     final config = BuildConfig.load(rootDir: _rootDir);
 
-    final arch = archName ?? await _hostGoArch();
-    final targets =
-        Target.forPlatform('darwin').where((t) => t.goarch == arch).toList();
-
-    if (targets.isEmpty) {
-      throw BuildException('Invalid arch: $arch');
-    }
+    final targets = Target.resolveMacosTargets(
+      archName: archName,
+      hostArch: await _hostGoArch(),
+    );
 
     final cache = BuildCache(rootDir: _rootDir);
     final notice = BuildNotice();
@@ -272,12 +269,61 @@ class BuildMacosCommand extends BuildCommand {
       cache: cache,
       notice: notice,
     );
-    final results = await builder.buildAll(targets, force: force);
+    if (targets.length == 1) {
+      final results = await builder.buildAll(targets, force: force);
+      if (results.any((result) => result.rebuilt)) {
+        _log.info(
+          'Build complete: ${results.map((result) => result.primaryOutput)}',
+        );
+      }
+      return;
+    }
 
-    if (results.any((result) => result.rebuilt)) {
-      _log.info(
-        'Build complete: ${results.map((result) => result.primaryOutput)}',
+    final architectureOutputs = <String>[];
+    final results = <BuildExecution>[];
+    for (final target in targets) {
+      final output = p.join(
+        _rootDir,
+        config.outputDir,
+        target.platformDir,
+        target.goarch,
+        config.coreName,
       );
+      architectureOutputs.add(output);
+      results.add(
+        await builder.build(target, force: force, outputFile: output),
+      );
+    }
+
+    final output = p.join(
+      _rootDir,
+      config.outputDir,
+      targets.first.platformDir,
+      config.coreName,
+    );
+    final temporaryOutput = '$output.universal';
+    final temporaryFile = File(temporaryOutput);
+    if (temporaryFile.existsSync()) temporaryFile.deleteSync();
+    runCommand('lipo', [
+      '-create',
+      ...architectureOutputs,
+      '-output',
+      temporaryOutput,
+    ]);
+    temporaryFile.renameSync(output);
+    final architectures = (runCommand('lipo', [
+      '-archs',
+      output,
+    ]).stdout as String)
+        .trim()
+        .split(RegExp(r'\s+'))
+        .toSet();
+    if (!architectures.containsAll({'arm64', 'x86_64'})) {
+      throw BuildException(
+          'Universal macOS core is incomplete: $architectures');
+    }
+    if (results.any((result) => result.rebuilt)) {
+      _log.info('Build complete: $output');
     }
   }
 }
@@ -298,7 +344,9 @@ Future<void> runMain(List<String> args) async {
       ..addCommand(BuildMacosCommand());
 
     final topResults = runner.parse(args);
-    _rootDir = (topResults['root-dir'] as String?) ?? _findProjectRoot();
+    _rootDir = p.normalize(
+      p.absolute((topResults['root-dir'] as String?) ?? _findProjectRoot()),
+    );
     await runner.run(args);
   } on BuildException catch (e) {
     _log.severe(e.toString());

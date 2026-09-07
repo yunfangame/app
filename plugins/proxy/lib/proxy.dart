@@ -46,10 +46,7 @@ class Proxy {
       );
     }
     return switch (Platform.operatingSystem) {
-      'macos' => ProxyOperationResult.generic(
-        success: await _macosProxy.start(port, bypassDomain),
-        operation: 'start',
-      ),
+      'macos' => await _macosProxy.startDetailed(port, bypassDomain),
       'linux' => ProxyOperationResult.generic(
         success: await _linuxProxy.start(
           port,
@@ -76,10 +73,7 @@ class Proxy {
 
   Future<ProxyOperationResult> stopProxyDetailed({int? expectedPort}) async {
     return switch (Platform.operatingSystem) {
-      'macos' => ProxyOperationResult.generic(
-        success: await _macosProxy.stop(),
-        operation: 'stop',
-      ),
+      'macos' => await _macosProxy.stopDetailed(expectedPort: expectedPort),
       'linux' => ProxyOperationResult.generic(
         success: await _linuxProxy.stop(
           desktop: Platform.environment['XDG_CURRENT_DESKTOP'],
@@ -102,6 +96,7 @@ class Proxy {
     if (Platform.isWindows) {
       return ProxyPlatform.instance.inspectProxy(expectedPort);
     }
+    if (Platform.isMacOS) return _macosProxy.inspectDetailed(expectedPort);
     return const ProxyOperationResult(
       success: false,
       operation: 'inspect',
