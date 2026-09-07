@@ -21,6 +21,7 @@ void main() {
         setupActionProvider.overrideWith(_WindowsSetup.new),
       ],
     );
+    container.listen(proxyStateProvider, (_, _) {});
     action = container.read(setupActionProvider.notifier) as _WindowsSetup;
   });
   tearDown(() => container.dispose());
@@ -38,11 +39,11 @@ void main() {
       expect(container.read(proxyStateProvider).isStart, isFalse);
       expect(action.events, ['config']);
       action.prepare!.complete();
-      await Future<void>.delayed(Duration.zero);
+      await action.startEntered.future;
       expect(action.events, ['config', 'start']);
       expect(container.read(isStartProvider), isFalse);
       action.start!.complete(true);
-      await Future<void>.delayed(Duration.zero);
+      await action.probeEntered.future;
       expect(action.events, ['config', 'start', 'probe:7890']);
       expect(container.read(runTimeProvider), isNull);
       action.probe!.complete();
@@ -81,7 +82,7 @@ void main() {
   test('owned listener failure keeps error details and stops', () async {
     action.start = Completer<bool>();
     final pending = action.setRunning(true);
-    await Future<void>.delayed(Duration.zero);
+    await action.startEntered.future;
     action.start!.completeError(
       const CoreMethodException(
         code: 'listener_not_ready',
@@ -120,7 +121,7 @@ void main() {
     final pending = action.setRunning(true);
     await action.prepared.future;
     container.read(commonActionProvider.notifier).toggleRunning();
-    await Future<void>.delayed(Duration.zero);
+    await action.stopEntered.future;
     action.prepare!.complete();
     await pending;
     expect(container.read(connectionPendingProvider), isFalse);
@@ -131,7 +132,7 @@ void main() {
   test('stop during probe cannot become connected on late success', () async {
     action.probe = Completer<void>();
     final pending = action.setRunning(true);
-    await Future<void>.delayed(Duration.zero);
+    await action.probeEntered.future;
     await action.setRunning(false);
     action.probe!.complete();
     await pending;
@@ -144,7 +145,7 @@ void main() {
     final firstProbe = Completer<void>();
     action.probe = firstProbe;
     final first = action.setRunning(true);
-    await Future<void>.delayed(Duration.zero);
+    await action.probeEntered.future;
     await action.setRunning(false);
     action.probe = null;
     await action.setRunning(true);
@@ -160,7 +161,7 @@ void main() {
     final firstProbe = Completer<void>();
     action.probe = firstProbe;
     final pending = action.setRunning(true);
-    await Future<void>.delayed(Duration.zero);
+    await action.probeEntered.future;
     container
         .read(patchClashConfigProvider.notifier)
         .update((value) => value.copyWith(mixedPort: 7891));
@@ -200,10 +201,11 @@ void main() {
     },
   );
 
-  test(
-    'a failed config update clears the connected state and proxy request',
-    () async {
+  for (final pumpDuringStop in [false, true]) {
+    test('a failed config update clears the connected state and proxy request, '
+        'pumpDuringStop=$pumpDuringStop', () async {
       await action.setRunning(true);
+      if (pumpDuringStop) action.onStop = container.pump;
       action.updateFailure = const CoreMethodException(
         code: 'listener_not_ready',
         message: 'Local mixed listener is not ready',
@@ -215,15 +217,16 @@ void main() {
       expect(container.read(connectionPendingProvider), isFalse);
       expect(container.read(networkSettingProvider).systemProxy, isFalse);
       expect(action.notifications, 1);
-    },
-  );
+    });
+  }
 
   test('late config failure cannot clear a newer connected request', () async {
     await action.setRunning(true);
     final update = Completer<String>();
     action.update = update;
     final oldUpdate = action.updateConfig();
-    await Future<void>.delayed(Duration.zero);
+    await action.updateEntered.future;
+    expect(action.updateCalls, 1);
     await action.setRunning(false);
     await action.setRunning(true);
     update.completeError(
@@ -291,7 +294,9 @@ void main() {
         final authorization = Completer<bool>();
         action.authorization = authorization;
         final oldUpdate = action.updateConfig();
-        await Future<void>.delayed(Duration.zero);
+        await action.authorizationEntered.future;
+        expect(action.authorizationCalls, 1);
+        expect(action.updateCalls, 0);
         await action.setRunning(false);
         await action.setRunning(true);
         authorization.complete(false);
@@ -308,6 +313,11 @@ void main() {
 class _WindowsSetup extends SetupAction {
   final events = <String>[];
   final prepared = Completer<void>();
+  final startEntered = Completer<void>();
+  final stopEntered = Completer<void>();
+  final probeEntered = Completer<void>();
+  final updateEntered = Completer<void>();
+  final authorizationEntered = Completer<void>();
   Completer<void>? prepare;
   Completer<bool>? start;
   Completer<void>? probe;
@@ -316,7 +326,9 @@ class _WindowsSetup extends SetupAction {
   Object? updateFailure;
   Completer<String>? update;
   Completer<bool>? authorization;
+  Future<void> Function()? onStop;
   int updateCalls = 0;
+  int authorizationCalls = 0;
   int notifications = 0;
 
   @override
@@ -333,7 +345,13 @@ class _WindowsSetup extends SetupAction {
   @override
   Future<bool> setCoreRunning(bool running) async {
     events.add(running ? 'start' : 'stop');
-    return running ? await start?.future ?? true : true;
+    if (running) {
+      if (!startEntered.isCompleted) startEntered.complete();
+      return await start?.future ?? true;
+    }
+    if (!stopEntered.isCompleted) stopEntered.complete();
+    await onStop?.call();
+    return true;
   }
 
   @override
@@ -342,6 +360,7 @@ class _WindowsSetup extends SetupAction {
     required bool Function() isCancelled,
   }) async {
     events.add('probe:$port');
+    if (!probeEntered.isCompleted) probeEntered.complete();
     await probe?.future;
     if (probeFailure != null) throw probeFailure!;
   }
@@ -353,15 +372,22 @@ class _WindowsSetup extends SetupAction {
   void resetCoreTraffic() {}
 
   @override
+  Future<void> resetResolverConnections() async {}
+
+  @override
   Future<String> applyCoreUpdate(UpdateParams params) async {
     updateCalls++;
+    if (!updateEntered.isCompleted) updateEntered.complete();
     if (updateFailure != null) throw updateFailure!;
     return await update?.future ?? '';
   }
 
   @override
-  Future<bool> requestAdmin(bool enableTun) async =>
-      await authorization?.future ?? true;
+  Future<bool> requestAdmin(bool enableTun) async {
+    authorizationCalls++;
+    if (!authorizationEntered.isCompleted) authorizationEntered.complete();
+    return await authorization?.future ?? true;
+  }
 }
 
 class _QuietCommon extends CommonAction {

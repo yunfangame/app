@@ -3,11 +3,13 @@ import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/login_routing_coordinator.dart';
 import 'package:fl_clash/common/xboard_login_persistence.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/manager/hotkey_manager.dart';
 import 'package:fl_clash/manager/manager.dart';
+import 'package:fl_clash/models/profile.dart';
 import 'package:fl_clash/plugins/app.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
@@ -54,6 +56,124 @@ class ApplicationState extends ConsumerState<Application> {
     onDiagnostic: (event, fields) => commonPrint.event(event, fields: fields),
   );
   final _appReadyCompleter = Completer<void>();
+  late final LoginRoutingCoordinator _loginRouting;
+  LoginRoutingAttempt? _loginRoutingAttempt;
+  XboardLoginResult? _loginRoutingSession;
+
+  void _beginDefaultLoginRouting(XboardLoginResult session) {
+    final revision = globalState.xboardSessionRevision;
+    final proxiesAction = ref.read(proxiesActionProvider.notifier);
+    late final int manualSelectionRevision;
+    _loginRoutingSession = session;
+    _loginRoutingAttempt = _loginRouting.begin(
+      isSessionCurrent: () =>
+          mounted &&
+          !_logoutInProgress &&
+          globalState.isActiveXboardSession(session, revision) &&
+          proxiesAction.manualSelectionRevision == manualSelectionRevision,
+    );
+    manualSelectionRevision = proxiesAction.manualSelectionRevision;
+    commonPrint.event(
+      'auth.routing.started',
+      fields: {'session_revision': revision, 'mode': Mode.rule.name},
+    );
+  }
+
+  void _selectDefaultLoginNode(
+    XboardLoginResult session, {
+    Profile? expectedProfile,
+    bool applyProfile = false,
+  }) {
+    final attempt = _loginRoutingAttempt;
+    if (attempt == null ||
+        !identical(session, _loginRoutingSession) ||
+        !_loginRouting.isCurrent(attempt)) {
+      return;
+    }
+    final proxiesAction = ref.read(proxiesActionProvider.notifier);
+    var selectionRevision = proxiesAction.hongKongSelectionRevision;
+    var profile = ref.read(currentProfileProvider);
+    if (expectedProfile != null &&
+        !loginRoutingProfileMatches(expectedProfile, profile)) {
+      commonPrint.event(
+        'auth.routing.discarded',
+        fields: {'reason': 'applied_profile_changed'},
+      );
+      return;
+    }
+    bool canStart() =>
+        proxiesAction.hongKongSelectionRevision == selectionRevision &&
+        ref.read(currentProfileProvider) == profile &&
+        ref.read(patchClashConfigProvider).mode == Mode.rule;
+    unawaited(
+      _loginRouting.select<HongKongSelectionResult>(
+        attempt,
+        prepare: () async {
+          await _appReadyCompleter.future;
+          if (!_loginRouting.isCurrent(attempt)) return;
+          if (!ref.read(initProvider) ||
+              ref.read(coreStatusProvider) != CoreStatus.connected) {
+            throw StateError('login_routing_core_unavailable');
+          }
+          if (applyProfile && canStart()) {
+            final previousProfile = profile;
+            await ref
+                .read(setupActionProvider.notifier)
+                .applyProfile(force: true, silence: true);
+            if (!_loginRouting.isCurrent(attempt)) return;
+            final appliedProfile = ref.read(currentProfileProvider);
+            if (!loginRoutingProfileMatches(
+              previousProfile,
+              appliedProfile,
+              allowContentRefresh: true,
+            )) {
+              return;
+            }
+            profile = appliedProfile;
+            selectionRevision = proxiesAction.hongKongSelectionRevision;
+          }
+        },
+        canStart: canStart,
+        select: (isCancelled) => proxiesAction.selectHongKongForMode(
+          Mode.rule,
+          isCancelled: () =>
+              isCancelled() ||
+              ref.read(currentProfileIdProvider) != profile?.id,
+        ),
+        onResult: (result) {
+          commonPrint.event(
+            'auth.routing.completed',
+            fields: {'mode': Mode.rule.name, 'result': result.name},
+          );
+          switch (result) {
+            case HongKongSelectionResult.unavailable:
+              _showStartupMessage(
+                currentAppLocalizations.hongKongNodesUnavailable,
+                isCurrent: () => _loginRouting.isCurrent(attempt),
+              );
+            case HongKongSelectionResult.failed:
+              _showStartupMessage(
+                currentAppLocalizations.hongKongSelectionFailed,
+                isCurrent: () => _loginRouting.isCurrent(attempt),
+              );
+            case HongKongSelectionResult.selected:
+            case HongKongSelectionResult.cancelled:
+              break;
+          }
+        },
+        onError: (error) {
+          commonPrint.event(
+            'auth.routing.failed',
+            fields: {'error_type': error.runtimeType.toString()},
+          );
+          _showStartupMessage(
+            currentAppLocalizations.hongKongSelectionFailed,
+            isCurrent: () => _loginRouting.isCurrent(attempt),
+          );
+        },
+      ),
+    );
+  }
 
   void _openHome() {
     globalState.navigatorKey.currentState?.pushReplacement(
@@ -124,14 +244,14 @@ class ApplicationState extends ConsumerState<Application> {
           offlineCache.isUsableAt(DateTime.now());
       if (!mounted) return;
       if (offlineRequested && _offlineAvailable) {
-        globalState.activateXboardSession(
-          offlineCache!.toSession(),
-          nodes: offlineCache.nodes,
-        );
+        final session = offlineCache!.toSession();
+        globalState.activateXboardSession(session, nodes: offlineCache.nodes);
+        _beginDefaultLoginRouting(session);
         globalState.setOfflineMode(true);
         setState(() {
           _authenticationBootstrap = _AuthenticationBootstrap.home;
         });
+        _selectDefaultLoginNode(session, applyProfile: true);
         return;
       }
       if (offlineRequested) {
@@ -153,11 +273,14 @@ class ApplicationState extends ConsumerState<Application> {
         );
         if (!mounted) return;
         globalState.activateXboardSession(session);
+        _beginDefaultLoginRouting(session);
         globalState.setOfflineMode(false);
         await _xboardSessionStorage.setOfflineMode(false);
         await _loadXboardNodes(session, ignoreOfflineMode: true);
-        await _syncSubscriptionProfile(session);
+        final profile = await _syncSubscriptionProfile(session);
         if (!mounted) return;
+        if (!identical(session, globalState.xboardSession)) return;
+        _selectDefaultLoginNode(session, expectedProfile: profile);
         setState(() {
           _authenticationBootstrap = _AuthenticationBootstrap.home;
         });
@@ -217,8 +340,9 @@ class ApplicationState extends ConsumerState<Application> {
         isAdmin: stored.isAdmin,
         secureSubscription: stored.secureSubscription,
       );
-      if (!mounted) return session;
+      if (!mounted || _logoutInProgress) return session;
       globalState.activateXboardSession(session);
+      _beginDefaultLoginRouting(session);
       await _loadXboardNodes(session, ignoreOfflineMode: true);
       commonPrint.event(
         'auth.remembered_login.succeeded',
@@ -240,15 +364,19 @@ class ApplicationState extends ConsumerState<Application> {
       }
       commonPrint.event(
         'auth.remembered_login.failed',
-        fields: {'account_ref': accountRef, 'failure': error.failure.name},
+        fields: {
+          'account_ref': accountRef,
+          'failure': error.failure.name,
+          ...?error.diagnostic?.toDiagnosticFields(),
+        },
       );
       rethrow;
     }
   }
 
-  void _showStartupMessage(String message) {
+  void _showStartupMessage(String message, {bool Function()? isCurrent}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || isCurrent?.call() == false) return;
       final currentContext = globalState.navigatorKey.currentContext;
       if (currentContext == null || !currentContext.mounted) return;
       final messenger = ScaffoldMessenger.maybeOf(currentContext);
@@ -265,6 +393,11 @@ class ApplicationState extends ConsumerState<Application> {
     bool rememberMe,
     bool autoLogin,
   ) async {
+    if (!mounted ||
+        _logoutInProgress ||
+        !identical(session, globalState.xboardSession)) {
+      return;
+    }
     globalState.setOfflineMode(false);
     final saved = await _loginPersistence.saveAuthenticated(
       session: session,
@@ -285,11 +418,18 @@ class ApplicationState extends ConsumerState<Application> {
         fields: {'error_type': error.runtimeType.toString()},
       );
     }
-    await _syncSubscriptionProfile(session);
+    if (!mounted ||
+        _logoutInProgress ||
+        !identical(session, globalState.xboardSession)) {
+      return;
+    }
+    final profile = await _syncSubscriptionProfile(session);
+    if (!mounted || !identical(session, globalState.xboardSession)) return;
+    _selectDefaultLoginNode(session, expectedProfile: profile);
     globalState.requestXboardAnnouncementAutoPrompt();
   }
 
-  Future<void> _syncSubscriptionProfile(XboardLoginResult session) async {
+  Future<Profile> _syncSubscriptionProfile(XboardLoginResult session) async {
     commonPrint.event(
       'subscription.profile.sync.started',
       fields: {'secure_subscription': session.secureSubscription},
@@ -308,7 +448,7 @@ class ApplicationState extends ConsumerState<Application> {
         allowTokenRegistration: !session.secureSubscription,
       );
       if (secureProfile != null) {
-        await ref
+        final profile = await ref
             .read(profilesActionProvider.notifier)
             .syncSubscriptionProfileBytes(
               secureProfile.bytes,
@@ -327,7 +467,7 @@ class ApplicationState extends ConsumerState<Application> {
             'content_bytes': secureProfile.bytes.length,
           },
         );
-        return;
+        return profile;
       }
       if (session.secureSubscription) {
         throw const SubscriptionV2Exception('secure_profile_unavailable');
@@ -337,7 +477,7 @@ class ApplicationState extends ConsumerState<Application> {
         throw const SubscriptionV2Exception('legacy_subscription_unavailable');
       }
       final subscriptionUrl = legacyUrl.toString();
-      await ref
+      final profile = await ref
           .read(profilesActionProvider.notifier)
           .syncSubscriptionProfile(
             subscriptionUrl,
@@ -349,6 +489,7 @@ class ApplicationState extends ConsumerState<Application> {
         'subscription.profile.sync.succeeded',
         fields: {'protocol': 'v1'},
       );
+      return profile;
     } catch (error, stackTrace) {
       commonPrint.event(
         'subscription.profile.sync.failed',
@@ -400,6 +541,9 @@ class ApplicationState extends ConsumerState<Application> {
   Future<void> _logoutXboard() async {
     if (_logoutInProgress) return;
     _logoutInProgress = true;
+    _loginRouting.cancel();
+    _loginRoutingAttempt = null;
+    _loginRoutingSession = null;
     try {
       await _performLogoutXboard();
     } finally {
@@ -515,9 +659,13 @@ class ApplicationState extends ConsumerState<Application> {
     final cache = await _xboardSessionStorage.loadOfflineCache();
     if (cache == null || !cache.isUsableAt(DateTime.now())) return false;
     await _xboardSessionStorage.setOfflineMode(true);
-    globalState.activateXboardSession(cache.toSession(), nodes: cache.nodes);
+    if (!mounted || _logoutInProgress) return false;
+    final cachedSession = cache.toSession();
+    globalState.activateXboardSession(cachedSession, nodes: cache.nodes);
+    _beginDefaultLoginRouting(cachedSession);
     globalState.setOfflineMode(true);
     if (mounted) setState(() => _offlineAvailable = true);
+    _selectDefaultLoginNode(cachedSession, applyProfile: true);
     return true;
   }
 
@@ -769,6 +917,12 @@ class ApplicationState extends ConsumerState<Application> {
   @override
   void initState() {
     super.initState();
+    final proxiesAction = ref.read(proxiesActionProvider.notifier);
+    _loginRouting = LoginRoutingCoordinator(
+      resetToRule: () =>
+          ref.read(setupActionProvider.notifier).changeMode(Mode.rule),
+      cancelSelection: proxiesAction.cancelHongKongSelection,
+    );
     globalState.logoutXboard = _logoutXboard;
     globalState.enableOfflineMode = _enableOfflineMode;
     globalState.restoreOnlineMode = _restoreOnlineMode;
@@ -816,7 +970,9 @@ class ApplicationState extends ConsumerState<Application> {
             password: password,
             appVersion: globalState.packageInfo.version,
           );
+          if (!mounted || _logoutInProgress) return session;
           globalState.activateXboardSession(session);
+          _beginDefaultLoginRouting(session);
           await _loadXboardNodes(session, ignoreOfflineMode: true);
           commonPrint.event(
             'auth.login.succeeded',
@@ -834,6 +990,8 @@ class ApplicationState extends ConsumerState<Application> {
               'account_ref': accountRef,
               'error_type': error.runtimeType.toString(),
               'error': '$error',
+              if (error is XboardAuthException)
+                ...?error.diagnostic?.toDiagnosticFields(),
             },
           );
           rethrow;
@@ -858,6 +1016,7 @@ class ApplicationState extends ConsumerState<Application> {
       onForgotPasswordPressed: _openForgotPassword,
       offlineAvailable: _offlineAvailable,
       onOfflinePressed: _openOfflineHome,
+      onExportLogs: () => ref.read(logsProvider.notifier).exportLogs(),
     );
   }
 
@@ -913,13 +1072,22 @@ class ApplicationState extends ConsumerState<Application> {
             commonPrint.log('connectivityChanged ${results.toString()}');
             ref.read(systemActionProvider.notifier).updateLocalIp();
             final hasVpn = results.contains(ConnectivityResult.vpn);
+            final hasPhysicalNetwork = hasPhysicalConnectivity(results);
             commonPrint.event(
               'network.connectivity.changed',
               fields: {
                 'transports': results.map((item) => item.name).toList(),
                 'has_vpn': hasVpn,
+                'physical_available': hasPhysicalNetwork,
               },
             );
+            if (system.isDesktop) {
+              unawaited(
+                ref
+                    .read(setupActionProvider.notifier)
+                    .handlePhysicalNetworkAvailability(hasPhysicalNetwork),
+              );
+            }
             if (_preHasVpn == hasVpn) {
               ref.read(checkIpNumProvider.notifier).add();
             }
@@ -1008,6 +1176,7 @@ class ApplicationState extends ConsumerState<Application> {
 
   @override
   void dispose() {
+    _loginRouting.dispose();
     linkManager.destroy();
     _autoUpdateProfilesTaskTimer?.cancel();
     globalState.logoutXboard = null;

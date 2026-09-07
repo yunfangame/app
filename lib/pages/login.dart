@@ -1,4 +1,6 @@
+import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/widgets/api_network_diagnostic_text.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -42,6 +44,7 @@ class LoginPage extends StatefulWidget {
     this.onAutomaticLoginDisabled,
     this.offlineAvailable = false,
     this.onOfflinePressed,
+    this.onExportLogs,
   });
 
   final VoidCallback onLogin;
@@ -65,6 +68,7 @@ class LoginPage extends StatefulWidget {
   final VoidCallback? onAutomaticLoginDisabled;
   final bool offlineAvailable;
   final Future<void> Function()? onOfflinePressed;
+  final Future<bool> Function()? onExportLogs;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -72,6 +76,7 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
+  final _networkFailureKey = GlobalKey();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _emailFocusNode = FocusNode();
@@ -87,6 +92,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _applyingPrefill = false;
   String? _prefilledAccount;
   String? _prefilledPassword;
+  ApiNetworkDiagnostic? _networkFailure;
 
   bool get _canRestoreRemembered =>
       _rememberMe &&
@@ -179,7 +185,10 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _submitted = true);
     if (_formKey.currentState?.validate() != true) return;
     FocusScope.of(context).unfocus();
-    setState(() => _isSubmitting = true);
+    setState(() {
+      _isSubmitting = true;
+      _networkFailure = null;
+    });
     try {
       final authenticate = widget.authenticate;
       XboardLoginResult? session;
@@ -207,9 +216,34 @@ class _LoginPageState extends State<LoginPage> {
         });
         _passwordFocusNode.requestFocus();
       }
-      _showLoginError(
-        expired ? context.appLocalizations.loginSessionExpired : error.message,
-      );
+      final diagnostic = error.diagnostic;
+      if (!expired &&
+          error.failure != XboardAuthFailure.authenticationRejected &&
+          (diagnostic != null ||
+              error.failure == XboardAuthFailure.noAvailableHost ||
+              error.failure == XboardAuthFailure.unavailable)) {
+        setState(() {
+          _networkFailure =
+              diagnostic ??
+              const ApiNetworkDiagnostic(
+                failure: ApiNetworkFailure.network,
+                stage: 'login',
+              );
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final failureContext = _networkFailureKey.currentContext;
+          if (!mounted || failureContext == null || !failureContext.mounted) {
+            return;
+          }
+          Scrollable.ensureVisible(failureContext);
+        });
+      } else {
+        _showLoginError(
+          expired
+              ? context.appLocalizations.loginSessionExpired
+              : error.message,
+        );
+      }
     } catch (_) {
       if (!mounted) return;
       _showLoginError(context.appLocalizations.loginFailed);
@@ -283,6 +317,14 @@ class _LoginPageState extends State<LoginPage> {
                         isSubmitting: _isSubmitting,
                         isOpeningOffline: _isOpeningOffline,
                         offlineAvailable: widget.offlineAvailable,
+                        networkFailure: _networkFailure,
+                        networkFailureKey: _networkFailureKey,
+                        onApiDiagnostics: () => showApiHealthDiagnostics(
+                          context,
+                          service: widget.apiHealthService,
+                          onExportLogs: widget.onExportLogs,
+                        ),
+                        onExportLogs: widget.onExportLogs,
                         onTogglePassword: () {
                           setState(() => _obscurePassword = !_obscurePassword);
                         },
@@ -329,6 +371,7 @@ class _LoginPageState extends State<LoginPage> {
                       alignment: Alignment.topRight,
                       child: ApiHealthControl(
                         service: widget.apiHealthService,
+                        onExportLogs: widget.onExportLogs,
                         foregroundColor: context.colorScheme.onSurfaceVariant,
                         buttonBackgroundColor:
                             context.colorScheme.surfaceContainerHighest,
@@ -349,6 +392,7 @@ class _LoginPageState extends State<LoginPage> {
                         onSupportPressed: widget.onSupportPressed,
                         configuredLocale: widget.configuredLocale,
                         apiHealthService: widget.apiHealthService,
+                        onExportLogs: widget.onExportLogs,
                       ),
                     ),
                   ),
@@ -458,6 +502,7 @@ class _MobileLoginToolbar extends StatelessWidget {
     required this.onSupportPressed,
     required this.configuredLocale,
     required this.apiHealthService,
+    required this.onExportLogs,
   });
 
   final ValueChanged<BuildContext> onLanguagePressed;
@@ -465,6 +510,7 @@ class _MobileLoginToolbar extends StatelessWidget {
   final ValueChanged<BuildContext> onSupportPressed;
   final String? configuredLocale;
   final ApiHealthService? apiHealthService;
+  final Future<bool> Function()? onExportLogs;
 
   @override
   Widget build(BuildContext context) {
@@ -509,6 +555,7 @@ class _MobileLoginToolbar extends StatelessWidget {
         const SizedBox(width: 8),
         ApiHealthControl(
           service: apiHealthService,
+          onExportLogs: onExportLogs,
           foregroundColor: foregroundColor,
           buttonBackgroundColor: backgroundColor,
           buttonBorderColor: context.colorScheme.outlineVariant,
@@ -618,6 +665,10 @@ class _LoginFormPanel extends StatelessWidget {
     required this.isSubmitting,
     required this.isOpeningOffline,
     required this.offlineAvailable,
+    required this.networkFailure,
+    required this.networkFailureKey,
+    required this.onApiDiagnostics,
+    required this.onExportLogs,
     required this.onTogglePassword,
     required this.onRememberChanged,
     required this.onAutoLoginChanged,
@@ -642,6 +693,10 @@ class _LoginFormPanel extends StatelessWidget {
   final bool isSubmitting;
   final bool isOpeningOffline;
   final bool offlineAvailable;
+  final ApiNetworkDiagnostic? networkFailure;
+  final GlobalKey networkFailureKey;
+  final VoidCallback onApiDiagnostics;
+  final Future<bool> Function()? onExportLogs;
   final VoidCallback onTogglePassword;
   final ValueChanged<bool> onRememberChanged;
   final ValueChanged<bool> onAutoLoginChanged;
@@ -660,12 +715,22 @@ class _LoginFormPanel extends StatelessWidget {
       color: colorScheme.surface,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final formWidth = (constraints.maxWidth - 80).clamp(300.0, 620.0);
+          final scrollable = networkFailure != null;
+          final horizontalPadding = scrollable && constraints.maxWidth < 420
+              ? 10.0
+              : 40.0;
+          final formWidth = (constraints.maxWidth - horizontalPadding * 2)
+              .clamp(scrollable ? 0.0 : 300.0, 620.0);
           return Padding(
-            padding: EdgeInsets.fromLTRB(40, topPadding, 40, 28),
+            padding: EdgeInsets.fromLTRB(
+              horizontalPadding,
+              topPadding,
+              horizontalPadding,
+              28,
+            ),
             child: Center(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
+              child: _LoginFormViewport(
+                scrollable: scrollable,
                 child: SizedBox(
                   width: formWidth,
                   child: Form(
@@ -776,6 +841,60 @@ class _LoginFormPanel extends StatelessWidget {
                           onAutoLoginChanged: onAutoLoginChanged,
                         ),
                         const SizedBox(height: 44),
+                        if (networkFailure != null) ...[
+                          Container(
+                            key: const Key('login-network-failure'),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: colorScheme.errorContainer,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Column(
+                              key: networkFailureKey,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  apiNetworkDiagnosticMessage(
+                                    context,
+                                    networkFailure!,
+                                  ),
+                                  style: TextStyle(
+                                    color: colorScheme.onErrorContainer,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  appLocalizations.apiFailureHelp,
+                                  style: TextStyle(
+                                    color: colorScheme.onErrorContainer,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    OutlinedButton.icon(
+                                      key: const Key('login-api-diagnostics'),
+                                      onPressed: onApiDiagnostics,
+                                      icon: const Icon(Icons.network_check),
+                                      label: Text(
+                                        appLocalizations.apiDiagnostics,
+                                      ),
+                                    ),
+                                    if (onExportLogs != null)
+                                      ApiDiagnosticExportButton(
+                                        key: const Key('login-export-logs'),
+                                        onExportLogs: onExportLogs!,
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                        ],
                         FilledButton.icon(
                           key: const Key('login-submit-button'),
                           onPressed: isSubmitting ? null : onSubmit,
@@ -919,6 +1038,20 @@ class _LoginFormPanel extends StatelessWidget {
         borderSide: BorderSide(color: colorScheme.error, width: 2.5),
       ),
     );
+  }
+}
+
+class _LoginFormViewport extends StatelessWidget {
+  const _LoginFormViewport({required this.scrollable, required this.child});
+
+  final bool scrollable;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return scrollable
+        ? SingleChildScrollView(child: child)
+        : FittedBox(fit: BoxFit.scaleDown, child: child);
   }
 }
 

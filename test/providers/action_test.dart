@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:fl_clash/common/network_diagnostic.dart';
 import 'package:fl_clash/core/desktop/model.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
@@ -850,6 +851,147 @@ void main() {
       );
     });
 
+    group('physical network recovery', () {
+      test('recovers once after offline to W-NET-OK transition', () async {
+        final container = ProviderContainer(
+          overrides: [
+            initProvider.overrideWithBuild((_, _) => true),
+            commonActionProvider.overrideWith(_RaceCommonAction.new),
+            setupActionProvider.overrideWith(_PhysicalRecoverySetupAction.new),
+          ],
+        );
+        addTearDown(container.dispose);
+        final action =
+            container.read(setupActionProvider.notifier)
+                as _PhysicalRecoverySetupAction;
+        container.read(coreStatusProvider.notifier).value =
+            CoreStatus.connected;
+
+        await action.setRunning(true);
+        await action.handlePhysicalNetworkAvailability(true);
+        expect(action.events, isEmpty);
+        await action.handlePhysicalNetworkAvailability(false);
+        await action.handlePhysicalNetworkAvailability(true);
+
+        expect(action.events, ['diagnostic', 'close', 'reset']);
+        expect(container.read(isStartProvider), isTrue);
+        await action.setRunning(false);
+      });
+
+      test('does not clean connections without W-NET-OK', () async {
+        final container = ProviderContainer(
+          overrides: [
+            initProvider.overrideWithBuild((_, _) => true),
+            commonActionProvider.overrideWith(_RaceCommonAction.new),
+            setupActionProvider.overrideWith(_PhysicalRecoverySetupAction.new),
+          ],
+        );
+        addTearDown(container.dispose);
+        final action =
+            container.read(setupActionProvider.notifier)
+                as _PhysicalRecoverySetupAction;
+        container.read(coreStatusProvider.notifier).value =
+            CoreStatus.connected;
+        action.report = _networkRecoveryReport('W-NODE-05');
+
+        await action.setRunning(true);
+        await action.handlePhysicalNetworkAvailability(false);
+        await action.handlePhysicalNetworkAvailability(true);
+
+        expect(action.events, ['diagnostic']);
+        expect(container.read(isStartProvider), isTrue);
+        await action.setRunning(false);
+      });
+
+      test('duplicate online events coalesce during the diagnostic', () async {
+        final container = ProviderContainer(
+          overrides: [
+            initProvider.overrideWithBuild((_, _) => true),
+            commonActionProvider.overrideWith(_RaceCommonAction.new),
+            setupActionProvider.overrideWith(_PhysicalRecoverySetupAction.new),
+          ],
+        );
+        addTearDown(container.dispose);
+        final action =
+            container.read(setupActionProvider.notifier)
+                as _PhysicalRecoverySetupAction;
+        container.read(coreStatusProvider.notifier).value =
+            CoreStatus.connected;
+        final diagnostic = Completer<NetworkDiagnosticReport>();
+        action.pendingDiagnostic = diagnostic;
+
+        await action.setRunning(true);
+        await action.handlePhysicalNetworkAvailability(false);
+        final recovery = action.handlePhysicalNetworkAvailability(true);
+        await action.diagnosticEntered.future;
+        await action.handlePhysicalNetworkAvailability(true);
+        diagnostic.complete(_networkRecoveryReport('W-NET-OK'));
+        await recovery;
+
+        expect(action.events, ['diagnostic', 'close', 'reset']);
+        await action.setRunning(false);
+      });
+
+      test('stop during diagnostic prevents stale cleanup', () async {
+        final container = ProviderContainer(
+          overrides: [
+            initProvider.overrideWithBuild((_, _) => true),
+            commonActionProvider.overrideWith(_RaceCommonAction.new),
+            setupActionProvider.overrideWith(_PhysicalRecoverySetupAction.new),
+          ],
+        );
+        addTearDown(container.dispose);
+        final action =
+            container.read(setupActionProvider.notifier)
+                as _PhysicalRecoverySetupAction;
+        container.read(coreStatusProvider.notifier).value =
+            CoreStatus.connected;
+        final diagnostic = Completer<NetworkDiagnosticReport>();
+        action.pendingDiagnostic = diagnostic;
+
+        await action.setRunning(true);
+        await action.handlePhysicalNetworkAvailability(false);
+        final recovery = action.handlePhysicalNetworkAvailability(true);
+        await action.diagnosticEntered.future;
+        await action.setRunning(false);
+        diagnostic.complete(_networkRecoveryReport('W-NET-OK'));
+        await recovery;
+
+        expect(action.events, ['diagnostic']);
+        expect(container.read(isStartProvider), isFalse);
+      });
+
+      test(
+        'close failure still resets resolver and keeps proxy running',
+        () async {
+          final container = ProviderContainer(
+            overrides: [
+              initProvider.overrideWithBuild((_, _) => true),
+              commonActionProvider.overrideWith(_RaceCommonAction.new),
+              setupActionProvider.overrideWith(
+                _PhysicalRecoverySetupAction.new,
+              ),
+            ],
+          );
+          addTearDown(container.dispose);
+          final action =
+              container.read(setupActionProvider.notifier)
+                  as _PhysicalRecoverySetupAction;
+          container.read(coreStatusProvider.notifier).value =
+              CoreStatus.connected;
+          action.closeFailure = StateError('tracker close unavailable');
+
+          await action.setRunning(true);
+          await action.handlePhysicalNetworkAvailability(false);
+          await action.handlePhysicalNetworkAvailability(true);
+
+          expect(action.events, ['diagnostic', 'close', 'reset']);
+          expect(container.read(isStartProvider), isTrue);
+          await action.setRunning(false);
+        },
+      );
+    });
+
     test(
       'restarts core after newly granting admin during config update',
       () async {
@@ -1120,6 +1262,41 @@ class _InitializingSetupAction extends _RaceSetupAction {
   }) async {
     await _initializationCompleter.future;
     await preloadInvoke?.call();
+  }
+}
+
+NetworkDiagnosticReport _networkRecoveryReport(String code) {
+  return NetworkDiagnosticReport(code: code, summary: code, steps: const []);
+}
+
+class _PhysicalRecoverySetupAction extends _RaceSetupAction {
+  final events = <String>[];
+  final diagnosticEntered = Completer<void>();
+  NetworkDiagnosticReport report = _networkRecoveryReport('W-NET-OK');
+  Completer<NetworkDiagnosticReport>? pendingDiagnostic;
+  Object? closeFailure;
+  Object? resetFailure;
+
+  @override
+  Future<void> waitForPhysicalNetworkRecovery() async {}
+
+  @override
+  Future<NetworkDiagnosticReport> runPhysicalNetworkRecoveryDiagnostic() {
+    events.add('diagnostic');
+    if (!diagnosticEntered.isCompleted) diagnosticEntered.complete();
+    return pendingDiagnostic?.future ?? Future.value(report);
+  }
+
+  @override
+  Future<void> closeTrackedConnectionsForNetworkRecovery() async {
+    events.add('close');
+    if (closeFailure != null) throw closeFailure!;
+  }
+
+  @override
+  Future<void> resetResolverConnections() async {
+    events.add('reset');
+    if (resetFailure != null) throw resetFailure!;
   }
 }
 

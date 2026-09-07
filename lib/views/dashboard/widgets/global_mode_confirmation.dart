@@ -1,7 +1,9 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
-import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
+import 'package:fl_clash/widgets/loading.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -24,23 +26,72 @@ Future<void> requestGlobalModeSwitch(
           .update((state) => state.copyWith(skipGlobalModeConfirmation: true));
     }
   }
-  _switchToGlobalDirect(ref);
+  if (!context.mounted) return;
+  await _selectGlobalHongKongNode(context, ref);
 }
 
-void _switchToGlobalDirect(WidgetRef ref) {
-  const globalGroupName = 'GLOBAL';
-  const directProxyName = 'DIRECT';
-  final globalGroup = ref.read(groupsProvider).getGroup(globalGroupName);
-  ref
-      .read(profilesActionProvider.notifier)
-      .updateCurrentSelectedMap(globalGroupName, directProxyName);
-  ref.read(setupActionProvider.notifier).changeMode(Mode.global);
-  final supportsDirect =
-      globalGroup?.all.any((proxy) => proxy.name == directProxyName) == true;
-  if (supportsDirect) {
+Future<void> _selectGlobalHongKongNode(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  final l10n = context.appLocalizations;
+  final navigator = Navigator.of(context, rootNavigator: true);
+  final progressRoute = DialogRoute<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => PopScope(
+      canPop: false,
+      child: AlertDialog(
+        key: const ValueKey('global-mode-selection-progress'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox.square(
+              dimension: CommonCircleLoading.defaultDimension,
+              child: CommonCircleLoading(
+                semanticLabel: l10n.selectingHongKongNode,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(l10n.selectingHongKongNode, textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    ),
+  );
+  unawaited(navigator.push(progressRoute));
+  var result = HongKongSelectionResult.failed;
+  try {
     ref
         .read(proxiesActionProvider.notifier)
-        .changeProxyDebounce(globalGroupName, directProxyName);
+        .cancelHongKongSelection(manual: true);
+    result = await ref
+        .read(proxiesActionProvider.notifier)
+        .selectHongKongForMode(
+          Mode.global,
+          isCancelled: () => !context.mounted,
+        );
+  } catch (error) {
+    try {
+      commonPrint.event(
+        'proxy.hong_kong_selection.ui_failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
+    } catch (_) {}
+  } finally {
+    if (navigator.mounted && progressRoute.isActive) {
+      navigator.removeRoute(progressRoute);
+    }
+  }
+  if (!context.mounted) return;
+  switch (result) {
+    case HongKongSelectionResult.unavailable:
+      context.showNotifier(l10n.hongKongNodesUnavailable);
+    case HongKongSelectionResult.failed:
+      context.showNotifier(l10n.hongKongSelectionFailed);
+    case HongKongSelectionResult.selected:
+    case HongKongSelectionResult.cancelled:
+      break;
   }
 }
 
@@ -90,7 +141,7 @@ class _GlobalModeConfirmationDialogState
       _DialogActionButton(
         key: const ValueKey('global-mode-confirm'),
         colors: colors,
-        label: l10n.switchAndDirect,
+        label: l10n.switchAndSelectHongKong,
         icon: Icons.error_outline_rounded,
         emphasized: true,
         onTap: () => _close(confirmed: true),
@@ -333,37 +384,39 @@ class _DialogActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      height: 54,
-      child: emphasized
-          ? FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: colors.warning,
-                foregroundColor: colors.onWarning,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 54),
+        child: emphasized
+            ? FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: colors.warning,
+                  foregroundColor: colors.onWarning,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                onPressed: onTap,
+                icon: Icon(icon, size: 22),
+                label: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+              )
+            : FilledButton.tonal(
+                style: FilledButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                onPressed: onTap,
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
               ),
-              onPressed: onTap,
-              icon: Icon(icon, size: 22),
-              label: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w900),
-              ),
-            )
-          : FilledButton.tonal(
-              style: FilledButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              onPressed: onTap,
-              child: Text(
-                label,
-                style: const TextStyle(fontWeight: FontWeight.w900),
-              ),
-            ),
+      ),
     );
   }
 }

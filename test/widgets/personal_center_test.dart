@@ -13,7 +13,7 @@ void main() {
   testWidgets(
     'personal center renders account data and updates real controls',
     (tester) async {
-      tester.view.physicalSize = const Size(760, 1000);
+      tester.view.physicalSize = const Size(1280, 1000);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
@@ -56,7 +56,14 @@ void main() {
       expect(find.byKey(const ValueKey('login-ip-17-app')), findsOne);
       expect(find.byKey(const ValueKey('login-ip-18-web')), findsOne);
       expect(find.byKey(const ValueKey('account-auto-renew-row')), findsOne);
-      expect(find.byKey(const ValueKey('reset-subscription-card')), findsOne);
+      expect(
+        find.byKey(const ValueKey('reset-subscription-card')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('reset-subscription-button')),
+        findsNothing,
+      );
       expect(find.byKey(const ValueKey('account-logout-button')), findsNothing);
       expect(find.text('member@example.com'), findsOne);
       expect(find.text('12.50'), findsOne);
@@ -69,6 +76,29 @@ void main() {
       );
       expect(profilePosition.dx, lessThan(walletPosition.dx));
       expect((profilePosition.dy - walletPosition.dy).abs(), lessThan(1));
+      final passwordPosition = tester.getTopLeft(
+        find.byKey(const ValueKey('account-password-card')),
+      );
+      final loginIpPosition = tester.getTopLeft(
+        find.byKey(const ValueKey('account-login-ip-card')),
+      );
+      expect(passwordPosition.dy, greaterThan(profilePosition.dy));
+      expect(loginIpPosition.dy, greaterThan(passwordPosition.dy));
+      final oldPasswordPosition = tester.getTopLeft(
+        find.byKey(const ValueKey('old-password-field')),
+      );
+      final newPasswordPosition = tester.getTopLeft(
+        find.byKey(const ValueKey('new-password-field')),
+      );
+      final confirmPasswordPosition = tester.getTopLeft(
+        find.byKey(const ValueKey('confirm-password-field')),
+      );
+      expect(oldPasswordPosition.dx, lessThan(newPasswordPosition.dx));
+      expect(newPasswordPosition.dx, lessThan(confirmPasswordPosition.dx));
+      expect(
+        (oldPasswordPosition.dy - newPasswordPosition.dy).abs(),
+        lessThan(1),
+      );
 
       final autoRenewSwitch = find.descendant(
         of: find.byKey(const ValueKey('account-auto-renew-row')),
@@ -160,7 +190,7 @@ void main() {
     expect(find.byKey(const ValueKey('account-wallet-card')), findsOne);
     expect(find.byKey(const ValueKey('account-auto-renew-row')), findsOne);
     expect(find.byKey(const ValueKey('account-login-ip-card')), findsOne);
-    expect(find.byKey(const ValueKey('reset-subscription-card')), findsOne);
+    expect(find.byKey(const ValueKey('reset-subscription-card')), findsNothing);
     final logoutButton = find.byKey(const ValueKey('account-logout-button'));
     expect(logoutButton, findsOneWidget);
     expect(find.byKey(const ValueKey('telegram-status-card')), findsNothing);
@@ -271,6 +301,40 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('medium desktop width falls back to a readable single column', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(760, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(globalState.clearXboardSession);
+    globalState.xboardSession = _testSession();
+
+    await tester.pumpWidget(
+      _TestApp(child: FengWoPersonalCenterView(authService: _testService())),
+    );
+    await tester.pumpAndSettle();
+
+    final profile = tester.getTopLeft(
+      find.byKey(const ValueKey('account-profile-card')),
+    );
+    final wallet = tester.getTopLeft(
+      find.byKey(const ValueKey('account-wallet-card')),
+    );
+    final password = tester.getTopLeft(
+      find.byKey(const ValueKey('account-password-card')),
+    );
+    final loginIps = tester.getTopLeft(
+      find.byKey(const ValueKey('account-login-ip-card')),
+    );
+    expect((profile.dx - wallet.dx).abs(), lessThan(1));
+    expect(wallet.dy, greaterThan(profile.dy));
+    expect(password.dy, greaterThan(wallet.dy));
+    expect(loginIps.dy, greaterThan(password.dy));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('login IP card scrolls records beyond the first five', (
     tester,
   ) async {
@@ -294,7 +358,7 @@ void main() {
     final viewport = find.byKey(const ValueKey('login-ip-scroll-viewport'));
     final list = find.byKey(const ValueKey('login-ip-scroll-list'));
     expect(viewport, findsOne);
-    expect(tester.getSize(viewport).height, 790);
+    expect(tester.getSize(viewport).height, lessThanOrEqualTo(360));
     final scrollable = tester.state<ScrollableState>(
       find.descendant(of: list, matching: find.byType(Scrollable)),
     );

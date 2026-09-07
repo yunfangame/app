@@ -8,6 +8,13 @@ import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
 import 'package:wifi_ssid/wifi_ssid.dart';
 
+bool hasPhysicalConnectivity(Iterable<ConnectivityResult> results) {
+  return results.any(
+    (result) =>
+        result != ConnectivityResult.none && result != ConnectivityResult.vpn,
+  );
+}
+
 class ConnectivityManager extends StatefulWidget {
   final Function(List<ConnectivityResult> results)? onConnectivityChanged;
   final Widget child;
@@ -23,14 +30,18 @@ class ConnectivityManager extends StatefulWidget {
 }
 
 class _ConnectivityManagerState extends State<ConnectivityManager> {
-  late StreamSubscription subscription;
+  late StreamSubscription<List<ConnectivityResult>> subscription;
+  int _connectivityRevision = 0;
 
   @override
   void initState() {
     super.initState();
     subscription = Connectivity().onConnectivityChanged.listen((results) {
+      if (!mounted) return;
+      final revision = ++_connectivityRevision;
       if (results.contains(ConnectivityResult.wifi)) {
         WifiSsidManager.instance.getSsid().then((ssid) {
+          if (!mounted || revision != _connectivityRevision) return;
           globalState.container.read(currentSSIDProvider.notifier).value = ssid;
           commonPrint.log('Wi-fi SSID: $ssid ', logLevel: LogLevel.info);
         });
@@ -45,6 +56,7 @@ class _ConnectivityManagerState extends State<ConnectivityManager> {
 
   @override
   void dispose() {
+    _connectivityRevision++;
     subscription.cancel();
     super.dispose();
   }

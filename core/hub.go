@@ -65,6 +65,7 @@ func handleStopListener() bool {
 	defer runLock.Unlock()
 	isRunning = false
 	listener.StopListener()
+	closeConnections()
 	resolver.ResetConnection()
 	return true
 }
@@ -249,14 +250,25 @@ func handleCloseConnections() bool {
 	return true
 }
 
-func closeConnections() {
-	statistic.DefaultManager.Range(func(c statistic.Tracker) bool {
-		err := c.Close()
-		if err != nil {
-			return false
+func closeConnections() (attempted int, failed int) {
+	attempted, failed = closeTrackedConnections(statistic.DefaultManager.Range)
+	if failed > 0 {
+		log.Warnln("[APP] close tracked connections: attempted=%d failed=%d", attempted, failed)
+	} else {
+		log.Infoln("[APP] close tracked connections: attempted=%d failed=0", attempted)
+	}
+	return attempted, failed
+}
+
+func closeTrackedConnections(rangeConnections func(func(statistic.Tracker) bool)) (attempted int, failed int) {
+	rangeConnections(func(c statistic.Tracker) bool {
+		attempted++
+		if err := c.Close(); err != nil {
+			failed++
 		}
 		return true
 	})
+	return attempted, failed
 }
 
 func handleResetConnections() bool {

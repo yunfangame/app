@@ -23,8 +23,12 @@ class FengWoPersonalCenterView extends ConsumerStatefulWidget {
 
 class _FengWoPersonalCenterViewState
     extends ConsumerState<FengWoPersonalCenterView> {
-  static const _loginIpVisibleRecordLimit = 5;
-  static const _loginIpScrollableViewportHeight = 790.0;
+  static const _wideLayoutBreakpoint = 1040.0;
+  static const _loginIpWideRowBreakpoint = 700.0;
+  static const _loginIpWideVisibleRecordLimit = 4;
+  static const _loginIpCompactVisibleRecordLimit = 3;
+  static const _loginIpWideViewportHeight = 320.0;
+  static const _loginIpCompactViewportHeight = 360.0;
 
   final _passwordFormKey = GlobalKey<FormState>();
   final _oldPasswordController = TextEditingController();
@@ -41,7 +45,6 @@ class _FengWoPersonalCenterViewState
   bool _loginIpListFailed = false;
   final Set<String> _updatingLoginIps = {};
   bool _changingPassword = false;
-  bool _resettingSubscription = false;
   bool _obscureOldPassword = true;
   bool _obscureNewPassword = true;
   bool _obscureConfirmPassword = true;
@@ -301,53 +304,6 @@ class _FengWoPersonalCenterViewState
     }
   }
 
-  Future<void> _resetSubscription() async {
-    if (_resettingSubscription) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.warning_amber_rounded),
-        title: Text(context.appLocalizations.resetSubscriptionConfirmTitle),
-        content: Text(context.appLocalizations.resetSubscriptionConfirmMessage),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(MaterialLocalizations.of(context).cancelButtonLabel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(context.appLocalizations.confirmReset),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    final session = globalState.xboardSession;
-    if (session == null) return;
-    setState(() => _resettingSubscription = true);
-    try {
-      await _authService.resetSecurity(
-        endpoint: session.endpoint,
-        authData: session.authData,
-        userToken: session.token,
-        secureSubscription: session.secureSubscription,
-      );
-      final refreshed = await globalState.refreshXboardSubscription?.call();
-      if (refreshed != true) {
-        throw const XboardAuthException(
-          failure: XboardAuthFailure.subscriptionUnavailable,
-          message: '订阅刷新失败，请稍后重试',
-        );
-      }
-      if (!mounted) return;
-      _showMessage(context.appLocalizations.subscriptionResetSuccess);
-    } catch (error) {
-      if (mounted) _showMessage(_errorMessage(error), isError: true);
-    } finally {
-      if (mounted) setState(() => _resettingSubscription = false);
-    }
-  }
-
   void _showMessage(String message, {bool isError = false}) {
     context.showNotifier(message);
   }
@@ -390,56 +346,57 @@ class _FengWoPersonalCenterViewState
               )
             else
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(24, 22, 24, 32),
+                padding: EdgeInsets.fromLTRB(
+                  mobileLayout ? 16 : 24,
+                  22,
+                  mobileLayout ? 16 : 24,
+                  32,
+                ),
                 sliver: SliverToBoxAdapter(
-                  child: LayoutBuilder(
-                    builder: (context, _) {
-                      if (mobileLayout) {
-                        return Column(
-                          children: [
-                            _buildProfileCard(colors),
-                            const SizedBox(height: 16),
-                            _buildWalletCard(colors),
-                            const SizedBox(height: 16),
-                            _buildPasswordCard(colors),
-                            const SizedBox(height: 16),
-                            _buildLoginIpCard(colors),
-                            const SizedBox(height: 16),
-                            _buildResetSubscriptionCard(colors),
-                            const SizedBox(height: 16),
-                            const FengWoLogoutButton(),
-                          ],
-                        );
-                      }
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            flex: 11,
-                            child: Column(
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 1480),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final wideLayout =
+                              !mobileLayout &&
+                              constraints.maxWidth >= _wideLayoutBreakpoint;
+                          if (!wideLayout) {
+                            return Column(
                               children: [
                                 _buildProfileCard(colors),
-                                const SizedBox(height: 18),
-                                _buildPasswordCard(colors),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 18),
-                          Expanded(
-                            flex: 10,
-                            child: Column(
-                              children: [
+                                const SizedBox(height: 16),
                                 _buildWalletCard(colors),
-                                const SizedBox(height: 18),
+                                const SizedBox(height: 16),
+                                _buildPasswordCard(colors),
+                                const SizedBox(height: 16),
                                 _buildLoginIpCard(colors),
-                                const SizedBox(height: 18),
-                                _buildResetSubscriptionCard(colors),
+                                if (mobileLayout) ...[
+                                  const SizedBox(height: 16),
+                                  const FengWoLogoutButton(),
+                                ],
                               ],
-                            ),
-                          ),
-                        ],
-                      );
-                    },
+                            );
+                          }
+                          return Column(
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: _buildProfileCard(colors)),
+                                  const SizedBox(width: 18),
+                                  Expanded(child: _buildWalletCard(colors)),
+                                ],
+                              ),
+                              const SizedBox(height: 18),
+                              _buildPasswordCard(colors),
+                              const SizedBox(height: 18),
+                              _buildLoginIpCard(colors),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -823,37 +780,6 @@ class _FengWoPersonalCenterViewState
   ) {
     final summary = loginIpList.summary;
     final records = loginIpList.items;
-    final recordsList = records.length <= _loginIpVisibleRecordLimit
-        ? Column(
-            children: [
-              for (var index = 0; index < records.length; index++) ...[
-                _buildLoginIpRow(colors, records[index], index),
-                if (index != records.length - 1)
-                  Divider(height: 1, color: colors.outline),
-              ],
-            ],
-          )
-        : SizedBox(
-            key: const ValueKey('login-ip-scroll-viewport'),
-            height: _loginIpScrollableViewportHeight,
-            child: Scrollbar(
-              controller: _loginIpScrollController,
-              thumbVisibility: true,
-              interactive: true,
-              child: ListView.separated(
-                key: const ValueKey('login-ip-scroll-list'),
-                controller: _loginIpScrollController,
-                primary: false,
-                padding: EdgeInsets.zero,
-                physics: const ClampingScrollPhysics(),
-                itemCount: records.length,
-                itemBuilder: (context, index) =>
-                    _buildLoginIpRow(colors, records[index], index),
-                separatorBuilder: (context, index) =>
-                    Divider(height: 1, color: colors.outline),
-              ),
-            ),
-          );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -894,7 +820,48 @@ class _FengWoPersonalCenterViewState
           ),
           const SizedBox(height: 10),
         ],
-        recordsList,
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final wideRows = constraints.maxWidth >= _loginIpWideRowBreakpoint;
+            final visibleLimit = wideRows
+                ? _loginIpWideVisibleRecordLimit
+                : _loginIpCompactVisibleRecordLimit;
+            if (records.length <= visibleLimit) {
+              return Column(
+                children: [
+                  for (var index = 0; index < records.length; index++) ...[
+                    _buildLoginIpRow(colors, records[index], index),
+                    if (index != records.length - 1)
+                      Divider(height: 1, color: colors.outline),
+                  ],
+                ],
+              );
+            }
+            return SizedBox(
+              key: const ValueKey('login-ip-scroll-viewport'),
+              height: wideRows
+                  ? _loginIpWideViewportHeight
+                  : _loginIpCompactViewportHeight,
+              child: Scrollbar(
+                controller: _loginIpScrollController,
+                thumbVisibility: true,
+                interactive: true,
+                child: ListView.separated(
+                  key: const ValueKey('login-ip-scroll-list'),
+                  controller: _loginIpScrollController,
+                  primary: false,
+                  padding: EdgeInsets.zero,
+                  physics: const ClampingScrollPhysics(),
+                  itemCount: records.length,
+                  itemBuilder: (context, index) =>
+                      _buildLoginIpRow(colors, records[index], index),
+                  separatorBuilder: (context, index) =>
+                      Divider(height: 1, color: colors.outline),
+                ),
+              ),
+            );
+          },
+        ),
         const SizedBox(height: 12),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -938,52 +905,46 @@ class _FengWoPersonalCenterViewState
     return _AccountCard(
       key: const ValueKey('account-password-card'),
       colors: colors,
-      minHeight: 420,
       child: Form(
         key: _passwordFormKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _AccountSectionTitle(
-              colors: colors,
-              icon: Icons.lock_outline_rounded,
-              title: context.appLocalizations.changePasswordTitle,
-            ),
-            const SizedBox(height: 18),
-            _PasswordField(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final horizontalFields = constraints.maxWidth >= 900;
+            final oldPasswordField = _PasswordField(
               key: const ValueKey('old-password-field'),
               controller: _oldPasswordController,
               label: context.appLocalizations.oldPassword,
               hint: context.appLocalizations.enterOldPassword,
               obscureText: _obscureOldPassword,
+              labelAbove: horizontalFields,
               onToggleVisibility: () {
                 setState(() => _obscureOldPassword = !_obscureOldPassword);
               },
               validator: (value) => value == null || value.isEmpty
                   ? context.appLocalizations.enterOldPassword
                   : null,
-            ),
-            const SizedBox(height: 12),
-            _PasswordField(
+            );
+            final newPasswordField = _PasswordField(
               key: const ValueKey('new-password-field'),
               controller: _newPasswordController,
               label: context.appLocalizations.newPassword,
               hint: context.appLocalizations.enterNewPassword,
               obscureText: _obscureNewPassword,
+              labelAbove: horizontalFields,
               onToggleVisibility: () {
                 setState(() => _obscureNewPassword = !_obscureNewPassword);
               },
               validator: (value) => value == null || value.length < 8
                   ? context.appLocalizations.passwordTooShort
                   : null,
-            ),
-            const SizedBox(height: 12),
-            _PasswordField(
+            );
+            final confirmPasswordField = _PasswordField(
               key: const ValueKey('confirm-password-field'),
               controller: _confirmPasswordController,
               label: context.appLocalizations.confirmNewPassword,
               hint: context.appLocalizations.enterNewPassword,
               obscureText: _obscureConfirmPassword,
+              labelAbove: horizontalFields,
               onToggleVisibility: () {
                 setState(
                   () => _obscureConfirmPassword = !_obscureConfirmPassword,
@@ -992,63 +953,62 @@ class _FengWoPersonalCenterViewState
               validator: (value) => value != _newPasswordController.text
                   ? context.appLocalizations.passwordsDoNotMatch
                   : null,
-            ),
-            const SizedBox(height: 22),
-            _GradientAccountButton(
-              key: const ValueKey('save-password-button'),
-              onPressed: _changingPassword ? null : _changePassword,
-              icon: _changingPassword
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.lock_reset_rounded),
-              label: Text(context.appLocalizations.saveChanges),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildResetSubscriptionCard(_AccountColors colors) {
-    return _AccountCard(
-      key: const ValueKey('reset-subscription-card'),
-      colors: colors,
-      minHeight: 220,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _AccountSectionTitle(
-            colors: colors,
-            icon: Icons.warning_amber_rounded,
-            title: context.appLocalizations.resetSubscription,
-          ),
-          const SizedBox(height: 18),
-          Text(
-            context.appLocalizations.resetSubscriptionDescription,
-            style: TextStyle(
-              color: colors.muted,
-              fontSize: 13,
-              height: 1.55,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 28),
-          _GradientAccountButton(
-            key: const ValueKey('reset-subscription-button'),
-            onPressed: _resettingSubscription ? null : _resetSubscription,
-            icon: _resettingSubscription
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+            );
+            final fields = horizontalFields
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: oldPasswordField),
+                      const SizedBox(width: 14),
+                      Expanded(child: newPasswordField),
+                      const SizedBox(width: 14),
+                      Expanded(child: confirmPasswordField),
+                    ],
                   )
-                : const Icon(Icons.refresh_rounded),
-            label: Text(context.appLocalizations.resetSubscription),
-          ),
-        ],
+                : Column(
+                    children: [
+                      oldPasswordField,
+                      const SizedBox(height: 10),
+                      newPasswordField,
+                      const SizedBox(height: 10),
+                      confirmPasswordField,
+                    ],
+                  );
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _AccountSectionTitle(
+                  colors: colors,
+                  icon: Icons.lock_outline_rounded,
+                  title: context.appLocalizations.changePasswordTitle,
+                ),
+                const SizedBox(height: 16),
+                fields,
+                const SizedBox(height: 18),
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: SizedBox(
+                    width: constraints.maxWidth >= 520
+                        ? 240
+                        : constraints.maxWidth,
+                    child: _GradientAccountButton(
+                      key: const ValueKey('save-password-button'),
+                      onPressed: _changingPassword ? null : _changePassword,
+                      icon: _changingPassword
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.lock_reset_rounded),
+                      label: Text(context.appLocalizations.saveChanges),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -1323,6 +1283,8 @@ class _LoginIpMetric extends StatelessWidget {
 }
 
 class _LoginIpRow extends StatelessWidget {
+  static const _wideBreakpoint = 700.0;
+
   final _AccountColors colors;
   final XboardLoginIpRecord record;
   final bool updating;
@@ -1354,178 +1316,297 @@ class _LoginIpRow extends StatelessWidget {
         : record.clientName;
     final firstLoginAt = record.firstLoginAt;
     final lastLoginAt = record.lastLoginAt;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: colors.primarySoft,
-                  borderRadius: BorderRadius.circular(13),
+    final lastLoginText = lastLoginAt == null
+        ? context.appLocalizations.noSuccessfulLogin
+        : context.appLocalizations.lastLoginAt(formatter.format(lastLoginAt));
+    final firstLoginText = firstLoginAt == null
+        ? context.appLocalizations.loginIpLoginCount(record.loginCount)
+        : '${context.appLocalizations.firstLoginAt(formatter.format(firstLoginAt))} · ${context.appLocalizations.loginIpLoginCount(record.loginCount)}';
+    final userAgent = record.userAgent?.trim();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= _wideBreakpoint;
+        final status = _buildStatusChip(
+          context,
+          statusColor: statusColor,
+          background: statusBackground,
+        );
+        final icon = _buildClientIcon();
+        final identity = Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    record.ip,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: colors.text,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
                 ),
-                child: Icon(
-                  record.clientType == 'app'
-                      ? Icons.phone_android_rounded
-                      : Icons.language_rounded,
-                  color: colors.primary,
-                  size: 22,
-                ),
+                const SizedBox(width: 7),
+                status,
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '$location · $client · IPv${record.ipVersion}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: colors.muted,
+                fontSize: 10.5,
+                height: 1.35,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
+            ),
+            if (record.isBlocked && record.reason != null) ...[
+              const SizedBox(height: 3),
+              Text(
+                context.appLocalizations.loginIpBlockReason(record.reason!),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: errorColor, fontSize: 10.5),
+              ),
+            ],
+          ],
+        );
+        if (!wide) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Wrap(
-                      spacing: 7,
-                      runSpacing: 5,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          record.ip,
-                          style: TextStyle(
-                            color: colors.text,
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w900,
+                    icon,
+                    const SizedBox(width: 10),
+                    Expanded(child: identity),
+                    const SizedBox(width: 4),
+                    _buildAction(context, compact: true),
+                  ],
+                ),
+                const SizedBox(height: 7),
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(start: 50, end: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        lastLoginText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors.text,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        firstLoginText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: colors.muted, fontSize: 10.5),
+                      ),
+                      if (userAgent != null && userAgent.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Tooltip(
+                          message: userAgent,
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.devices_other_rounded,
+                                color: colors.muted,
+                                size: 14,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  userAgent,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: colors.muted,
+                                    fontSize: 10.5,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: statusBackground,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        final showDevice = constraints.maxWidth >= 920;
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              icon,
+              const SizedBox(width: 10),
+              Expanded(flex: 3, child: identity),
+              const SizedBox(width: 18),
+              Expanded(
+                flex: 3,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      lastLoginText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colors.text,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      firstLoginText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: colors.muted, fontSize: 10.5),
+                    ),
+                  ],
+                ),
+              ),
+              if (showDevice) ...[
+                const SizedBox(width: 18),
+                Expanded(
+                  flex: 2,
+                  child: Tooltip(
+                    message: userAgent?.isNotEmpty == true
+                        ? userAgent!
+                        : context.appLocalizations.unknownClient,
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.devices_other_rounded,
+                          color: colors.muted,
+                          size: 15,
+                        ),
+                        const SizedBox(width: 5),
+                        Expanded(
                           child: Text(
-                            record.isBlocked
-                                ? context.appLocalizations.loginIpBlockedStatus
-                                : context.appLocalizations.loginIpAllowedStatus,
+                            userAgent?.isNotEmpty == true
+                                ? userAgent!
+                                : context.appLocalizations.unknownClient,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: statusColor,
-                              fontSize: 9.5,
-                              fontWeight: FontWeight.w900,
+                              color: colors.muted,
+                              fontSize: 10.5,
                             ),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '$location · $client · IPv${record.ipVersion}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: colors.muted,
-                        fontSize: 10.5,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Padding(
-            padding: const EdgeInsetsDirectional.only(start: 54),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  lastLoginAt == null
-                      ? context.appLocalizations.noSuccessfulLogin
-                      : context.appLocalizations.lastLoginAt(
-                          formatter.format(lastLoginAt),
-                        ),
-                  style: TextStyle(
-                    color: colors.text,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  firstLoginAt == null
-                      ? context.appLocalizations.loginIpLoginCount(
-                          record.loginCount,
-                        )
-                      : '${context.appLocalizations.firstLoginAt(formatter.format(firstLoginAt))} · ${context.appLocalizations.loginIpLoginCount(record.loginCount)}',
-                  style: TextStyle(color: colors.muted, fontSize: 10.5),
-                ),
-                if (record.userAgent != null) ...[
-                  const SizedBox(height: 5),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.devices_other_rounded,
-                        color: colors.muted,
-                        size: 14,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          record.userAgent!,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: colors.muted, fontSize: 10.5),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-                if (record.isBlocked && record.reason != null) ...[
-                  const SizedBox(height: 5),
-                  Text(
-                    context.appLocalizations.loginIpBlockReason(record.reason!),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: errorColor, fontSize: 10.5),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                Align(
-                  alignment: AlignmentDirectional.centerEnd,
-                  child: TextButton.icon(
-                    key: ValueKey(
-                      '${record.isBlocked ? 'unblock' : 'block'}-login-ip-${record.id ?? record.clientType ?? 'unknown'}-${record.ip}',
-                    ),
-                    onPressed: updating
-                        ? null
-                        : record.isBlocked
-                        ? onUnblock
-                        : onBlock,
-                    icon: updating
-                        ? const SizedBox(
-                            width: 15,
-                            height: 15,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Icon(
-                            record.isBlocked
-                                ? Icons.lock_open_rounded
-                                : Icons.block_rounded,
-                            size: 17,
-                          ),
-                    label: Text(
-                      record.isBlocked
-                          ? context.appLocalizations.unblockLoginIp
-                          : context.appLocalizations.blockLoginIp,
-                    ),
                   ),
                 ),
               ],
-            ),
+              const SizedBox(width: 12),
+              _buildAction(context, compact: false),
+            ],
           ),
-        ],
+        );
+      },
+    );
+  }
+
+  Widget _buildClientIcon() {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: colors.primarySoft,
+        borderRadius: BorderRadius.circular(12),
       ),
+      child: Icon(
+        record.clientType == 'app'
+            ? Icons.phone_android_rounded
+            : Icons.language_rounded,
+        color: colors.primary,
+        size: 21,
+      ),
+    );
+  }
+
+  Widget _buildStatusChip(
+    BuildContext context, {
+    required Color statusColor,
+    required Color background,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        record.isBlocked
+            ? context.appLocalizations.loginIpBlockedStatus
+            : context.appLocalizations.loginIpAllowedStatus,
+        maxLines: 1,
+        style: TextStyle(
+          color: statusColor,
+          fontSize: 9.5,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAction(BuildContext context, {required bool compact}) {
+    final key = ValueKey(
+      '${record.isBlocked ? 'unblock' : 'block'}-login-ip-${record.id ?? record.clientType ?? 'unknown'}-${record.ip}',
+    );
+    final label = record.isBlocked
+        ? context.appLocalizations.unblockLoginIp
+        : context.appLocalizations.blockLoginIp;
+    final callback = updating
+        ? null
+        : record.isBlocked
+        ? onUnblock
+        : onBlock;
+    final icon = updating
+        ? const SizedBox(
+            width: 15,
+            height: 15,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : Icon(
+            record.isBlocked ? Icons.lock_open_rounded : Icons.block_rounded,
+            size: 17,
+          );
+    if (compact) {
+      return IconButton(
+        key: key,
+        tooltip: label,
+        onPressed: callback,
+        visualDensity: VisualDensity.compact,
+        icon: icon,
+      );
+    }
+    return TextButton.icon(
+      key: key,
+      onPressed: callback,
+      icon: icon,
+      label: Text(label),
     );
   }
 }
@@ -1535,6 +1616,7 @@ class _PasswordField extends StatelessWidget {
   final String label;
   final String hint;
   final bool obscureText;
+  final bool labelAbove;
   final VoidCallback onToggleVisibility;
   final FormFieldValidator<String>? validator;
 
@@ -1544,6 +1626,7 @@ class _PasswordField extends StatelessWidget {
     required this.label,
     required this.hint,
     required this.obscureText,
+    this.labelAbove = false,
     required this.onToggleVisibility,
     this.validator,
   });
@@ -1592,7 +1675,7 @@ class _PasswordField extends StatelessWidget {
     );
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth < 470) {
+        if (labelAbove || constraints.maxWidth < 470) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

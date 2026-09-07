@@ -22,12 +22,10 @@ class CommonAction extends _$CommonAction {
   }
 
   void updateMode() {
-    ref.read(patchClashConfigProvider.notifier).update((state) {
-      final index = Mode.values.indexWhere((item) => item == state.mode);
-      if (index == -1) return state;
-      final nextIndex = index + 1 > Mode.values.length - 1 ? 0 : index + 1;
-      return state.copyWith(mode: Mode.values[nextIndex]);
-    });
+    final mode = ref.read(patchClashConfigProvider).mode;
+    final index = Mode.values.indexOf(mode);
+    final nextIndex = (index + 1) % Mode.values.length;
+    ref.read(setupActionProvider.notifier).changeMode(Mode.values[nextIndex]);
   }
 
   Future<void> updateTraffic() async {

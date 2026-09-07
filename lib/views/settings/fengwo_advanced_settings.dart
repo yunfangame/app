@@ -1,5 +1,6 @@
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/campus_network.dart';
+import 'package:fl_clash/common/network_diagnostic_selection.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
@@ -47,13 +48,16 @@ class _FengWoAdvancedSettingsViewState
 
   Future<void> _runNetworkDiagnostics() async {
     if (_diagnosingNetwork) return;
-    setState(() => _diagnosingNetwork = true);
+    setState(() {
+      _diagnosingNetwork = true;
+      _networkDiagnosticReport = null;
+    });
     try {
       final report = await globalState.safeRun<NetworkDiagnosticReport>(
         () =>
             widget.networkDiagnosticRunner?.call() ??
             ref.read(logsProvider.notifier).runNetworkDiagnostics(),
-        title: '网络诊断',
+        title: context.appLocalizations.runNetworkDiagnostics,
       );
       if (report == null || !mounted) return;
       setState(() => _networkDiagnosticReport = report);
@@ -319,9 +323,9 @@ class _FengWoAdvancedSettingsViewState
                             const SizedBox(height: 16),
                             _buildDnsCard(colors),
                             const SizedBox(height: 16),
-                            _buildGeoCard(colors),
-                            const SizedBox(height: 16),
                             _buildDiagnosticCard(colors),
+                            const SizedBox(height: 16),
+                            _buildGeoCard(colors),
                           ],
                         );
                       }
@@ -351,9 +355,9 @@ class _FengWoAdvancedSettingsViewState
                             ),
                           ),
                           const SizedBox(height: 18),
-                          _buildGeoCard(colors),
-                          const SizedBox(height: 18),
                           _buildDiagnosticCard(colors),
+                          const SizedBox(height: 18),
+                          _buildGeoCard(colors),
                         ],
                       );
                     },
@@ -758,6 +762,19 @@ class _FengWoAdvancedSettingsViewState
 
   Widget _buildDiagnosticCard(_AdvancedColors colors) {
     final l10n = context.appLocalizations;
+    final selection = computeNetworkDiagnosticSelection(
+      mode: ref.watch(patchClashConfigProvider.select((config) => config.mode)),
+      groups: ref.watch(groupsProvider),
+      selectedMap: ref.watch(selectedMapProvider),
+      currentGroupName: ref.watch(
+        currentProfileProvider.select((profile) => profile?.currentGroupName),
+      ),
+    );
+    final modeLabel = switch (selection.mode) {
+      Mode.rule => l10n.rule,
+      Mode.global => l10n.global,
+      Mode.direct => l10n.direct,
+    };
     return _AdvancedCard(
       key: const ValueKey('advanced-diagnostic-card'),
       colors: colors,
@@ -771,6 +788,21 @@ class _FengWoAdvancedSettingsViewState
             accent: colors.blue,
           ),
           const SizedBox(height: 14),
+          SizedBox(
+            key: const ValueKey('advanced-network-diagnostic-selection'),
+            width: double.infinity,
+            child: Text(
+              [
+                '${l10n.networkDiagnosticMode}：$modeLabel',
+                if (selection.selectedGroup != null)
+                  '${l10n.networkDiagnosticSelectedGroup}：${selection.selectedGroup}',
+                '${l10n.networkDiagnosticSelectedNode}：'
+                    '${selection.selectedNode ?? l10n.networkDiagnosticUnknownNode}',
+              ].join('\n'),
+              style: TextStyle(color: colors.muted, fontSize: 12, height: 1.4),
+            ),
+          ),
+          const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
@@ -1029,6 +1061,25 @@ class _CardHeading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (trailing == null) return _buildHeading(false);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked = constraints.maxWidth < 360;
+        final heading = _buildHeading(stacked);
+        if (!stacked) return heading;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            heading,
+            const SizedBox(height: 10),
+            Align(alignment: Alignment.centerRight, child: trailing!),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHeading(bool stacked) {
     return Row(
       children: [
         _TintedIcon(icon: icon, color: accent, size: 48),
@@ -1057,7 +1108,10 @@ class _CardHeading extends StatelessWidget {
             ],
           ),
         ),
-        if (trailing != null) ...[const SizedBox(width: 10), trailing!],
+        if (trailing != null && !stacked) ...[
+          const SizedBox(width: 10),
+          trailing!,
+        ],
       ],
     );
   }

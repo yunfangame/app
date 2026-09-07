@@ -24,7 +24,9 @@ void main() {
     var campusConfigLoads = 0;
     var diagnosticExports = 0;
     var diagnosticRuns = 0;
-    final container = ProviderContainer();
+    final container = ProviderContainer(
+      overrides: [currentProfileProvider.overrideWithValue(null)],
+    );
     addTearDown(container.dispose);
     globalState.container = container;
     container.read(viewSizeProvider.notifier).value = const Size(1280, 1000);
@@ -159,6 +161,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(diagnosticExports, 1);
 
+    await tester.ensureVisible(campusSwitch);
+    await tester.pumpAndSettle();
     await tester.tap(campusSwitch);
     await tester.pumpAndSettle();
     expect(container.read(appSettingProvider).campusNetworkEnabled, isFalse);
@@ -182,8 +186,9 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(
-      const ProviderScope(
-        child: _TestApp(
+      ProviderScope(
+        overrides: [currentProfileProvider.overrideWithValue(null)],
+        child: const _TestApp(
           themeMode: ThemeMode.dark,
           child: FengWoAdvancedSettingsView(),
         ),
@@ -205,6 +210,13 @@ void main() {
     );
     expect(find.byKey(const ValueKey('advanced-dns-card')), findsOne);
     expect(find.byKey(const ValueKey('advanced-diagnostic-card')), findsOne);
+    final diagnostics = tester.getTopLeft(
+      find.byKey(const ValueKey('advanced-diagnostic-card')),
+    );
+    final geodata = tester.getTopLeft(
+      find.byKey(const ValueKey('advanced-geodata-card')),
+    );
+    expect(diagnostics.dy, lessThan(geodata.dy));
     expect(tester.takeException(), isNull);
   });
 
@@ -217,7 +229,10 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(
-      const ProviderScope(child: _TestApp(child: FengWoAdvancedSettingsView())),
+      ProviderScope(
+        overrides: [currentProfileProvider.overrideWithValue(null)],
+        child: const _TestApp(child: FengWoAdvancedSettingsView()),
+      ),
     );
     await tester.pump();
 
@@ -245,8 +260,8 @@ void main() {
     expect(dns.dx, greaterThan(campus.dx));
     expect((dns.dy - campus.dy).abs(), lessThan(1));
     expect(campus.dy, greaterThan(proxy.dy));
-    expect(geodata.dy, greaterThan(campus.dy));
-    expect(diagnostics.dy, greaterThan(geodata.dy));
+    expect(diagnostics.dy, greaterThan(campus.dy));
+    expect(geodata.dy, greaterThan(diagnostics.dy));
     expect(
       (tester
                   .getSize(find.byKey(const ValueKey('advanced-proxy-card')))

@@ -94,17 +94,19 @@ class FengWoWorldMap extends StatelessWidget {
   }
 }
 
+Group? _currentDashboardGroup(WidgetRef ref, Profile? profile) {
+  final rawGroups = ref.watch(groupsProvider);
+  final visibleGroups = ref.watch(currentGroupsStateProvider).value;
+  if (visibleGroups.isEmpty) return null;
+  final preferredName = profile?.currentGroupName;
+  final visibleGroup = preferredName == null
+      ? visibleGroups.first
+      : visibleGroups.getGroup(preferredName) ?? visibleGroups.first;
+  return rawGroups.getGroup(visibleGroup.name) ?? visibleGroup;
+}
+
 class FengWoDesktopDashboard extends ConsumerWidget {
   const FengWoDesktopDashboard({super.key});
-
-  Group? _currentGroup(WidgetRef ref, Profile? profile) {
-    final groups = ref.watch(groupsProvider);
-    if (groups.isEmpty) return null;
-    final groupName = profile?.currentGroupName;
-    return groupName == null
-        ? groups.first
-        : groups.getGroup(groupName) ?? groups.first;
-  }
 
   String _currentNode(Group? group, Profile? profile) {
     if (group == null) return '';
@@ -120,7 +122,7 @@ class FengWoDesktopDashboard extends ConsumerWidget {
     final isStart = ref.watch(isStartProvider);
     final profiles = ref.watch(profilesProvider);
     final profile = ref.watch(currentProfileProvider);
-    final currentGroup = _currentGroup(ref, profile);
+    final currentGroup = _currentDashboardGroup(ref, profile);
     final rawNodeName = _currentNode(currentGroup, profile);
     final nodeName = rawNodeName.takeFirstValid([l10n.proxiesEmpty]);
     final connectionDelay = rawNodeName.isEmpty
@@ -372,8 +374,10 @@ class _HeroPanel extends ConsumerWidget {
     final pending = ref.watch(connectionPendingProvider);
     final excludedNetwork = ref.watch(suspendProvider);
     final suspended = pending && excludedNetwork;
-    final groups = ref.watch(groupsProvider);
-    final firstGroup = groups.isEmpty ? null : groups.first;
+    final firstGroup = _currentDashboardGroup(
+      ref,
+      ref.watch(currentProfileProvider),
+    );
     final firstGroupSelected = firstGroup == null
         ? ''
         : (ref.watch(selectedProxyNameProvider(firstGroup.name)) ?? '')
@@ -1280,8 +1284,10 @@ class _GlobalNetworkPanel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final groups = ref.watch(groupsProvider);
-    final firstGroup = groups.isEmpty ? null : groups.first;
+    final firstGroup = _currentDashboardGroup(
+      ref,
+      ref.watch(currentProfileProvider),
+    );
     final mapNodes = firstGroup == null
         ? const <_WorldNode>[]
         : firstGroup.all

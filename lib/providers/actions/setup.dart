@@ -15,13 +15,25 @@ class SetupAction extends _$SetupAction {
   final _setupScheduler = SerialTaskScheduler();
   final _listenerScheduler = SerialTaskScheduler();
   _RunRequest? _latestRunRequest;
+  bool? _lastPhysicalNetworkAvailable;
+  int _physicalNetworkRecoveryRevision = 0;
   DateTime? _startTime;
+  int? _appliedRuleProfileId;
+  String? _appliedRuleTarget;
+
+  String? get ruleSelectionGroup =>
+      ref.read(currentProfileIdProvider) == _appliedRuleProfileId
+      ? _appliedRuleTarget
+      : null;
 
   bool get _isRunning => _startTime != null && _startTime!.isBeforeNow;
 
   @override
   void build() {
-    ref.onDispose(() => _runtimeTimer?.cancel());
+    ref.onDispose(() {
+      _runtimeTimer?.cancel();
+      _physicalNetworkRecoveryRevision++;
+    });
   }
 
   @protected
@@ -46,7 +58,6 @@ class SetupAction extends _$SetupAction {
     ref.read(delayDataSourceProvider.notifier).value = {};
     ref.read(connectionDelayDataSourceProvider.notifier).value = {};
     unawaited(_runSetup(force: true));
-    ref.read(logsProvider.notifier).value = FixedList(500);
     ref.read(requestsProvider.notifier).value = FixedList(500);
   }
 
@@ -103,6 +114,12 @@ class SetupAction extends _$SetupAction {
   }
 
   Future<void> setRunning(bool running, {bool initialize = false}) {
+    _physicalNetworkRecoveryRevision++;
+    if (!initialize) {
+      ref
+          .read(proxiesActionProvider.notifier)
+          .cancelHongKongSelection(manual: true);
+    }
     if (running && !initialize && !ref.read(initProvider)) {
       return Future.value();
     }
@@ -295,10 +312,48 @@ class SetupAction extends _$SetupAction {
   }
 
   Future<void> _stop(_RunRequest request) async {
-    await _setCoreRunning(request);
+    final watch = Stopwatch()..start();
+    commonPrint.event(
+      'connection.cleanup.started',
+      fields: {
+        'reason': 'connection_stop',
+        'strategy': 'core_listener_stop',
+        'separate_close_requested': false,
+      },
+    );
+    try {
+      await _setCoreRunning(request);
+    } catch (error) {
+      commonPrint.event(
+        'connection.cleanup.failed',
+        fields: {
+          'reason': 'connection_stop',
+          'strategy': 'core_listener_stop',
+          'elapsed_ms': watch.elapsedMilliseconds,
+          'error_type': error.runtimeType.toString(),
+        },
+      );
+      rethrow;
+    }
     if (!_isCurrent(request)) {
+      commonPrint.event(
+        'connection.cleanup.superseded',
+        fields: {
+          'reason': 'connection_stop',
+          'strategy': 'core_listener_stop',
+          'elapsed_ms': watch.elapsedMilliseconds,
+        },
+      );
       return;
     }
+    commonPrint.event(
+      'connection.cleanup.completed',
+      fields: {
+        'reason': 'connection_stop',
+        'strategy': 'core_listener_stop',
+        'elapsed_ms': watch.elapsedMilliseconds,
+      },
+    );
     resetCoreTraffic();
     ref.read(trafficsProvider.notifier).clear();
     ref.read(totalTrafficProvider.notifier).value = const Traffic();
@@ -361,6 +416,222 @@ class SetupAction extends _$SetupAction {
   @protected
   void resetCoreTraffic() {
     coreController.resetTraffic();
+  }
+
+  @protected
+  Future<void> resetResolverConnections() {
+    return coreController.resetConnections();
+  }
+
+  @protected
+  Future<void> closeTrackedConnectionsForNetworkRecovery() {
+    return coreController.closeConnections();
+  }
+
+  @protected
+  Future<void> waitForPhysicalNetworkRecovery() {
+    return Future<void>.delayed(const Duration(milliseconds: 800));
+  }
+
+  @protected
+  Future<NetworkDiagnosticReport> runPhysicalNetworkRecoveryDiagnostic() {
+    return ref.read(logsProvider.notifier).runNetworkDiagnostics();
+  }
+
+  String _selectedMapSignature(int? profileId) {
+    if (profileId == null) return '[]';
+    final entries = ref.read(selectedMapProvider).entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return jsonEncode(
+      entries.map((entry) => [entry.key, entry.value]).toList(),
+    );
+  }
+
+  String? _physicalNetworkRecoverySkipReason({
+    required _RunRequest? request,
+    required int revision,
+    required bool Function() isConfigurationCurrent,
+  }) {
+    if (!ref.mounted) return 'provider_disposed';
+    if (revision != _physicalNetworkRecoveryRevision) {
+      return 'newer_network_or_connection_event';
+    }
+    if (_lastPhysicalNetworkAvailable != true) {
+      return 'physical_network_unavailable';
+    }
+    if (request == null || !_isCurrent(request) || !request.running) {
+      return 'connection_request_changed';
+    }
+    if (!isConfigurationCurrent()) return 'configuration_changed';
+    if (!ref.read(isStartProvider)) return 'proxy_not_running';
+    if (ref.read(connectionPendingProvider)) return 'connection_pending';
+    if (ref.read(suspendProvider)) return 'connection_suspended';
+    if (ref.read(coreStatusProvider) != CoreStatus.connected) {
+      return 'core_not_connected';
+    }
+    return null;
+  }
+
+  void _logPhysicalNetworkRecoverySkipped(String reason) {
+    commonPrint.event(
+      'network.recovery.skipped',
+      fields: {
+        'reason': 'physical_network_restored',
+        'strategy': 'diagnose_close_reset',
+        'skip_reason': reason,
+      },
+    );
+  }
+
+  Future<void> handlePhysicalNetworkAvailability(bool available) async {
+    final previous = _lastPhysicalNetworkAvailable;
+    if (previous == available) return;
+    _lastPhysicalNetworkAvailable = available;
+    final revision = ++_physicalNetworkRecoveryRevision;
+    commonPrint.event(
+      'network.physical_availability.changed',
+      fields: {'available': available, 'previous': previous},
+    );
+    if (!available || previous != false) return;
+
+    final request = _latestRunRequest;
+    final profileId = ref.read(currentProfileIdProvider);
+    final config = ref.read(patchClashConfigProvider);
+    final networkSettings = ref.read(networkSettingProvider);
+    final selectedMapSignature = _selectedMapSignature(profileId);
+    bool configurationCurrent() =>
+        ref.read(currentProfileIdProvider) == profileId &&
+        ref.read(patchClashConfigProvider) == config &&
+        ref.read(networkSettingProvider) == networkSettings &&
+        _selectedMapSignature(profileId) == selectedMapSignature;
+
+    var skipReason = _physicalNetworkRecoverySkipReason(
+      request: request,
+      revision: revision,
+      isConfigurationCurrent: configurationCurrent,
+    );
+    if (skipReason != null) {
+      _logPhysicalNetworkRecoverySkipped(skipReason);
+      return;
+    }
+
+    try {
+      await waitForPhysicalNetworkRecovery();
+    } catch (error) {
+      commonPrint.event(
+        'network.recovery.failed',
+        fields: {
+          'reason': 'physical_network_restored',
+          'strategy': 'settle_delay',
+          'error_type': error.runtimeType.toString(),
+        },
+      );
+      return;
+    }
+
+    skipReason = _physicalNetworkRecoverySkipReason(
+      request: request,
+      revision: revision,
+      isConfigurationCurrent: configurationCurrent,
+    );
+    if (skipReason != null) {
+      _logPhysicalNetworkRecoverySkipped(skipReason);
+      return;
+    }
+
+    final watch = Stopwatch()..start();
+    commonPrint.event(
+      'network.recovery.diagnostic.started',
+      fields: {
+        'reason': 'physical_network_restored',
+        'required_code': 'W-NET-OK',
+      },
+    );
+    late final NetworkDiagnosticReport report;
+    try {
+      report = await runPhysicalNetworkRecoveryDiagnostic();
+    } catch (error) {
+      commonPrint.event(
+        'network.recovery.failed',
+        fields: {
+          'reason': 'physical_network_restored',
+          'strategy': 'network_diagnostic',
+          'elapsed_ms': watch.elapsedMilliseconds,
+          'error_type': error.runtimeType.toString(),
+        },
+      );
+      return;
+    }
+
+    skipReason = _physicalNetworkRecoverySkipReason(
+      request: request,
+      revision: revision,
+      isConfigurationCurrent: configurationCurrent,
+    );
+    if (skipReason != null) {
+      _logPhysicalNetworkRecoverySkipped(skipReason);
+      return;
+    }
+    if (!report.success) {
+      _logPhysicalNetworkRecoverySkipped(
+        'diagnostic_${report.code.toLowerCase()}',
+      );
+      return;
+    }
+
+    var cleanupStarted = false;
+    var closeSucceeded = false;
+    var resolverResetSucceeded = false;
+    await _listenerScheduler.run(() async {
+      final serializedSkipReason = _physicalNetworkRecoverySkipReason(
+        request: request,
+        revision: revision,
+        isConfigurationCurrent: configurationCurrent,
+      );
+      if (serializedSkipReason != null) {
+        _logPhysicalNetworkRecoverySkipped(serializedSkipReason);
+        return;
+      }
+      cleanupStarted = true;
+      commonPrint.event(
+        'network.recovery.cleanup.started',
+        fields: {
+          'reason': 'physical_network_restored',
+          'strategy': 'close_then_resolver_reset',
+          'diagnostic_code': report.code,
+        },
+      );
+      try {
+        await closeTrackedConnectionsForNetworkRecovery();
+        closeSucceeded = true;
+      } catch (error) {
+        commonPrint.event(
+          'network.recovery.connection_close.failed',
+          fields: {'error_type': error.runtimeType.toString()},
+        );
+      }
+      try {
+        await resetResolverConnections();
+        resolverResetSucceeded = true;
+      } catch (error) {
+        commonPrint.event(
+          'network.recovery.resolver_reset.failed',
+          fields: {'error_type': error.runtimeType.toString()},
+        );
+      }
+    });
+    if (!cleanupStarted) return;
+    commonPrint.event(
+      'network.recovery.cleanup.completed',
+      fields: {
+        'reason': 'physical_network_restored',
+        'strategy': 'close_then_resolver_reset',
+        'diagnostic_code': report.code,
+        'close_succeeded': closeSucceeded,
+        'resolver_reset_succeeded': resolverResetSucceeded,
+        'elapsed_ms': watch.elapsedMilliseconds,
+      },
+    );
   }
 
   @visibleForTesting
@@ -442,13 +713,89 @@ class SetupAction extends _$SetupAction {
 
   void changeMode(Mode mode) {
     ref
+        .read(proxiesActionProvider.notifier)
+        .cancelHongKongSelection(manual: true);
+    if (mode == Mode.global) {
+      unawaited(_selectGlobalHongKong());
+      return;
+    }
+    ref
         .read(patchClashConfigProvider.notifier)
         .update((state) => state.copyWith(mode: mode));
-    if (mode == Mode.global) {
-      ref
-          .read(proxiesActionProvider.notifier)
-          .updateCurrentGroupName(GroupName.GLOBAL.name);
+  }
+
+  Future<void> _selectGlobalHongKong() async {
+    final result = await ref
+        .read(proxiesActionProvider.notifier)
+        .selectHongKongForMode(Mode.global);
+    if (!ref.mounted) return;
+    switch (result) {
+      case HongKongSelectionResult.unavailable:
+        globalState.showNotifier(
+          currentAppLocalizations.hongKongNodesUnavailable,
+        );
+      case HongKongSelectionResult.failed:
+        globalState.showNotifier(
+          currentAppLocalizations.hongKongSelectionFailed,
+        );
+      case HongKongSelectionResult.selected:
+      case HongKongSelectionResult.cancelled:
+        break;
     }
+  }
+
+  Future<bool> applySelectedProxyMode(
+    Mode mode, {
+    required bool Function() isCancelled,
+    bool Function()? canRestore,
+  }) {
+    return _setupScheduler.run(() async {
+      if (!ref.mounted || isCancelled()) return false;
+      final params = ref.read(updateParamsProvider);
+      Future<void> restoreMode() async {
+        if (!ref.mounted || canRestore?.call() == false) return;
+        final current = ref.read(updateParamsProvider);
+        final restored = await applyCoreUpdate(
+          current.copyWith.tun(
+            enable: _getEffectiveTunEnable(current.tun.enable),
+          ),
+        );
+        if (restored.isNotEmpty) {
+          throw StateError('proxy_mode_restore_rejected');
+        }
+      }
+
+      try {
+        final message = await applyCoreUpdate(
+          params.copyWith(
+            mode: mode,
+            tun: params.tun.copyWith(
+              enable: _getEffectiveTunEnable(params.tun.enable),
+            ),
+          ),
+        );
+        if (message.isNotEmpty) throw StateError('proxy_mode_update_rejected');
+        if (!ref.mounted) return false;
+        if (isCancelled() || params != ref.read(updateParamsProvider)) {
+          await restoreMode();
+          return false;
+        }
+      } catch (error) {
+        try {
+          await restoreMode();
+        } catch (restoreError) {
+          commonPrint.event(
+            'proxy.hong_kong_selection.mode_restore_failed',
+            fields: {'error_type': restoreError.runtimeType.toString()},
+          );
+        }
+        rethrow;
+      }
+      ref
+          .read(patchClashConfigProvider.notifier)
+          .update((state) => state.copyWith(mode: mode));
+      return true;
+    });
   }
 
   void autoApplyProfile() {
@@ -725,6 +1072,8 @@ class SetupAction extends _$SetupAction {
           throw message;
         }
         globalState.lastConfigMd5 = yamlMd5;
+        _appliedRuleProfileId = profile?.id;
+        _appliedRuleTarget = defaultRuleTarget(yamlString);
         ref.read(checkIpNumProvider.notifier).add();
         await onUpdated?.call();
         commonPrint.event(

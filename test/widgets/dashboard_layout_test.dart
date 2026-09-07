@@ -404,7 +404,7 @@ void main() {
   });
 
   testWidgets(
-    'desktop global mode asks for confirmation and starts with DIRECT',
+    'desktop global mode confirms before delegating Hong Kong selection',
     (tester) async {
       tester.view.physicalSize = const Size(1440, 900);
       tester.view.devicePixelRatio = 1;
@@ -429,6 +429,7 @@ void main() {
             (_, _) => const PatchClashConfig(mode: Mode.rule),
           ),
           setupActionProvider.overrideWith(_RecordingSetupAction.new),
+          proxiesActionProvider.overrideWith(_HongKongProxiesAction.new),
         ],
       );
       addTearDown(container.dispose);
@@ -453,6 +454,12 @@ void main() {
         findsOneWidget,
       );
       expect(container.read(patchClashConfigProvider).mode, Mode.rule);
+      expect(
+        (container.read(proxiesActionProvider.notifier)
+                as _HongKongProxiesAction)
+            .requests,
+        isEmpty,
+      );
 
       await tester.tap(
         find.byKey(const ValueKey('global-mode-dont-show-checkbox')),
@@ -477,7 +484,7 @@ void main() {
       );
       expect(
         container.read(profilesProvider).single.selectedMap['GLOBAL'],
-        'DIRECT',
+        '香港测试节点',
       );
 
       container
@@ -492,6 +499,12 @@ void main() {
         findsNothing,
       );
       expect(container.read(patchClashConfigProvider).mode, Mode.global);
+      expect(
+        (container.read(proxiesActionProvider.notifier)
+                as _HongKongProxiesAction)
+            .requests,
+        [Mode.global, Mode.global],
+      );
       expect(tester.takeException(), null);
     },
   );
@@ -544,10 +557,17 @@ void main() {
     expect(find.byKey(const ValueKey('global-mode-cancel')), findsOneWidget);
     expect(tester.takeException(), null);
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('global-mode-cancel')),
+    );
     await tester.tap(find.byKey(const ValueKey('global-mode-cancel')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(container.read(patchClashConfigProvider).mode, Mode.rule);
+    expect(
+      find.byKey(const ValueKey('global-mode-confirmation-dialog')),
+      findsNothing,
+    );
   });
 
   testWidgets('mobile dashboard uses real node state without overflowing', (
@@ -921,89 +941,101 @@ void main() {
     );
   }
 
-  testWidgets('rule mode ignores a stale GLOBAL profile group on mobile', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(393, 800);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+  for (final mobile in [false, true]) {
+    testWidgets(
+      'rule mode ignores a stale GLOBAL profile group on ${mobile ? 'mobile' : 'desktop'}',
+      (tester) async {
+        final size = mobile ? const Size(393, 800) : const Size(1440, 900);
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
 
-    const globalNode = 'GLOBAL 默认节点';
-    const ruleNode = '新加坡专线节点';
-    const profile = Profile(
-      id: 1,
-      autoUpdateDuration: Duration.zero,
-      currentGroupName: 'GLOBAL',
-      selectedMap: {'GLOBAL': globalNode, '自动选择': ruleNode},
-    );
-    const globalGroup = Group(
-      name: 'GLOBAL',
-      type: GroupType.Selector,
-      hidden: false,
-      now: globalNode,
-      all: [Proxy(name: globalNode, type: 'ss')],
-    );
-    const ruleGroup = Group(
-      name: '自动选择',
-      type: GroupType.Selector,
-      hidden: false,
-      now: ruleNode,
-      all: [Proxy(name: ruleNode, type: 'hysteria2')],
-    );
-    final container = ProviderContainer(
-      overrides: [
-        dashboardStateProvider.overrideWithValue(
-          const DashboardState(dashboardWidgets: []),
-        ),
-        viewSizeProvider.overrideWithBuild((_, _) => const Size(393, 800)),
-        initProvider.overrideWithBuild((_, _) => true),
-        profilesProvider.overrideWithValue([profile]),
-        groupsProvider.overrideWithValue([globalGroup, ruleGroup]),
-        currentProfileProvider.overrideWithValue(profile),
-        patchClashConfigProvider.overrideWithBuild(
-          (_, _) => const PatchClashConfig(mode: Mode.rule),
-        ),
-        delayProvider(proxyName: ruleNode).overrideWithValue(128),
-        setupActionProvider.overrideWith(_RecordingSetupAction.new),
-      ],
-    );
-    addTearDown(container.dispose);
-    addTearDown(globalState.clearXboardSession);
-    globalState.container = container;
+        const globalNode = 'GLOBAL 默认节点';
+        const ruleNode = '新加坡专线节点';
+        const profile = Profile(
+          id: 1,
+          autoUpdateDuration: Duration.zero,
+          currentGroupName: 'GLOBAL',
+          selectedMap: {'GLOBAL': globalNode, '自动选择': ruleNode},
+        );
+        const globalGroup = Group(
+          name: 'GLOBAL',
+          type: GroupType.Selector,
+          hidden: false,
+          now: globalNode,
+          all: [Proxy(name: globalNode, type: 'ss')],
+        );
+        const ruleGroup = Group(
+          name: '自动选择',
+          type: GroupType.Selector,
+          hidden: false,
+          now: ruleNode,
+          all: [Proxy(name: ruleNode, type: 'hysteria2')],
+        );
+        final container = ProviderContainer(
+          overrides: [
+            dashboardStateProvider.overrideWithValue(
+              const DashboardState(dashboardWidgets: []),
+            ),
+            viewSizeProvider.overrideWithBuild((_, _) => size),
+            initProvider.overrideWithBuild((_, _) => true),
+            profilesProvider.overrideWithValue([profile]),
+            groupsProvider.overrideWithValue([globalGroup, ruleGroup]),
+            currentProfileProvider.overrideWithValue(profile),
+            patchClashConfigProvider.overrideWithBuild(
+              (_, _) => const PatchClashConfig(mode: Mode.rule),
+            ),
+            delayProvider(proxyName: ruleNode).overrideWithValue(128),
+            setupActionProvider.overrideWith(_RecordingSetupAction.new),
+          ],
+        );
+        addTearDown(container.dispose);
+        addTearDown(globalState.clearXboardSession);
+        globalState.container = container;
 
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: const _TestApp(
-          platform: TargetPlatform.android,
-          child: DashboardView(),
-        ),
-      ),
-    );
-    await tester.pump();
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const _TestApp(
+              platform: TargetPlatform.android,
+              child: DashboardView(),
+            ),
+          ),
+        );
+        await tester.pump();
 
-    expect(find.text(ruleNode), findsWidgets);
-    expect(find.text(globalNode), findsNothing);
+        expect(find.text(ruleNode), findsWidgets);
+        expect(find.text(globalNode), findsNothing);
 
-    final switchNode = find.byKey(const ValueKey('fengwo-mobile-switch-node'));
-    await tester.ensureVisible(switchNode);
-    await tester.tap(switchNode);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
+        final switchNode = mobile
+            ? find.byKey(const ValueKey('fengwo-mobile-switch-node'))
+            : find.widgetWithText(
+                TextButton,
+                tester
+                    .element(find.byType(FengWoDesktopDashboard))
+                    .appLocalizations
+                    .switchNode,
+              );
+        await tester.ensureVisible(switchNode);
+        await tester.tap(switchNode);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
 
-    final selector = find.byType(FengWoNodeSelectorView);
-    expect(selector, findsOneWidget);
-    expect(
-      find.descendant(of: selector, matching: find.text('GLOBAL')),
-      findsNothing,
+        final selector = find.byType(FengWoNodeSelectorView);
+        expect(selector, findsOneWidget);
+        expect(
+          find.descendant(of: selector, matching: find.text('GLOBAL')),
+          findsNothing,
+        );
+        expect(
+          find.descendant(of: selector, matching: find.text(ruleNode)),
+          findsWidgets,
+        );
+        expect(tester.takeException(), null);
+      },
     );
-    expect(
-      find.descendant(of: selector, matching: find.text(ruleNode)),
-      findsWidgets,
-    );
-    expect(tester.takeException(), null);
-  });
+  }
 
   testWidgets('desktop map shows directional route endpoints', (tester) async {
     tester.view.physicalSize = const Size(1440, 900);
@@ -1966,6 +1998,34 @@ class _RecordingSetupAction extends SetupAction {
     requests.add(running);
     ref.read(runTimeProvider.notifier).value = running ? 1 : null;
     return Future.value();
+  }
+}
+
+class _HongKongProxiesAction extends ProxiesAction {
+  final requests = <Mode>[];
+
+  @override
+  Future<HongKongSelectionResult> selectHongKongForMode(
+    Mode mode, {
+    bool Function()? isCancelled,
+  }) async {
+    requests.add(mode);
+    if (isCancelled?.call() == true) {
+      return HongKongSelectionResult.cancelled;
+    }
+    final profile = ref.read(currentProfileProvider)!;
+    ref
+        .read(profilesProvider.notifier)
+        .put(
+          profile.copyWith(
+            currentGroupName: 'GLOBAL',
+            selectedMap: {...profile.selectedMap, 'GLOBAL': '香港测试节点'},
+          ),
+        );
+    ref
+        .read(patchClashConfigProvider.notifier)
+        .update((config) => config.copyWith(mode: mode));
+    return HongKongSelectionResult.selected;
   }
 }
 
