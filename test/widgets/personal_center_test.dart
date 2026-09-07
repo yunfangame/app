@@ -270,6 +270,42 @@ void main() {
     expect(find.byKey(const ValueKey('login-ip-empty-state')), findsOne);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('login IP card scrolls records beyond the first five', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(760, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(globalState.clearXboardSession);
+    globalState.xboardSession = _testSession();
+    final loginIpState = _LoginIpTestState()..recordCount = 7;
+
+    await tester.pumpWidget(
+      _TestApp(
+        child: FengWoPersonalCenterView(
+          authService: _testService(loginIpState: loginIpState),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final viewport = find.byKey(const ValueKey('login-ip-scroll-viewport'));
+    final list = find.byKey(const ValueKey('login-ip-scroll-list'));
+    expect(viewport, findsOne);
+    expect(tester.getSize(viewport).height, 790);
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(of: list, matching: find.byType(Scrollable)),
+    );
+    expect(scrollable.position.maxScrollExtent, greaterThan(0));
+
+    scrollable.position.jumpTo(500);
+    await tester.pumpAndSettle();
+
+    expect(scrollable.position.pixels, greaterThan(0));
+    expect(tester.takeException(), isNull);
+  });
 }
 
 XboardAuthService _testService({
@@ -302,54 +338,68 @@ XboardAuthService _testService({
           data: {'message': 'temporary unavailable'},
         );
       }
+      final records = <Map<String, Object?>>[
+        {
+          'id': 17,
+          'ip': '178.94.14.100',
+          'ip_version': 4,
+          'client_type': 'app',
+          'client_name': 'App',
+          'location': '乌克兰',
+          'user_agent': 'FlClash/0.8.96 Windows 11',
+          'first_login_at': 1788693000,
+          'last_login_at': 1788699000,
+          'login_count': 4,
+          'is_blocked': state.firstIpBlocked,
+          'reason': state.firstIpBlocked ? state.blockReason : null,
+          'denied_count': 0,
+        },
+        {
+          'id': 18,
+          'ip': '8.8.8.8',
+          'ip_version': 4,
+          'client_type': 'web',
+          'client_name': '网页端',
+          'location': '美国',
+          'user_agent': 'Chrome 140 macOS',
+          'first_login_at': 1788600000,
+          'last_login_at': 1788680000,
+          'login_count': 3,
+          'is_blocked': state.secondIpBlocked,
+          'reason': state.secondIpBlocked ? '非本人登录' : null,
+          'denied_count': 1,
+        },
+        for (var index = 2; index < state.recordCount; index++)
+          {
+            'id': 17 + index,
+            'ip': '10.0.0.${index + 1}',
+            'ip_version': 4,
+            'client_type': 'app',
+            'client_name': 'App',
+            'location': '测试地区',
+            'user_agent': 'FlClash test client',
+            'first_login_at': 1788600000 + index,
+            'last_login_at': 1788680000 + index,
+            'login_count': 1,
+            'is_blocked': false,
+            'denied_count': 0,
+          },
+      ];
       return XboardLoginResponse(
         statusCode: 200,
         data: {
           'data': {
-            'items': state.empty
-                ? const <Map<String, Object?>>[]
-                : [
-                    {
-                      'id': 17,
-                      'ip': '178.94.14.100',
-                      'ip_version': 4,
-                      'client_type': 'app',
-                      'client_name': 'App',
-                      'location': '乌克兰',
-                      'user_agent': 'FlClash/0.8.96 Windows 11',
-                      'first_login_at': 1788693000,
-                      'last_login_at': 1788699000,
-                      'login_count': 4,
-                      'is_blocked': state.firstIpBlocked,
-                      'reason': state.firstIpBlocked ? state.blockReason : null,
-                      'denied_count': 0,
-                    },
-                    {
-                      'id': 18,
-                      'ip': '8.8.8.8',
-                      'ip_version': 4,
-                      'client_type': 'web',
-                      'client_name': '网页端',
-                      'location': '美国',
-                      'user_agent': 'Chrome 140 macOS',
-                      'first_login_at': 1788600000,
-                      'last_login_at': 1788680000,
-                      'login_count': 3,
-                      'is_blocked': state.secondIpBlocked,
-                      'reason': state.secondIpBlocked ? '非本人登录' : null,
-                      'denied_count': 1,
-                    },
-                  ],
+            'items': state.empty ? const <Map<String, Object?>>[] : records,
             'summary': {
-              'record_count': state.empty ? 0 : 2,
-              'unique_ip_count': state.empty ? 0 : 2,
+              'record_count': state.empty ? 0 : records.length,
+              'unique_ip_count': state.empty ? 0 : records.length,
               'blocked_ip_count':
                   [
                     state.firstIpBlocked,
                     state.secondIpBlocked,
                   ].where((value) => value).length *
                   (state.empty ? 0 : 1),
-              'total_login_count': state.empty ? 0 : 7,
+              'total_login_count': state.empty ? 0 : 5 + records.length,
             },
           },
         },
@@ -384,6 +434,7 @@ class _LoginIpTestState {
   bool secondIpBlocked = true;
   bool failFetch = false;
   bool empty = false;
+  int recordCount = 2;
   String? blockedIp;
   String? blockReason;
   String? unblockedIp;

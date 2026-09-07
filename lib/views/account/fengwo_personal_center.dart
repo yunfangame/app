@@ -23,10 +23,14 @@ class FengWoPersonalCenterView extends ConsumerStatefulWidget {
 
 class _FengWoPersonalCenterViewState
     extends ConsumerState<FengWoPersonalCenterView> {
+  static const _loginIpVisibleRecordLimit = 5;
+  static const _loginIpScrollableViewportHeight = 790.0;
+
   final _passwordFormKey = GlobalKey<FormState>();
   final _oldPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _loginIpScrollController = ScrollController();
   late final XboardAuthService _authService;
 
   XboardUserInfo? _userInfo;
@@ -57,6 +61,7 @@ class _FengWoPersonalCenterViewState
     _oldPasswordController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
+    _loginIpScrollController.dispose();
     super.dispose();
   }
 
@@ -817,6 +822,38 @@ class _FengWoPersonalCenterViewState
     XboardLoginIpList loginIpList,
   ) {
     final summary = loginIpList.summary;
+    final records = loginIpList.items;
+    final recordsList = records.length <= _loginIpVisibleRecordLimit
+        ? Column(
+            children: [
+              for (var index = 0; index < records.length; index++) ...[
+                _buildLoginIpRow(colors, records[index], index),
+                if (index != records.length - 1)
+                  Divider(height: 1, color: colors.outline),
+              ],
+            ],
+          )
+        : SizedBox(
+            key: const ValueKey('login-ip-scroll-viewport'),
+            height: _loginIpScrollableViewportHeight,
+            child: Scrollbar(
+              controller: _loginIpScrollController,
+              thumbVisibility: true,
+              interactive: true,
+              child: ListView.separated(
+                key: const ValueKey('login-ip-scroll-list'),
+                controller: _loginIpScrollController,
+                primary: false,
+                padding: EdgeInsets.zero,
+                physics: const ClampingScrollPhysics(),
+                itemCount: records.length,
+                itemBuilder: (context, index) =>
+                    _buildLoginIpRow(colors, records[index], index),
+                separatorBuilder: (context, index) =>
+                    Divider(height: 1, color: colors.outline),
+              ),
+            ),
+          );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -857,20 +894,7 @@ class _FengWoPersonalCenterViewState
           ),
           const SizedBox(height: 10),
         ],
-        for (var index = 0; index < loginIpList.items.length; index++) ...[
-          _LoginIpRow(
-            key: ValueKey(
-              'login-ip-${loginIpList.items[index].id ?? index}-${loginIpList.items[index].clientType ?? 'unknown'}',
-            ),
-            colors: colors,
-            record: loginIpList.items[index],
-            updating: _updatingLoginIps.contains(loginIpList.items[index].ip),
-            onBlock: () => _blockLoginIp(loginIpList.items[index]),
-            onUnblock: () => _unblockLoginIp(loginIpList.items[index]),
-          ),
-          if (index != loginIpList.items.length - 1)
-            Divider(height: 1, color: colors.outline),
-        ],
+        recordsList,
         const SizedBox(height: 12),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -890,6 +914,23 @@ class _FengWoPersonalCenterViewState
           ],
         ),
       ],
+    );
+  }
+
+  Widget _buildLoginIpRow(
+    _AccountColors colors,
+    XboardLoginIpRecord record,
+    int index,
+  ) {
+    return _LoginIpRow(
+      key: ValueKey(
+        'login-ip-${record.id ?? index}-${record.clientType ?? 'unknown'}',
+      ),
+      colors: colors,
+      record: record,
+      updating: _updatingLoginIps.contains(record.ip),
+      onBlock: () => _blockLoginIp(record),
+      onUnblock: () => _unblockLoginIp(record),
     );
   }
 
