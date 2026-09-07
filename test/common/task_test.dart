@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:fl_clash/common/network.dart';
 import 'package:fl_clash/common/task.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -280,6 +282,38 @@ void main() {
 
     expect(encoded, contains('first'));
     expect(encoded, contains('\n'));
+    final entries = const LineSplitter()
+        .convert(encoded)
+        .map((line) => jsonDecode(line) as Map<String, dynamic>)
+        .toList();
+    expect(entries.first['timestamp'], '2026-07-26 10:00:00');
+    expect(entries.first['level'], 'info');
+    expect(entries.last['level'], 'error');
     expect(await mapListTask([1, 2, 3], _double), [2, 4, 6]);
+  });
+
+  test('runtime export preserves metadata while redacting payload', () async {
+    final encoded = await encodeLogsTask([
+      const Log(
+        logLevel: LogLevel.warning,
+        dateTime: '2026-09-07 12:41:42',
+        payload:
+            'person@example.com https://api.example.com?token=raw-token '
+            '203.0.113.3 2001:db8::1 password=private-password',
+      ),
+    ]);
+    final entry = jsonDecode(encoded) as Map<String, dynamic>;
+    expect(entry['timestamp'], '2026-09-07 12:41:42');
+    expect(entry['level'], 'warning');
+    for (final secret in [
+      'person@example.com',
+      'api.example.com',
+      'raw-token',
+      '203.0.113.3',
+      '2001:db8::1',
+      'private-password',
+    ]) {
+      expect(encoded, isNot(contains(secret)));
+    }
   });
 }

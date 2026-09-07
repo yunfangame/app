@@ -10,6 +10,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_health.dart';
+import 'api_network_diagnostic.dart';
 import 'local_secret_store.dart';
 
 const _subscriptionV2Version = 1;
@@ -34,9 +35,11 @@ bool isLegacyXboardSubscriptionProfileSource(String value) {
 }
 
 class SubscriptionV2Exception implements Exception {
-  const SubscriptionV2Exception(this.code);
+  const SubscriptionV2Exception(this.code, {this.statusCode, this.diagnostic});
 
   final String code;
+  final int? statusCode;
+  final ApiNetworkDiagnostic? diagnostic;
 
   @override
   String toString() => 'SubscriptionV2Exception($code)';
@@ -172,6 +175,7 @@ class SubscriptionV2Client {
     SubscriptionV2Requester? requester,
     DateTime Function()? now,
     Random? random,
+    ApiDiagnosticRecorder? diagnosticRecorder,
   }) : _apiHealthService = apiHealthService ?? ApiHealthService(),
        _dio =
            dio ??
@@ -185,7 +189,8 @@ class SubscriptionV2Client {
        _valueStore = valueStore ?? createSubscriptionV2ValueStore(),
        _requester = requester,
        _now = now ?? DateTime.now,
-       _random = random ?? Random.secure();
+       _random = random ?? Random.secure(),
+       _diagnosticRecorder = diagnosticRecorder ?? recordApiDiagnosticEvent;
 
   final ApiHealthService _apiHealthService;
   final Dio _dio;
@@ -193,6 +198,7 @@ class SubscriptionV2Client {
   final SubscriptionV2Requester? _requester;
   final DateTime Function() _now;
   final Random _random;
+  final ApiDiagnosticRecorder _diagnosticRecorder;
 
   Future<void> clearCredential(String userToken) =>
       _valueStore.delete(_credentialKey(userToken));
@@ -602,24 +608,65 @@ class SubscriptionV2Client {
     Uri endpoint,
     Map<String, Object?> envelope,
   ) async {
-    final response = await _dio.postUri<Object?>(
-      endpoint,
-      data: envelope,
-      options: Options(
-        responseType: ResponseType.json,
-        headers: const {'Cache-Control': 'no-store'},
-        validateStatus: (status) =>
-            status != null && status >= 200 && status < 600,
-      ),
-    );
-    if ((response.statusCode ?? 0) < 200 ||
-        (response.statusCode ?? 0) >= 300 ||
-        response.data is! Map) {
-      throw const SubscriptionV2Exception('gateway_unavailable');
+    final stopwatch = Stopwatch()..start();
+    final attemptId = newApiDiagnosticAttemptId();
+    ApiNetworkDiagnostic? diagnostic;
+    try {
+      final response = await _dio.postUri<Object?>(
+        endpoint,
+        data: envelope,
+        options: Options(
+          responseType: ResponseType.json,
+          headers: const {'Cache-Control': 'no-store'},
+          validateStatus: (status) =>
+              status != null && status >= 200 && status < 600,
+        ),
+      );
+      if ((response.statusCode ?? 0) < 200 ||
+          (response.statusCode ?? 0) >= 300 ||
+          response.data is! Map) {
+        diagnostic = classifyApiNetworkFailure(
+          StateError('Gateway HTTP response'),
+          stage: 'secure_gateway',
+          endpoint: endpoint,
+          statusCode: response.statusCode,
+          elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+          attemptId: attemptId,
+        );
+        throw SubscriptionV2Exception(
+          'gateway_unavailable',
+          statusCode: response.statusCode,
+          diagnostic: diagnostic,
+        );
+      }
+      return (response.data as Map).map(
+        (key, value) => MapEntry(key.toString(), value),
+      );
+    } on SubscriptionV2Exception {
+      rethrow;
+    } catch (error) {
+      diagnostic = classifyApiNetworkFailure(
+        error,
+        stage: 'secure_gateway',
+        endpoint: endpoint,
+        elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+        attemptId: attemptId,
+      );
+      throw SubscriptionV2Exception(
+        'gateway_unavailable',
+        statusCode: diagnostic.statusCode,
+        diagnostic: diagnostic,
+      );
+    } finally {
+      stopwatch.stop();
+      if (diagnostic != null) {
+        emitApiDiagnosticEvent(
+          _diagnosticRecorder,
+          'api.secure_gateway.failed',
+          diagnostic.toDiagnosticFields(),
+        );
+      }
     }
-    return (response.data as Map).map(
-      (key, value) => MapEntry(key.toString(), value),
-    );
   }
 
   Future<_SubscriptionV2Identity> _loadIdentity() async {

@@ -35,13 +35,69 @@ class CoreController {
     return _instance!;
   }
 
-  Future<CoreLifecycleResult> start() => _interface.start();
+  Future<CoreLifecycleResult> start() =>
+      _observeLifecycle('start', _interface.start);
 
-  Future<CoreLifecycleResult> restart() => _interface.restart();
+  Future<CoreLifecycleResult> restart() =>
+      _observeLifecycle('restart', _interface.restart);
 
-  Future<CoreLifecycleResult> stop() => _interface.stop();
+  Future<CoreLifecycleResult> stop() =>
+      _observeLifecycle('stop', _interface.stop);
 
-  Future<CoreLifecycleResult> close() => _interface.close();
+  Future<CoreLifecycleResult> close() =>
+      _observeLifecycle('close', _interface.close);
+
+  Future<CoreLifecycleResult> _observeLifecycle(
+    String operation,
+    Future<CoreLifecycleResult> Function() invoke,
+  ) async {
+    final watch = Stopwatch()..start();
+    _recordLifecycleEvent(
+      'core.lifecycle.requested',
+      fields: {'operation': operation},
+    );
+    try {
+      final result = await invoke();
+      _recordLifecycleEvent(
+        'core.lifecycle.completed',
+        fields: {
+          'operation': operation,
+          'revision': result.revision,
+          'outcome': result.outcome.name,
+          'elapsed_ms': watch.elapsedMilliseconds,
+          if (result.session != null) ...{
+            'owner': result.session!.owner.name,
+            'generation': result.session!.connectionGeneration,
+          },
+        },
+      );
+      return result;
+    } catch (error) {
+      _recordLifecycleEvent(
+        'core.lifecycle.failed',
+        fields: {
+          'operation': operation,
+          'error_type': error.runtimeType.toString(),
+          'elapsed_ms': watch.elapsedMilliseconds,
+          if (error is DesktopCoreFailure) ...{
+            'code': error.code,
+            'phase': error.phase.name,
+            'revision': error.revision,
+          },
+        },
+      );
+      rethrow;
+    }
+  }
+
+  void _recordLifecycleEvent(
+    String event, {
+    required Map<String, Object?> fields,
+  }) {
+    try {
+      commonPrint.event(event, fields: fields);
+    } catch (_) {}
+  }
 
   static Future<void> initGeo() async {
     final homePath = await appPath.homeDirPath;
