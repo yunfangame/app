@@ -5,6 +5,9 @@ class ProxiesAction extends _$ProxiesAction {
   @override
   void build() {}
 
+  @protected
+  CoreController get proxyController => coreController;
+
   void updateGroupsDebounce([Duration? duration]) {
     debouncer.call(FunctionTag.updateGroups, updateGroups, duration: duration);
   }
@@ -83,16 +86,30 @@ class ProxiesAction extends _$ProxiesAction {
     final fields = {
       'group_ref': diagnosticFingerprint(groupName),
       'node_ref': diagnosticFingerprint(proxyName),
+      'close_connections': ref.read(appSettingProvider).closeConnections,
     };
     commonPrint.event('proxy.selection.started', fields: fields);
     try {
-      await coreController.changeProxy(
+      final result = await proxyController.changeProxy(
         ChangeProxyParams(groupName: groupName, proxyName: proxyName),
       );
+      if (result.isNotEmpty) {
+        commonPrint.event('proxy.selection.rejected', fields: fields);
+        throw StateError('proxy_selection_rejected');
+      }
+      if (!ref.mounted) return;
       if (ref.read(appSettingProvider).closeConnections) {
-        await coreController.closeConnections();
+        commonPrint.event(
+          'connections.close_all.requested',
+          fields: {...fields, 'reason': 'node_switch'},
+        );
+        await proxyController.closeConnections();
+        commonPrint.event(
+          'connections.close_all.completed',
+          fields: {...fields, 'reason': 'node_switch'},
+        );
       } else {
-        await coreController.resetConnections();
+        await proxyController.resetConnections();
       }
       commonPrint.event('proxy.selection.succeeded', fields: fields);
     } catch (error) {
@@ -106,7 +123,7 @@ class ProxiesAction extends _$ProxiesAction {
       );
       rethrow;
     }
-    ref.read(checkIpNumProvider.notifier).add();
+    if (ref.mounted) ref.read(checkIpNumProvider.notifier).add();
   }
 
   Future<String> updateProvider(

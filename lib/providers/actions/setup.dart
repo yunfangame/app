@@ -46,7 +46,6 @@ class SetupAction extends _$SetupAction {
     ref.read(delayDataSourceProvider.notifier).value = {};
     ref.read(connectionDelayDataSourceProvider.notifier).value = {};
     unawaited(_runSetup(force: true));
-    ref.read(logsProvider.notifier).value = FixedList(500);
     ref.read(requestsProvider.notifier).value = FixedList(500);
   }
 

@@ -351,9 +351,15 @@ Future<String> encodeLogsTask(List<Log> data) async {
 }
 
 Future<String> _encodeLogsTask(List<Log> data) async {
-  final logsRaw = data.map((item) => item.toString());
-  final logsRawString = logsRaw.join('\n');
-  return logsRawString;
+  return data
+      .map(
+        (item) => jsonEncode({
+          'timestamp': item.dateTime,
+          'level': item.logLevel.name,
+          'payload': sanitizeDiagnosticText(item.payload),
+        }),
+      )
+      .join('\n');
 }
 
 Future<MigrationData> oldToNowTask(Map<String, Object?> data) async {
