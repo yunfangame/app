@@ -18,6 +18,10 @@ const defaultBypassDomain = [
 ];
 
 const defaultAppSettingProps = AppSettingProps();
+const _previousDefaultTestUrls = {
+  'http://www.gstatic.com/generate_204',
+  'https://www.gstatic.com/generate_204',
+};
 const defaultVpnProps = VpnProps();
 const defaultNetworkProps = NetworkProps();
 const defaultProxiesStyleProps = ProxiesStyleProps();
@@ -104,9 +108,12 @@ abstract class AppSettingProps with _$AppSettingProps {
 
   factory AppSettingProps.safeFromJson(Map<String, Object?>? json) {
     try {
-      return json == null
+      final settings = json == null
           ? defaultAppSettingProps
           : AppSettingProps.fromJson(json);
+      return _previousDefaultTestUrls.contains(settings.testUrl)
+          ? settings.copyWith(testUrl: defaultTestUrl)
+          : settings;
     } catch (_) {
       return defaultAppSettingProps;
     }

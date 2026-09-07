@@ -875,7 +875,7 @@ class _MobileNodeCard extends StatelessWidget {
     final l10n = context.appLocalizations;
     final delayText = switch (delay) {
       null || 0 => l10n.notTested,
-      < 0 => formatXboardNodeDisplayStatus(backendStatus),
+      < 0 => l10n.timeout,
       final value => formatReferenceDelay(value),
     };
     final delayColor = switch (delay) {
@@ -886,8 +886,8 @@ class _MobileNodeCard extends StatelessWidget {
       _ => const Color(0xFFF29C38),
     };
     final standardDetail = standardDelay != null && standardDelay! < 0
-        ? formatXboardNodeDisplayStatus(backendStatus)
-        : '${referenceDelayMilliseconds(standardDelay)} ms';
+        ? l10n.timeout
+        : '${standardDelay ?? '--'} ms';
     return _MobileCard(
       key: const ValueKey('fengwo-mobile-node-card'),
       colors: colors,

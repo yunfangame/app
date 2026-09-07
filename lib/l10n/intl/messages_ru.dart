@@ -123,7 +123,7 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m45(label) => "${label} должен быть числом от 1024 до 49151";
 
-  static String m46(value) => "Спр. ${value} мс";
+  static String m46(value) => "${value} мс";
 
   static String m47(count) =>
       "Сохранено: ${count}; активно при включённой замене";
@@ -1778,7 +1778,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Спр. задержка узла",
     ),
     "referenceDelayExplanation": MessageLookupByLibrary.simpleMessage(
-      "Меняется только отображение: до 100 мс без изменений; 101–150 мс отображается как 100 мс; выше 150 мс вычитается 50 мс. При неудачной проверке показывается статус от сервера, который не подтверждает доступность с этого устройства. Измерения, сортировка и журналы сохраняют реальные значения.",
+      "Показывается исходная задержка, возвращённая ядром. При ошибке проверки отображается тайм-аут.",
     ),
     "referenceDelayValue": m46,
     "referenceStandardizedDelay": MessageLookupByLibrary.simpleMessage(

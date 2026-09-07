@@ -23,8 +23,8 @@
   "referenceConnectionDelay": "Справочная задержка соединения",
   "referenceStandardizedDelay": "Справочный RTT",
   "referenceCurrentNodeDelay": "Спр. задержка узла",
-  "referenceDelayExplanation": "Меняется только отображение: до 100 мс без изменений; 101–150 мс отображается как 100 мс; выше 150 мс вычитается 50 мс. При неудачной проверке показывается статус от сервера, который не подтверждает доступность с этого устройства. Измерения, сортировка и журналы сохраняют реальные значения.",
-  "referenceDelayValue": "Спр. {value} мс",
+  "referenceDelayExplanation": "Показывается исходная задержка, возвращённая ядром. При ошибке проверки отображается тайм-аут.",
+  "referenceDelayValue": "{value} мс",
   "@referenceDelayValue": {
     "placeholders": {
       "value": {"type": "int"}

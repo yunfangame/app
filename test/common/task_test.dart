@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:fl_clash/common/constant.dart';
 import 'package:fl_clash/common/network.dart';
 import 'package:fl_clash/common/task.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -90,7 +91,7 @@ void main() {
               'url': 'https://example.com/proxy.yaml',
               'health-check': {
                 'enable': true,
-                'url': 'http://www.gstatic.com/generate_204',
+                'url': 'ftp://invalid.example/probe',
               },
             },
             'file': {'type': 'file', 'path': './local.yaml'},
@@ -100,7 +101,7 @@ void main() {
               'name': '自动选择',
               'type': 'url-test',
               'proxies': ['DIRECT'],
-              'url': 'http://www.gstatic.com/generate_204',
+              'url': 'ftp://invalid.example/probe',
             },
           ],
           'rule-providers': {
@@ -167,12 +168,10 @@ void main() {
       );
       expect(
         config['proxy-providers']['remote']['health-check']['url'],
-        'https://www.gstatic.com/generate_204',
+        defaultTestUrl,
       );
-      expect(
-        config['proxy-groups'][0]['url'],
-        'https://www.gstatic.com/generate_204',
-      );
+      expect(config['proxy-groups'][0]['url'], defaultTestUrl);
+      expect(config['unified-delay'], true);
       expect(
         config['rule-providers']['remote']['path'],
         startsWith(

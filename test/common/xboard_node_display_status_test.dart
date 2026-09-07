@@ -159,7 +159,7 @@ void main() {
     const Locale('ja'),
     const Locale('ru'),
   ]) {
-    test('failed delay displays localized backend status in $locale', () async {
+    test('failed delay displays localized timeout in $locale', () async {
       await AppLocalizations.load(locale);
       final l10n = AppLocalizations.current;
       final expected = {
@@ -170,14 +170,13 @@ void main() {
       for (final entry in expected.entries) {
         expect(formatXboardNodeDisplayStatus(entry.key), entry.value);
         for (final delay in [-1, -100]) {
-          final text = formatReferenceDelay(delay, backendStatus: entry.key);
-          expect(text, entry.value);
+          final text = formatReferenceDelay(delay);
+          expect(text, l10n.timeout);
           expect(text, isNot(contains('ms')));
-          expect(text, isNot(l10n.timeout));
           expect(referenceDelayMilliseconds(delay), delay);
         }
       }
-      expect(formatReferenceDelay(-1), l10n.nodeStatusUnknown);
+      expect(formatReferenceDelay(-1), l10n.timeout);
     });
 
     test(
@@ -185,24 +184,10 @@ void main() {
       () async {
         await AppLocalizations.load(locale);
         final l10n = AppLocalizations.current;
-        for (final status in XboardNodeDisplayStatus.values) {
-          expect(
-            formatReferenceDelay(0, backendStatus: status),
-            l10n.testingStatus,
-          );
-          expect(
-            formatReferenceDelay(80, backendStatus: status),
-            l10n.referenceDelayValue(80),
-          );
-          expect(
-            formatReferenceDelay(150, backendStatus: status),
-            l10n.referenceDelayValue(100),
-          );
-          expect(
-            formatReferenceDelay(500, backendStatus: status),
-            l10n.referenceDelayValue(450),
-          );
-        }
+        expect(formatReferenceDelay(0), l10n.testingStatus);
+        expect(formatReferenceDelay(80), l10n.referenceDelayValue(80));
+        expect(formatReferenceDelay(150), l10n.referenceDelayValue(150));
+        expect(formatReferenceDelay(500), l10n.referenceDelayValue(500));
       },
     );
   }

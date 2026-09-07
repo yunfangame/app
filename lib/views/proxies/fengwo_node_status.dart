@@ -996,9 +996,7 @@ class _PreferredNodeRow extends StatelessWidget {
       _NodeConnectivityState.testing => context.appLocalizations.delayTest,
       _NodeConnectivityState.available =>
         context.appLocalizations.nodeAvailable,
-      _NodeConnectivityState.unreachable => formatXboardNodeDisplayStatus(
-        status.backendStatus,
-      ),
+      _NodeConnectivityState.unreachable => context.appLocalizations.timeout,
       _NodeConnectivityState.unknown =>
         context.appLocalizations.nodeStatusUnknown,
     };
@@ -1214,9 +1212,7 @@ class _PreferredNodeRow extends StatelessWidget {
       _NodeConnectivityState.backendOnlineUntested =>
         context.appLocalizations.notTested,
       _NodeConnectivityState.testing => context.appLocalizations.delayTest,
-      _NodeConnectivityState.unreachable => formatXboardNodeDisplayStatus(
-        status.backendStatus,
-      ),
+      _NodeConnectivityState.unreachable => context.appLocalizations.timeout,
       _ => context.appLocalizations.nodeStatusUnknown,
     };
   }
@@ -1263,9 +1259,7 @@ _NodePresentationStatus _resolveNodeStatus({
 }) {
   if (!isTesting && measuredDelay != null && measuredDelay < 0) {
     return _NodePresentationStatus(
-      state: backendStatus == XboardNodeDisplayStatus.offline
-          ? _NodeConnectivityState.backendOffline
-          : _NodeConnectivityState.unreachable,
+      state: _NodeConnectivityState.unreachable,
       backendStatus: backendStatus,
     );
   }

@@ -116,6 +116,16 @@ void main() {
       expect(restored.testUrl, defaultTestUrl);
     });
 
+    test('migrates previous default latency URLs', () {
+      for (final previous in [
+        'http://www.gstatic.com/generate_204',
+        'https://www.gstatic.com/generate_204',
+      ]) {
+        final restored = AppSettingProps.safeFromJson({'testUrl': previous});
+        expect(restored.testUrl, defaultTestUrl);
+      }
+    });
+
     test('custom values survive round-trip', () {
       const props = AppSettingProps(
         locale: 'zh_CN',
@@ -261,6 +271,7 @@ void main() {
       expect(config.mixedPort, defaultMixedPort);
       expect(config.allowLan, false);
       expect(config.mode, Mode.rule);
+      expect(config.unifiedDelay, true);
       expect(config.externalController, ExternalControllerStatus.close);
       expect(config.geodataLoader, GeodataLoader.memconservative);
     });

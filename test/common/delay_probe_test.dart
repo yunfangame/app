@@ -2,42 +2,53 @@ import 'package:fl_clash/common/delay_probe.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('delay probes preserve HTTPS and replace insecure URLs', () {
+  test('delay probes preserve valid HTTP and HTTPS URLs', () {
+    expect(
+      reliableDelayProbeUrl(null),
+      'http://cp.cloudflare.com/generate_204',
+    );
     expect(
       reliableDelayProbeUrl('https://example.com/ping'),
       'https://example.com/ping',
     );
     expect(
+      reliableDelayProbeUrl('http://cp.cloudflare.com/generate_204'),
+      'http://cp.cloudflare.com/generate_204',
+    );
+    expect(
       reliableDelayProbeUrl(
-        'http://www.gstatic.com/generate_204',
-        fallback: 'https://fallback.example/ping',
+        'ftp://invalid.example/ping',
+        fallback: 'http://cp.cloudflare.com/generate_204',
       ),
-      'https://fallback.example/ping',
+      'http://cp.cloudflare.com/generate_204',
     );
   });
 
   test('runtime normalization only rewrites health-check probes', () {
     final config = <String, dynamic>{
       'proxy-groups': [
-        {'name': '自动选择', 'url': 'http://www.gstatic.com/generate_204'},
+        {'name': '自动选择', 'url': 'ftp://invalid.example/ping'},
       ],
       'proxy-providers': {
         'remote': {
           'url': 'http://subscription.example/profile.yaml',
-          'health-check': {'url': 'http://www.gstatic.com/generate_204'},
+          'health-check': {'url': 'ftp://invalid.example/ping'},
         },
       },
     };
 
     normalizeRuntimeDelayProbeUrls(
       config,
-      fallback: 'https://fallback.example/ping',
+      fallback: 'http://cp.cloudflare.com/generate_204',
     );
 
-    expect(config['proxy-groups'][0]['url'], 'https://fallback.example/ping');
+    expect(
+      config['proxy-groups'][0]['url'],
+      'http://cp.cloudflare.com/generate_204',
+    );
     expect(
       config['proxy-providers']['remote']['health-check']['url'],
-      'https://fallback.example/ping',
+      'http://cp.cloudflare.com/generate_204',
     );
     expect(
       config['proxy-providers']['remote']['url'],

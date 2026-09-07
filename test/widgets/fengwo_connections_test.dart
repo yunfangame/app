@@ -146,11 +146,11 @@ void main() {
       (0, '-- ms'),
       (80, '80 ms'),
       (100, '100 ms'),
-      (101, '100 ms'),
-      (150, '100 ms'),
-      (151, '101 ms'),
-      (350, '300 ms'),
-      (500, '450 ms'),
+      (101, '101 ms'),
+      (150, '150 ms'),
+      (151, '151 ms'),
+      (350, '350 ms'),
+      (500, '500 ms'),
     ]) {
       testWidgets('connection summary references ${sample.$1} at $size', (
         tester,
@@ -209,32 +209,36 @@ void main() {
             XboardNodeDisplayStatus.unknown,
           ),
         ]) {
-      testWidgets('connection failure displays ${sample.$1} backend at $size', (
-        tester,
-      ) async {
-        final container = await pumpView(
-          tester,
-          size: size,
-          reader: () async => [],
-          measuredDelay: -1,
-          backendNodes: sample.$2,
-          offlineMode: sample.$3,
-        );
-        await tester.pump();
+      testWidgets(
+        'connection failure displays timeout with ${sample.$1} backend at $size',
+        (tester) async {
+          final container = await pumpView(
+            tester,
+            size: size,
+            reader: () async => [],
+            measuredDelay: -1,
+            backendNodes: sample.$2,
+            offlineMode: sample.$3,
+          );
+          await tester.pump();
 
-        expect(
-          find.text(formatXboardNodeDisplayStatus(sample.$4)),
-          findsOneWidget,
-        );
-        expect(find.text(currentAppLocalizations.timeout), findsNothing);
-        expect(find.textContaining(' ms'), findsNothing);
-        expect(container.read(delayProvider(proxyName: 'Node A')), -1);
-        expect(tester.takeException(), isNull);
-      });
+          final l10n = tester
+              .element(find.byType(FengWoConnectionsView))
+              .appLocalizations;
+          expect(find.text(l10n.timeout), findsOneWidget);
+          expect(
+            find.text(formatXboardNodeDisplayStatus(sample.$4)),
+            findsNothing,
+          );
+          expect(find.textContaining(' ms'), findsNothing);
+          expect(container.read(delayProvider(proxyName: 'Node A')), -1);
+          expect(tester.takeException(), isNull);
+        },
+      );
     }
   }
 
-  testWidgets('connection failure resolves selected group leaf status', (
+  testWidgets('connection failure displays timeout for selected group leaf', (
     tester,
   ) async {
     await pumpView(
@@ -247,10 +251,11 @@ void main() {
     );
     await tester.pump();
 
-    expect(
-      find.text(currentAppLocalizations.nodeBackendOnline),
-      findsOneWidget,
-    );
+    final l10n = tester
+        .element(find.byType(FengWoConnectionsView))
+        .appLocalizations;
+    expect(find.text(l10n.timeout), findsOneWidget);
+    expect(find.text(l10n.nodeBackendOnline), findsNothing);
     expect(find.text(currentAppLocalizations.nodeStatusUnknown), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -279,9 +284,7 @@ void main() {
           final l10n = tester
               .element(find.byType(FengWoConnectionsView))
               .appLocalizations;
-          final expected = sample.$1 > 0
-              ? '${sample.$1 - 50} ms'
-              : formatXboardNodeDisplayStatus(sample.$3);
+          final expected = sample.$1 > 0 ? '${sample.$1} ms' : l10n.timeout;
           final card = find.byKey(
             ValueKey('connection-summary-${l10n.referenceCurrentNodeDelay}'),
           );

@@ -713,8 +713,8 @@ class _ConnectionStatusPanel extends StatelessWidget {
     final remaining = subscription?.remainingGb ?? 0;
     final total = subscription?.transferEnableGb ?? 0;
     final standardDetail = standardDelay != null && standardDelay! < 0
-        ? formatXboardNodeDisplayStatus(backendStatus)
-        : '${referenceDelayMilliseconds(standardDelay)} ms';
+        ? l10n.timeout
+        : '${standardDelay ?? '--'} ms';
     return _GlassPanel(
       colors: colors,
       padding: const EdgeInsets.all(18),
@@ -807,8 +807,8 @@ class _ConnectionStatusPanel extends StatelessWidget {
                             : l10n.referenceConnectionDelay,
                         value: switch (delay) {
                           null => '--',
-                          < 0 => formatXboardNodeDisplayStatus(backendStatus),
-                          final value => '${referenceDelayMilliseconds(value)}',
+                          < 0 => l10n.timeout,
+                          final value => '$value',
                         },
                         fitValue: delay != null && delay! < 0,
                         unit: delay != null && delay! < 0 ? '' : 'ms',
@@ -1902,19 +1902,19 @@ class _NodeNameCallout extends StatelessWidget {
     final effectiveDetail = switch (node.delay) {
       null => l10n.notTested,
       0 => l10n.testingStatus,
-      < 0 => formatXboardNodeDisplayStatus(node.backendStatus),
+      < 0 => l10n.timeout,
       final delay => formatReferenceDelay(delay),
     };
     final connectionDetail = switch (node.connectionDelay) {
       null => null,
       0 => l10n.testingStatus,
-      < 0 => formatXboardNodeDisplayStatus(node.backendStatus),
-      final delay => '${referenceDelayMilliseconds(delay)} ms',
+      < 0 => l10n.timeout,
+      final delay => '$delay ms',
     };
     final standardDetail = switch (node.standardDelay) {
       null || 0 => null,
-      < 0 => formatXboardNodeDisplayStatus(node.backendStatus),
-      final delay => '${referenceDelayMilliseconds(delay)} ms',
+      < 0 => l10n.timeout,
+      final delay => '$delay ms',
     };
     final detail = connectionDetail == null && standardDetail == null
         ? effectiveDetail

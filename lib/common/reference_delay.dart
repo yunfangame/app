@@ -38,16 +38,12 @@ String formatXboardNodeDisplayStatus(XboardNodeDisplayStatus status) {
 }
 
 int? referenceDelayMilliseconds(int? measuredDelay) {
-  if (measuredDelay == null || measuredDelay <= 100) return measuredDelay;
-  return measuredDelay <= 150 ? 100 : measuredDelay - 50;
+  return measuredDelay;
 }
 
-String formatReferenceDelay(
-  int measuredDelay, {
-  XboardNodeDisplayStatus backendStatus = XboardNodeDisplayStatus.unknown,
-}) {
+String formatReferenceDelay(int measuredDelay) {
   final l10n = AppLocalizations.current;
   if (measuredDelay == 0) return l10n.testingStatus;
-  if (measuredDelay < 0) return formatXboardNodeDisplayStatus(backendStatus);
-  return l10n.referenceDelayValue(referenceDelayMilliseconds(measuredDelay)!);
+  if (measuredDelay < 0) return l10n.timeout;
+  return l10n.referenceDelayValue(measuredDelay);
 }

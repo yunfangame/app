@@ -634,7 +634,7 @@ class _NodeRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = _delayColor();
     final text = delay != null && delay! < 0
-        ? formatXboardNodeDisplayStatus(backendStatus)
+        ? context.appLocalizations.timeout
         : offline
         ? context.appLocalizations.nodeBackendOffline
         : switch (delay) {

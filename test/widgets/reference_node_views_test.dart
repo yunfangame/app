@@ -82,21 +82,13 @@ void main() {
   }
 
   for (final type in ProxyCardType.values) {
-    for (final sample in <(int, int)>[
-      (80, 80),
-      (100, 100),
-      (101, 100),
-      (150, 100),
-      (151, 101),
-      (350, 300),
-      (500, 450),
-    ]) {
-      testWidgets('proxy card $type references ${sample.$1} once', (
+    for (final measured in <int>[80, 100, 101, 150, 151, 350, 500]) {
+      testWidgets('proxy card $type displays raw delay $measured once', (
         tester,
       ) async {
         final container = await pumpView(
           tester,
-          delays: {'Node A': sample.$1},
+          delays: {'Node A': measured},
           child: Center(
             child: SizedBox(
               width: 300,
@@ -112,13 +104,13 @@ void main() {
           ),
         );
         final l10n = tester.element(find.byType(ProxyCard)).appLocalizations;
-        final expected = l10n.referenceDelayValue(sample.$2);
+        final expected = l10n.referenceDelayValue(measured);
         expect(find.text(expected), findsOneWidget);
         expect(
           tester.widget<Text>(find.text(expected)).style?.color,
-          utils.getDelayColor(sample.$1),
+          utils.getDelayColor(measured),
         );
-        expect(container.read(delayProvider(proxyName: 'Node A')), sample.$1);
+        expect(container.read(delayProvider(proxyName: 'Node A')), measured);
         expect(tester.takeException(), isNull);
       });
     }
@@ -153,17 +145,14 @@ void main() {
         case 0:
           expect(find.byType(CommonCircleLoading), findsOneWidget);
         default:
-          expect(
-            find.text(currentAppLocalizations.nodeStatusUnknown),
-            findsOneWidget,
-          );
+          expect(find.text(currentAppLocalizations.timeout), findsOneWidget);
       }
       expect(container.read(delayProvider(proxyName: 'Node A')), measured);
       expect(tester.takeException(), isNull);
     });
   }
 
-  testWidgets('selector uses measured ordering for equal reference values', (
+  testWidgets('selector displays raw delays and orders by measured values', (
     tester,
   ) async {
     final container = await pumpView(
@@ -174,8 +163,9 @@ void main() {
     final l10n = tester
         .element(find.byType(FengWoNodeSelectorView))
         .appLocalizations;
-    expect(find.text(l10n.referenceDelayValue(100)), findsNWidgets(2));
-    expect(find.text(l10n.referenceDelayValue(450)), findsOneWidget);
+    expect(find.text(l10n.referenceDelayValue(140)), findsOneWidget);
+    expect(find.text(l10n.referenceDelayValue(120)), findsOneWidget);
+    expect(find.text(l10n.referenceDelayValue(500)), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.sort_rounded));
     await tester.pumpAndSettle();
@@ -211,9 +201,9 @@ void main() {
       final l10n = tester
           .element(find.byType(FengWoNodeStatusView))
           .appLocalizations;
-      expect(find.text(l10n.referenceDelayValue(300)), findsWidgets);
+      expect(find.text(l10n.referenceDelayValue(350)), findsWidgets);
       expect(find.text(l10n.referenceDelayValue(80)), findsWidgets);
-      expect(find.byTooltip(l10n.referenceDelayValue(300)), findsOneWidget);
+      expect(find.byTooltip(l10n.referenceDelayValue(350)), findsOneWidget);
       final map = tester.widget<FengWoWorldMap>(find.byType(FengWoWorldMap));
       expect(map.nodes.first.delay, 350);
       expect(map.nodes.last.delay, 80);
@@ -257,7 +247,7 @@ void main() {
         ),
       ]) {
     for (final surface in ['card', 'selector', 'node status']) {
-      testWidgets('$surface failed delay uses ${sample.$1} backend status', (
+      testWidgets('$surface failed delay ignores ${sample.$1} backend status', (
         tester,
       ) async {
         final child = switch (surface) {
@@ -285,11 +275,11 @@ void main() {
           child: child,
         );
 
+        expect(find.text(currentAppLocalizations.timeout), findsWidgets);
         expect(
           find.text(formatXboardNodeDisplayStatus(sample.$4)),
-          findsWidgets,
+          findsNothing,
         );
-        expect(find.text(currentAppLocalizations.timeout), findsNothing);
         expect(
           find.text(currentAppLocalizations.nodeLocallyUnreachable),
           findsNothing,
@@ -312,10 +302,7 @@ void main() {
               matching: find.byType(IconButton),
             ),
           );
-          expect(
-            testButton.onPressed == null,
-            sample.$4 == XboardNodeDisplayStatus.offline,
-          );
+          expect(testButton.onPressed == null, isFalse);
         }
         expect(tester.takeException(), isNull);
       });
@@ -323,9 +310,7 @@ void main() {
   }
 
   for (final surface in ['card', 'selector']) {
-    testWidgets('$surface resolves failed group delay to selected leaf', (
-      tester,
-    ) async {
+    testWidgets('$surface keeps failed group delay as timeout', (tester) async {
       await pumpView(
         tester,
         delays: {'Automatic': -1},
@@ -354,11 +339,11 @@ void main() {
               )
             : const FengWoNodeSelectorView(),
       );
+      expect(find.text(currentAppLocalizations.timeout), findsWidgets);
       expect(
         find.text(currentAppLocalizations.nodeBackendOnline),
-        findsWidgets,
+        findsNothing,
       );
-      expect(find.text(currentAppLocalizations.timeout), findsNothing);
       expect(tester.takeException(), isNull);
     });
   }
@@ -410,7 +395,7 @@ void main() {
     globalState.activateXboardSession(_session('active'));
     await pumpView(
       tester,
-      delays: {'Node A': -1},
+      delays: {'Node A': null},
       backendNodes: [_backendNode(true)],
       child: FengWoNodeStatusView(
         authService: XboardAuthService(

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:fl_clash/common/constant.dart';
 import 'package:fl_clash/core/event.dart';
 import 'package:fl_clash/core/desktop/model.dart';
 import 'package:fl_clash/core/interface.dart';
@@ -153,7 +154,7 @@ void main() {
       const ChangeProxyParams(groupName: 'GLOBAL', proxyName: 'DIRECT'),
     );
     await handler.sideLoadExternalProvider(providerName: 'provider', data: 'x');
-    await handler.asyncTestDelay('https://example.com', 'DIRECT');
+    await handler.asyncTestDelay(defaultTestUrl, 'DIRECT');
     await handler.clearEffect(42);
 
     for (final method in [
@@ -165,10 +166,11 @@ void main() {
     ]) {
       expect(handler.calls[method], isA<Map>());
     }
-    expect(
-      handler.calls[CoreMethod.asyncTestDelay],
-      isNot(contains('unified-delay')),
-    );
+    expect(handler.calls[CoreMethod.asyncTestDelay], {
+      'proxy-name': 'DIRECT',
+      'timeout': 5000,
+      'test-url': defaultTestUrl,
+    });
     expect(handler.calls[CoreMethod.clearEffect], 42);
   });
 

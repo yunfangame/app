@@ -23,8 +23,8 @@
   "referenceConnectionDelay": "参考接続遅延",
   "referenceStandardizedDelay": "参考 RTT",
   "referenceCurrentNodeDelay": "参考ノード遅延",
-  "referenceDelayExplanation": "表示のみ調整：100 ms 以下は変更せず、101–150 ms は 100 ms、150 ms 超は 50 ms 減算します。測定失敗時はバックエンドから報告された状態を表示しますが、この端末からの接続性を保証するものではありません。実測値、並び順、診断ログは変更しません。",
-  "referenceDelayValue": "参考 {value} ms",
+  "referenceDelayExplanation": "コアが返した実測遅延をそのまま表示します。測定失敗時はタイムアウトと表示します。",
+  "referenceDelayValue": "{value} ms",
   "@referenceDelayValue": {
     "placeholders": {
       "value": {"type": "int"}

@@ -96,7 +96,7 @@ void main() {
     (true, const Locale('zh', 'CN')),
   ]) {
     testWidgets(
-      '${mobile ? 'mobile' : 'desktop'} dashboard adjusts both displayed delays without changing measurements in $locale',
+      '${mobile ? 'mobile' : 'desktop'} dashboard displays both raw delays without changing measurements in $locale',
       (tester) async {
         final size = mobile ? const Size(360, 800) : const Size(1440, 900);
         tester.view.physicalSize = size;
@@ -152,18 +152,18 @@ void main() {
             )
             .appLocalizations;
         expect(
-          find.text(mobile ? l10n.referenceDelayValue(300) : '300'),
+          find.text(mobile ? l10n.referenceDelayValue(350) : '350'),
           findsOneWidget,
         );
         expect(
-          find.text('${l10n.referenceStandardizedDelay} 450 ms'),
+          find.text('${l10n.referenceStandardizedDelay} 500 ms'),
           findsOneWidget,
         );
         expect(find.byTooltip(l10n.referenceDelayExplanation), findsWidgets);
         if (mobile) {
           for (final text in [
-            l10n.referenceDelayValue(300),
-            '${l10n.referenceStandardizedDelay} 450 ms',
+            l10n.referenceDelayValue(350),
+            '${l10n.referenceStandardizedDelay} 500 ms',
           ]) {
             expect(
               tester
@@ -197,7 +197,7 @@ void main() {
         (XboardNodeDisplayStatus.online, true),
       ]) {
         testWidgets(
-          '${mobile ? 'mobile' : 'desktop'} failed delays use $backendStatus with measured $measured and offline mode $offlineMode',
+          '${mobile ? 'mobile' : 'desktop'} delay output ignores $backendStatus with measured $measured and offline mode $offlineMode',
           (tester) async {
             final size = mobile ? const Size(360, 800) : const Size(1440, 900);
             tester.view.physicalSize = size;
@@ -284,14 +284,11 @@ void main() {
                   ),
                 )
                 .appLocalizations;
-            final status = formatXboardNodeDisplayStatus(
-              offlineMode ? XboardNodeDisplayStatus.unknown : backendStatus,
-            );
             final mainText = measured < 0
-                ? status
+                ? l10n.timeout
                 : mobile
-                ? l10n.referenceDelayValue(300)
-                : '300';
+                ? l10n.referenceDelayValue(measured)
+                : '$measured';
             expect(find.text(mainText), findsOneWidget);
             expect(
               tester
@@ -301,7 +298,7 @@ void main() {
             );
             if (mobile || measured > 0) {
               expect(
-                find.text('${l10n.referenceStandardizedDelay} $status'),
+                find.text('${l10n.referenceStandardizedDelay} ${l10n.timeout}'),
                 findsOneWidget,
               );
             }
@@ -318,7 +315,14 @@ void main() {
             if (!mobile && measured < 0) {
               expect(find.text('ms'), findsNothing);
             }
-            expect(find.text(l10n.timeout), findsNothing);
+            expect(
+              find.text(
+                formatXboardNodeDisplayStatus(
+                  offlineMode ? XboardNodeDisplayStatus.unknown : backendStatus,
+                ),
+              ),
+              findsNothing,
+            );
             expect(find.textContaining('-1 ms'), findsNothing);
             expect(
               container.read(connectionDelayProvider(proxyName: nodeName)),
@@ -637,7 +641,7 @@ void main() {
         .element(find.byType(FengWoMobileDashboard))
         .appLocalizations;
     expect(find.text(nodeName), findsWidgets);
-    expect(find.text(l10n.referenceDelayValue(100)), findsOneWidget);
+    expect(find.text(l10n.referenceDelayValue(128)), findsOneWidget);
     expect(
       container.read(
         delayProvider(proxyName: nodeName, testUrl: group.testUrl),
@@ -1395,13 +1399,11 @@ void main() {
             const ValueKey('fengwo-map-node-label-$nodeName'),
           );
           final l10n = tester.element(label).appLocalizations;
-          final standardDetail = standardDelay < 0
-              ? l10n.nodeBackendOnline
-              : '450 ms';
+          final standardDetail = standardDelay < 0 ? l10n.timeout : '500 ms';
           final detail = find.descendant(
             of: label,
             matching: find.text(
-              '${l10n.referenceConnectionDelay} 300 ms\n${l10n.referenceStandardizedDelay} $standardDetail',
+              '${l10n.referenceConnectionDelay} 350 ms\n${l10n.referenceStandardizedDelay} $standardDetail',
             ),
           );
           expect(detail, findsOneWidget);
@@ -1433,15 +1435,7 @@ void main() {
     }
   }
 
-  for (final (measured, displayed) in <(int?, int?)>[
-    (null, null),
-    (0, 0),
-    (-1, -1),
-    (125, 100),
-    (280, 230),
-    (350, 300),
-    (500, 450),
-  ]) {
+  for (final measured in <int?>[null, 0, -1, 125, 280, 350, 500]) {
     testWidgets('world map displays the reference or status for $measured', (
       tester,
     ) async {
@@ -1471,10 +1465,10 @@ void main() {
         const ValueKey('fengwo-map-node-label-$nodeName'),
       );
       final l10n = tester.element(label).appLocalizations;
-      final expected = switch (displayed) {
+      final expected = switch (measured) {
         null => l10n.notTested,
         0 => l10n.testingStatus,
-        < 0 => l10n.nodeStatusUnknown,
+        < 0 => l10n.timeout,
         final value => l10n.referenceDelayValue(value),
       };
       expect(
@@ -1500,7 +1494,7 @@ void main() {
   ]) {
     for (final dualDelays in [false, true]) {
       testWidgets(
-        'world map failed latency uses $backendStatus with dual delays $dualDelays in $locale',
+        'world map failed latency uses timeout independently of $backendStatus with dual delays $dualDelays in $locale',
         (tester) async {
           tester.view.physicalSize = const Size(720, 420);
           tester.view.devicePixelRatio = 1;
@@ -1539,10 +1533,9 @@ void main() {
             const ValueKey('fengwo-map-node-label-$nodeName'),
           );
           final l10n = tester.element(label).appLocalizations;
-          final status = formatXboardNodeDisplayStatus(backendStatus);
           final expected = dualDelays
-              ? '${l10n.referenceConnectionDelay} $status\n${l10n.referenceStandardizedDelay} $status'
-              : status;
+              ? '${l10n.referenceConnectionDelay} ${l10n.timeout}\n${l10n.referenceStandardizedDelay} ${l10n.timeout}'
+              : l10n.timeout;
           final detail = find.descendant(
             of: label,
             matching: find.text(expected),
@@ -1560,7 +1553,7 @@ void main() {
             tester.getRect(detail).width,
             lessThanOrEqualTo(tester.getRect(label).width),
           );
-          expect(find.textContaining(l10n.timeout), findsNothing);
+          expect(find.textContaining(l10n.timeout), findsWidgets);
           expect(find.textContaining('-1 ms'), findsNothing);
           final node = tester
               .widget<FengWoWorldMap>(find.byType(FengWoWorldMap))
@@ -1765,7 +1758,7 @@ void main() {
     final localizations = tester.element(page).appLocalizations;
     expect(find.text(localizations.nodeBackendOffline), findsOneWidget);
     expect(find.text(localizations.nodeAvailable), findsWidgets);
-    expect(find.text(localizations.nodeStatusUnknown), findsWidgets);
+    expect(find.text(localizations.timeout), findsWidgets);
     expect(find.text(localizations.nodeLocallyUnreachable), findsNothing);
     expect(
       find.descendant(of: page, matching: find.byType(SingleChildScrollView)),
@@ -1930,7 +1923,7 @@ void main() {
     final localizations = tester
         .element(find.byType(FengWoNodeSelectorView))
         .appLocalizations;
-    expect(find.text(localizations.referenceDelayValue(118)), findsOneWidget);
+    expect(find.text(localizations.referenceDelayValue(168)), findsOneWidget);
     expect(find.text(localizations.nodeBackendOffline), findsOneWidget);
     final offlineTestButton = tester.widget<OutlinedButton>(
       find.byKey(const ValueKey('fengwo-selector-test-新加坡 AWS 2x')),

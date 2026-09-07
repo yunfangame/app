@@ -267,13 +267,7 @@ void main() {
     container.read(groupsProvider.notifier).update((_) => groups);
     container
         .read(delayDataSourceProvider.notifier)
-        .setDelay(
-          const Delay(
-            name: 'Leaf',
-            url: 'https://www.gstatic.com/generate_204',
-            value: 42,
-          ),
-        );
+        .setDelay(const Delay(name: 'Leaf', url: defaultTestUrl, value: 42));
 
     expect(container.read(selectedMapProvider), {'Selector': 'Leaf'});
     expect(container.read(unfoldSetProvider), {'Selector'});
@@ -291,13 +285,7 @@ void main() {
     );
     container
         .read(connectionDelayDataSourceProvider.notifier)
-        .setDelay(
-          const Delay(
-            name: 'Leaf',
-            url: 'https://www.gstatic.com/generate_204',
-            value: 96,
-          ),
-        );
+        .setDelay(const Delay(name: 'Leaf', url: defaultTestUrl, value: 96));
     expect(container.read(connectionDelayProvider(proxyName: 'Selector')), 96);
     expect(container.read(delayProvider(proxyName: 'Selector')), 96);
     expect(container.read(standardDelayProvider(proxyName: 'Selector')), 42);

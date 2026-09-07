@@ -125,7 +125,7 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m45(label) => "${label} must be between 1024 and 49151";
 
-  static String m46(value) => "Ref. ${value} ms";
+  static String m46(value) => "${value} ms";
 
   static String m47(count) => "${count} saved; active when override is enabled";
 
@@ -1712,7 +1712,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Ref. node latency",
     ),
     "referenceDelayExplanation": MessageLookupByLibrary.simpleMessage(
-      "Display-only adjustment: up to 100 ms unchanged; 101–150 ms shown as 100 ms; above 150 ms reduced by 50 ms. Failed probes show the reported backend status, which does not confirm connectivity from this device. Measurements, sorting and diagnostics retain real values.",
+      "Shows the raw latency returned by the core. Failed tests are shown as Timeout.",
     ),
     "referenceDelayValue": m46,
     "referenceStandardizedDelay": MessageLookupByLibrary.simpleMessage(

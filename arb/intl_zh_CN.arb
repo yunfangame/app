@@ -23,8 +23,8 @@
   "referenceConnectionDelay": "参考连接延迟",
   "referenceStandardizedDelay": "参考标准 RTT",
   "referenceCurrentNodeDelay": "参考节点延迟",
-  "referenceDelayExplanation": "仅调整展示：100 ms 及以下不变，101–150 ms 显示 100 ms，150 ms 以上减去 50 ms。测速失败时显示后台上报状态，该状态不代表本机连通性。真实测速、排序和诊断日志不变。",
-  "referenceDelayValue": "参考 {value} ms",
+  "referenceDelayExplanation": "显示核心返回的原始延迟；测速失败显示“超时”。",
+  "referenceDelayValue": "{value} ms",
   "@referenceDelayValue": {
     "placeholders": {
       "value": {"type": "int"}

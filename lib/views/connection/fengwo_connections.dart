@@ -1166,11 +1166,8 @@ class _ConnectionSummaryRow extends StatelessWidget {
         accent: colors.success,
         label: l10n.referenceCurrentNodeDelay,
         value: switch (delay) {
-          final value? when value > 0 =>
-            '${referenceDelayMilliseconds(value)} ms',
-          final value? when value < 0 => formatXboardNodeDisplayStatus(
-            backendStatus,
-          ),
+          final value? when value > 0 => '$value ms',
+          final value? when value < 0 => l10n.timeout,
           _ => '-- ms',
         },
       ),

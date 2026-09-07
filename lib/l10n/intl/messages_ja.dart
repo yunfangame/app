@@ -118,7 +118,7 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m45(label) => "${label} は 1024 から 49151 の間でなければなりません";
 
-  static String m46(value) => "参考 ${value} ms";
+  static String m46(value) => "${value} ms";
 
   static String m47(count) => "${count} 件保存済み。上書き有効時に適用されます";
 
@@ -1436,7 +1436,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "参考ノード遅延",
     ),
     "referenceDelayExplanation": MessageLookupByLibrary.simpleMessage(
-      "表示のみ調整：100 ms 以下は変更せず、101–150 ms は 100 ms、150 ms 超は 50 ms 減算します。測定失敗時はバックエンドから報告された状態を表示しますが、この端末からの接続性を保証するものではありません。実測値、並び順、診断ログは変更しません。",
+      "コアが返した実測遅延をそのまま表示します。測定失敗時はタイムアウトと表示します。",
     ),
     "referenceDelayValue": m46,
     "referenceStandardizedDelay": MessageLookupByLibrary.simpleMessage(

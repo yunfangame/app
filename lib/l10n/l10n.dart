@@ -274,20 +274,20 @@ class AppLocalizations {
     );
   }
 
-  /// `Display-only adjustment: up to 100 ms unchanged; 101–150 ms shown as 100 ms; above 150 ms reduced by 50 ms. Failed probes show the reported backend status, which does not confirm connectivity from this device. Measurements, sorting and diagnostics retain real values.`
+  /// `Shows the raw latency returned by the core. Failed tests are shown as Timeout.`
   String get referenceDelayExplanation {
     return Intl.message(
-      'Display-only adjustment: up to 100 ms unchanged; 101–150 ms shown as 100 ms; above 150 ms reduced by 50 ms. Failed probes show the reported backend status, which does not confirm connectivity from this device. Measurements, sorting and diagnostics retain real values.',
+      'Shows the raw latency returned by the core. Failed tests are shown as Timeout.',
       name: 'referenceDelayExplanation',
       desc: '',
       args: [],
     );
   }
 
-  /// `Ref. {value} ms`
+  /// `{value} ms`
   String referenceDelayValue(int value) {
     return Intl.message(
-      'Ref. $value ms',
+      '$value ms',
       name: 'referenceDelayValue',
       desc: '',
       args: [value],

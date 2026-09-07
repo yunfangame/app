@@ -6,43 +6,25 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('preserves missing, pending, failed and low latency measurements', () {
-    for (final value in [null, -100, -1, 0, 1, 50, 80, 99, 100]) {
+  test('preserves every raw latency measurement', () {
+    for (final value in [
+      null,
+      -100,
+      -1,
+      0,
+      1,
+      50,
+      80,
+      99,
+      100,
+      101,
+      150,
+      151,
+      350,
+      500,
+      10000,
+    ]) {
       expect(referenceDelayMilliseconds(value), value);
-    }
-  });
-
-  test('applies the agreed boundaries without a maximum cap', () {
-    const values = {
-      101: 100,
-      120: 100,
-      149: 100,
-      150: 100,
-      151: 101,
-      200: 150,
-      250: 200,
-      251: 201,
-      280: 230,
-      349: 299,
-      350: 300,
-      351: 301,
-      500: 450,
-      1000: 950,
-      10000: 9950,
-    };
-    for (final entry in values.entries) {
-      expect(referenceDelayMilliseconds(entry.key), entry.value);
-    }
-  });
-
-  test('never inverts increasing latency and changes by at most 50 ms', () {
-    var previous = 0;
-    for (var measured = 1; measured <= 10000; measured++) {
-      final displayed = referenceDelayMilliseconds(measured)!;
-      expect(displayed, greaterThanOrEqualTo(previous));
-      expect(measured - displayed, inInclusiveRange(0, 50));
-      if (measured > 100) expect(displayed, greaterThanOrEqualTo(100));
-      previous = displayed;
     }
   });
 
@@ -55,11 +37,10 @@ void main() {
     test('reference formatting and statuses follow locale $locale', () async {
       await AppLocalizations.load(locale);
       final l10n = AppLocalizations.current;
-      expect(formatReferenceDelay(500), l10n.referenceDelayValue(450));
+      expect(formatReferenceDelay(500), l10n.referenceDelayValue(500));
       expect(formatReferenceDelay(80), l10n.referenceDelayValue(80));
       expect(formatReferenceDelay(0), l10n.testingStatus);
-      expect(formatReferenceDelay(-1), l10n.nodeStatusUnknown);
-      expect(formatReferenceDelay(500), isNot('450 ms'));
+      expect(formatReferenceDelay(-1), l10n.timeout);
     });
   }
 }

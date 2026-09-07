@@ -1,22 +1,16 @@
 import 'package:fl_clash/common/constant.dart';
 
-/// Returns a stable HTTPS endpoint for latency and health-check probes.
-///
-/// Clash Meta's unified-delay mode performs a second request. Plain HTTP
-/// endpoints such as gstatic's generate_204 can fail during that second
-/// request even when the proxy itself is healthy, so they are replaced at
-/// runtime without changing the user's saved subscription.
 String reliableDelayProbeUrl(String? requested, {String? fallback}) {
   final requestedUri = Uri.tryParse(requested?.trim() ?? '');
   if (requestedUri != null &&
-      requestedUri.scheme == 'https' &&
+      (requestedUri.scheme == 'http' || requestedUri.scheme == 'https') &&
       requestedUri.host.isNotEmpty) {
     return requestedUri.toString();
   }
 
   final fallbackUri = Uri.tryParse(fallback?.trim() ?? '');
   if (fallbackUri != null &&
-      fallbackUri.scheme == 'https' &&
+      (fallbackUri.scheme == 'http' || fallbackUri.scheme == 'https') &&
       fallbackUri.host.isNotEmpty) {
     return fallbackUri.toString();
   }

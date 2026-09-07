@@ -44,9 +44,9 @@ void main() {
       expect(rawStandard, 350);
       expect(rawConnection, 500);
       expect(rawEffective, 500);
-      expect(referenceDelayMilliseconds(rawStandard), 300);
-      expect(referenceDelayMilliseconds(rawConnection), 450);
-      expect(referenceDelayMilliseconds(rawEffective), 450);
+      expect(referenceDelayMilliseconds(rawStandard), 350);
+      expect(referenceDelayMilliseconds(rawConnection), 500);
+      expect(referenceDelayMilliseconds(rawEffective), 500);
     }
 
     expect(container.read(delayDataSourceProvider)[testUrl], {'Leaf': 350});
@@ -67,25 +67,25 @@ void main() {
     );
 
     expect(container.read(effectiveProvider), 280);
-    expect(referenceDelayMilliseconds(container.read(effectiveProvider)), 230);
+    expect(referenceDelayMilliseconds(container.read(effectiveProvider)), 280);
 
-    for (final (value, referenceValue) in [
+    for (final value in [
       (0, 0),
       (-1, -1),
-      (150, 100),
-      (250, 200),
-      (251, 201),
-      (351, 301),
-      (450, 400),
-      (500, 450),
+      (150, 150),
+      (250, 250),
+      (251, 251),
+      (351, 351),
+      (450, 450),
+      (500, 500),
     ]) {
       container
           .read(connectionDelayDataSourceProvider.notifier)
-          .setDelay(Delay(name: 'Leaf', url: testUrl, value: value));
-      expect(container.read(effectiveProvider), value);
+          .setDelay(Delay(name: 'Leaf', url: testUrl, value: value.$1));
+      expect(container.read(effectiveProvider), value.$1);
       expect(
         referenceDelayMilliseconds(container.read(effectiveProvider)),
-        referenceValue,
+        value.$2,
       );
       expect(
         container.read(
@@ -99,10 +99,10 @@ void main() {
         .read(connectionDelayDataSourceProvider.notifier)
         .setDelay(const Delay(name: 'Leaf', url: testUrl));
     expect(container.read(effectiveProvider), 280);
-    expect(referenceDelayMilliseconds(container.read(effectiveProvider)), 230);
+    expect(referenceDelayMilliseconds(container.read(effectiveProvider)), 280);
   });
 
-  test('collapsed reference values do not collapse measured sorting order', () {
+  test('raw presentation values preserve measured sorting order', () {
     const group = Group(
       name: 'Selector',
       type: GroupType.Selector,
@@ -117,7 +117,7 @@ void main() {
       container
           .read(delayDataSourceProvider.notifier)
           .setDelay(Delay(name: entry.key, url: testUrl, value: entry.value));
-      expect(referenceDelayMilliseconds(entry.value), 100);
+      expect(referenceDelayMilliseconds(entry.value), entry.value);
     }
 
     final delayMap = container.read(delayDataSourceProvider);
@@ -162,7 +162,7 @@ void main() {
         delayProvider(proxyName: 'Automatic', testUrl: testUrl),
       );
       expect(measured, 350);
-      expect(referenceDelayMilliseconds(measured), 300);
+      expect(referenceDelayMilliseconds(measured), 350);
       expect(
         container.read(realSelectedProxyStateProvider('Automatic')).proxyName,
         'CoreSelected',
