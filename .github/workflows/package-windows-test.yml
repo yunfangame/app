@@ -1,0 +1,321 @@
+name: fengwo-windows-test-package
+run-name: Windows test ${{ github.ref_name }} · ${{ github.sha }}
+
+on:
+  push:
+    tags:
+      - 'fengwo-test-windows-*'
+
+permissions:
+  contents: read
+
+env:
+  TEST_BUILD_NUMBER: '2026090701'
+
+jobs:
+  package:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Identify test build
+        id: identity
+        run: |
+          $versionLine = Select-String -Path pubspec.yaml -Pattern '^version:\s*(\S+)\s*$'
+          if (@($versionLine).Count -ne 1) { throw 'Expected one pubspec version' }
+          $sourceVersion = $versionLine.Matches[0].Groups[1].Value
+          $packagedVersion = "$($sourceVersion.Split('+')[0])+$env:TEST_BUILD_NUMBER"
+          $pubspecPath = Join-Path $PWD 'pubspec.yaml'
+          $pubspec = [System.IO.File]::ReadAllText($pubspecPath)
+          $testPubspec = [regex]::Replace($pubspec, '(?m)^version:[^\r\n]*', "version: $packagedVersion")
+          [System.IO.File]::WriteAllText($pubspecPath, $testPubspec, [System.Text.UTF8Encoding]::new($false))
+          $buildId = "$($env:GITHUB_SHA.Substring(0, 12))-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          "source_version=$sourceVersion" >> $env:GITHUB_OUTPUT
+          "packaged_version=$packagedVersion" >> $env:GITHUB_OUTPUT
+          "build_id=$buildId" >> $env:GITHUB_OUTPUT
+          "artifact_name=fengwo-windows-amd64-test-$buildId" >> $env:GITHUB_OUTPUT
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.4'
+          cache-dependency-path: core/go.sum
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.44.4'
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Apply pinned Core patches
+        run: dart tooling/apply_core_patches.dart
+
+      - name: Analyze Flutter application
+        run: flutter analyze --no-fatal-infos
+
+      - name: Test Core patch application
+        working-directory: plugins/setup/buildkit/build_tool
+        run: |
+          dart pub get
+          if ($LASTEXITCODE -ne 0) { throw 'Build tool dependencies failed' }
+          dart test test/core_patches_test.dart
+          if ($LASTEXITCODE -ne 0) { throw 'Core patch tests failed' }
+
+      - name: Test diagnostic, connection and credential regressions
+        run: |
+          $tests = @(
+            'test/core/desktop/',
+            'test/core/controller_test.dart',
+            'test/core/protocol_contract_test.dart',
+            'test/views/proxies/common_test.dart',
+            'test/common/task_test.dart',
+            'test/common/api_health_test.dart',
+            'test/common/api_network_diagnostic_test.dart',
+            'test/common/diagnostic_log_test.dart',
+            'test/common/subscription_v2_test.dart',
+            'test/models/config_test.dart',
+            'test/common/windows_proxy_guard_test.dart',
+            'test/common/network_diagnostic_test.dart',
+            'test/common/network_diagnostic_selection_test.dart',
+            'test/common/network_diagnostic_live_test.dart',
+            'test/manager/core_manager_test.dart',
+            'test/manager/proxy_manager_test.dart',
+            'test/providers/action_test.dart',
+            'test/providers/system_action_test.dart',
+            'test/providers/windows_connection_test.dart',
+            'test/providers/network_diagnostic_test.dart',
+            'test/providers/proxy_selection_diagnostic_test.dart',
+            'test/widgets/windows_connection_status_test.dart',
+            'test/widgets/advanced_settings_test.dart',
+            'test/widgets/advanced_network_diagnostic_test.dart',
+            'test/widgets/api_health_indicator_test.dart',
+            'test/pages/login_test.dart',
+            'test/pages/login_persistence_flow_test.dart',
+            'test/pages/login_network_failure_test.dart',
+            'test/common/local_secret_store_test.dart',
+            'test/common/xboard_session_storage_test.dart',
+            'test/common/xboard_session_storage_failure_test.dart',
+            'test/common/xboard_login_persistence_test.dart',
+            'test/common/xboard_credential_diagnostics_test.dart',
+            'test/common/xboard_auth_test.dart'
+          )
+          flutter test @tests --reporter expanded
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter tests failed' }
+          flutter test test/setup_test.dart --plain-name 'Windows Wi-Fi support loads wlanapi only when available' --reporter expanded
+          if ($LASTEXITCODE -ne 0) { throw 'Windows packaging contract test failed' }
+
+      - name: Test native Windows listeners
+        working-directory: core
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go test -count=1 -v .
+          if ($LASTEXITCODE -ne 0) { throw 'Go tests failed' }
+          go vet .
+          if ($LASTEXITCODE -ne 0) { throw 'Go vet failed' }
+
+      - name: Test Windows helper service
+        run: |
+          cargo fmt --manifest-path services/helper/Cargo.toml -- --check
+          if ($LASTEXITCODE -ne 0) { throw 'Helper formatting failed' }
+          cargo test --manifest-path services/helper/Cargo.toml --features windows-service
+          if ($LASTEXITCODE -ne 0) { throw 'Windows helper tests failed' }
+
+      - name: Prepare build keys
+        env:
+          AES_KEY: ${{ secrets.REMOTE_CONFIG_AES_KEY }}
+          SIGNING_PUBLIC_KEY: ${{ secrets.REMOTE_CONFIG_SIGNING_PUBLIC_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:AES_KEY)) { throw 'Missing AES key' }
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_PUBLIC_KEY)) { throw 'Missing signing public key' }
+          New-Item -ItemType Directory -Force tooling/remote_config | Out-Null
+          $keys = @{
+            aesKey = $env:AES_KEY
+            signingPublicKey = $env:SIGNING_PUBLIC_KEY
+          } | ConvertTo-Json -Compress
+          [System.IO.File]::WriteAllText(
+            "$PWD/tooling/remote_config/keys.json",
+            $keys,
+            [System.Text.UTF8Encoding]::new($false)
+          )
+
+      - name: Package Windows test installer and archive
+        run: dart setup.dart windows --env stable --targets exe,zip
+
+      - name: Test Windows system proxy round trip
+        env:
+          FENGWO_PROXY_MUTATING_TEST: '1'
+        run: |
+          cmake -S windows -B build/windows/x64 -Dinclude_proxy_tests=ON
+          if ($LASTEXITCODE -ne 0) { throw 'Proxy test configuration failed' }
+          cmake --build build/windows/x64 --config Release --target proxy_test
+          if ($LASTEXITCODE -ne 0) { throw 'Proxy test compilation failed' }
+          ctest --test-dir build/windows/x64/plugins/proxy -C Release --output-on-failure --no-tests=error -R Proxy
+          if ($LASTEXITCODE -ne 0) { throw 'Proxy tests failed' }
+
+      - name: Verify Windows archive and runtime window
+        env:
+          PACKAGED_VERSION: ${{ steps.identity.outputs.packaged_version }}
+        run: |
+          $archives = @(Get-ChildItem dist -Filter '*windows*.zip' -File)
+          $installers = @(Get-ChildItem dist -Filter '*windows*.exe' -File)
+          if ($archives.Count -ne 1 -or $installers.Count -ne 1) { throw 'Expected one Windows archive and installer' }
+          Expand-Archive $archives[0].FullName -DestinationPath verify-windows -Force
+          $app = Get-ChildItem verify-windows -Recurse -Filter FlClash.exe | Select-Object -First 1
+          $core = Get-ChildItem verify-windows -Recurse -Filter FlClashCore.exe | Select-Object -First 1
+          $helper = Get-ChildItem verify-windows -Recurse -Filter FlClashHelperService.exe | Select-Object -First 1
+          $wifiPlugin = Get-ChildItem verify-windows -Recurse -Filter wifi_ssid_plugin.dll | Select-Object -First 1
+          foreach ($binary in @($app, $core, $helper, $wifiPlugin)) {
+            if ($null -eq $binary) { throw 'Required Windows executable or plugin not found' }
+            $bytes = [System.IO.File]::ReadAllBytes($binary.FullName)
+            $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+            if ([BitConverter]::ToUInt32($bytes, $peOffset) -ne 0x00004550) { throw "Invalid PE signature: $($binary.Name)" }
+            if ([BitConverter]::ToUInt16($bytes, $peOffset + 4) -ne 0x8664) { throw "Expected amd64 binary: $($binary.Name)" }
+          }
+          if ($app.VersionInfo.ProductName -ne '蜂窝加速器') { throw "Unexpected product name: $($app.VersionInfo.ProductName)" }
+          if ($app.VersionInfo.ProductVersion -ne $env:PACKAGED_VERSION) { throw "Unexpected product version: $($app.VersionInfo.ProductVersion)" }
+          if ($app.VersionInfo.FileVersion -ne $env:PACKAGED_VERSION) { throw "Unexpected file version: $($app.VersionInfo.FileVersion)" }
+          $manifestPath = Join-Path $app.DirectoryName 'manifest.json'
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          $coreHash = (Get-FileHash -LiteralPath $core.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($manifest.coreSha256 -cne $coreHash) { throw 'Packaged Core hash differs from manifest' }
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsInstall = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $dumpbin = Get-ChildItem "$vsInstall\VC\Tools\MSVC" -Recurse -Filter dumpbin.exe |
+            Where-Object { $_.FullName -match '\\Hostx64\\x64\\dumpbin\.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if ($null -eq $dumpbin) { throw 'dumpbin.exe not found' }
+          $wifiDependencies = & $dumpbin.FullName /DEPENDENTS $wifiPlugin.FullName | Out-String
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to inspect wifi_ssid_plugin.dll dependencies' }
+          if ($wifiDependencies -match '(?im)^\s*wlanapi\.dll\s*$') { throw 'wifi_ssid_plugin.dll statically imports wlanapi.dll' }
+          $process = Start-Process -FilePath $app.FullName -PassThru
+          try {
+            Start-Sleep -Seconds 8
+            $process.Refresh()
+            if ($process.HasExited) { throw "Application exited with $($process.ExitCode)" }
+            . ./tooling/verify_windows_title.ps1
+            [void](Assert-FengWoWindowTitle -ProcessId $process.Id)
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+
+      - name: Verify installed shortcut can reopen hidden window
+        env:
+          PACKAGED_VERSION: ${{ steps.identity.outputs.packaged_version }}
+        run: |
+          $installer = Get-ChildItem dist -Filter '*windows*.exe' -File | Select-Object -First 1
+          if ($null -eq $installer) { throw 'Windows installer not found' }
+          $installDir = Join-Path $env:RUNNER_TEMP 'fengwo-shortcut-test'
+          $installArguments = @(
+            '/VERYSILENT',
+            '/SUPPRESSMSGBOXES',
+            '/NORESTART',
+            "/DIR=$installDir",
+            '/TASKS=desktopicon'
+          )
+          $install = Start-Process -FilePath $installer.FullName -ArgumentList $installArguments -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Installer exited with $($install.ExitCode)" }
+          $shortcutCandidates = @(
+            (Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) '蜂窝加速器.lnk'),
+            (Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) '蜂窝加速器.lnk'),
+            (Join-Path ([Environment]::GetFolderPath('CommonPrograms')) '蜂窝加速器.lnk'),
+            (Join-Path ([Environment]::GetFolderPath('Programs')) '蜂窝加速器.lnk')
+          )
+          $expectedTarget = Join-Path $installDir 'FlClash.exe'
+          if (-not (Test-Path -LiteralPath $expectedTarget -PathType Leaf)) { throw 'Installed executable not found' }
+          $installedVersion = (Get-Item -LiteralPath $expectedTarget).VersionInfo.ProductVersion
+          if ($installedVersion -ne $env:PACKAGED_VERSION) { throw "Unexpected installed version: $installedVersion" }
+          $shortcutPath = $shortcutCandidates |
+            Select-Object -Unique |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            Select-Object -First 1
+          if ([string]::IsNullOrWhiteSpace($shortcutPath)) { throw 'Installed shortcut not found' }
+          $shell = New-Object -ComObject WScript.Shell
+          if ($shell.CreateShortcut($shortcutPath).TargetPath -ne $expectedTarget) { throw 'Installed shortcut points to an unexpected executable' }
+          Start-Process -FilePath $shortcutPath
+          Start-Sleep -Seconds 8
+          $primary = Get-Process FlClash -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($null -eq $primary) { throw 'Installed application did not start' }
+          try {
+            Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class FengWoWindowTest {
+            [DllImport("user32.dll")]
+            public static extern bool ShowWindow(IntPtr window, int command);
+            [DllImport("user32.dll")]
+            public static extern bool IsWindowVisible(IntPtr window);
+          }
+          '@
+            . ./tooling/verify_windows_title.ps1
+            $window = Assert-FengWoWindowTitle -ProcessId $primary.Id
+            [void][FengWoWindowTest]::ShowWindow($window, 0)
+            if ([FengWoWindowTest]::IsWindowVisible($window)) { throw 'Failed to hide the primary window for the reopen test' }
+            $primaryId = $primary.Id
+            Start-Process -FilePath $shortcutPath
+            Start-Sleep -Seconds 4
+            $instances = @(Get-Process FlClash -ErrorAction SilentlyContinue)
+            if ($instances.Count -ne 1) { throw "Expected one FlClash instance, found $($instances.Count)" }
+            if ($instances[0].Id -ne $primaryId) { throw 'Second shortcut replaced the primary process' }
+            if (-not [FengWoWindowTest]::IsWindowVisible($window)) { throw 'Shortcut did not restore the hidden primary window' }
+            [void](Assert-FengWoWindowTitle -ProcessId $primaryId)
+          } finally {
+            Get-Process FlClash -ErrorAction SilentlyContinue | Stop-Process -Force
+          }
+
+      - name: Label test packages and generate checksums
+        env:
+          TEST_BUILD_ID: ${{ steps.identity.outputs.build_id }}
+          SOURCE_VERSION: ${{ steps.identity.outputs.source_version }}
+          PACKAGED_VERSION: ${{ steps.identity.outputs.packaged_version }}
+        run: |
+          $packages = @(Get-ChildItem dist -File | Where-Object { $_.Extension -in @('.exe', '.zip') })
+          if ($packages.Count -ne 2) { throw 'Expected exactly two test packages' }
+          foreach ($package in $packages) {
+            Rename-Item -LiteralPath $package.FullName -NewName "$($package.BaseName)-test-$env:TEST_BUILD_ID$($package.Extension)"
+          }
+          $metadata = [ordered]@{
+            test_only = $true
+            build_id = $env:TEST_BUILD_ID
+            source_version = $env:SOURCE_VERSION
+            packaged_version = $env:PACKAGED_VERSION
+            source_sha = $env:GITHUB_SHA
+            source_ref = $env:GITHUB_REF
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            run_url = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            architecture = 'amd64'
+            app_environment = 'stable'
+            created_at_utc = [DateTime]::UtcNow.ToString('o')
+          }
+          $metadata | ConvertTo-Json | Set-Content -LiteralPath dist/test-build.json -Encoding utf8NoBOM
+          $hashes = Get-ChildItem dist -File | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          $hashes | Set-Content -LiteralPath dist/SHA256SUMS -Encoding utf8NoBOM
+
+      - name: Upload Windows test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.identity.outputs.artifact_name }}
+          path: |
+            dist/*-test-*.exe
+            dist/*-test-*.zip
+            dist/test-build.json
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14

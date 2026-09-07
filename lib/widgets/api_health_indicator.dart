@@ -1,5 +1,24 @@
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/widgets/api_network_diagnostic_text.dart';
 import 'package:flutter/material.dart';
+
+Future<void> showApiHealthDiagnostics(
+  BuildContext context, {
+  ApiHealthService? service,
+  Future<bool> Function()? onExportLogs,
+}) async {
+  final result = await showDialog<_ApiHealthDialogResult>(
+    context: context,
+    builder: (_) => _ApiHealthDialog(
+      service: service ?? ApiHealthService(),
+      initialSnapshot: null,
+      onExportLogs: onExportLogs,
+    ),
+  );
+  if (context.mounted && result?.applied == true) {
+    context.showNotifier(context.appLocalizations.apiEndpointApplied);
+  }
+}
 
 class ApiHealthControl extends StatefulWidget {
   const ApiHealthControl({
@@ -9,6 +28,7 @@ class ApiHealthControl extends StatefulWidget {
     this.foregroundColor,
     this.buttonBackgroundColor,
     this.buttonBorderColor,
+    this.onExportLogs,
   });
 
   final ApiHealthService? service;
@@ -16,6 +36,7 @@ class ApiHealthControl extends StatefulWidget {
   final Color? foregroundColor;
   final Color? buttonBackgroundColor;
   final Color? buttonBorderColor;
+  final Future<bool> Function()? onExportLogs;
 
   @override
   State<ApiHealthControl> createState() => _ApiHealthControlState();
@@ -36,14 +57,24 @@ class _ApiHealthControlState extends State<ApiHealthControl> {
   }
 
   Future<void> _refresh() async {
-    if (_checking) return;
+    if (!mounted || _checking) return;
     setState(() => _checking = true);
-    final snapshot = await _service.check();
-    if (!mounted) return;
-    setState(() {
-      _snapshot = snapshot;
-      _checking = false;
-    });
+    try {
+      final snapshot = await _service.check();
+      if (mounted) setState(() => _snapshot = snapshot);
+    } catch (error) {
+      commonPrint.event(
+        'api.health.ui.failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
+      if (mounted) {
+        setState(
+          () => _snapshot = ApiHealthSnapshot.unavailable('check_failed'),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
   }
 
   Color get _statusColor {
@@ -68,8 +99,11 @@ class _ApiHealthControlState extends State<ApiHealthControl> {
   Future<void> _showDetails() async {
     final result = await showDialog<_ApiHealthDialogResult>(
       context: context,
-      builder: (_) =>
-          _ApiHealthDialog(service: _service, initialSnapshot: _snapshot),
+      builder: (_) => _ApiHealthDialog(
+        service: _service,
+        initialSnapshot: _snapshot,
+        onExportLogs: widget.onExportLogs,
+      ),
     );
     if (!mounted || result == null) return;
     setState(() => _snapshot = result.snapshot);
@@ -111,10 +145,12 @@ class _ApiHealthDialog extends StatefulWidget {
   const _ApiHealthDialog({
     required this.service,
     required this.initialSnapshot,
+    this.onExportLogs,
   });
 
   final ApiHealthService service;
   final ApiHealthSnapshot? initialSnapshot;
+  final Future<bool> Function()? onExportLogs;
 
   @override
   State<_ApiHealthDialog> createState() => _ApiHealthDialogState();
@@ -150,11 +186,23 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
               endpoint.reachable &&
               isSameApiEndpoint(endpoint.endpoint, currentSelection),
         );
-    final selected = currentStillReachable
-        ? currentSelection
-        : (await widget.service.orderedReachableEndpoints(
-            snapshot,
-          )).firstOrNull?.endpoint;
+    Uri? selected;
+    try {
+      selected = currentStillReachable
+          ? currentSelection
+          : (await widget.service.orderedReachableEndpoints(
+              snapshot,
+            )).firstOrNull?.endpoint;
+    } catch (error) {
+      commonPrint.event(
+        'api.health.selection_load.failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
+      selected = snapshot.endpoints
+          .where((endpoint) => endpoint.reachable)
+          .firstOrNull
+          ?.endpoint;
+    }
     if (!mounted) return;
     setState(() {
       _selectedEndpoint = selected;
@@ -163,13 +211,25 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
   }
 
   Future<void> _refreshAll() async {
-    if (_checkingAll) return;
+    if (!mounted || _checkingAll) return;
     setState(() => _checkingAll = true);
     try {
       final snapshot = await widget.service.check();
       if (!mounted) return;
       setState(() => _snapshot = snapshot);
       await _syncSelection();
+    } catch (error) {
+      commonPrint.event(
+        'api.health.ui.failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
+      if (mounted) {
+        setState(() {
+          _snapshot = ApiHealthSnapshot.unavailable('check_failed');
+          _loadingSelection = false;
+          _selectedEndpoint = null;
+        });
+      }
     } finally {
       if (mounted) setState(() => _checkingAll = false);
     }
@@ -177,14 +237,25 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
 
   Future<void> _testEndpoint(int index) async {
     final snapshot = _snapshot;
-    if (snapshot == null || _testingIndexes.contains(index)) return;
+    if (snapshot == null || _checkingAll || _testingIndexes.contains(index)) {
+      return;
+    }
     setState(() => _testingIndexes.add(index));
     try {
       final result = await widget.service.probeEndpoint(
         snapshot.endpoints[index].endpoint,
       );
       if (!mounted) return;
-      final endpoints = List<ApiEndpointHealth>.from(snapshot.endpoints)
+      final current = _snapshot;
+      if (current == null ||
+          index >= current.endpoints.length ||
+          !isSameApiEndpoint(
+            current.endpoints[index].endpoint,
+            result.endpoint,
+          )) {
+        return;
+      }
+      final endpoints = List<ApiEndpointHealth>.from(current.endpoints)
         ..[index] = result;
       setState(() {
         _snapshot = ApiHealthSnapshot(
@@ -193,6 +264,14 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
         );
       });
       await _syncSelection();
+    } catch (error) {
+      commonPrint.event(
+        'api.health.endpoint_ui.failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
+      if (mounted) {
+        context.showNotifier(context.appLocalizations.apiFailureNetwork);
+      }
     } finally {
       if (mounted) setState(() => _testingIndexes.remove(index));
     }
@@ -228,7 +307,13 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
         _ApiHealthDialogResult(snapshot: _snapshot, applied: true),
       );
     } catch (error) {
-      if (mounted) context.showNotifier(error.toString());
+      commonPrint.event(
+        'api.health.selection.failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
+      if (mounted) {
+        context.showNotifier(context.appLocalizations.apiFailureNetwork);
+      }
     } finally {
       if (mounted) setState(() => _savingSelection = false);
     }
@@ -303,109 +388,144 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: _ApiHealthSummaryCard(
-                      label: l10n.availableEndpoints,
-                      value: snapshot == null
-                          ? '--/--'
-                          : '${snapshot.reachableCount}/${snapshot.total}',
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: _ApiHealthSummaryCard(
-                      label: l10n.currentEndpoint,
-                      value: snapshot == null || snapshot.total == 0
-                          ? '--'
-                          : l10n.loginEndpointLabel(_currentIndex + 1),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              Wrap(
-                alignment: WrapAlignment.end,
-                spacing: 12,
-                runSpacing: 10,
-                children: [
-                  FilledButton.tonalIcon(
-                    key: const Key('api-health-refresh-config-button'),
-                    onPressed: _checkingAll ? null : _refreshAll,
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: Text(l10n.refreshConfiguration),
-                  ),
-                  FilledButton.tonalIcon(
-                    key: const Key('api-health-test-all-button'),
-                    onPressed: _checkingAll ? null : _refreshAll,
-                    icon: const Icon(Icons.speed_rounded),
-                    label: Text(l10n.testAllEndpoints),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
               Expanded(
-                child: snapshot == null || snapshot.total == 0
-                    ? Center(
-                        child: _checkingAll
-                            ? const CircularProgressIndicator()
-                            : Text(l10n.apiStatusUnavailable),
-                      )
-                    : ListView.separated(
-                        key: const Key('api-health-endpoints-list'),
-                        itemCount: snapshot.endpoints.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final endpoint = snapshot.endpoints[index];
-                          final selected =
-                              _selectedEndpoint != null &&
-                              isSameApiEndpoint(
-                                endpoint.endpoint,
-                                _selectedEndpoint!,
-                              );
-                          final testing = _testingIndexes.contains(index);
-                          return Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              key: ValueKey('api-health-endpoint-$index'),
-                              onTap: endpoint.reachable && !_savingSelection
-                                  ? () => setState(
-                                      () =>
-                                          _selectedEndpoint = endpoint.endpoint,
-                                    )
-                                  : null,
-                              borderRadius: BorderRadius.circular(18),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 180),
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: selected
-                                      ? colors.primaryContainer.withValues(
-                                          alpha: .38,
-                                        )
-                                      : colors.surfaceContainerLow,
-                                  borderRadius: BorderRadius.circular(18),
-                                  border: Border.all(
-                                    color: selected
-                                        ? colors.primary.withValues(alpha: .72)
-                                        : colors.outlineVariant,
-                                    width: selected ? 1.6 : 1,
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _ApiHealthSummaryCard(
+                              label: l10n.availableEndpoints,
+                              value: snapshot == null
+                                  ? '--/--'
+                                  : '${snapshot.reachableCount}/${snapshot.total}',
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: _ApiHealthSummaryCard(
+                              label: l10n.currentEndpoint,
+                              value: snapshot == null || snapshot.total == 0
+                                  ? '--'
+                                  : l10n.loginEndpointLabel(_currentIndex + 1),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 12,
+                        runSpacing: 10,
+                        children: [
+                          if (widget.onExportLogs != null)
+                            ApiDiagnosticExportButton(
+                              key: const Key('api-health-export-logs'),
+                              onExportLogs: widget.onExportLogs!,
+                            ),
+                          FilledButton.tonalIcon(
+                            key: const Key('api-health-refresh-config-button'),
+                            onPressed: _checkingAll ? null : _refreshAll,
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: Text(l10n.refreshConfiguration),
+                          ),
+                          FilledButton.tonalIcon(
+                            key: const Key('api-health-test-all-button'),
+                            onPressed: _checkingAll ? null : _refreshAll,
+                            icon: const Icon(Icons.speed_rounded),
+                            label: Text(l10n.testAllEndpoints),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        l10n.apiReachabilityHint,
+                        style: context.textTheme.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      if (snapshot == null || snapshot.total == 0)
+                        Center(
+                          child: _checkingAll
+                              ? const CircularProgressIndicator()
+                              : SingleChildScrollView(
+                                  child: Text(
+                                    snapshot?.diagnostic == null
+                                        ? l10n.apiStatusUnavailable
+                                        : apiNetworkDiagnosticMessage(
+                                            context,
+                                            snapshot!.diagnostic!,
+                                          ),
+                                    textAlign: TextAlign.center,
                                   ),
                                 ),
-                                child: _ApiHealthEndpointRow(
-                                  endpoint: endpoint,
-                                  index: index,
-                                  selected: selected,
-                                  testing: testing,
-                                  onTest: () => _testEndpoint(index),
+                        )
+                      else
+                        ListView.separated(
+                          key: const Key('api-health-endpoints-list'),
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: snapshot.endpoints.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final endpoint = snapshot.endpoints[index];
+                            final selected =
+                                _selectedEndpoint != null &&
+                                isSameApiEndpoint(
+                                  endpoint.endpoint,
+                                  _selectedEndpoint!,
+                                );
+                            final testing = _testingIndexes.contains(index);
+                            return Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                key: ValueKey('api-health-endpoint-$index'),
+                                onTap: endpoint.reachable && !_savingSelection
+                                    ? () => setState(
+                                        () => _selectedEndpoint =
+                                            endpoint.endpoint,
+                                      )
+                                    : null,
+                                borderRadius: BorderRadius.circular(18),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 180),
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: selected
+                                        ? colors.primaryContainer.withValues(
+                                            alpha: .38,
+                                          )
+                                        : colors.surfaceContainerLow,
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(
+                                      color: selected
+                                          ? colors.primary.withValues(
+                                              alpha: .72,
+                                            )
+                                          : colors.outlineVariant,
+                                      width: selected ? 1.6 : 1,
+                                    ),
+                                  ),
+                                  child: _ApiHealthEndpointRow(
+                                    endpoint: endpoint,
+                                    index: index,
+                                    selected: selected,
+                                    testing: testing || _checkingAll,
+                                    onTest: () => _testEndpoint(index),
+                                  ),
                                 ),
                               ),
-                            ),
-                          );
-                        },
-                      ),
+                            );
+                          },
+                        ),
+                    ],
+                  ),
+                ),
               ),
               const SizedBox(height: 20),
               FilledButton(
@@ -495,7 +615,7 @@ class _ApiHealthEndpointRow extends StatelessWidget {
       label: Text(l10n.testEndpoint),
     );
 
-    return LayoutBuilder(
+    final summary = LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 440) {
           return Column(
@@ -529,6 +649,21 @@ class _ApiHealthEndpointRow extends StatelessWidget {
           ],
         );
       },
+    );
+    final diagnostic = endpoint.diagnostic;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        summary,
+        if (diagnostic != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            apiNetworkDiagnosticMessage(context, diagnostic),
+            key: ValueKey('api-health-reason-$index'),
+            style: context.textTheme.bodySmall?.copyWith(color: colors.error),
+          ),
+        ],
+      ],
     );
   }
 }

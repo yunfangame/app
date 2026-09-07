@@ -24,7 +24,9 @@ void main() {
     var campusConfigLoads = 0;
     var diagnosticExports = 0;
     var diagnosticRuns = 0;
-    final container = ProviderContainer();
+    final container = ProviderContainer(
+      overrides: [currentProfileProvider.overrideWithValue(null)],
+    );
     addTearDown(container.dispose);
     globalState.container = container;
     container.read(viewSizeProvider.notifier).value = const Size(1280, 1000);
@@ -159,6 +161,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(diagnosticExports, 1);
 
+    await tester.ensureVisible(campusSwitch);
+    await tester.pumpAndSettle();
     await tester.tap(campusSwitch);
     await tester.pumpAndSettle();
     expect(container.read(appSettingProvider).campusNetworkEnabled, isFalse);
@@ -182,8 +186,9 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(
-      const ProviderScope(
-        child: _TestApp(
+      ProviderScope(
+        overrides: [currentProfileProvider.overrideWithValue(null)],
+        child: const _TestApp(
           themeMode: ThemeMode.dark,
           child: FengWoAdvancedSettingsView(),
         ),
@@ -217,7 +222,10 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(
-      const ProviderScope(child: _TestApp(child: FengWoAdvancedSettingsView())),
+      ProviderScope(
+        overrides: [currentProfileProvider.overrideWithValue(null)],
+        child: const _TestApp(child: FengWoAdvancedSettingsView()),
+      ),
     );
     await tester.pump();
 

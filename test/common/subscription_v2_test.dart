@@ -1,15 +1,131 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart' as dart_crypto;
 import 'package:cryptography/cryptography.dart';
+import 'package:dio/dio.dart';
 import 'package:fl_clash/common/api_health.dart';
+import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/subscription_v2.dart';
+import 'package:fl_clash/common/xboard_auth.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final status in [403, 407, 429, 503]) {
+    test(
+      'secure gateway retains HTTP $status without legacy downgrade',
+      () async {
+        final server = await _FakeSubscriptionV2Server.create();
+        final events = <Map<String, Object?>>[];
+        final dio = Dio();
+        addTearDown(() => dio.close(force: true));
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) => handler.resolve(
+              Response<Object?>(
+                requestOptions: options,
+                statusCode: status,
+                data: '<html>private gateway response secret</html>',
+              ),
+            ),
+          ),
+        );
+        final client = SubscriptionV2Client(
+          apiHealthService: _healthService(server.config),
+          dio: dio,
+          valueStore: _MemorySubscriptionV2ValueStore(),
+          diagnosticRecorder: (event, fields) =>
+              events.add({'event': event, ...fields}),
+        );
+        var legacyCalls = 0;
+        final service = XboardAuthService(
+          endpointLoader: () async => [
+            Uri.parse('https://private.example.com'),
+          ],
+          subscriptionV2Client: client,
+          diagnosticRecorder: (_, _) {},
+          loginRequester: (_, _, _) async {
+            legacyCalls++;
+            throw StateError('Legacy must not be called');
+          },
+        );
+        await expectLater(
+          service.login(email: 'private@example.com', password: 'secret'),
+          throwsA(
+            isA<XboardAuthException>()
+                .having(
+                  (error) => error.failure,
+                  'failure',
+                  XboardAuthFailure.unavailable,
+                )
+                .having((error) => error.statusCode, 'HTTP status', status)
+                .having(
+                  (error) => error.diagnostic?.failure,
+                  'reason',
+                  ApiNetworkFailure.http,
+                )
+                .having(
+                  (error) => error.diagnostic?.stage,
+                  'stage',
+                  'secure_gateway',
+                ),
+          ),
+        );
+        expect(legacyCalls, 0);
+        expect(events.single['http_status'], status);
+        expect(jsonEncode(events), isNot(contains('private')));
+        expect(jsonEncode(events), isNot(contains('secret')));
+      },
+    );
+  }
+
+  test('secure gateway retains wrapped connection reset evidence', () async {
+    final server = await _FakeSubscriptionV2Server.create();
+    final dio = Dio();
+    addTearDown(() => dio.close(force: true));
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) => handler.reject(
+          DioException(
+            requestOptions: options,
+            type: DioExceptionType.connectionError,
+            error: const SocketException(
+              'private.example.com',
+              osError: OSError('reset', 10054),
+            ),
+          ),
+        ),
+      ),
+    );
+    final client = SubscriptionV2Client(
+      apiHealthService: _healthService(server.config),
+      dio: dio,
+      valueStore: _MemorySubscriptionV2ValueStore(),
+      diagnosticRecorder: (_, _) {},
+    );
+    await expectLater(
+      client.secureLogin(
+        endpoint: Uri.parse('https://private.example.com'),
+        email: 'private@example.com',
+        password: 'secret',
+        appVersion: 'test',
+      ),
+      throwsA(
+        isA<SubscriptionV2Exception>()
+            .having((error) => error.code, 'code', 'gateway_unavailable')
+            .having(
+              (error) => error.diagnostic?.failure,
+              'reason',
+              ApiNetworkFailure.connectionReset,
+            )
+            .having((error) => error.diagnostic?.osErrorCode, 'OS code', 10054),
+      ),
+    );
+  });
 
   test('local Debug device storage persists without Keychain', () async {
     SharedPreferences.setMockInitialValues({});
