@@ -240,7 +240,11 @@ class ApplicationState extends ConsumerState<Application> {
       }
       commonPrint.event(
         'auth.remembered_login.failed',
-        fields: {'account_ref': accountRef, 'failure': error.failure.name},
+        fields: {
+          'account_ref': accountRef,
+          'failure': error.failure.name,
+          ...?error.diagnostic?.toDiagnosticFields(),
+        },
       );
       rethrow;
     }
@@ -834,6 +838,8 @@ class ApplicationState extends ConsumerState<Application> {
               'account_ref': accountRef,
               'error_type': error.runtimeType.toString(),
               'error': '$error',
+              if (error is XboardAuthException)
+                ...?error.diagnostic?.toDiagnosticFields(),
             },
           );
           rethrow;
@@ -858,6 +864,7 @@ class ApplicationState extends ConsumerState<Application> {
       onForgotPasswordPressed: _openForgotPassword,
       offlineAvailable: _offlineAvailable,
       onOfflinePressed: _openOfflineHome,
+      onExportLogs: () => ref.read(logsProvider.notifier).exportLogs(),
     );
   }
 

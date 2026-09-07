@@ -64,6 +64,30 @@ void main() {
   });
 
   group('lifecycle methods', () {
+    test('lifecycle diagnostics preserve superseded results', () async {
+      const result = CoreLifecycleResult(
+        revision: 7,
+        outcome: CoreLifecycleOutcome.superseded,
+      );
+      when(() => mock.restart()).thenAnswer((_) async => result);
+
+      expect(await controller.restart(), same(result));
+      verify(() => mock.restart()).called(1);
+    });
+
+    test('lifecycle diagnostics preserve failure identity', () async {
+      const error = DesktopCoreFailure(
+        code: 'connection_timeout',
+        phase: DesktopCorePhase.starting,
+        revision: 9,
+      );
+      when(() => mock.start()).thenThrow(error);
+
+      await expectLater(controller.start(), throwsA(same(error)));
+      verify(() => mock.start()).called(1);
+      verifyNever(() => mock.restart());
+    });
+
     test('start, restart, stop, and close delegate to interface', () async {
       const result = CoreLifecycleResult(
         revision: 1,

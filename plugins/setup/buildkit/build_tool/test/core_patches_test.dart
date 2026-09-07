@@ -24,9 +24,9 @@ void main() {
   }
 
   CorePatchApplier applier({String? expectedRevision}) => CorePatchApplier(
-    rootDirectory: root,
-    expectedRevision: expectedRevision ?? revision,
-  );
+        rootDirectory: root,
+        expectedRevision: expectedRevision ?? revision,
+      );
 
   setUp(() {
     root = Directory.systemTemp.createTempSync('core_patch_test_');
@@ -75,6 +75,55 @@ void main() {
     expect(applier().apply(), isTrue);
     expect(target.readAsStringSync().replaceAll('\r\n', '\n'), 'after\n');
     expect(applier().apply(), isFalse);
+  });
+
+  test('repository attributes keep patches LF with Windows Git conversion', () {
+    var project = Directory.current.absolute;
+    while (!File('${project.path}/.gitattributes').existsSync() ||
+        !Directory('${project.path}/core/patches').existsSync()) {
+      final parent = project.parent;
+      if (parent.path == project.path) {
+        throw StateError('Cannot locate repository patch attributes');
+      }
+      project = parent;
+    }
+    File('${root.path}/.gitattributes').writeAsStringSync(
+      File('${project.path}/.gitattributes').readAsStringSync(),
+    );
+    ProcessResult rootGit(List<String> arguments) {
+      final result = Process.runSync(
+        'git',
+        arguments,
+        workingDirectory: root.path,
+      );
+      if (result.exitCode != 0) {
+        throw StateError('${arguments.join(' ')}: ${result.stderr}');
+      }
+      return result;
+    }
+
+    rootGit(['init', '--quiet']);
+    rootGit(['config', 'core.autocrlf', 'true']);
+    rootGit([
+      'add',
+      '--',
+      '.gitattributes',
+      'core/patches/mixed-listener-readiness.patch',
+    ]);
+    patch.deleteSync();
+    rootGit([
+      'checkout-index',
+      '--',
+      'core/patches/mixed-listener-readiness.patch',
+    ]);
+    expect(patch.readAsBytesSync(), isNot(contains(13)));
+    git(['config', 'core.autocrlf', 'true']);
+    target.writeAsStringSync('before\r\n');
+    final indexBefore = git(['ls-files', '--stage']).stdout;
+    expect(applier().apply(), isTrue);
+    expect(target.readAsStringSync().replaceAll('\r\n', '\n'), 'after\n');
+    expect(applier().apply(), isFalse);
+    expect(git(['ls-files', '--stage']).stdout, indexBefore);
   });
 
   test('preserves unrelated working tree and staged changes', () {
