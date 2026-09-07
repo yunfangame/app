@@ -12,7 +12,10 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/metacubex/bbolt"
+	"github.com/metacubex/mihomo/component/profile/cachefile"
 	"github.com/metacubex/mihomo/constant"
 )
 
@@ -98,6 +101,32 @@ func TestListenerSetupMethodReportsStructuredFailure(t *testing.T) {
 	previousHome := constant.Path.HomeDir()
 	constant.SetHomeDir(t.TempDir())
 	t.Cleanup(func() { constant.SetHomeDir(previousHome) })
+	store := cachefile.Cache()
+	previousDB := store.DB
+	cachePath := constant.Path.Cache()
+	if store.DB == nil || store.DB.Path() != cachePath {
+		db, err := bbolt.Open(cachePath, 0600, &bbolt.Options{Timeout: 200 * time.Millisecond})
+		if err != nil {
+			t.Fatal(err)
+		}
+		store.DB = db
+	}
+	t.Cleanup(func() { store.DB = previousDB })
+	t.Cleanup(func() {
+		db, err := bbolt.Open(cachePath, 0600, &bbolt.Options{Timeout: 200 * time.Millisecond})
+		if err != nil {
+			t.Errorf("test cache must release its file lock before temporary directory cleanup: %v", err)
+			return
+		}
+		if err := db.Close(); err != nil {
+			t.Errorf("close reopened test cache: %v", err)
+		}
+	})
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close test cache: %v", err)
+		}
+	})
 	foreign := bindTestTCP(t, 0)
 	port := foreign.Addr().(*net.TCPAddr).Port
 	data := fmt.Sprintf("mixed-port: %d\nallow-lan: false\nmode: direct\ndns:\n  enable: false\nrules: []\n", port)

@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/network_diagnostic_selection.dart';
 import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
@@ -37,7 +38,7 @@ class Logs extends _$Logs with AutoDisposeNotifierMixin {
 
   @override
   FixedList<Log> build() {
-    return FixedList(0);
+    return FixedList(500);
   }
 
   void add(Log value) {
@@ -48,13 +49,22 @@ class Logs extends _$Logs with AutoDisposeNotifierMixin {
   }
 
   Future<NetworkDiagnosticReport> runNetworkDiagnostics() async {
-    final port = ref.read(patchClashConfigProvider).mixedPort;
+    final config = ref.read(patchClashConfigProvider);
+    final selection = computeNetworkDiagnosticSelection(
+      mode: config.mode,
+      groups: ref.read(groupsProvider),
+      selectedMap: ref.read(selectedMapProvider),
+      currentGroupName: ref.read(currentProfileProvider)?.currentGroupName,
+    );
     final input = NetworkDiagnosticInput(
       hasProfile: ref.read(currentProfileIdProvider) != null,
       running: ref.read(isStartProvider),
       systemProxyRequested: ref.read(networkSettingProvider).systemProxy,
-      tunRequested: ref.read(patchClashConfigProvider).tun.enable,
-      port: port,
+      tunRequested: config.tun.enable,
+      port: config.mixedPort,
+      selectedNode: selection.selectedNode,
+      selectedGroup: selection.selectedGroup,
+      mode: selection.mode.name,
     );
     commonPrint.event(
       'network.diagnostic.started',
@@ -63,6 +73,11 @@ class Logs extends _$Logs with AutoDisposeNotifierMixin {
         'system_proxy_requested': input.systemProxyRequested,
         'tun_requested': input.tunRequested,
         'port': input.port,
+        'mode': input.mode,
+        if (input.selectedNode != null)
+          'selected_node_ref': diagnosticFingerprint(input.selectedNode!),
+        if (input.selectedGroup != null)
+          'selected_group_ref': diagnosticFingerprint(input.selectedGroup!),
       },
     );
     final service = NetworkDiagnosticService(
@@ -83,10 +98,7 @@ class Logs extends _$Logs with AutoDisposeNotifierMixin {
     commonPrint.event('diagnostic.export.requested');
     await commonPrint.flushDiagnosticEvents();
     final diagnosticEvents = await commonPrint.readDiagnosticEvents();
-    final runtimeLogs = sanitizeDiagnosticText(
-      await encodeLogsTask(value.list),
-      maxLength: null,
-    );
+    final runtimeLogs = await encodeLogsTask(value.list);
     String appVersion = 'unknown';
     String buildNumber = 'unknown';
     try {
@@ -111,6 +123,11 @@ class Logs extends _$Logs with AutoDisposeNotifierMixin {
       'profile_count': ref.read(profilesProvider).length,
       'has_current_profile': ref.read(currentProfileIdProvider) != null,
       'mode': ref.read(patchClashConfigProvider).mode.name,
+      'close_connections_on_node_switch': ref
+          .read(appSettingProvider)
+          .closeConnections,
+      'core_log_subscription_enabled': ref.read(appSettingProvider).openLogs,
+      'core_log_level': ref.read(patchClashConfigProvider).logLevel.name,
       if (_latestNetworkDiagnostic != null)
         'latest_network_diagnostic': _latestNetworkDiagnostic!
             .toDiagnosticFields(),

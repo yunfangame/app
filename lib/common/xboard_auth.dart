@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 
 import 'api_endpoint_preference.dart';
 import 'api_health.dart';
+import 'api_network_diagnostic.dart';
 import 'subscription_v2.dart';
 
 const xboardLoginPath = '/api/v1/passport/auth/login';
@@ -58,12 +59,14 @@ class XboardAuthException implements Exception {
     required this.message,
     this.statusCode,
     this.endpoint,
+    this.diagnostic,
   });
 
   final XboardAuthFailure failure;
   final String message;
   final int? statusCode;
   final Uri? endpoint;
+  final ApiNetworkDiagnostic? diagnostic;
 
   @override
   String toString() => 'XboardAuthException($failure, $statusCode)';
@@ -800,6 +803,7 @@ class XboardAuthService {
     XboardRegistrationRequester? registrationRequester,
     XboardPasswordResetRequester? passwordResetRequester,
     SubscriptionV2Client? subscriptionV2Client,
+    ApiDiagnosticRecorder? diagnosticRecorder,
   }) : _apiHealthService = apiHealthService ?? ApiHealthService(),
        _dio =
            dio ??
@@ -840,9 +844,11 @@ class XboardAuthService {
        _emailVerificationRequester = emailVerificationRequester,
        _registrationRequester = registrationRequester,
        _passwordResetRequester = passwordResetRequester,
-       _subscriptionV2Client = subscriptionV2Client;
+       _subscriptionV2Client = subscriptionV2Client,
+       _diagnosticRecorder = diagnosticRecorder ?? recordApiDiagnosticEvent;
 
   final ApiHealthService _apiHealthService;
+  final ApiDiagnosticRecorder _diagnosticRecorder;
   final Dio _dio;
   final XboardEndpointLoader? _endpointLoader;
   final XboardLoginRequester? _loginRequester;
@@ -2016,6 +2022,10 @@ class XboardAuthService {
       throw const XboardAuthException(
         failure: XboardAuthFailure.noAvailableHost,
         message: '当前没有可用的 API 节点，请刷新后重试',
+        diagnostic: ApiNetworkDiagnostic(
+          failure: ApiNetworkFailure.noEndpoints,
+          stage: 'remote_config',
+        ),
       );
     }
 
@@ -2025,6 +2035,8 @@ class XboardAuthService {
       var useLegacyLogin = false;
       for (final baseEndpoint in endpoints) {
         final loginEndpoint = buildXboardLoginUri(baseEndpoint);
+        final attemptId = newApiDiagnosticAttemptId();
+        final stopwatch = Stopwatch()..start();
         try {
           final secure = await secureClient.secureLogin(
             endpoint: baseEndpoint,
@@ -2034,6 +2046,13 @@ class XboardAuthService {
             platform: platform,
           );
           if (secure == null) {
+            _recordAuthAttempt(
+              'legacy_fallback',
+              stage: 'secure_login',
+              endpoint: loginEndpoint,
+              attemptId: attemptId,
+              elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+            );
             useLegacyLogin = true;
             break;
           }
@@ -2051,39 +2070,54 @@ class XboardAuthService {
           );
           await _rememberSuccessfulEndpoint(baseEndpoint);
           _currentSession = result;
+          _recordAuthAttempt(
+            'succeeded',
+            stage: 'secure_login',
+            endpoint: loginEndpoint,
+            attemptId: attemptId,
+            elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+          );
           return result;
         } on SubscriptionV2Exception catch (error) {
           final mapped = _mapSubscriptionV2Error(error, loginEndpoint);
           if (error.code != 'gateway_unavailable' &&
               error.code != 'temporary_unavailable') {
+            _recordAuthAttempt(
+              'failed',
+              stage: 'secure_login',
+              endpoint: loginEndpoint,
+              attemptId: attemptId,
+              elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+              failure: mapped,
+            );
             throw mapped;
           }
           secureFailure = mapped;
-        } on DioException {
-          secureFailure = XboardAuthException(
-            failure: XboardAuthFailure.unavailable,
-            message: '安全登录网关连接失败',
-            endpoint: loginEndpoint,
-          );
-        } on TimeoutException {
-          secureFailure = XboardAuthException(
-            failure: XboardAuthFailure.unavailable,
-            message: '安全登录网关连接超时',
-            endpoint: loginEndpoint,
-          );
         } on FormatException {
           secureFailure = XboardAuthException(
             failure: XboardAuthFailure.unavailable,
             message: '安全登录配置校验失败',
             endpoint: loginEndpoint,
           );
-        } catch (_) {
-          secureFailure = XboardAuthException(
-            failure: XboardAuthFailure.unavailable,
-            message: '安全登录请求失败',
+        } catch (error) {
+          secureFailure = _authNetworkFailure(
+            error,
+            stage: 'secure_login',
             endpoint: loginEndpoint,
+            attemptId: attemptId,
+            elapsedMilliseconds: stopwatch.elapsedMilliseconds,
           );
+        } finally {
+          stopwatch.stop();
         }
+        _recordAuthAttempt(
+          'failed',
+          stage: 'secure_login',
+          endpoint: loginEndpoint,
+          attemptId: attemptId,
+          elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+          failure: secureFailure,
+        );
       }
       if (!useLegacyLogin && secureFailure != null) {
         throw secureFailure;
@@ -2093,6 +2127,8 @@ class XboardAuthService {
     XboardAuthException? lastFailure;
     for (final baseEndpoint in endpoints) {
       final loginEndpoint = buildXboardLoginUri(baseEndpoint);
+      final attemptId = newApiDiagnosticAttemptId();
+      final stopwatch = Stopwatch()..start();
       try {
         final response = await (_loginRequester ?? _requestLogin)(
           loginEndpoint,
@@ -2126,6 +2162,13 @@ class XboardAuthService {
           );
           await _rememberSuccessfulEndpoint(baseEndpoint);
           _currentSession = result;
+          _recordAuthAttempt(
+            'succeeded',
+            stage: 'login',
+            endpoint: loginEndpoint,
+            attemptId: attemptId,
+            elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+          );
           return result;
         }
 
@@ -2138,10 +2181,10 @@ class XboardAuthService {
             endpoint: loginEndpoint,
           );
         }
-        if (statusCode >= 400 && statusCode < 500 && statusCode != 404) {
+        if ({400, 401, 422}.contains(statusCode) && message != null) {
           throw XboardAuthException(
             failure: XboardAuthFailure.authenticationRejected,
-            message: message ?? '邮箱或密码错误',
+            message: message,
             statusCode: statusCode,
             endpoint: loginEndpoint,
           );
@@ -2152,6 +2195,14 @@ class XboardAuthService {
           message: message ?? 'API 节点暂时不可用',
           statusCode: statusCode,
           endpoint: loginEndpoint,
+          diagnostic: classifyApiNetworkFailure(
+            StateError('HTTP response'),
+            stage: 'login',
+            endpoint: loginEndpoint,
+            statusCode: statusCode,
+            elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+            attemptId: attemptId,
+          ),
         );
       } on XboardAuthException catch (error) {
         if (error.failure == XboardAuthFailure.authenticationRejected ||
@@ -2159,28 +2210,36 @@ class XboardAuthService {
             error.failure == XboardAuthFailure.subscriptionRejected ||
             error.failure == XboardAuthFailure.subscriptionUnavailable ||
             error.failure == XboardAuthFailure.invalidResponse) {
+          _recordAuthAttempt(
+            'failed',
+            stage: 'login',
+            endpoint: loginEndpoint,
+            attemptId: attemptId,
+            elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+            failure: error,
+          );
           rethrow;
         }
         lastFailure = error;
-      } on DioException {
-        lastFailure = XboardAuthException(
-          failure: XboardAuthFailure.unavailable,
-          message: 'API 节点连接失败',
+      } catch (error) {
+        lastFailure = _authNetworkFailure(
+          error,
+          stage: 'login',
           endpoint: loginEndpoint,
+          attemptId: attemptId,
+          elapsedMilliseconds: stopwatch.elapsedMilliseconds,
         );
-      } on TimeoutException {
-        lastFailure = XboardAuthException(
-          failure: XboardAuthFailure.unavailable,
-          message: 'API 节点连接超时',
-          endpoint: loginEndpoint,
-        );
-      } catch (_) {
-        lastFailure = XboardAuthException(
-          failure: XboardAuthFailure.unavailable,
-          message: 'API 节点请求失败',
-          endpoint: loginEndpoint,
-        );
+      } finally {
+        stopwatch.stop();
       }
+      _recordAuthAttempt(
+        'failed',
+        stage: 'login',
+        endpoint: loginEndpoint,
+        attemptId: attemptId,
+        elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+        failure: lastFailure,
+      );
     }
 
     throw lastFailure ??
@@ -2188,6 +2247,60 @@ class XboardAuthService {
           failure: XboardAuthFailure.unavailable,
           message: '所有 API 节点均不可用，请稍后重试',
         );
+  }
+
+  XboardAuthException _authNetworkFailure(
+    Object error, {
+    required String stage,
+    required Uri endpoint,
+    required String attemptId,
+    required int elapsedMilliseconds,
+    XboardAuthFailure failure = XboardAuthFailure.unavailable,
+  }) {
+    if (error is ApiRemoteConfigException) {
+      return XboardAuthException(
+        failure: failure,
+        message: error.userMessage,
+        endpoint: error.source,
+        statusCode: error.statusCode,
+        diagnostic: error.diagnostic,
+      );
+    }
+    final diagnostic = classifyApiNetworkFailure(
+      error,
+      stage: stage,
+      endpoint: endpoint,
+      attemptId: attemptId,
+      elapsedMilliseconds: elapsedMilliseconds,
+    );
+    return XboardAuthException(
+      failure: failure,
+      message: diagnostic.failure == ApiNetworkFailure.timeout
+          ? 'API 节点连接超时'
+          : 'API 节点连接失败',
+      endpoint: endpoint,
+      statusCode: diagnostic.statusCode,
+      diagnostic: diagnostic,
+    );
+  }
+
+  void _recordAuthAttempt(
+    String outcome, {
+    required String stage,
+    required Uri endpoint,
+    required String attemptId,
+    required int elapsedMilliseconds,
+    XboardAuthException? failure,
+  }) {
+    emitApiDiagnosticEvent(_diagnosticRecorder, 'auth.api.attempt.$outcome', {
+      'stage': stage,
+      'endpoint_ref': apiDiagnosticEndpointRef(endpoint),
+      'attempt_id': attemptId,
+      'elapsed_ms': elapsedMilliseconds,
+      if (failure != null) 'failure': failure.failure.name,
+      if (failure?.statusCode != null) 'http_status': failure!.statusCode,
+      ...?failure?.diagnostic?.toDiagnosticFields(),
+    });
   }
 
   XboardAuthException _mapSubscriptionV2Error(
@@ -2234,6 +2347,8 @@ class XboardAuthService {
       failure: XboardAuthFailure.unavailable,
       message: '安全订阅服务暂时不可用，请稍后重试',
       endpoint: endpoint,
+      statusCode: error.statusCode,
+      diagnostic: error.diagnostic,
     );
   }
 
@@ -2246,6 +2361,7 @@ class XboardAuthService {
         message: error.userMessage,
         statusCode: error.statusCode,
         endpoint: error.source,
+        diagnostic: error.diagnostic,
       );
     }
   }
@@ -2268,6 +2384,8 @@ class XboardAuthService {
     XboardAuthException? lastFailure;
     for (final baseEndpoint in orderedEndpoints) {
       final endpoint = buildXboardSubscribeUri(baseEndpoint);
+      final stopwatch = Stopwatch()..start();
+      final attemptId = newApiDiagnosticAttemptId();
       try {
         final response = await (_subscriptionRequester ?? _requestSubscription)(
           endpoint,
@@ -2287,18 +2405,21 @@ class XboardAuthService {
         }
 
         final message = _responseMessage(body);
-        if (statusCode == 401 || statusCode == 403) {
+        if ((statusCode == 401 || statusCode == 403) && message != null) {
           throw XboardAuthException(
             failure: XboardAuthFailure.authenticationRejected,
-            message: message ?? '登录状态已失效，请重新登录',
+            message: message,
             statusCode: statusCode,
             endpoint: endpoint,
           );
         }
-        if (statusCode >= 400 && statusCode < 500 && statusCode != 404) {
+        if (statusCode >= 400 &&
+            statusCode < 500 &&
+            !{404, 407}.contains(statusCode) &&
+            message != null) {
           throw XboardAuthException(
             failure: XboardAuthFailure.subscriptionRejected,
-            message: message ?? '无法获取订阅信息',
+            message: message,
             statusCode: statusCode,
             endpoint: endpoint,
           );
@@ -2309,6 +2430,14 @@ class XboardAuthService {
           message: message ?? '订阅信息接口暂时不可用',
           statusCode: statusCode,
           endpoint: endpoint,
+          diagnostic: classifyApiNetworkFailure(
+            StateError('HTTP response'),
+            stage: 'subscription',
+            endpoint: endpoint,
+            statusCode: statusCode,
+            elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+            attemptId: attemptId,
+          ),
         );
       } on XboardAuthException catch (error) {
         if (error.failure == XboardAuthFailure.authenticationRejected ||
@@ -2317,25 +2446,26 @@ class XboardAuthService {
           rethrow;
         }
         lastFailure = error;
-      } on DioException {
-        lastFailure = XboardAuthException(
+      } catch (error) {
+        lastFailure = _authNetworkFailure(
+          error,
           failure: XboardAuthFailure.subscriptionUnavailable,
-          message: '订阅信息接口连接失败',
+          stage: 'subscription',
           endpoint: endpoint,
+          elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+          attemptId: attemptId,
         );
-      } on TimeoutException {
-        lastFailure = XboardAuthException(
-          failure: XboardAuthFailure.subscriptionUnavailable,
-          message: '订阅信息接口连接超时',
-          endpoint: endpoint,
-        );
-      } catch (_) {
-        lastFailure = XboardAuthException(
-          failure: XboardAuthFailure.subscriptionUnavailable,
-          message: '订阅信息请求失败',
-          endpoint: endpoint,
-        );
+      } finally {
+        stopwatch.stop();
       }
+      _recordAuthAttempt(
+        'failed',
+        stage: 'subscription',
+        endpoint: endpoint,
+        attemptId: attemptId,
+        elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+        failure: lastFailure,
+      );
     }
 
     throw lastFailure ??
