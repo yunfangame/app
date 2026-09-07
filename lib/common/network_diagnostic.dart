@@ -2,11 +2,14 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:fl_clash/common/app_localizations.dart';
+import 'package:fl_clash/common/diagnostic_log.dart';
 import 'package:proxy/proxy.dart';
 
 typedef NetworkDiagnosticPortProbe = Future<bool> Function(int port);
 typedef NetworkDiagnosticInternetProbe = Future<bool> Function(int port);
 typedef NetworkDiagnosticDnsProbe = Future<bool> Function(String host);
+typedef NetworkDiagnosticYouTubeProbe =
+    Future<NetworkDiagnosticHttpResult> Function(int port);
 typedef NetworkDiagnosticProxyInspector =
     Future<ProxyOperationResult> Function(int expectedPort);
 
@@ -17,6 +20,9 @@ class NetworkDiagnosticInput {
     required this.systemProxyRequested,
     required this.tunRequested,
     required this.port,
+    this.selectedNode,
+    this.selectedGroup,
+    this.mode,
   });
 
   final bool hasProfile;
@@ -24,6 +30,9 @@ class NetworkDiagnosticInput {
   final bool systemProxyRequested;
   final bool tunRequested;
   final int port;
+  final String? selectedNode;
+  final String? selectedGroup;
+  final String? mode;
 }
 
 class NetworkDiagnosticStep {
@@ -31,16 +40,25 @@ class NetworkDiagnosticStep {
     required this.name,
     required this.success,
     required this.detail,
+    this.latencyMs,
+    this.httpStatus,
+    this.failure,
   });
 
   final String name;
   final bool success;
   final String detail;
+  final int? latencyMs;
+  final int? httpStatus;
+  final String? failure;
 
   Map<String, Object?> toDiagnosticFields() => {
     'name': name,
     'success': success,
     'detail': detail,
+    if (latencyMs != null) 'latency_ms': latencyMs,
+    if (httpStatus != null) 'http_status': httpStatus,
+    if (failure != null) 'failure': failure,
   };
 }
 
@@ -50,17 +68,45 @@ class NetworkDiagnosticReport {
     required this.summary,
     required this.steps,
     this.proxyResult,
+    this.selectedNode,
+    this.selectedGroup,
+    this.mode,
   });
 
   final String code;
   final String summary;
   final List<NetworkDiagnosticStep> steps;
   final ProxyOperationResult? proxyResult;
+  final String? selectedNode;
+  final String? selectedGroup;
+  final String? mode;
 
   bool get success => code == 'W-NET-OK';
 
   String get displayText {
+    final l10n = currentAppLocalizations;
     final buffer = StringBuffer('$code：$summary');
+    if (mode != null) {
+      final modeLabel = switch (mode) {
+        'rule' => l10n.rule,
+        'global' => l10n.global,
+        'direct' => l10n.direct,
+        _ => mode!,
+      };
+      buffer.writeln();
+      buffer.write('${l10n.networkDiagnosticMode}：$modeLabel');
+    }
+    if (selectedGroup != null && selectedGroup!.isNotEmpty) {
+      buffer.writeln();
+      buffer.write('${l10n.networkDiagnosticSelectedGroup}：$selectedGroup');
+    }
+    buffer.writeln();
+    buffer.write(
+      '${l10n.networkDiagnosticSelectedNode}：'
+      '${selectedNode?.isNotEmpty == true ? selectedNode : l10n.networkDiagnosticUnknownNode}',
+    );
+    buffer.writeln();
+    buffer.write(l10n.networkDiagnosticSelectionNote);
     for (final step in steps) {
       buffer
         ..writeln()
@@ -74,6 +120,11 @@ class NetworkDiagnosticReport {
     'success': success,
     'summary': summary,
     'steps': steps.map((step) => step.toDiagnosticFields()).toList(),
+    if (mode != null) 'mode': mode,
+    if (selectedNode != null)
+      'selected_node_ref': diagnosticFingerprint(selectedNode!),
+    if (selectedGroup != null)
+      'selected_group_ref': diagnosticFingerprint(selectedGroup!),
     if (proxyResult != null) 'system_proxy': proxyResult!.toDiagnosticFields(),
   };
 }
@@ -84,6 +135,7 @@ class NetworkDiagnosticService {
     NetworkDiagnosticInternetProbe? internetProbe,
     NetworkDiagnosticDnsProbe? dnsProbe,
     NetworkDiagnosticProxyInspector? proxyInspector,
+    NetworkDiagnosticYouTubeProbe? youtubeProbe,
     List<String> configHosts = const [
       'house.zryc.tech',
       'zryc.oss-cn-beijing.aliyuncs.com',
@@ -92,15 +144,35 @@ class NetworkDiagnosticService {
        _internetProbe = internetProbe ?? _probeViaLocalProxy,
        _dnsProbe = dnsProbe ?? _probeDns,
        _proxyInspector = proxyInspector,
+       _youtubeProbe = youtubeProbe ?? NetworkDiagnosticYouTubeChecker().call,
        _configHosts = List.unmodifiable(configHosts);
 
   final NetworkDiagnosticPortProbe _portProbe;
   final NetworkDiagnosticInternetProbe _internetProbe;
   final NetworkDiagnosticDnsProbe _dnsProbe;
   final NetworkDiagnosticProxyInspector? _proxyInspector;
+  final NetworkDiagnosticYouTubeProbe _youtubeProbe;
   final List<String> _configHosts;
 
   Future<NetworkDiagnosticReport> run(NetworkDiagnosticInput input) async {
+    final basicReport = await _runBasicChecks(input);
+    final report = basicReport.success
+        ? await _runYouTubeCheck(input, basicReport)
+        : basicReport;
+    return NetworkDiagnosticReport(
+      code: report.code,
+      summary: report.summary,
+      steps: report.steps,
+      proxyResult: report.proxyResult,
+      selectedNode: input.selectedNode,
+      selectedGroup: input.selectedGroup,
+      mode: input.mode,
+    );
+  }
+
+  Future<NetworkDiagnosticReport> _runBasicChecks(
+    NetworkDiagnosticInput input,
+  ) async {
     final l10n = currentAppLocalizations;
     final steps = <NetworkDiagnosticStep>[];
     if (!input.hasProfile) {
@@ -219,9 +291,48 @@ class NetworkDiagnosticService {
 
     return NetworkDiagnosticReport(
       code: 'W-NET-OK',
-      summary: l10n.networkDiagnosticSuccess,
+      summary: l10n.networkDiagnosticInternetSuccess,
       steps: List.unmodifiable(steps),
       proxyResult: proxyResult,
+    );
+  }
+
+  Future<NetworkDiagnosticReport> _runYouTubeCheck(
+    NetworkDiagnosticInput input,
+    NetworkDiagnosticReport basicReport,
+  ) async {
+    final l10n = currentAppLocalizations;
+    final steps = [...basicReport.steps];
+    NetworkDiagnosticHttpResult youtube;
+    try {
+      youtube = await _youtubeProbe(input.port);
+    } catch (error) {
+      youtube = NetworkDiagnosticHttpResult.fromError(error);
+    }
+    steps.add(
+      NetworkDiagnosticStep(
+        name: l10n.networkDiagnosticYouTube,
+        success: youtube.success,
+        detail: youtube.displayText,
+        latencyMs: youtube.elapsedMilliseconds,
+        httpStatus: youtube.statusCode,
+        failure: youtube.failure?.name,
+      ),
+    );
+    if (!youtube.success) {
+      return NetworkDiagnosticReport(
+        code: 'W-YOUTUBE-01',
+        summary: l10n.networkDiagnosticYouTubeFailed,
+        steps: List.unmodifiable(steps),
+        proxyResult: basicReport.proxyResult,
+      );
+    }
+
+    return NetworkDiagnosticReport(
+      code: 'W-NET-OK',
+      summary: l10n.networkDiagnosticSuccess,
+      steps: List.unmodifiable(steps),
+      proxyResult: basicReport.proxyResult,
     );
   }
 
@@ -270,7 +381,7 @@ class NetworkDiagnosticService {
           final response = await request.close().timeout(
             const Duration(seconds: 5),
           );
-          await response.drain<void>();
+          await response.drain<void>().timeout(const Duration(seconds: 5));
           if (response.statusCode >= 200 && response.statusCode < 400) {
             return true;
           }
@@ -279,6 +390,100 @@ class NetworkDiagnosticService {
       return false;
     } finally {
       client.close(force: true);
+    }
+  }
+}
+
+enum NetworkDiagnosticHttpFailure { timeout, tls, network, http }
+
+class NetworkDiagnosticHttpResult {
+  const NetworkDiagnosticHttpResult({
+    this.statusCode,
+    this.elapsedMilliseconds,
+    this.failure,
+  });
+
+  factory NetworkDiagnosticHttpResult.fromError(Object error) {
+    return NetworkDiagnosticHttpResult(
+      failure: switch (error) {
+        TimeoutException() => NetworkDiagnosticHttpFailure.timeout,
+        TlsException() => NetworkDiagnosticHttpFailure.tls,
+        _ => NetworkDiagnosticHttpFailure.network,
+      },
+    );
+  }
+
+  final int? statusCode;
+  final int? elapsedMilliseconds;
+  final NetworkDiagnosticHttpFailure? failure;
+
+  bool get success =>
+      failure == null &&
+      statusCode != null &&
+      statusCode! >= 200 &&
+      statusCode! < 300 &&
+      elapsedMilliseconds != null &&
+      elapsedMilliseconds! >= 0;
+
+  String get displayText {
+    final l10n = currentAppLocalizations;
+    if (success) {
+      return l10n.networkDiagnosticYouTubeSuccess(
+        elapsedMilliseconds!,
+        statusCode!,
+      );
+    }
+    if (statusCode != null) {
+      return l10n.networkDiagnosticYouTubeHttpFailure(statusCode!);
+    }
+    return switch (failure) {
+      NetworkDiagnosticHttpFailure.timeout =>
+        l10n.networkDiagnosticYouTubeTimeout,
+      NetworkDiagnosticHttpFailure.tls =>
+        l10n.networkDiagnosticYouTubeTlsFailure,
+      _ => l10n.networkDiagnosticYouTubeNetworkFailure,
+    };
+  }
+}
+
+class NetworkDiagnosticYouTubeChecker {
+  NetworkDiagnosticYouTubeChecker({
+    HttpClient Function()? clientFactory,
+    this.timeout = const Duration(seconds: 8),
+  }) : _clientFactory = clientFactory ?? HttpClient.new;
+
+  final HttpClient Function() _clientFactory;
+  final Duration timeout;
+
+  Future<NetworkDiagnosticHttpResult> call(int port) async {
+    final stopwatch = Stopwatch()..start();
+    HttpClient? client;
+    try {
+      final httpClient = _clientFactory()
+        ..connectionTimeout = timeout
+        ..findProxy = (_) => 'PROXY 127.0.0.1:$port';
+      client = httpClient;
+      return await (() async {
+        final request = await httpClient.getUrl(
+          Uri.https('www.youtube.com', '/'),
+        );
+        request.followRedirects = false;
+        final response = await request.close();
+        stopwatch.stop();
+        final status = response.statusCode;
+        return NetworkDiagnosticHttpResult(
+          statusCode: status,
+          elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+          failure: status >= 200 && status < 300
+              ? null
+              : NetworkDiagnosticHttpFailure.http,
+        );
+      })().timeout(timeout);
+    } catch (error) {
+      return NetworkDiagnosticHttpResult.fromError(error);
+    } finally {
+      stopwatch.stop();
+      client?.close(force: true);
     }
   }
 }

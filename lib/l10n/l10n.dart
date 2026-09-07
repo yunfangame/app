@@ -54,6 +54,196 @@ class AppLocalizations {
     return Localizations.of<AppLocalizations>(context, AppLocalizations);
   }
 
+  /// `API diagnostics`
+  String get apiDiagnostics {
+    return Intl.message(
+      'API diagnostics',
+      name: 'apiDiagnostics',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This checks configuration and API reachability, not whether login will be accepted. It works before login without a proxy connection.`
+  String get apiReachabilityHint {
+    return Intl.message(
+      'This checks configuration and API reachability, not whether login will be accepted. It works before login without a proxy connection.',
+      name: 'apiReachabilityHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Retry, check network access permissions, or export logs for support. This error alone cannot identify a firewall or antivirus block; do not disable protection.`
+  String get apiFailureHelp {
+    return Intl.message(
+      'Retry, check network access permissions, or export logs for support. This error alone cannot identify a firewall or antivirus block; do not disable protection.',
+      name: 'apiFailureHelp',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The API hostname could not be resolved. Check your network and DNS settings.`
+  String get apiFailureDns {
+    return Intl.message(
+      'The API hostname could not be resolved. Check your network and DNS settings.',
+      name: 'apiFailureDns',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The API request timed out. The network or service may be unavailable; interception is not confirmed.`
+  String get apiFailureTimeout {
+    return Intl.message(
+      'The API request timed out. The network or service may be unavailable; interception is not confirmed.',
+      name: 'apiFailureTimeout',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A secure connection could not be verified. Check the system clock and certificate/network settings; do not bypass certificate checks.`
+  String get apiFailureTls {
+    return Intl.message(
+      'A secure connection could not be verified. Check the system clock and certificate/network settings; do not bypass certificate checks.',
+      name: 'apiFailureTls',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The API connection was refused. The destination service or network policy may be rejecting it.`
+  String get apiFailureRefused {
+    return Intl.message(
+      'The API connection was refused. The destination service or network policy may be rejecting it.',
+      name: 'apiFailureRefused',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The API connection was interrupted or reset. Retry or compare on another network.`
+  String get apiFailureReset {
+    return Intl.message(
+      'The API connection was interrupted or reset. Retry or compare on another network.',
+      name: 'apiFailureReset',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Connection permission was denied. System or security rules may be involved; the responsible software is not identified.`
+  String get apiFailurePermission {
+    return Intl.message(
+      'Connection permission was denied. System or security rules may be involved; the responsible software is not identified.',
+      name: 'apiFailurePermission',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The API connection failed. Run API diagnostics and export logs for analysis.`
+  String get apiFailureNetwork {
+    return Intl.message(
+      'The API connection failed. Run API diagnostics and export logs for analysis.',
+      name: 'apiFailureNetwork',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Access was rejected by the server or an intermediate proxy (HTTP {status}). This does not establish that your password is incorrect.`
+  String apiFailureHttpDenied(int status) {
+    return Intl.message(
+      'Access was rejected by the server or an intermediate proxy (HTTP $status). This does not establish that your password is incorrect.',
+      name: 'apiFailureHttpDenied',
+      desc: '',
+      args: [status],
+    );
+  }
+
+  /// `Too many API requests (HTTP 429). Wait a moment before retrying.`
+  String get apiFailureRateLimited {
+    return Intl.message(
+      'Too many API requests (HTTP 429). Wait a moment before retrying.',
+      name: 'apiFailureRateLimited',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The API returned HTTP {status}. Retry later or export logs for support.`
+  String apiFailureHttp(int status) {
+    return Intl.message(
+      'The API returned HTTP $status. Retry later or export logs for support.',
+      name: 'apiFailureHttp',
+      desc: '',
+      args: [status],
+    );
+  }
+
+  /// `The API request was cancelled. You can retry.`
+  String get apiFailureCancelled {
+    return Intl.message(
+      'The API request was cancelled. You can retry.',
+      name: 'apiFailureCancelled',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The remote configuration could not be decrypted. Refresh it or contact support.`
+  String get apiFailureDecrypt {
+    return Intl.message(
+      'The remote configuration could not be decrypted. Refresh it or contact support.',
+      name: 'apiFailureDecrypt',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Remote configuration verification failed. The untrusted configuration was not used; contact support.`
+  String get apiFailureSignature {
+    return Intl.message(
+      'Remote configuration verification failed. The untrusted configuration was not used; contact support.',
+      name: 'apiFailureSignature',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The configuration contains no available API endpoints. Refresh it or contact support.`
+  String get apiFailureNoEndpoints {
+    return Intl.message(
+      'The configuration contains no available API endpoints. Refresh it or contact support.',
+      name: 'apiFailureNoEndpoints',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `API configuration is missing or invalid. Refresh it or contact support.`
+  String get apiFailureConfiguration {
+    return Intl.message(
+      'API configuration is missing or invalid. Refresh it or contact support.',
+      name: 'apiFailureConfiguration',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Logs could not be exported. Please try again.`
+  String get apiLogExportFailed {
+    return Intl.message(
+      'Logs could not be exported. Please try again.',
+      name: 'apiLogExportFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Reference connection latency`
   String get referenceConnectionDelay {
     return Intl.message(
@@ -1908,10 +2098,10 @@ class AppLocalizations {
     );
   }
 
-  /// `Internet access through the local proxy succeeded; application and TUN traffic capture is not verified`
+  /// `Local proxy and YouTube HTTPS access succeeded; video playback, long-lived connections, and traffic from all applications/TUN are not verified`
   String get networkDiagnosticSuccess {
     return Intl.message(
-      'Internet access through the local proxy succeeded; application and TUN traffic capture is not verified',
+      'Local proxy and YouTube HTTPS access succeeded; video playback, long-lived connections, and traffic from all applications/TUN are not verified',
       name: 'networkDiagnosticSuccess',
       desc: '',
       args: [],
@@ -1923,6 +2113,126 @@ class AppLocalizations {
     return Intl.message(
       'The local proxy can access the internet, but no configuration domain resolves',
       name: 'networkDiagnosticConfigDnsFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Selected node`
+  String get networkDiagnosticSelectedNode {
+    return Intl.message(
+      'Selected node',
+      name: 'networkDiagnosticSelectedNode',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Proxy group`
+  String get networkDiagnosticSelectedGroup {
+    return Intl.message(
+      'Proxy group',
+      name: 'networkDiagnosticSelectedGroup',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Proxy mode`
+  String get networkDiagnosticMode {
+    return Intl.message(
+      'Proxy mode',
+      name: 'networkDiagnosticMode',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unable to determine the selected node`
+  String get networkDiagnosticUnknownNode {
+    return Intl.message(
+      'Unable to determine the selected node',
+      name: 'networkDiagnosticUnknownNode',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Node information reflects the selection when diagnostics started. In rule mode, YouTube may use a different exit.`
+  String get networkDiagnosticSelectionNote {
+    return Intl.message(
+      'Node information reflects the selection when diagnostics started. In rule mode, YouTube may use a different exit.',
+      name: 'networkDiagnosticSelectionNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `YouTube HTTPS`
+  String get networkDiagnosticYouTube {
+    return Intl.message(
+      'YouTube HTTPS',
+      name: 'networkDiagnosticYouTube',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reachable · HTTPS latency {milliseconds} ms · HTTP {status}`
+  String networkDiagnosticYouTubeSuccess(Object milliseconds, Object status) {
+    return Intl.message(
+      'Reachable · HTTPS latency $milliseconds ms · HTTP $status',
+      name: 'networkDiagnosticYouTubeSuccess',
+      desc: '',
+      args: [milliseconds, status],
+    );
+  }
+
+  /// `Access check failed · HTTP {status}`
+  String networkDiagnosticYouTubeHttpFailure(Object status) {
+    return Intl.message(
+      'Access check failed · HTTP $status',
+      name: 'networkDiagnosticYouTubeHttpFailure',
+      desc: '',
+      args: [status],
+    );
+  }
+
+  /// `Request timed out`
+  String get networkDiagnosticYouTubeTimeout {
+    return Intl.message(
+      'Request timed out',
+      name: 'networkDiagnosticYouTubeTimeout',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `TLS handshake or certificate validation failed`
+  String get networkDiagnosticYouTubeTlsFailure {
+    return Intl.message(
+      'TLS handshake or certificate validation failed',
+      name: 'networkDiagnosticYouTubeTlsFailure',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Connection failed`
+  String get networkDiagnosticYouTubeNetworkFailure {
+    return Intl.message(
+      'Connection failed',
+      name: 'networkDiagnosticYouTubeNetworkFailure',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Basic connectivity checks passed, but YouTube HTTPS access failed. Check the node or routing rules`
+  String get networkDiagnosticYouTubeFailed {
+    return Intl.message(
+      'Basic connectivity checks passed, but YouTube HTTPS access failed. Check the node or routing rules',
+      name: 'networkDiagnosticYouTubeFailed',
       desc: '',
       args: [],
     );

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:fl_clash/common/api_endpoint_preference.dart';
+import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/api_remote_config_cache.dart';
 import 'package:fl_clash/common/remote_config_cipher.dart';
 import 'package:flutter/services.dart';
@@ -63,12 +64,14 @@ class ApiRemoteConfigException implements Exception {
     this.source,
     this.statusCode,
     this.cause,
+    this.diagnostic,
   });
 
   final ApiRemoteConfigFailure failure;
   final Uri? source;
   final int? statusCode;
   final Object? cause;
+  final ApiNetworkDiagnostic? diagnostic;
 
   String get code => failure.code;
   String get userMessage => failure.userMessage;
@@ -82,11 +85,13 @@ class ApiEndpointHealth {
     required this.endpoint,
     required this.reachable,
     required this.latency,
+    this.diagnostic,
   });
 
   final Uri endpoint;
   final bool reachable;
   final Duration latency;
+  final ApiNetworkDiagnostic? diagnostic;
 }
 
 class ApiHealthSnapshot {
@@ -94,17 +99,23 @@ class ApiHealthSnapshot {
     required this.endpoints,
     required this.checkedAt,
     this.error,
+    this.diagnostic,
   });
 
-  factory ApiHealthSnapshot.unavailable(String error) => ApiHealthSnapshot(
+  factory ApiHealthSnapshot.unavailable(
+    String error, {
+    ApiNetworkDiagnostic? diagnostic,
+  }) => ApiHealthSnapshot(
     endpoints: const [],
     checkedAt: DateTime.now(),
     error: error,
+    diagnostic: diagnostic,
   );
 
   final List<ApiEndpointHealth> endpoints;
   final DateTime checkedAt;
   final String? error;
+  final ApiNetworkDiagnostic? diagnostic;
 
   int get total => endpoints.length;
 
@@ -136,6 +147,7 @@ class ApiHealthService {
     ApiRemoteConfigCacheStore? configCacheStore,
     ApiEndpointProbe? endpointProbe,
     ApiEndpointPreferenceStore? preferenceStore,
+    ApiDiagnosticRecorder? diagnosticRecorder,
     String aesKey = remoteConfigAesKey,
     String signingPublicKey = remoteConfigSigningPublicKey,
     this.probeTimeout = const Duration(seconds: 3),
@@ -151,6 +163,7 @@ class ApiHealthService {
        _configCacheStore = configCacheStore ?? ApiRemoteConfigCacheStore(),
        _endpointProbe = endpointProbe,
        _preferenceStore = preferenceStore ?? ApiEndpointPreferenceStore(),
+       _diagnosticRecorder = diagnosticRecorder ?? recordApiDiagnosticEvent,
        _aesKey = aesKey,
        _signingPublicKey = signingPublicKey;
 
@@ -160,6 +173,7 @@ class ApiHealthService {
   final ApiRemoteConfigCacheStore _configCacheStore;
   final ApiEndpointProbe? _endpointProbe;
   final ApiEndpointPreferenceStore _preferenceStore;
+  final ApiDiagnosticRecorder _diagnosticRecorder;
   final String _aesKey;
   final String _signingPublicKey;
   final Duration probeTimeout;
@@ -198,7 +212,13 @@ class ApiHealthService {
 
   Future<ApiHealthSnapshot> check() async {
     if (_configUris.isEmpty) {
-      return ApiHealthSnapshot.unavailable('config_not_configured');
+      return ApiHealthSnapshot.unavailable(
+        'config_not_configured',
+        diagnostic: const ApiNetworkDiagnostic(
+          failure: ApiNetworkFailure.configuration,
+          stage: 'remote_config',
+        ),
+      );
     }
 
     try {
@@ -210,9 +230,15 @@ class ApiHealthService {
       final results = await Future.wait(verified.endpoints.map(probeEndpoint));
       return ApiHealthSnapshot(endpoints: results, checkedAt: DateTime.now());
     } on ApiRemoteConfigException catch (error) {
-      return ApiHealthSnapshot.unavailable(error.code);
-    } catch (_) {
-      return ApiHealthSnapshot.unavailable('config_http_failed');
+      return ApiHealthSnapshot.unavailable(
+        error.code,
+        diagnostic: error.diagnostic,
+      );
+    } catch (error) {
+      return ApiHealthSnapshot.unavailable(
+        'config_http_failed',
+        diagnostic: classifyApiNetworkFailure(error, stage: 'remote_config'),
+      );
     }
   }
 
@@ -224,19 +250,45 @@ class ApiHealthService {
 
   Future<ApiEndpointHealth> probeEndpoint(Uri endpoint) async {
     final stopwatch = Stopwatch()..start();
+    final attemptId = newApiDiagnosticAttemptId();
     var reachable = false;
+    ApiNetworkDiagnostic? diagnostic;
     try {
       reachable = await (_endpointProbe ?? _probeEndpoint)(
         endpoint,
-      ).timeout(probeTimeout, onTimeout: () => false);
-    } catch (_) {
-      reachable = false;
+      ).timeout(probeTimeout);
+      if (!reachable) {
+        diagnostic = classifyApiNetworkFailure(
+          const SocketException('Probe unavailable'),
+          stage: 'api_probe',
+          endpoint: endpoint,
+          elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+          attemptId: attemptId,
+        );
+      }
+    } catch (error) {
+      diagnostic = classifyApiNetworkFailure(
+        error,
+        stage: 'api_probe',
+        endpoint: endpoint,
+        elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+        attemptId: attemptId,
+      );
     }
     stopwatch.stop();
+    emitApiDiagnosticEvent(_diagnosticRecorder, 'api.probe.completed', {
+      'reachable': reachable,
+      'stage': 'api_probe',
+      'attempt_id': attemptId,
+      'endpoint_ref': apiDiagnosticEndpointRef(endpoint),
+      'elapsed_ms': stopwatch.elapsedMilliseconds,
+      ...?diagnostic?.toDiagnosticFields(),
+    });
     return ApiEndpointHealth(
       endpoint: endpoint,
       reachable: reachable,
       latency: stopwatch.elapsed,
+      diagnostic: diagnostic,
     );
   }
 
@@ -249,6 +301,10 @@ class ApiHealthService {
     } catch (_) {}
     final cached = await _loadVerifiedCache();
     if (cached != null) {
+      emitApiDiagnosticEvent(_diagnosticRecorder, 'api.config.fallback', {
+        'source': 'verified_cache',
+        'candidate_count': cached.endpoints.length,
+      });
       _refreshRemoteConfigInBackground();
       return _prioritizePreferred(cached.endpoints, preferred);
     }
@@ -265,16 +321,27 @@ class ApiHealthService {
       remoteFailure = ApiRemoteConfigException(
         failure: ApiRemoteConfigFailure.timeout,
         cause: error,
+        diagnostic: classifyApiNetworkFailure(error, stage: 'remote_config'),
       );
       unawaited(remoteLoad.then(_saveVerifiedCache).catchError((Object _) {}));
     }
 
     try {
       final emergency = await _loadVerifiedEmergencyConfig();
+      emitApiDiagnosticEvent(_diagnosticRecorder, 'api.config.fallback', {
+        'source': 'verified_emergency',
+        'candidate_count': emergency.endpoints.length,
+      });
       await _saveVerifiedCache(emergency);
       return _prioritizePreferred(emergency.endpoints, preferred);
     } on ApiRemoteConfigException catch (emergencyFailure) {
-      if (preferred != null) return List.unmodifiable([preferred]);
+      if (preferred != null) {
+        emitApiDiagnosticEvent(_diagnosticRecorder, 'api.config.fallback', {
+          'source': 'preferred_endpoint',
+          'candidate_count': 1,
+        });
+        return List.unmodifiable([preferred]);
+      }
       throw _moreImportantFailure(remoteFailure, emergencyFailure);
     }
   }
@@ -319,6 +386,10 @@ class ApiHealthService {
     if (_configUris.isEmpty) {
       throw const ApiRemoteConfigException(
         failure: ApiRemoteConfigFailure.configuration,
+        diagnostic: ApiNetworkDiagnostic(
+          failure: ApiNetworkFailure.configuration,
+          stage: 'remote_config',
+        ),
       );
     }
     final retryDelays = configRetryDelays.isEmpty
@@ -373,15 +444,42 @@ class ApiHealthService {
     Uri configUri, {
     required bool requireEndpoints,
   }) async {
+    final stopwatch = Stopwatch()..start();
+    final attemptId = newApiDiagnosticAttemptId();
     try {
       final payload = await (_configLoader ?? _loadRemoteConfig)(configUri);
-      return await _verifyPayload(
+      final verified = await _verifyPayload(
         payload,
         source: configUri,
         requireEndpoints: requireEndpoints,
       );
+      emitApiDiagnosticEvent(
+        _diagnosticRecorder,
+        'api.config.attempt.succeeded',
+        {
+          'stage': 'remote_config',
+          'attempt_id': attemptId,
+          'endpoint_ref': apiDiagnosticEndpointRef(configUri),
+          'elapsed_ms': stopwatch.elapsedMilliseconds,
+          'candidate_count': verified.endpoints.length,
+        },
+      );
+      return verified;
     } catch (error) {
-      throw _classifyRemoteError(error, configUri);
+      final classified = _classifyRemoteError(
+        error,
+        configUri,
+        elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+        attemptId: attemptId,
+      );
+      emitApiDiagnosticEvent(
+        _diagnosticRecorder,
+        'api.config.attempt.failed',
+        classified.diagnostic?.toDiagnosticFields() ?? const {},
+      );
+      throw classified;
+    } finally {
+      stopwatch.stop();
     }
   }
 
@@ -488,73 +586,61 @@ class ApiHealthService {
     unawaited(refresh.whenComplete(() => _backgroundRefresh = null));
   }
 
-  ApiRemoteConfigException _classifyRemoteError(Object error, Uri? source) {
-    if (error is ApiRemoteConfigException) return error;
-    if (error is TimeoutException) {
-      return ApiRemoteConfigException(
-        failure: ApiRemoteConfigFailure.timeout,
-        source: source,
-        cause: error,
-      );
+  ApiRemoteConfigException _classifyRemoteError(
+    Object error,
+    Uri? source, {
+    int? elapsedMilliseconds,
+    String? attemptId,
+  }) {
+    if (error is ApiRemoteConfigException && error.diagnostic != null) {
+      return error;
     }
-    if (error is DioException) {
-      if (const {
-        DioExceptionType.connectionTimeout,
-        DioExceptionType.sendTimeout,
-        DioExceptionType.receiveTimeout,
-      }.contains(error.type)) {
-        return ApiRemoteConfigException(
-          failure: ApiRemoteConfigFailure.timeout,
-          source: source,
-          cause: error,
-        );
-      }
-      final socketError = error.error;
-      if (socketError is SocketException && _isDnsFailure(socketError)) {
-        return ApiRemoteConfigException(
-          failure: ApiRemoteConfigFailure.dns,
-          source: source,
-          cause: error,
-        );
-      }
-      return ApiRemoteConfigException(
-        failure: ApiRemoteConfigFailure.http,
-        source: source,
-        statusCode: error.response?.statusCode,
-        cause: error,
-      );
-    }
-    if (error is SocketException && _isDnsFailure(error)) {
-      return ApiRemoteConfigException(
-        failure: ApiRemoteConfigFailure.dns,
-        source: source,
-        cause: error,
-      );
-    }
-    if (error is RemoteConfigCipherException) {
-      return ApiRemoteConfigException(
-        failure: switch (error.failure) {
-          RemoteConfigCipherFailure.keyMismatch ||
-          RemoteConfigCipherFailure.signature =>
-            ApiRemoteConfigFailure.signature,
-          _ => ApiRemoteConfigFailure.decrypt,
-        },
-        source: source,
-        cause: error,
-      );
-    }
-    return ApiRemoteConfigException(
-      failure: ApiRemoteConfigFailure.http,
-      source: source,
-      cause: error,
+    final transport = classifyApiNetworkFailure(
+      error is ApiRemoteConfigException ? error.cause ?? error : error,
+      stage: 'remote_config',
+      endpoint: source,
+      statusCode: error is ApiRemoteConfigException ? error.statusCode : null,
+      elapsedMilliseconds: elapsedMilliseconds,
+      attemptId: attemptId,
     );
-  }
-
-  bool _isDnsFailure(SocketException error) {
-    final message = error.message.toLowerCase();
-    return message.contains('failed host lookup') ||
-        message.contains('name or service not known') ||
-        message.contains('nodename nor servname');
+    final failure = switch (error) {
+      ApiRemoteConfigException() => error.failure,
+      RemoteConfigCipherException() => switch (error.failure) {
+        RemoteConfigCipherFailure.keyMismatch ||
+        RemoteConfigCipherFailure.signature => ApiRemoteConfigFailure.signature,
+        _ => ApiRemoteConfigFailure.decrypt,
+      },
+      _ => switch (transport.failure) {
+        ApiNetworkFailure.timeout => ApiRemoteConfigFailure.timeout,
+        ApiNetworkFailure.dns => ApiRemoteConfigFailure.dns,
+        _ => ApiRemoteConfigFailure.http,
+      },
+    };
+    return ApiRemoteConfigException(
+      failure: failure,
+      source: source,
+      statusCode: transport.statusCode,
+      cause: error,
+      diagnostic: ApiNetworkDiagnostic(
+        failure: switch (failure) {
+          ApiRemoteConfigFailure.decrypt => ApiNetworkFailure.configDecrypt,
+          ApiRemoteConfigFailure.signature => ApiNetworkFailure.configSignature,
+          ApiRemoteConfigFailure.configuration =>
+            ApiNetworkFailure.configuration,
+          ApiRemoteConfigFailure.endpointsEmpty =>
+            ApiNetworkFailure.noEndpoints,
+          ApiRemoteConfigFailure.dns => ApiNetworkFailure.dns,
+          ApiRemoteConfigFailure.timeout => ApiNetworkFailure.timeout,
+          _ => transport.failure,
+        },
+        stage: transport.stage,
+        statusCode: transport.statusCode,
+        osErrorCode: transport.osErrorCode,
+        endpointRef: transport.endpointRef,
+        elapsedMilliseconds: elapsedMilliseconds,
+        attemptId: attemptId,
+      ),
+    );
   }
 
   ApiRemoteConfigException _moreImportantFailure(
@@ -614,14 +700,20 @@ class ApiHealthService {
         receiveTimeout: probeTimeout,
       ),
     );
-    await dio.headUri<Object?>(
-      endpoint,
-      options: Options(
-        responseType: ResponseType.stream,
-        validateStatus: (status) => status != null,
-      ),
-    );
-    return true;
+    try {
+      await dio
+          .headUri<Object?>(
+            endpoint,
+            options: Options(
+              responseType: ResponseType.stream,
+              validateStatus: (status) => status != null,
+            ),
+          )
+          .timeout(probeTimeout);
+      return true;
+    } finally {
+      dio.close(force: true);
+    }
   }
 }
 

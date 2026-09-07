@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/api_health.dart';
+import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/widgets/api_health_indicator.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +14,147 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+  });
+
+  testWidgets('typed endpoint failure and export fit a narrow viewport', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final service = _ControlledApiHealthService(
+      snapshot: ApiHealthSnapshot(
+        endpoints: [_endpoint(true), _endpoint(false)],
+        checkedAt: DateTime(2026),
+      ),
+    );
+    var exports = 0;
+    await tester.pumpWidget(
+      _testApp(
+        service,
+        onExportLogs: () async {
+          exports++;
+          return false;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('api-health-status-button')));
+    await tester.pumpAndSettle();
+    final export = find.byKey(const Key('api-health-export-logs'));
+    await tester.ensureVisible(export);
+    await tester.tap(export);
+    await tester.pumpAndSettle();
+    expect(exports, 1);
+    final reason = find.byKey(const Key('api-health-reason-1'));
+    await tester.ensureVisible(reason);
+    expect(find.textContaining('安全连接校验失败'), findsOneWidget);
+    expect(find.textContaining('private-api.example.com'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('failed single probe cleans up and retry succeeds', (
+    tester,
+  ) async {
+    var probes = 0;
+    final service = _ControlledApiHealthService(
+      onProbe: (_) async {
+        probes++;
+        if (probes == 1) throw StateError('private-api.example.com/token');
+        return _endpoint(true);
+      },
+    );
+    await tester.pumpWidget(_testApp(service));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('api-health-status-button')));
+    await tester.pumpAndSettle();
+    final probe = find.byKey(const Key('api-health-test-0'));
+    await tester.ensureVisible(probe);
+    await tester.tap(probe);
+    await tester.pumpAndSettle();
+    expect(probes, 1);
+    expect(tester.widget<OutlinedButton>(probe).onPressed, isNotNull);
+    expect(find.textContaining('private-api.example.com'), findsNothing);
+    await tester.tap(probe);
+    await tester.pumpAndSettle();
+    expect(probes, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('pending single probe ignores duplicates and disposal', (
+    tester,
+  ) async {
+    var probes = 0;
+    final pending = Completer<ApiEndpointHealth>();
+    final service = _ControlledApiHealthService(
+      onProbe: (_) {
+        probes++;
+        return pending.future;
+      },
+    );
+    await tester.pumpWidget(_testApp(service));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('api-health-status-button')));
+    await tester.pumpAndSettle();
+    final probe = find.byKey(const Key('api-health-test-0'));
+    await tester.ensureVisible(probe);
+    await tester.tap(probe);
+    await tester.pump();
+    await tester.tap(probe);
+    expect(probes, 1);
+    await tester.pumpWidget(const SizedBox());
+    pending.completeError(StateError('failed'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('configuration error displays safe typed reason before login', (
+    tester,
+  ) async {
+    final service = _ControlledApiHealthService(
+      snapshot: ApiHealthSnapshot.unavailable(
+        'private-api.example.com/token',
+        diagnostic: const ApiNetworkDiagnostic(
+          failure: ApiNetworkFailure.configSignature,
+          stage: 'config',
+        ),
+      ),
+    );
+    await tester.pumpWidget(_testApp(service));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('api-health-status-button')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('未使用不可信配置'), findsOneWidget);
+    expect(find.textContaining('private-api.example.com'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('unexpected refresh failure cleans up and retry succeeds', (
+    tester,
+  ) async {
+    var checks = 0;
+    final service = _ControlledApiHealthService(
+      onCheck: () async {
+        checks++;
+        if (checks < 3) throw StateError('private-api.example.com/token');
+        return _snapshot();
+      },
+    );
+    await tester.pumpWidget(_testApp(service));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('api-health-status-button')));
+    await tester.pumpAndSettle();
+    final refresh = find.byKey(const Key('api-health-refresh-config-button'));
+    await tester.tap(refresh);
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilledButton>(refresh).onPressed, isNotNull);
+    await tester.tap(refresh);
+    await tester.pumpAndSettle();
+    expect(checks, 3);
+    expect(find.text('1/1'), findsOneWidget);
+    expect(find.textContaining('private-api.example.com'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('shows percentage details and refreshes remote config', (
@@ -103,6 +247,7 @@ Widget _testApp(
   ApiHealthService service, {
   ThemeMode themeMode = ThemeMode.light,
   Locale locale = const Locale('zh', 'CN'),
+  Future<bool> Function()? onExportLogs,
 }) {
   return MaterialApp(
     themeMode: themeMode,
@@ -121,7 +266,51 @@ Widget _testApp(
     supportedLocales: AppLocalizations.delegate.supportedLocales,
     home: Scaffold(
       backgroundColor: const Color(0xFF12103D),
-      body: Center(child: ApiHealthControl(service: service)),
+      body: Center(
+        child: ApiHealthControl(service: service, onExportLogs: onExportLogs),
+      ),
     ),
   );
+}
+
+ApiEndpointHealth _endpoint(bool reachable) {
+  return ApiEndpointHealth(
+    endpoint: Uri.parse(
+      reachable ? 'https://api.example.com' : 'https://private-api.example.com',
+    ),
+    reachable: reachable,
+    latency: const Duration(milliseconds: 21),
+    diagnostic: reachable
+        ? null
+        : const ApiNetworkDiagnostic(
+            failure: ApiNetworkFailure.tls,
+            stage: 'probe',
+          ),
+  );
+}
+
+ApiHealthSnapshot _snapshot() {
+  return ApiHealthSnapshot(
+    endpoints: [_endpoint(true)],
+    checkedAt: DateTime(2026),
+  );
+}
+
+class _ControlledApiHealthService extends ApiHealthService {
+  _ControlledApiHealthService({this.snapshot, this.onProbe, this.onCheck})
+    : super(configUrl: '');
+
+  final ApiHealthSnapshot? snapshot;
+  final Future<ApiEndpointHealth> Function(Uri)? onProbe;
+  final Future<ApiHealthSnapshot> Function()? onCheck;
+
+  @override
+  Future<ApiHealthSnapshot> check() async {
+    return onCheck != null ? onCheck!() : snapshot ?? _snapshot();
+  }
+
+  @override
+  Future<ApiEndpointHealth> probeEndpoint(Uri endpoint) async {
+    return onProbe != null ? onProbe!(endpoint) : _endpoint(true);
+  }
 }
