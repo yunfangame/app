@@ -5,5 +5,6 @@ data class InstalledPackage(
     val label: String,
     val system: Boolean,
     val internet: Boolean,
+    val launchable: Boolean,
     val lastUpdateTime: Long,
 )

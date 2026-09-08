@@ -21,7 +21,10 @@ class _VpnContainerState extends ConsumerState<VpnManager> {
   void initState() {
     super.initState();
     ref.listenManual(vpnStateProvider, (prev, next) {
-      if (prev != next) {
+      if (prev != next &&
+          !ref
+              .read(setupActionProvider.notifier)
+              .consumeHandledAccessControlChange(prev, next)) {
         showTip(next);
       }
     });

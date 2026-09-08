@@ -128,11 +128,31 @@ object ServiceState {
         handleStopAction()
     }
 
-    fun requestStart(): Deferred<Boolean> {
-        val request = createRequest(running = true)
+    fun requestStart(): Deferred<Boolean> = launchStart(createRequest(running = true))
+
+    fun requestRestart(): Boolean {
+        val previous = latestRequest.get()
+        if (!previous.running) {
+            GlobalState.log("VPN restart rejected: the latest intent is stopped")
+            return false
+        }
+        val request = RunRequest(running = true, restart = true)
+        if (!latestRequest.compareAndSet(previous, request)) {
+            GlobalState.log("VPN restart rejected: a newer service intent arrived")
+            return false
+        }
+        GlobalState.log("VPN restart requested")
+        launchStart(request)
+        return true
+    }
+
+    private fun launchStart(request: RunRequest): Deferred<Boolean> {
         val result = CompletableDeferred<Boolean>()
         val launchRequest: (Boolean) -> Unit = { shouldStart ->
             if (!shouldStart) {
+                if (request.restart && isCurrent(request)) {
+                    GlobalState.log("VPN restart cancelled: notification permission not granted")
+                }
                 fail(request)
                 result.complete(false)
             } else {
@@ -244,10 +264,16 @@ object ServiceState {
         }
         val options = sharedState.vpnOptions
         if (options == null) {
+            if (request.restart) {
+                GlobalState.log("VPN restart failed: VPN configuration is missing")
+            }
             fail(request)
             return@withLock false
         }
         if (!prepareVpn(options)) {
+            if (request.restart && isCurrent(request)) {
+                GlobalState.log("VPN restart cancelled: VPN permission not granted")
+            }
             if (appPlugin == null && isCurrent(request)) {
                 GlobalState.application.showToast(VPN_PERMISSION_MESSAGE)
             }
@@ -262,7 +288,16 @@ object ServiceState {
             if (!isCurrent(request)) {
                 return@transition false
             }
-            if (runState.value == RunState.STARTED && runTimeMillis != 0L) {
+            if (request.restart) {
+                GlobalState.log("VPN restart stopping the previous service")
+                mutableRunState.value = RunState.STOPPING
+                ServiceController.stop()
+                mutableRunState.value = RunState.STOPPED
+                if (!isCurrent(request)) {
+                    GlobalState.log("VPN restart superseded after stopping the previous service")
+                    return@transition false
+                }
+            } else if (runState.value == RunState.STARTED && runTimeMillis != 0L) {
                 return@transition true
             }
             mutableRunState.value = RunState.STARTING
@@ -270,10 +305,17 @@ object ServiceState {
             mutableRunState.value =
                 if (startedAtMillis == 0L) RunState.STOPPED else RunState.STARTED
             if (startedAtMillis == 0L) {
+                if (request.restart) {
+                    GlobalState.log("VPN restart failed: service did not start")
+                }
                 fail(request)
                 return@transition false
             }
-            isCurrent(request)
+            val applied = isCurrent(request)
+            if (request.restart) {
+                GlobalState.log(if (applied) "VPN restart completed" else "VPN restart superseded after service start")
+            }
+            applied
         }
     }
 
@@ -319,5 +361,6 @@ object ServiceState {
 
     internal class RunRequest(
         val running: Boolean,
+        val restart: Boolean = false,
     )
 }

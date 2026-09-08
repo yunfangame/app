@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
@@ -23,21 +21,24 @@ class _AccessViewState extends ConsumerState<AccessView> {
   late ScrollController _controller;
   List<String>? _pinedList;
   bool _isInit = false;
+  bool _saving = false;
+  bool _saveFailed = false;
+  String? _saveMessage;
   AccessControlMode? _lastMode;
-
-  final _completer = Completer();
+  late Future<List<Package>> _packagesFuture;
 
   @override
   void initState() {
     super.initState();
     _controller = ScrollController();
-    _completer.complete(ref.read(systemActionProvider.notifier).getPackages());
+    _packagesFuture = ref.read(systemActionProvider.notifier).getPackages();
     final accessControl = ref
         .read(vpnSettingProvider.select((state) => state.accessControlProps))
         .copyWith();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       ref.read(accessControlStateProvider.notifier).value = accessControl;
-      _isInit = true;
+      setState(() => _isInit = true);
     });
   }
 
@@ -65,22 +66,18 @@ class _AccessViewState extends ConsumerState<AccessView> {
     }
 
     final appLocalizations = context.appLocalizations;
-    return FadeRotationScaleBox(
-      alignment: Alignment.centerRight,
-      child: isSelectedAll
-          ? FloatingActionButton.extended(
-              key: const ValueKey(true),
-              onPressed: onPressed,
-              label: Text(appLocalizations.cancelSelectAll),
-              icon: const Icon(Icons.deselect),
-            )
-          : FloatingActionButton.extended(
-              key: const ValueKey(false),
-              tooltip: appLocalizations.selectAll,
-              onPressed: onPressed,
-              label: Text(appLocalizations.selectAll),
-              icon: const Icon(Icons.select_all),
-            ),
+    return TextButton.icon(
+      onPressed: allValueList.isEmpty ? null : onPressed,
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+      ),
+      icon: Icon(isSelectedAll ? Icons.deselect : Icons.select_all, size: 17),
+      label: Text(
+        isSelectedAll
+            ? appLocalizations.cancelSelectAll
+            : appLocalizations.selectAll,
+      ),
     );
   }
 
@@ -96,6 +93,7 @@ class _AccessViewState extends ConsumerState<AccessView> {
           return await app?.getChinaPackageNames() ?? [];
         }, tag: LoadingTag.access))?.toSet() ??
         {};
+    if (!mounted) return;
     final acceptList = packageNames
         .where((item) => !selectedPackageNames.contains(item))
         .toList();
@@ -143,14 +141,14 @@ class _AccessViewState extends ConsumerState<AccessView> {
   }
 
   Future<void> _handleBack() async {
+    if (_saving) return;
     final appLocalizations = context.appLocalizations;
     final res = await globalState.showMessage(
       title: appLocalizations.tip,
       message: TextSpan(text: appLocalizations.saveChanges),
     );
-    if (res == true) {
-      _handleSave();
-    }
+    if (res == null || !mounted) return;
+    if (res && !await _handleSave()) return;
     if (mounted) {
       Navigator.of(context).pop();
     }
@@ -159,67 +157,276 @@ class _AccessViewState extends ConsumerState<AccessView> {
   AccessControlProps _getRealAccessControlProps(
     AccessControlProps accessControl,
   ) {
-    final packages = ref.read(packagesProvider);
-    if (packages.isEmpty) {
-      return accessControl;
-    }
-    final viewPackageNames = packages
-        .getViewList(
-          pinedList: [],
-          sortType: accessControl.sort,
-          isFilterSystemApp: accessControl.isFilterSystemApp,
-          isFilterNonInternetApp: accessControl.isFilterNonInternetApp,
-        )
-        .map((item) => item.packageName)
-        .toSet();
-    return accessControl.copyWithNewList(
-      accessControl.currentList
-          .where((item) => viewPackageNames.contains(item))
-          .toList()
-        ..sort(),
+    List<String> normalize(List<String> values) =>
+        values
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    return accessControl.copyWith(
+      acceptList: normalize(accessControl.acceptList),
+      rejectList: normalize(accessControl.rejectList),
     );
   }
 
-  void _handleSave() {
-    final accessControl = ref.read(accessControlStateProvider);
-    ref
-        .read(vpnSettingProvider.notifier)
-        .update(
-          (state) => state.copyWith(
-            accessControlProps: _getRealAccessControlProps(accessControl),
-          ),
-        );
+  Future<bool> _handleSave() async {
+    if (_saving) return false;
+    final accessControl = _getRealAccessControlProps(
+      ref.read(accessControlStateProvider),
+    );
+    final l10n = context.appLocalizations;
+    setState(() {
+      _saving = true;
+      _saveFailed = false;
+      _saveMessage = null;
+    });
+    try {
+      final result = await ref
+          .read(setupActionProvider.notifier)
+          .applyAccessControl(accessControl);
+      if (!mounted) return true;
+      ref.read(accessControlStateProvider.notifier).value = accessControl;
+      setState(() {
+        _saveMessage = result == AccessControlApplyResult.reconnectRequested
+            ? l10n.appRoutingReconnecting
+            : l10n.appRoutingSaved;
+      });
+      return true;
+    } catch (error) {
+      commonPrint.log(
+        'Application routing save failed: $error',
+        logLevel: LogLevel.warning,
+      );
+      if (mounted) {
+        setState(() {
+          _saveFailed = true;
+          _saveMessage = l10n.appRoutingSaveFailed;
+        });
+      }
+      return false;
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   Widget _buildConfirm() {
-    return Consumer(
-      builder: (_, ref, child) {
-        final accessControl = ref.watch(accessControlStateProvider);
-        final noSave = ref.watch(
-          vpnSettingProvider.select((state) {
-            final current = _getRealAccessControlProps(
-              state.accessControlProps,
-            );
-            final origin = _getRealAccessControlProps(accessControl);
-            return current == origin;
-          }),
-        );
-        if (noSave) {
-          return const SizedBox();
-        }
-        return child!;
-      },
-      child: CommonPopScope(
-        onPop: (_) {
-          _handleBack();
-          return false;
-        },
-        child: CommonMinFilledButtonTheme(
-          child: FilledButton.tonal(
-            onPressed: _handleSave,
-            child: Text(context.appLocalizations.save),
+    final running = ref.watch(isStartProvider);
+    final needsReconnect =
+        running &&
+        ref.read(setupActionProvider.notifier).hasPendingAccessControlReconnect;
+    final l10n = context.appLocalizations;
+    final colors = _RoutingColors.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        border: Border(top: BorderSide(color: colors.outline)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (_saveMessage != null && (!_hasChanges || _saveFailed)) ...[
+                Text(
+                  _saveMessage!,
+                  key: const ValueKey('app-routing-save-status'),
+                  style: TextStyle(
+                    color: _saveFailed ? context.colorScheme.error : null,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (running) ...[
+                Text(
+                  l10n.appRoutingConnectionHint,
+                  style: TextStyle(color: colors.muted, fontSize: 11),
+                ),
+                const SizedBox(height: 8),
+              ],
+              FilledButton.icon(
+                key: const ValueKey('app-routing-save'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                onPressed:
+                    !_isInit ||
+                        _saving ||
+                        (!_hasChanges && !_saveFailed && !needsReconnect)
+                    ? null
+                    : _handleSave,
+                icon: _saving
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(running ? Icons.refresh : Icons.save_outlined),
+                label: Text(running ? l10n.appRoutingReconnect : l10n.save),
+              ),
+            ],
           ),
         ),
+      ),
+    );
+  }
+
+  bool get _hasChanges =>
+      _getRealAccessControlProps(ref.read(accessControlStateProvider)) !=
+      _getRealAccessControlProps(
+        ref.read(vpnSettingProvider).accessControlProps,
+      );
+
+  Widget _buildRoutingControls(AccessControlProps accessControl) {
+    final l10n = context.appLocalizations;
+    final colors = _RoutingColors.of(context);
+    return Container(
+      key: const ValueKey('app-routing-policy-card'),
+      padding: const EdgeInsets.all(18),
+      decoration: colors.cardDecoration,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: colors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Icon(
+                  Icons.alt_route_rounded,
+                  color: colors.primary,
+                  size: 23,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.appRoutingPolicy,
+                      style: TextStyle(
+                        color: colors.text,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      accessControl.enable ? l10n.enabled : l10n.disabled,
+                      style: TextStyle(
+                        color: accessControl.enable
+                            ? colors.primary
+                            : colors.muted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Switch.adaptive(
+                key: const ValueKey('app-routing-enable'),
+                value: accessControl.enable,
+                onChanged: (_) => _handleToggle(),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final stacked =
+                  MediaQuery.textScalerOf(context).scale(14) > 18 ||
+                  constraints.maxWidth < 285;
+              final width = stacked
+                  ? constraints.maxWidth
+                  : (constraints.maxWidth - 8) / 2;
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final mode in [
+                    AccessControlMode.rejectSelected,
+                    AccessControlMode.acceptSelected,
+                  ])
+                    SizedBox(
+                      width: width,
+                      child: ChoiceChip(
+                        key: ValueKey('app-routing-mode-${mode.name}'),
+                        showCheckmark: false,
+                        selectedColor: colors.primary,
+                        backgroundColor: colors.soft,
+                        side: BorderSide(
+                          color: accessControl.mode == mode
+                              ? colors.primary
+                              : colors.outline,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 10,
+                        ),
+                        labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+                        label: SizedBox(
+                          width: double.infinity,
+                          child: Text(
+                            mode == AccessControlMode.rejectSelected
+                                ? l10n.appRoutingDirectMode
+                                : l10n.appRoutingProxyMode,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: accessControl.mode == mode
+                                  ? colors.onPrimary
+                                  : colors.muted,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        selected: accessControl.mode == mode,
+                        onSelected: (_) => ref
+                            .read(accessControlStateProvider.notifier)
+                            .update((state) => state.copyWith(mode: mode)),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 14),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.info_outline_rounded, size: 15, color: colors.muted),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  accessControl.mode == AccessControlMode.rejectSelected
+                      ? l10n.accessControlNotAllowDesc
+                      : l10n.accessControlAllowDesc,
+                  style: TextStyle(
+                    color: colors.muted,
+                    fontSize: 12,
+                    height: 1.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -236,6 +443,7 @@ class _AccessViewState extends ConsumerState<AccessView> {
   Future<void> _importFormClipboard() async {
     await globalState.safeRun(() async {
       final data = await Clipboard.getData('text/plain');
+      if (!mounted) return;
       final text = data?.text;
       if (text == null) return;
       final list = text.split('\n');
@@ -248,14 +456,14 @@ class _AccessViewState extends ConsumerState<AccessView> {
   List<Widget> _buildActions(BuildContext context, {required bool enable}) {
     final appLocalizations = context.appLocalizations;
     return [
-      _buildConfirm(),
       CommonPopupBox(
         targetBuilder: (open) {
           return IconButton(
             onPressed: () {
               open(offset: const Offset(0, 0));
             },
-            icon: const Icon(Icons.more_vert),
+            tooltip: appLocalizations.settings,
+            icon: const Icon(Icons.tune_rounded, size: 22),
           );
         },
         popup: CommonPopupMenu(
@@ -266,11 +474,6 @@ class _AccessViewState extends ConsumerState<AccessView> {
                   ? appLocalizations.turnOff
                   : appLocalizations.turnOn,
               onPressed: _handleToggle,
-            ),
-            PopupMenuItemData(
-              icon: Icons.search,
-              label: appLocalizations.search,
-              onPressed: _handleSearch,
             ),
             PopupMenuItemData(
               icon: Icons.tune,
@@ -307,79 +510,233 @@ class _AccessViewState extends ConsumerState<AccessView> {
   Widget _buildContent({
     required List<Package> packages,
     required List<String> valueList,
+    required AccessControlProps accessControl,
+    required bool inlineSave,
   }) {
+    final colors = _RoutingColors.of(context);
     return FutureBuilder(
-      future: _completer.future,
+      future: _packagesFuture,
       builder: (context, snapshot) {
         final appLocalizations = context.appLocalizations;
+        Widget? status;
         if (snapshot.connectionState != ConnectionState.done) {
-          return const Center(child: CommonCircleLoading());
-        }
-        return packages.isEmpty
-            ? NullStatus(label: appLocalizations.noData)
-            : CommonScrollBar(
-                controller: _controller,
-                child: ListView.builder(
-                  controller: _controller,
-                  itemCount: packages.length,
-                  itemExtent: 72,
-                  itemBuilder: (_, index) {
-                    final package = packages[index];
-                    return PackageListItem(
-                      key: Key(package.packageName),
-                      package: package,
-                      value: valueList.contains(package.packageName),
-                      onChanged: (value) {
-                        _handleSelected(package.packageName);
-                      },
-                    );
-                  },
+          status = const Center(child: CommonCircleLoading());
+        } else if (snapshot.hasError) {
+          status = Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(appLocalizations.appRoutingLoadFailed),
+                TextButton(
+                  onPressed: () => setState(() {
+                    _packagesFuture = ref
+                        .read(systemActionProvider.notifier)
+                        .getPackages();
+                  }),
+                  child: Text(appLocalizations.retry),
                 ),
-              );
+              ],
+            ),
+          );
+        } else if (packages.isEmpty) {
+          status = Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.apps_outlined, size: 32, color: colors.muted),
+                const SizedBox(height: 10),
+                Text(
+                  appLocalizations.appRoutingEmptyHint,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: colors.muted, fontSize: 13),
+                ),
+              ],
+            ),
+          );
+        }
+        return CommonScrollBar(
+          controller: _controller,
+          child: CustomScrollView(
+            key: const ValueKey('app-routing-scroll'),
+            controller: _controller,
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
+                sliver: SliverToBoxAdapter(
+                  child: _buildRoutingControls(accessControl),
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
+                sliver: DecoratedSliver(
+                  decoration: colors.cardDecoration,
+                  sliver: SliverMainAxisGroup(
+                    slivers: [
+                      SliverToBoxAdapter(
+                        child: _buildListHeader(
+                          accessControl,
+                          packages,
+                          valueList,
+                        ),
+                      ),
+                      if (status != null)
+                        SliverToBoxAdapter(
+                          child: SizedBox(height: 180, child: status),
+                        )
+                      else
+                        SliverFixedExtentList(
+                          itemExtent:
+                              68 +
+                              (MediaQuery.textScalerOf(context).scale(14) - 14)
+                                      .clamp(0, 24) *
+                                  2,
+                          delegate: SliverChildBuilderDelegate((_, index) {
+                            final package = packages[index];
+                            return PackageListItem(
+                              key: Key(package.packageName),
+                              package: package,
+                              value: valueList.contains(package.packageName),
+                              onChanged: (value) {
+                                _handleSelected(package.packageName);
+                              },
+                            );
+                          }, childCount: packages.length),
+                        ),
+                      const SliverToBoxAdapter(child: SizedBox(height: 10)),
+                    ],
+                  ),
+                ),
+              ),
+              if (inlineSave) SliverToBoxAdapter(child: _buildConfirm()),
+            ],
+          ),
+        );
       },
     );
   }
 
-  Widget _buildBannerBar(AccessControlMode mode, int count) {
-    final appLocalizations = context.appLocalizations;
-    final describe = mode == AccessControlMode.acceptSelected
-        ? appLocalizations.accessControlAllowDesc
-        : appLocalizations.accessControlNotAllowDesc;
-    final textStyle = context.textTheme.labelLarge?.copyWith(
-      color: context.colorScheme.onPrimary,
-    );
-    return MaterialBanner(
-      content: Text(describe),
-      actions: [
-        Card.filled(
-          color: context.colorScheme.primary,
-          elevation: 0,
-          shape: RoundedSuperellipseBorder(
-            borderRadius: BorderRadius.circular(14),
+  Widget _buildListHeader(
+    AccessControlProps accessControl,
+    List<Package> packages,
+    List<String> valueList,
+  ) {
+    final l10n = context.appLocalizations;
+    final colors = _RoutingColors.of(context);
+    final packageNames = packages.map((item) => item.packageName).toList();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  l10n.appRoutingApps,
+                  style: TextStyle(
+                    color: colors.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              _buildSelectedAllButton(
+                isSelectedAll:
+                    packageNames.isNotEmpty &&
+                    valueList.length == packageNames.length,
+                allValueList: packageNames,
+              ),
+            ],
           ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(appLocalizations.selected, style: textStyle),
-                const SizedBox(width: 4),
-                Flexible(child: Text('$count', style: textStyle)),
-              ],
+          Material(
+            color: colors.soft,
+            borderRadius: BorderRadius.circular(13),
+            child: InkWell(
+              key: const ValueKey('app-routing-search'),
+              onTap: _handleSearch,
+              borderRadius: BorderRadius.circular(13),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 13,
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.search_rounded, size: 20, color: colors.muted),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        l10n.appRoutingSearchHint,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: colors.muted, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
-      ],
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              FilterChip(
+                key: const ValueKey('app-routing-show-all'),
+                selected: !accessControl.isFilterNonLaunchableApp,
+                label: Text(l10n.appRoutingAllApps),
+                labelStyle: TextStyle(fontSize: 11, color: colors.muted),
+                backgroundColor: colors.surface,
+                selectedColor: colors.soft,
+                side: BorderSide(color: colors.outline),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                visualDensity: VisualDensity.compact,
+                onSelected: (value) => ref
+                    .read(accessControlStateProvider.notifier)
+                    .update(
+                      (state) =>
+                          state.copyWith(isFilterNonLaunchableApp: !value),
+                    ),
+              ),
+              Text(
+                l10n.selectedCountTitle(accessControl.currentList.length),
+                style: TextStyle(
+                  color: colors.primary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          if (accessControl.isFilterNonLaunchableApp) ...[
+            const SizedBox(height: 4),
+            Text(
+              l10n.appRoutingAppsHint,
+              style: TextStyle(color: colors.muted, fontSize: 11),
+            ),
+          ],
+          const SizedBox(height: 4),
+        ],
+      ),
     );
   }
 
   void _onSearch(String value) {
-    ref.read(queryProvider(QueryTag.access).notifier).value = value;
+    ref.read(queryProvider(QueryTag.access).notifier).value = value
+        .trim()
+        .toLowerCase();
     _pinedList = null;
   }
 
   @override
   Widget build(BuildContext context) {
+    final colors = _RoutingColors.of(context);
+    final theme = Theme.of(context);
     final isLoading = ref.watch(loadingProvider(LoadingTag.access));
     final query = ref.watch(queryProvider(QueryTag.access));
     final packages = ref.watch(packagesProvider);
@@ -395,45 +752,80 @@ class _AccessViewState extends ConsumerState<AccessView> {
     final viewPackages = packages
         .getViewList(
           pinedList: _pinedList ?? [],
-          sortType: accessControl.sort,
+          sortType: accessControl.sort == AccessSortType.none
+              ? AccessSortType.name
+              : accessControl.sort,
           isFilterNonInternetApp: accessControl.isFilterNonInternetApp,
-          isFilterSystemApp: accessControl.isFilterSystemApp,
+          isFilterSystemApp: false,
+          isFilterNonLaunchableApp: accessControl.isFilterNonLaunchableApp,
         )
         .where(
           (package) =>
               package.label.toLowerCase().contains(query) ||
-              package.packageName.contains(query),
+              package.packageName.toLowerCase().contains(query),
         )
         .toList();
-    final mode = accessControl.mode;
     final currentList = accessControl.currentList;
     final viewPackageNameList = viewPackages.map((e) => e.packageName).toList();
     final valueList = currentList.intersection(viewPackageNameList);
-    return CommonScaffold(
-      key: _scaffoldKey,
-      isLoading: isLoading,
-      searchState: AppBarSearchState(onSearch: _onSearch, autoAddSearch: false),
-      title: context.appLocalizations.appAccessControl,
-      actions: _buildActions(context, enable: accessControl.enable),
-      body: DisabledMask(
-        status: !accessControl.enable,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildBannerBar(mode, valueList.length),
-            const SizedBox(height: 8),
-            Expanded(
-              child: _buildContent(
-                packages: viewPackages,
-                valueList: valueList,
+    return CommonPopScope(
+      onPop: _saving || _hasChanges
+          ? (_) async {
+              await _handleBack();
+              return false;
+            }
+          : null,
+      child: AbsorbPointer(
+        absorbing: _saving,
+        child: Theme(
+          data: theme.copyWith(
+            appBarTheme: theme.appBarTheme.copyWith(
+              backgroundColor: colors.background,
+              foregroundColor: colors.text,
+              elevation: 0,
+              scrolledUnderElevation: 0,
+              titleTextStyle: TextStyle(
+                color: colors.text,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
               ),
             ),
-          ],
+          ),
+          child: CommonScaffold(
+            key: _scaffoldKey,
+            backgroundColor: colors.background,
+            isLoading: isLoading,
+            searchState: AppBarSearchState(
+              onSearch: _onSearch,
+              autoAddSearch: false,
+            ),
+            title: context.appLocalizations.appRouting,
+            actions: _buildActions(context, enable: accessControl.enable),
+            body: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final inlineSave = constraints.maxHeight < 360;
+                    final content = _buildContent(
+                      packages: viewPackages,
+                      valueList: valueList,
+                      accessControl: accessControl,
+                      inlineSave: inlineSave,
+                    );
+                    if (inlineSave) return content;
+                    return Column(
+                      children: [
+                        Expanded(child: content),
+                        _buildConfirm(),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
         ),
-      ),
-      floatingActionButton: _buildSelectedAllButton(
-        isSelectedAll: valueList.length == viewPackageNameList.length,
-        allValueList: viewPackageNameList,
       ),
     );
   }
@@ -453,22 +845,104 @@ class PackageListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListItem.checkbox(
-      leading: PackageIcon(packageName: package.packageName, size: 48),
-      title: Text(
-        package.label,
-        style: const TextStyle(overflow: TextOverflow.ellipsis),
-        maxLines: 1,
+    final colors = _RoutingColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: MergeSemantics(
+        child: Material(
+          color: value
+              ? colors.primary.withValues(alpha: 0.07)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            onTap: () => onChanged(!value),
+            borderRadius: BorderRadius.circular(14),
+            child: Padding(
+              padding: const EdgeInsets.only(left: 8, right: 2),
+              child: Row(
+                children: [
+                  PackageIcon(packageName: package.packageName, size: 36),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          package.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: colors.text,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          package.packageName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: colors.muted, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Checkbox(
+                    value: value,
+                    onChanged: onChanged,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    side: BorderSide(
+                      color: colors.muted.withValues(alpha: 0.75),
+                      width: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
-      subtitle: Text(
-        package.packageName,
-        style: const TextStyle(overflow: TextOverflow.ellipsis),
-        maxLines: 1,
-      ),
-      value: value,
-      onChanged: onChanged,
     );
   }
+}
+
+class _RoutingColors {
+  final ColorScheme scheme;
+
+  const _RoutingColors(this.scheme);
+
+  factory _RoutingColors.of(BuildContext context) =>
+      _RoutingColors(Theme.of(context).colorScheme);
+
+  bool get dark => scheme.brightness == Brightness.dark;
+  Color get primary => scheme.primary;
+  Color get onPrimary => scheme.onPrimary;
+  Color get text => scheme.onSurface;
+  Color get muted => scheme.onSurfaceVariant;
+  Color get surface => scheme.surfaceContainerLowest;
+  Color get soft => scheme.surfaceContainerLow;
+  Color get outline => scheme.outlineVariant.withValues(alpha: 0.82);
+  Color get background => Color.alphaBlend(
+    primary.withValues(alpha: dark ? 0.055 : 0.035),
+    scheme.surface,
+  );
+
+  BoxDecoration get cardDecoration => BoxDecoration(
+    color: surface.withValues(alpha: 0.97),
+    borderRadius: BorderRadius.circular(24),
+    border: Border.all(color: outline),
+    boxShadow: [
+      BoxShadow(
+        color: Colors.black.withValues(alpha: dark ? 0.3 : 0.055),
+        blurRadius: 24,
+        offset: const Offset(0, 5),
+      ),
+    ],
+  );
 }
 
 class AccessControlPanel extends ConsumerStatefulWidget {
@@ -489,8 +963,8 @@ class _AccessControlPanelState extends ConsumerState<AccessControlPanel> {
   String _getTextWithAccessControlMode(AccessControlMode mode) {
     final appLocalizations = context.appLocalizations;
     return switch (mode) {
-      AccessControlMode.acceptSelected => appLocalizations.whitelistMode,
-      AccessControlMode.rejectSelected => appLocalizations.blacklistMode,
+      AccessControlMode.acceptSelected => appLocalizations.appRoutingProxyMode,
+      AccessControlMode.rejectSelected => appLocalizations.appRoutingDirectMode,
     };
   }
 
@@ -601,7 +1075,7 @@ class _AccessControlPanelState extends ConsumerState<AccessControlPanel> {
               final vm2 = ref.watch(
                 accessControlStateProvider.select(
                   (state) => VM2(
-                    state.isFilterSystemApp,
+                    state.isFilterNonLaunchableApp,
                     state.isFilterNonInternetApp,
                   ),
                 ),
@@ -610,14 +1084,15 @@ class _AccessControlPanelState extends ConsumerState<AccessControlPanel> {
                 spacing: 16,
                 children: [
                   SettingTextCard(
-                    appLocalizations.systemApp,
+                    appLocalizations.appRoutingAllApps,
                     isSelected: vm2.a == false,
                     onPressed: () {
                       ref
                           .read(accessControlStateProvider.notifier)
                           .update(
-                            (state) =>
-                                state.copyWith(isFilterSystemApp: !vm2.a),
+                            (state) => state.copyWith(
+                              isFilterNonLaunchableApp: !vm2.a,
+                            ),
                           );
                     },
                   ),

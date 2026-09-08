@@ -35,6 +35,7 @@ abstract class Package with _$Package {
     required String label,
     required bool system,
     required bool internet,
+    @Default(true) bool launchable,
     required int lastUpdateTime,
   }) = _Package;
 
@@ -48,11 +49,13 @@ extension PackagesExt on List<Package> {
     required AccessSortType sortType,
     required bool isFilterSystemApp,
     required bool isFilterNonInternetApp,
+    bool isFilterNonLaunchableApp = false,
   }) {
     return where(
       (item) =>
           (isFilterSystemApp ? item.system == false : true) &&
-          (isFilterNonInternetApp ? item.internet == true : true),
+          (isFilterNonInternetApp ? item.internet == true : true) &&
+          (!isFilterNonLaunchableApp || item.launchable),
     ).sorted((a, b) {
       final isSelectA = pinedList.contains(a.packageName);
       final isSelectB = pinedList.contains(b.packageName);

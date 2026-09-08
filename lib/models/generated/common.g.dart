@@ -11,6 +11,7 @@ _Package _$PackageFromJson(Map<String, dynamic> json) => _Package(
   label: json['label'] as String,
   system: json['system'] as bool,
   internet: json['internet'] as bool,
+  launchable: json['launchable'] as bool? ?? true,
   lastUpdateTime: (json['lastUpdateTime'] as num).toInt(),
 );
 
@@ -19,6 +20,7 @@ Map<String, dynamic> _$PackageToJson(_Package instance) => <String, dynamic>{
   'label': instance.label,
   'system': instance.system,
   'internet': instance.internet,
+  'launchable': instance.launchable,
   'lastUpdateTime': instance.lastUpdateTime,
 };
 

@@ -5,7 +5,9 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/views/access.dart';
 import 'package:fl_clash/widgets/widgets.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -444,6 +446,23 @@ class _FengWoAdvancedSettingsViewState
                       .read(networkSettingProvider.notifier)
                       .update((state) => state.copyWith(systemProxy: value));
                 },
+              ),
+            ),
+          ],
+          if (defaultTargetPlatform == TargetPlatform.android) ...[
+            Divider(height: 1, color: colors.outline),
+            InkWell(
+              key: const ValueKey('advanced-app-routing-tile'),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const AccessView()),
+              ),
+              child: _SettingsRow(
+                colors: colors,
+                icon: Icons.apps_rounded,
+                iconColor: colors.blue,
+                title: l10n.appRouting,
+                subtitle: l10n.appRoutingDescription,
+                trailing: const Icon(Icons.chevron_right),
               ),
             ),
           ],

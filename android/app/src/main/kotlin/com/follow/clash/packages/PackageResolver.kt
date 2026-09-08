@@ -1,6 +1,7 @@
 package com.follow.clash.packages
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.ComponentInfo
 import android.content.pm.PackageManager
@@ -14,15 +15,15 @@ internal class PackageResolver(
     private val packageManager: PackageManager,
     private val appPackageName: String,
 ) {
-    val installedPackages: List<InstalledPackage> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        loadPackages()
-    }
+    val installedPackages: List<InstalledPackage>
+        get() = loadPackages()
 
     fun getChinaPackageNames(): List<String> = installedPackages
         .map { it.packageName }
         .filter(::isChinaPackage)
 
     private fun loadPackages(): List<InstalledPackage> {
+        val launchablePackages = getLaunchablePackageNames()
         val flags = PackageManager.GET_PERMISSIONS
         val packages = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             packageManager.getInstalledPackages(
@@ -39,17 +40,39 @@ internal class PackageResolver(
             .map { info ->
                 InstalledPackage(
                     packageName = info.packageName,
-                    label = info.applicationInfo?.loadLabel(packageManager)?.toString()
-                        ?: info.packageName,
+                    label = runCatching {
+                        info.applicationInfo?.loadLabel(packageManager)?.toString()
+                    }.getOrNull() ?: info.packageName,
                     system = info.applicationInfo?.let { applicationInfo ->
                         applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0
                     } == true,
                     internet = info.requestedPermissions
                         ?.contains(Manifest.permission.INTERNET) == true,
+                    launchable = info.packageName in launchablePackages,
                     lastUpdateTime = info.lastUpdateTime,
                 )
             }.toList()
     }
+
+    private fun getLaunchablePackageNames(): Set<String> = sequenceOf(
+        Intent.CATEGORY_LAUNCHER,
+        Intent.CATEGORY_LEANBACK_LAUNCHER,
+    ).flatMap { category ->
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(category)
+        val activities = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.queryIntentActivities(
+                intent,
+                PackageManager.ResolveInfoFlags.of(0L),
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.queryIntentActivities(intent, 0)
+        }
+        activities.asSequence()
+    }.mapNotNull { it.activityInfo }
+        .filter { it.enabled && it.exported && it.applicationInfo.enabled }
+        .map { it.packageName }
+        .toSet()
 
     private fun isChinaPackage(packageName: String): Boolean {
         if (SKIPPED_PREFIXES.any { packageName == it || packageName.startsWith("$it.") }) {

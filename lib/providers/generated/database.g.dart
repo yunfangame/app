@@ -510,7 +510,7 @@ final class ProfileAddedRulesProvider
   }
 }
 
-String _$profileAddedRulesHash() => r'c2638d2222b81cfc46d3df7229aca43d387bd1c7';
+String _$profileAddedRulesHash() => r'0b40fd65607a765e0ed1e65110cc04093dd59999';
 
 final class ProfileAddedRulesFamily extends $Family
     with
@@ -781,7 +781,7 @@ final class ProfileDisabledRuleIdsProvider
 }
 
 String _$profileDisabledRuleIdsHash() =>
-    r'8fdd7dc5c5ff51e7d9474c0351887073e3f8d468';
+    r'd4dc2c2046a1394600f6f2c9e97a801c77f51885';
 
 final class ProfileDisabledRuleIdsFamily extends $Family
     with

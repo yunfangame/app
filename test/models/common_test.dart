@@ -171,6 +171,123 @@ void main() {
         'system.app',
       ]);
     });
+
+    const installedApps = [
+      Package(
+        packageName: 'com.android.chrome',
+        label: 'Chrome',
+        system: true,
+        internet: true,
+        launchable: true,
+        lastUpdateTime: 1,
+      ),
+      Package(
+        packageName: 'com.google.android.configupdater',
+        label: 'ConfigUpdater',
+        system: true,
+        internet: true,
+        launchable: false,
+        lastUpdateTime: 2,
+      ),
+      Package(
+        packageName: 'user.background',
+        label: 'Background Service',
+        system: false,
+        internet: true,
+        launchable: false,
+        lastUpdateTime: 3,
+      ),
+    ];
+
+    test('keeps launchable system apps and hides background components', () {
+      final result = installedApps.getViewList(
+        pinedList: ['com.google.android.configupdater'],
+        sortType: AccessSortType.name,
+        isFilterSystemApp: false,
+        isFilterNonInternetApp: true,
+        isFilterNonLaunchableApp: true,
+      );
+
+      expect(result.map((item) => item.packageName), ['com.android.chrome']);
+    });
+
+    test(
+      'all-app mode restores background components and selected pinning',
+      () {
+        final result = installedApps.getViewList(
+          pinedList: ['com.google.android.configupdater'],
+          sortType: AccessSortType.name,
+          isFilterSystemApp: false,
+          isFilterNonInternetApp: true,
+          isFilterNonLaunchableApp: false,
+        );
+
+        expect(result.map((item) => item.packageName), [
+          'com.google.android.configupdater',
+          'user.background',
+          'com.android.chrome',
+        ]);
+      },
+    );
+
+    test('older native package data defaults to launchable', () {
+      final package = Package.fromJson({
+        'packageName': 'legacy.browser',
+        'label': 'Legacy Browser',
+        'system': false,
+        'internet': true,
+        'lastUpdateTime': 1,
+      });
+
+      expect(package.launchable, isTrue);
+      expect(
+        Package.fromJson(jsonDecode(jsonEncode(package.toJson()))),
+        package,
+      );
+    });
+
+    test('native non-launchable package data survives a JSON round trip', () {
+      final package = installedApps[1];
+      final restored = Package.fromJson(
+        jsonDecode(jsonEncode(package.toJson())),
+      );
+
+      expect(restored, package);
+      expect(restored.launchable, isFalse);
+    });
+
+    test('old access preferences default to launchable apps only', () {
+      final preferences = AccessControlProps.fromJson({
+        'isFilterSystemApp': false,
+        'acceptList': ['user.browser'],
+        'rejectList': ['com.google.android.configupdater'],
+      });
+
+      expect(const AccessControlProps().isFilterNonLaunchableApp, isTrue);
+      expect(preferences.isFilterNonLaunchableApp, isTrue);
+      expect(preferences.isFilterSystemApp, isFalse);
+      expect(preferences.acceptList, ['user.browser']);
+      expect(preferences.rejectList, ['com.google.android.configupdater']);
+    });
+
+    test('changing app visibility preserves both stored selection lists', () {
+      const preferences = AccessControlProps(
+        enable: true,
+        acceptList: ['com.android.chrome', 'user.background'],
+        rejectList: ['com.google.android.configupdater'],
+        isFilterSystemApp: false,
+      );
+      final allApps = preferences.copyWith(isFilterNonLaunchableApp: false);
+      final restored = AccessControlProps.fromJson(
+        jsonDecode(jsonEncode(allApps.toJson())),
+      );
+      final launchableApps = restored.copyWith(isFilterNonLaunchableApp: true);
+
+      expect(restored.isFilterNonLaunchableApp, isFalse);
+      expect(restored.acceptList, preferences.acceptList);
+      expect(restored.rejectList, preferences.rejectList);
+      expect(launchableApps, preferences);
+    });
   });
 
   group('TrackerInfoExt', () {

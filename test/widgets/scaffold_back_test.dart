@@ -308,9 +308,7 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 301));
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.search));
+    await tester.tap(find.byKey(const ValueKey('app-routing-search')));
     await tester.pumpAndSettle();
     expect(find.byType(TextField), findsOneWidget);
 

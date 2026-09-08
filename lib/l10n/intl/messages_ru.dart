@@ -315,6 +315,50 @@ class MessageLookup extends MessageLookupByLibrary {
     "appAccessControl": MessageLookupByLibrary.simpleMessage(
       "Контроль доступа приложений",
     ),
+    "appRouting": MessageLookupByLibrary.simpleMessage(
+      "Маршрутизация приложений",
+    ),
+    "appRoutingAllApps": MessageLookupByLibrary.simpleMessage("Все приложения"),
+    "appRoutingApps": MessageLookupByLibrary.simpleMessage("Список приложений"),
+    "appRoutingAppsHint": MessageLookupByLibrary.simpleMessage(
+      "По умолчанию показаны приложения с доступом к сети, которые можно открыть с главного экрана",
+    ),
+    "appRoutingConnectionHint": MessageLookupByLibrary.simpleMessage(
+      "Для применения изменений требуется переподключить VPN. Соединение будет ненадолго прервано.",
+    ),
+    "appRoutingDescription": MessageLookupByLibrary.simpleMessage(
+      "Выберите приложения, которые будут подключаться напрямую, без VPN",
+    ),
+    "appRoutingDirectMode": MessageLookupByLibrary.simpleMessage(
+      "Выбранные приложения подключаются напрямую",
+    ),
+    "appRoutingEmptyHint": MessageLookupByLibrary.simpleMessage(
+      "Подходящие приложения не найдены. Измените запрос или переключитесь на «Все приложения».",
+    ),
+    "appRoutingLoadFailed": MessageLookupByLibrary.simpleMessage(
+      "Не удалось загрузить список приложений. Повторите попытку",
+    ),
+    "appRoutingPolicy": MessageLookupByLibrary.simpleMessage(
+      "Настройки маршрутизации",
+    ),
+    "appRoutingProxyMode": MessageLookupByLibrary.simpleMessage(
+      "Только выбранные приложения используют VPN",
+    ),
+    "appRoutingReconnect": MessageLookupByLibrary.simpleMessage(
+      "Сохранить и переподключить",
+    ),
+    "appRoutingReconnecting": MessageLookupByLibrary.simpleMessage(
+      "Настройки сохранены. Переподключение…",
+    ),
+    "appRoutingSaveFailed": MessageLookupByLibrary.simpleMessage(
+      "Не удалось сохранить настройки или переподключить VPN. Повторите попытку",
+    ),
+    "appRoutingSaved": MessageLookupByLibrary.simpleMessage(
+      "Настройки маршрутизации приложений сохранены",
+    ),
+    "appRoutingSearchHint": MessageLookupByLibrary.simpleMessage(
+      "Поиск по названию приложения или имени пакета",
+    ),
     "appendSystemDns": MessageLookupByLibrary.simpleMessage(
       "Добавить системный DNS",
     ),

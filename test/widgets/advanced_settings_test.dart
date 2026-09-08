@@ -2,8 +2,10 @@ import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/campus_network.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
+import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/views/access.dart';
 import 'package:fl_clash/views/settings/fengwo_advanced_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -11,6 +13,57 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final platform in [
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+    TargetPlatform.macOS,
+    TargetPlatform.windows,
+    TargetPlatform.linux,
+  ]) {
+    testWidgets(
+      'application routing entry is Android only on $platform',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final container = ProviderContainer(
+          overrides: [
+            currentProfileProvider.overrideWithValue(null),
+            systemActionProvider.overrideWith(_RoutingSystemAction.new),
+          ],
+        );
+        addTearDown(container.dispose);
+        globalState.container = container;
+        container.read(viewSizeProvider.notifier).value = const Size(390, 844);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const _TestApp(child: FengWoAdvancedSettingsView()),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final entry = find.byKey(const ValueKey('advanced-app-routing-tile'));
+        if (platform == TargetPlatform.android) {
+          expect(entry, findsOneWidget);
+          await tester.ensureVisible(entry);
+          await tester.pumpAndSettle();
+          await tester.tap(entry);
+          await tester.pumpAndSettle();
+          expect(find.byType(AccessView), findsOneWidget);
+          expect(
+            find.byKey(const ValueKey('app-routing-save')),
+            findsOneWidget,
+          );
+        } else {
+          expect(entry, findsNothing);
+        }
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant({platform}),
+    );
+  }
+
   testWidgets('advanced settings render and update the real configuration', (
     tester,
   ) async {
@@ -286,6 +339,11 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+}
+
+class _RoutingSystemAction extends SystemAction {
+  @override
+  Future<List<Package>> getPackages() async => [];
 }
 
 class _TestApp extends StatelessWidget {

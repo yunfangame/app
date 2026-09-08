@@ -76,6 +76,10 @@ class Service {
     return await methodChannel.invokeMethod<bool>('stop') ?? false;
   }
 
+  Future<bool> restart() async {
+    return await methodChannel.invokeMethod<bool>('restart') ?? false;
+  }
+
   Future<String> init() async {
     return await methodChannel.invokeMethod<String>('init') ?? '';
   }

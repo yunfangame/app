@@ -262,6 +262,36 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "app": MessageLookupByLibrary.simpleMessage("应用"),
     "appAccessControl": MessageLookupByLibrary.simpleMessage("应用访问控制"),
+    "appRouting": MessageLookupByLibrary.simpleMessage("应用分流"),
+    "appRoutingAllApps": MessageLookupByLibrary.simpleMessage("全部应用"),
+    "appRoutingApps": MessageLookupByLibrary.simpleMessage("应用列表"),
+    "appRoutingAppsHint": MessageLookupByLibrary.simpleMessage(
+      "默认展示可从桌面打开的联网应用",
+    ),
+    "appRoutingConnectionHint": MessageLookupByLibrary.simpleMessage(
+      "修改后需重新连接 VPN，期间网络会短暂中断。",
+    ),
+    "appRoutingDescription": MessageLookupByLibrary.simpleMessage(
+      "选择哪些应用直接联网，不经过 VPN",
+    ),
+    "appRoutingDirectMode": MessageLookupByLibrary.simpleMessage("所选应用直连"),
+    "appRoutingEmptyHint": MessageLookupByLibrary.simpleMessage(
+      "没有匹配的应用，可调整搜索或切换“全部应用”",
+    ),
+    "appRoutingLoadFailed": MessageLookupByLibrary.simpleMessage(
+      "无法读取应用列表，请重试",
+    ),
+    "appRoutingPolicy": MessageLookupByLibrary.simpleMessage("分流设置"),
+    "appRoutingProxyMode": MessageLookupByLibrary.simpleMessage("仅所选应用使用 VPN"),
+    "appRoutingReconnect": MessageLookupByLibrary.simpleMessage("保存并重新连接"),
+    "appRoutingReconnecting": MessageLookupByLibrary.simpleMessage(
+      "已保存，正在重新连接",
+    ),
+    "appRoutingSaveFailed": MessageLookupByLibrary.simpleMessage(
+      "保存或重新连接失败，请重试",
+    ),
+    "appRoutingSaved": MessageLookupByLibrary.simpleMessage("应用分流设置已保存"),
+    "appRoutingSearchHint": MessageLookupByLibrary.simpleMessage("搜索应用名称或包名"),
     "appendSystemDns": MessageLookupByLibrary.simpleMessage("追加系统DNS"),
     "appendSystemDnsTip": MessageLookupByLibrary.simpleMessage("强制为配置附加系统DNS"),
     "application": MessageLookupByLibrary.simpleMessage("应用程序"),

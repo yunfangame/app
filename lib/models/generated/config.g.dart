@@ -158,6 +158,8 @@ _AccessControlProps _$AccessControlPropsFromJson(Map<String, dynamic> json) =>
           AccessSortType.none,
       isFilterSystemApp: json['isFilterSystemApp'] as bool? ?? true,
       isFilterNonInternetApp: json['isFilterNonInternetApp'] as bool? ?? true,
+      isFilterNonLaunchableApp:
+          json['isFilterNonLaunchableApp'] as bool? ?? true,
     );
 
 Map<String, dynamic> _$AccessControlPropsToJson(_AccessControlProps instance) =>
@@ -169,6 +171,7 @@ Map<String, dynamic> _$AccessControlPropsToJson(_AccessControlProps instance) =>
       'sort': _$AccessSortTypeEnumMap[instance.sort]!,
       'isFilterSystemApp': instance.isFilterSystemApp,
       'isFilterNonInternetApp': instance.isFilterNonInternetApp,
+      'isFilterNonLaunchableApp': instance.isFilterNonLaunchableApp,
     };
 
 const _$AccessControlModeEnumMap = {

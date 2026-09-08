@@ -130,6 +130,7 @@ abstract class AccessControlProps with _$AccessControlProps {
     @Default(AccessSortType.none) AccessSortType sort,
     @Default(true) bool isFilterSystemApp,
     @Default(true) bool isFilterNonInternetApp,
+    @Default(true) bool isFilterNonLaunchableApp,
   }) = _AccessControlProps;
 
   factory AccessControlProps.fromJson(Map<String, Object?> json) =>

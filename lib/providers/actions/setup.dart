@@ -2,6 +2,8 @@ part of '../action.dart';
 
 enum _SetupTaskResult { completed, handoffToCoreRestart }
 
+enum AccessControlApplyResult { saved, reconnectRequested, superseded }
+
 class _RunRequest {
   final bool running;
   final bool initialize;
@@ -14,6 +16,10 @@ class SetupAction extends _$SetupAction {
   Timer? _runtimeTimer;
   final _setupScheduler = SerialTaskScheduler();
   final _listenerScheduler = SerialTaskScheduler();
+  final _accessControlScheduler = SerialTaskScheduler();
+  int _accessControlRevision = 0;
+  bool _accessControlReconnectNeeded = false;
+  AccessControlProps? _managedAccessControl;
   _RunRequest? _latestRunRequest;
   bool? _lastPhysicalNetworkAvailable;
   int _physicalNetworkRecoveryRevision = 0;
@@ -27,6 +33,111 @@ class SetupAction extends _$SetupAction {
       : null;
 
   bool get _isRunning => _startTime != null && _startTime!.isBeforeNow;
+
+  bool get hasPendingAccessControlReconnect => _accessControlReconnectNeeded;
+
+  bool consumeHandledAccessControlChange(VpnState? previous, VpnState next) {
+    if (next.vpnProps.accessControlProps != _managedAccessControl) return false;
+    _managedAccessControl = null;
+    return previous != null &&
+        previous.copyWith.vpnProps(
+              accessControlProps: next.vpnProps.accessControlProps,
+            ) ==
+            next;
+  }
+
+  @protected
+  bool get supportsAppAccessControl => system.isAndroid;
+
+  @protected
+  Future<bool> persistAccessControlConfig(Config config) {
+    return preferences.saveConfig(config);
+  }
+
+  @protected
+  Future<void> syncAccessControlState(SharedState state) async {
+    await preferences.saveShareState(state);
+    final error = await service?.syncState(state.needSyncSharedState);
+    if (error == null || error.isNotEmpty) {
+      throw StateError(error ?? 'Android VPN service is unavailable');
+    }
+  }
+
+  @protected
+  Future<bool> requestAccessControlRestart() async {
+    return await service?.restart() ?? false;
+  }
+
+  Future<AccessControlApplyResult> applyAccessControl(
+    AccessControlProps props,
+  ) {
+    if (!supportsAppAccessControl) {
+      return Future.error(
+        UnsupportedError('App access control requires Android'),
+      );
+    }
+    final revision = ++_accessControlRevision;
+    final runRequest = _latestRunRequest;
+    final wasRunning = ref.read(isStartProvider);
+    return _accessControlScheduler.run(() async {
+      if (!ref.mounted || revision != _accessControlRevision) {
+        return AccessControlApplyResult.superseded;
+      }
+      final previous = ref.read(vpnSettingProvider).accessControlProps;
+      final next = props.copyWith(
+        acceptList: props.acceptList.toSet().toList()..sort(),
+        rejectList: props.rejectList.toSet().toList()..sort(),
+      );
+      final config = ref.read(configProvider);
+      if (!await persistAccessControlConfig(
+        config.copyWith.vpnProps(accessControlProps: next),
+      )) {
+        throw StateError('Unable to save app access control');
+      }
+      if (!ref.mounted) return AccessControlApplyResult.superseded;
+      _managedAccessControl = next;
+      ref
+          .read(vpnSettingProvider.notifier)
+          .update((state) => state.copyWith(accessControlProps: next));
+      final behaviorChanged =
+          previous.enable != next.enable ||
+          (next.enable &&
+              (previous.mode != next.mode ||
+                  previous.currentList.toSet().length !=
+                      next.currentList.toSet().length ||
+                  !previous.currentList.toSet().containsAll(next.currentList)));
+      _accessControlReconnectNeeded |= wasRunning && behaviorChanged;
+      if (revision != _accessControlRevision) {
+        return AccessControlApplyResult.superseded;
+      }
+      if (!wasRunning || !_accessControlReconnectNeeded) {
+        if (!wasRunning) _accessControlReconnectNeeded = false;
+        return AccessControlApplyResult.saved;
+      }
+      bool stillCurrent() =>
+          ref.mounted &&
+          revision == _accessControlRevision &&
+          identical(runRequest, _latestRunRequest) &&
+          ref.read(isStartProvider);
+      if (!stillCurrent()) return AccessControlApplyResult.superseded;
+      final sharedState = ref.read(sharedStateProvider);
+      await syncAccessControlState(sharedState);
+      if (!stillCurrent()) return AccessControlApplyResult.superseded;
+      if (!await requestAccessControlRestart()) {
+        throw StateError('Unable to request VPN reconnection');
+      }
+      if (!stillCurrent()) return AccessControlApplyResult.superseded;
+      _accessControlReconnectNeeded = false;
+      commonPrint.event(
+        'vpn.access_control.reconnect_requested',
+        fields: {
+          'mode': next.mode.name,
+          'selected_count': next.currentList.length,
+        },
+      );
+      return AccessControlApplyResult.reconnectRequested;
+    });
+  }
 
   @override
   void build() {

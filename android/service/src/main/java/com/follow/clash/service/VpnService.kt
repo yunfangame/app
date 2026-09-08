@@ -1,6 +1,7 @@
 package com.follow.clash.service
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.ProxyInfo
 import android.os.Binder
@@ -216,11 +217,23 @@ class VpnService : SystemVpnService(), ManagedService {
         if (!accessControl.enable) return
         when (accessControl.mode) {
             AccessControlMode.ACCEPT_SELECTED -> {
-                (accessControl.acceptList + packageName).forEach(::addAllowedApplication)
+                (accessControl.acceptList + packageName).distinct().forEach { selectedPackage ->
+                    try {
+                        addAllowedApplication(selectedPackage)
+                    } catch (_: PackageManager.NameNotFoundException) {
+                        GlobalState.log("Skipping uninstalled VPN application: $selectedPackage")
+                    }
+                }
             }
 
             AccessControlMode.REJECT_SELECTED -> {
-                (accessControl.rejectList - packageName).forEach(::addDisallowedApplication)
+                (accessControl.rejectList - packageName).distinct().forEach { selectedPackage ->
+                    try {
+                        addDisallowedApplication(selectedPackage)
+                    } catch (_: PackageManager.NameNotFoundException) {
+                        GlobalState.log("Skipping uninstalled bypass application: $selectedPackage")
+                    }
+                }
             }
         }
     }

@@ -88,7 +88,12 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
             "getPackages" -> {
                 scope.launch(Dispatchers.IO) {
-                    result.success(gson.toJson(packageResolver.installedPackages))
+                    runCatching { gson.toJson(packageResolver.installedPackages) }
+                        .onSuccess(result::success)
+                        .onFailure { error ->
+                            GlobalState.log("Unable to read installed applications: $error")
+                            result.error("PACKAGES_UNAVAILABLE", "Unable to read installed applications", null)
+                        }
                 }
             }
 

@@ -1259,6 +1259,156 @@ class AppLocalizations {
     );
   }
 
+  /// `App routing`
+  String get appRouting {
+    return Intl.message('App routing', name: 'appRouting', desc: '', args: []);
+  }
+
+  /// `Routing settings`
+  String get appRoutingPolicy {
+    return Intl.message(
+      'Routing settings',
+      name: 'appRoutingPolicy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `App list`
+  String get appRoutingApps {
+    return Intl.message('App list', name: 'appRoutingApps', desc: '', args: []);
+  }
+
+  /// `All apps`
+  String get appRoutingAllApps {
+    return Intl.message(
+      'All apps',
+      name: 'appRoutingAllApps',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `By default, shows apps that can be opened from the home screen and have network access`
+  String get appRoutingAppsHint {
+    return Intl.message(
+      'By default, shows apps that can be opened from the home screen and have network access',
+      name: 'appRoutingAppsHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Search by app name or package name`
+  String get appRoutingSearchHint {
+    return Intl.message(
+      'Search by app name or package name',
+      name: 'appRoutingSearchHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No matching apps. Try a different search or switch to “All apps”.`
+  String get appRoutingEmptyHint {
+    return Intl.message(
+      'No matching apps. Try a different search or switch to “All apps”.',
+      name: 'appRoutingEmptyHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Choose which apps connect directly without using the VPN`
+  String get appRoutingDescription {
+    return Intl.message(
+      'Choose which apps connect directly without using the VPN',
+      name: 'appRoutingDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Selected apps connect directly`
+  String get appRoutingDirectMode {
+    return Intl.message(
+      'Selected apps connect directly',
+      name: 'appRoutingDirectMode',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Only selected apps use the VPN`
+  String get appRoutingProxyMode {
+    return Intl.message(
+      'Only selected apps use the VPN',
+      name: 'appRoutingProxyMode',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Save and reconnect`
+  String get appRoutingReconnect {
+    return Intl.message(
+      'Save and reconnect',
+      name: 'appRoutingReconnect',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `App routing settings saved`
+  String get appRoutingSaved {
+    return Intl.message(
+      'App routing settings saved',
+      name: 'appRoutingSaved',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Settings saved. Reconnecting…`
+  String get appRoutingReconnecting {
+    return Intl.message(
+      'Settings saved. Reconnecting…',
+      name: 'appRoutingReconnecting',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Could not save or reconnect. Try again`
+  String get appRoutingSaveFailed {
+    return Intl.message(
+      'Could not save or reconnect. Try again',
+      name: 'appRoutingSaveFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Could not load the app list. Try again`
+  String get appRoutingLoadFailed {
+    return Intl.message(
+      'Could not load the app list. Try again',
+      name: 'appRoutingLoadFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reconnect the VPN to apply changes. Your connection will be briefly interrupted.`
+  String get appRoutingConnectionHint {
+    return Intl.message(
+      'Reconnect the VPN to apply changes. Your connection will be briefly interrupted.',
+      name: 'appRoutingConnectionHint',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Application`
   String get application {
     return Intl.message('Application', name: 'application', desc: '', args: []);

@@ -278,6 +278,44 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "app": MessageLookupByLibrary.simpleMessage("アプリ"),
     "appAccessControl": MessageLookupByLibrary.simpleMessage("アプリアクセス制御"),
+    "appRouting": MessageLookupByLibrary.simpleMessage("アプリ別ルーティング"),
+    "appRoutingAllApps": MessageLookupByLibrary.simpleMessage("すべてのアプリ"),
+    "appRoutingApps": MessageLookupByLibrary.simpleMessage("アプリ一覧"),
+    "appRoutingAppsHint": MessageLookupByLibrary.simpleMessage(
+      "通常はホーム画面から起動でき、ネットワーク通信が可能なアプリを表示します",
+    ),
+    "appRoutingConnectionHint": MessageLookupByLibrary.simpleMessage(
+      "変更を適用するには VPN の再接続が必要です。再接続中は通信が一時的に切断されます。",
+    ),
+    "appRoutingDescription": MessageLookupByLibrary.simpleMessage(
+      "VPN を使わずに直接接続するアプリを選択します",
+    ),
+    "appRoutingDirectMode": MessageLookupByLibrary.simpleMessage(
+      "選択したアプリは直接接続",
+    ),
+    "appRoutingEmptyHint": MessageLookupByLibrary.simpleMessage(
+      "一致するアプリがありません。検索条件を変更するか、「すべてのアプリ」に切り替えてください。",
+    ),
+    "appRoutingLoadFailed": MessageLookupByLibrary.simpleMessage(
+      "アプリ一覧を読み込めませんでした。もう一度お試しください",
+    ),
+    "appRoutingPolicy": MessageLookupByLibrary.simpleMessage("ルーティング設定"),
+    "appRoutingProxyMode": MessageLookupByLibrary.simpleMessage(
+      "選択したアプリのみ VPN を使用",
+    ),
+    "appRoutingReconnect": MessageLookupByLibrary.simpleMessage("保存して再接続"),
+    "appRoutingReconnecting": MessageLookupByLibrary.simpleMessage(
+      "保存しました。再接続中…",
+    ),
+    "appRoutingSaveFailed": MessageLookupByLibrary.simpleMessage(
+      "保存または再接続に失敗しました。もう一度お試しください",
+    ),
+    "appRoutingSaved": MessageLookupByLibrary.simpleMessage(
+      "アプリ別ルーティング設定を保存しました",
+    ),
+    "appRoutingSearchHint": MessageLookupByLibrary.simpleMessage(
+      "アプリ名またはパッケージ名で検索",
+    ),
     "appendSystemDns": MessageLookupByLibrary.simpleMessage("システムDNSを追加"),
     "appendSystemDnsTip": MessageLookupByLibrary.simpleMessage(
       "設定にシステムDNSを強制的に追加します",

@@ -40,6 +40,7 @@ class ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             "syncState" -> syncState(call, result)
             "start" -> start(result)
             "stop" -> stop(result)
+            "restart" -> restart(result)
             else -> result.notImplemented()
         }
     }
@@ -101,6 +102,10 @@ class ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private fun stop(result: MethodChannel.Result) {
         ServiceState.requestStop()
         result.success(true)
+    }
+
+    private fun restart(result: MethodChannel.Result) {
+        result.success(ServiceState.requestRestart())
     }
 
     private fun sendEvent(value: String?) {

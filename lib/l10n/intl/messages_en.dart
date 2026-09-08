@@ -317,6 +317,48 @@ class MessageLookup extends MessageLookupByLibrary {
     "appAccessControl": MessageLookupByLibrary.simpleMessage(
       "App access control",
     ),
+    "appRouting": MessageLookupByLibrary.simpleMessage("App routing"),
+    "appRoutingAllApps": MessageLookupByLibrary.simpleMessage("All apps"),
+    "appRoutingApps": MessageLookupByLibrary.simpleMessage("App list"),
+    "appRoutingAppsHint": MessageLookupByLibrary.simpleMessage(
+      "By default, shows apps that can be opened from the home screen and have network access",
+    ),
+    "appRoutingConnectionHint": MessageLookupByLibrary.simpleMessage(
+      "Reconnect the VPN to apply changes. Your connection will be briefly interrupted.",
+    ),
+    "appRoutingDescription": MessageLookupByLibrary.simpleMessage(
+      "Choose which apps connect directly without using the VPN",
+    ),
+    "appRoutingDirectMode": MessageLookupByLibrary.simpleMessage(
+      "Selected apps connect directly",
+    ),
+    "appRoutingEmptyHint": MessageLookupByLibrary.simpleMessage(
+      "No matching apps. Try a different search or switch to “All apps”.",
+    ),
+    "appRoutingLoadFailed": MessageLookupByLibrary.simpleMessage(
+      "Could not load the app list. Try again",
+    ),
+    "appRoutingPolicy": MessageLookupByLibrary.simpleMessage(
+      "Routing settings",
+    ),
+    "appRoutingProxyMode": MessageLookupByLibrary.simpleMessage(
+      "Only selected apps use the VPN",
+    ),
+    "appRoutingReconnect": MessageLookupByLibrary.simpleMessage(
+      "Save and reconnect",
+    ),
+    "appRoutingReconnecting": MessageLookupByLibrary.simpleMessage(
+      "Settings saved. Reconnecting…",
+    ),
+    "appRoutingSaveFailed": MessageLookupByLibrary.simpleMessage(
+      "Could not save or reconnect. Try again",
+    ),
+    "appRoutingSaved": MessageLookupByLibrary.simpleMessage(
+      "App routing settings saved",
+    ),
+    "appRoutingSearchHint": MessageLookupByLibrary.simpleMessage(
+      "Search by app name or package name",
+    ),
     "appendSystemDns": MessageLookupByLibrary.simpleMessage(
       "Append System DNS",
     ),
