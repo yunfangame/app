@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -1593,6 +1594,174 @@ void main() {
   });
 
   test(
+    'secure protocol failures try all three hosts without legacy downgrade',
+    () async {
+      final endpoints = [
+        Uri.parse('https://one.example.com'),
+        Uri.parse('https://two.example.com'),
+        Uri.parse('https://three.example.com'),
+      ];
+      final secureRequests = <Uri>[];
+      final events = <Map<String, Object?>>[];
+      var legacyRequests = 0;
+      const requestRefs = ['111111111111', '222222222222', '333333333333'];
+      final service = XboardAuthService(
+        endpointLoader: () async => endpoints,
+        subscriptionV2Client: _FakeSubscriptionV2Client(
+          onLogin: (endpoint) async {
+            secureRequests.add(endpoint);
+            throw SubscriptionV2Exception(
+              'invalid_server_signature',
+              requestRef: requestRefs[secureRequests.length - 1],
+            );
+          },
+        ),
+        loginRequester: (endpoint, email, password) async {
+          legacyRequests++;
+          return _successfulLoginRequest(endpoint, email, password);
+        },
+        diagnosticRecorder: (event, fields) =>
+            events.add({'event': event, ...fields}),
+      );
+
+      await expectLater(
+        service.login(
+          email: 'customer@example.com',
+          password: 'secret-password',
+        ),
+        throwsA(
+          isA<XboardAuthException>()
+              .having(
+                (error) => error.failure,
+                'failure',
+                XboardAuthFailure.secureProtocolRejected,
+              )
+              .having((error) => error.diagnostic, 'diagnostic', isNull)
+              .having(
+                (error) => error.endpoint?.host,
+                'last endpoint',
+                'three.example.com',
+              ),
+        ),
+      );
+
+      expect(secureRequests, endpoints);
+      expect(legacyRequests, 0);
+      expect(events, hasLength(3));
+      expect(
+        events.map((event) => event['event']),
+        everyElement('auth.api.attempt.failed'),
+      );
+      expect(
+        events.map((event) => event['subscription_v2_code']),
+        everyElement('invalid_server_signature'),
+      );
+      expect(events.map((event) => event['request_ref']), requestRefs);
+      expect(
+        events.map((event) => event['endpoint_ref']),
+        everyElement(matches(RegExp(r'^[a-f0-9]{12}$'))),
+      );
+      expect(events.map((event) => event['attempt_id']).toSet(), hasLength(3));
+      final serialized = jsonEncode(events);
+      for (final forbidden in [
+        'customer@example.com',
+        'secret-password',
+        'one.example.com',
+        'two.example.com',
+        'three.example.com',
+      ]) {
+        expect(serialized, isNot(contains(forbidden)));
+      }
+    },
+  );
+
+  for (final code in ['invalid_signature', 'invalid_device_signature']) {
+    test('secure protocol code $code tries every host', () async {
+      var secureRequests = 0;
+      var legacyRequests = 0;
+      final service = XboardAuthService(
+        endpointLoader: () async => [
+          Uri.parse('https://one.example.com'),
+          Uri.parse('https://two.example.com'),
+          Uri.parse('https://three.example.com'),
+        ],
+        subscriptionV2Client: _FakeSubscriptionV2Client(
+          onLogin: (_) async {
+            secureRequests++;
+            throw SubscriptionV2Exception(code);
+          },
+        ),
+        loginRequester: (endpoint, email, password) async {
+          legacyRequests++;
+          return _successfulLoginRequest(endpoint, email, password);
+        },
+      );
+
+      await expectLater(
+        service.login(email: 'customer@example.com', password: 'secret'),
+        throwsA(
+          isA<XboardAuthException>().having(
+            (error) => error.failure,
+            'failure',
+            XboardAuthFailure.secureProtocolRejected,
+          ),
+        ),
+      );
+
+      expect(secureRequests, 3);
+      expect(legacyRequests, 0);
+    });
+  }
+
+  for (final code in ['ip_blocked', 'future_policy_denied']) {
+    test('secure business rejection $code stops at the first host', () async {
+      var secureRequests = 0;
+      var legacyRequests = 0;
+      final events = <Map<String, Object?>>[];
+      final service = XboardAuthService(
+        endpointLoader: () async => [
+          Uri.parse('https://one.example.com'),
+          Uri.parse('https://two.example.com'),
+          Uri.parse('https://three.example.com'),
+        ],
+        subscriptionV2Client: _FakeSubscriptionV2Client(
+          onLogin: (_) async {
+            secureRequests++;
+            throw SubscriptionV2Exception(code, requestRef: 'abcdef123456');
+          },
+        ),
+        loginRequester: (endpoint, email, password) async {
+          legacyRequests++;
+          return _successfulLoginRequest(endpoint, email, password);
+        },
+        diagnosticRecorder: (event, fields) =>
+            events.add({'event': event, ...fields}),
+      );
+
+      await expectLater(
+        service.login(email: 'customer@example.com', password: 'secret'),
+        throwsA(
+          isA<XboardAuthException>()
+              .having(
+                (error) => error.failure,
+                'failure',
+                XboardAuthFailure.secureServiceRejected,
+              )
+              .having((error) => error.diagnostic, 'diagnostic', isNull),
+        ),
+      );
+
+      expect(secureRequests, 1);
+      expect(legacyRequests, 0);
+      expect(events, hasLength(1));
+      expect(events.single['subscription_v2_code'], code);
+      expect(events.single['request_ref'], 'abcdef123456');
+      expect(events.single['endpoint_ref'], matches(RegExp(r'^[a-f0-9]{12}$')));
+      expect(jsonEncode(events), isNot(contains('customer@example.com')));
+    });
+  }
+
+  test(
     'signed gray-list rejection is the only secure login downgrade',
     () async {
       var legacyRequests = 0;
@@ -1689,11 +1858,17 @@ const _secureSummary = <String, Object?>{
 };
 
 class _FakeSubscriptionV2Client extends SubscriptionV2Client {
-  _FakeSubscriptionV2Client({this.login, this.loginError, this.summary});
+  _FakeSubscriptionV2Client({
+    this.login,
+    this.loginError,
+    this.summary,
+    this.onLogin,
+  });
 
   final SubscriptionV2Login? login;
   final SubscriptionV2Exception? loginError;
   final Map<String, Object?>? summary;
+  final Future<SubscriptionV2Login?> Function(Uri endpoint)? onLogin;
 
   @override
   Future<SubscriptionV2Login?> secureLogin({
@@ -1703,6 +1878,8 @@ class _FakeSubscriptionV2Client extends SubscriptionV2Client {
     required String appVersion,
     String? platform,
   }) async {
+    final handler = onLogin;
+    if (handler != null) return handler(endpoint);
     if (loginError case final error?) throw error;
     return login;
   }

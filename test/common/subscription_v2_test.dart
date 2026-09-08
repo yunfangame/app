@@ -311,6 +311,103 @@ void main() {
     },
   );
 
+  test('secure login does not downgrade when V2 config is absent', () async {
+    var gatewayRequests = 0;
+    final client = SubscriptionV2Client(
+      apiHealthService: _healthService({
+        'Authentication': 'FengWo',
+        'hosts': ['https://api.example.com'],
+      }),
+      valueStore: _MemorySubscriptionV2ValueStore(),
+      requester: (endpoint, envelope) async {
+        gatewayRequests++;
+        return const {};
+      },
+    );
+
+    await expectLater(
+      client.secureLogin(
+        endpoint: Uri.parse('https://api.example.com'),
+        email: 'public@example.com',
+        password: 'correct-password',
+        appVersion: '1.9.0',
+      ),
+      throwsA(
+        isA<SubscriptionV2Exception>()
+            .having((error) => error.code, 'code', 'secure_config_disabled')
+            .having((error) => error.requestRef, 'request ref', isNull),
+      ),
+    );
+    expect(gatewayRequests, 0);
+  });
+
+  test(
+    'secure login preserves a signed business code and request ref',
+    () async {
+      final server = await _FakeSubscriptionV2Server.create(
+        loginRejectionCode: 'future_policy_denied',
+      );
+      final client = SubscriptionV2Client(
+        apiHealthService: _healthService(server.config),
+        valueStore: _MemorySubscriptionV2ValueStore(),
+        requester: server.request,
+        now: () => DateTime.utc(2026, 8, 31, 12),
+        random: Random(13),
+      );
+
+      await expectLater(
+        client.secureLogin(
+          endpoint: Uri.parse('https://api.example.com'),
+          email: 'public@example.com',
+          password: 'correct-password',
+          appVersion: '1.9.0',
+        ),
+        throwsA(
+          isA<SubscriptionV2Exception>()
+              .having((error) => error.code, 'code', 'future_policy_denied')
+              .having(
+                (error) => error.requestRef,
+                'request ref',
+                matches(RegExp(r'^[a-f0-9]{12}$')),
+              ),
+        ),
+      );
+      expect(server.operations, ['login_device']);
+    },
+  );
+
+  test('missing response signature keeps a retryable protocol code', () async {
+    final server = await _FakeSubscriptionV2Server.create();
+    final client = SubscriptionV2Client(
+      apiHealthService: _healthService(server.config),
+      valueStore: _MemorySubscriptionV2ValueStore(),
+      requester: (endpoint, envelope) async {
+        final response = await server.request(endpoint, envelope);
+        return Map<String, Object?>.from(response)..remove('signature');
+      },
+      now: () => DateTime.utc(2026, 8, 31, 12),
+      random: Random(14),
+    );
+
+    await expectLater(
+      client.secureLogin(
+        endpoint: Uri.parse('https://api.example.com'),
+        email: 'gray@example.com',
+        password: 'correct-password',
+        appVersion: '1.9.0',
+      ),
+      throwsA(
+        isA<SubscriptionV2Exception>()
+            .having((error) => error.code, 'code', 'invalid_signature')
+            .having(
+              (error) => error.requestRef,
+              'request ref',
+              matches(RegExp(r'^[a-f0-9]{12}$')),
+            ),
+      ),
+    );
+  });
+
   test('rejects a response whose server signature was modified', () async {
     final server = await _FakeSubscriptionV2Server.create();
     final client = SubscriptionV2Client(
@@ -332,11 +429,13 @@ void main() {
         appVersion: '1.9.0',
       ),
       throwsA(
-        isA<SubscriptionV2Exception>().having(
-          (error) => error.code,
-          'code',
-          'invalid_server_signature',
-        ),
+        isA<SubscriptionV2Exception>()
+            .having((error) => error.code, 'code', 'invalid_server_signature')
+            .having(
+              (error) => error.requestRef,
+              'request ref',
+              matches(RegExp(r'^[a-f0-9]{12}$')),
+            ),
       ),
     );
   });
@@ -395,6 +494,7 @@ class _FakeSubscriptionV2Server {
     required this.signingKeyPair,
     required this.signingPublicKey,
     required this.allowed,
+    required this.loginRejectionCode,
   });
 
   static const keyId = 'test-key';
@@ -405,6 +505,7 @@ class _FakeSubscriptionV2Server {
   final SimpleKeyPair signingKeyPair;
   final SimplePublicKey signingPublicKey;
   final bool allowed;
+  final String? loginRejectionCode;
   final operations = <String>[];
   final redeemedTickets = <String>{};
   final tickets = <String>{};
@@ -412,7 +513,10 @@ class _FakeSubscriptionV2Server {
   var ticketSequence = 0;
   final profile = 'mixed-port: 7890\nproxies: []\nrules: []\n';
 
-  static Future<_FakeSubscriptionV2Server> create({bool allowed = true}) async {
+  static Future<_FakeSubscriptionV2Server> create({
+    bool allowed = true,
+    String? loginRejectionCode,
+  }) async {
     final encryptionKeyPair = await X25519().newKeyPair();
     final signingKeyPair = await Ed25519().newKeyPair();
     return _FakeSubscriptionV2Server._(
@@ -421,6 +525,7 @@ class _FakeSubscriptionV2Server {
       signingKeyPair: signingKeyPair,
       signingPublicKey: await signingKeyPair.extractPublicKey(),
       allowed: allowed,
+      loginRejectionCode: loginRejectionCode,
     );
   }
 
@@ -485,6 +590,9 @@ class _FakeSubscriptionV2Server {
         type: KeyPairType.ed25519,
       );
       await _verifyDeviceSignature(payload, publicKey);
+      if (loginRejectionCode case final code?) {
+        return {'status': 0, 'error': code};
+      }
       if (!allowed) {
         return {'status': 0, 'error': 'not_in_gray_allowlist'};
       }

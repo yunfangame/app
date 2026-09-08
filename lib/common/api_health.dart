@@ -23,6 +23,7 @@ const apiHealthBackupConfigUrl = String.fromEnvironment(
 const apiHealthEmergencyConfigAsset = 'assets/config/ConFigOss4.emergency.json';
 
 const apiHealthConfigAuthentication = 'FengWo';
+const _apiEndpointHealthPath = '/api/v1/guest/comm/config';
 
 enum ApiHealthLevel { unavailable, critical, warning, healthy }
 
@@ -701,16 +702,25 @@ class ApiHealthService {
       ),
     );
     try {
-      await dio
-          .headUri<Object?>(
-            endpoint,
+      final origin = endpoint.replace(path: '/', query: null, fragment: null);
+      final response = await dio
+          .getUri<Object?>(
+            origin.resolve(_apiEndpointHealthPath),
             options: Options(
-              responseType: ResponseType.stream,
-              validateStatus: (status) => status != null,
+              responseType: ResponseType.json,
+              headers: const {
+                'Accept': 'application/json',
+                'Cache-Control': 'no-cache',
+              },
+              validateStatus: (status) =>
+                  status != null && status >= 200 && status < 300,
             ),
           )
           .timeout(probeTimeout);
-      return true;
+      final body = response.data;
+      return body is Map &&
+          body['status']?.toString().toLowerCase() == 'success' &&
+          body['data'] is Map;
     } finally {
       dio.close(force: true);
     }

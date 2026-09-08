@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:fl_clash/common/api_endpoint_preference.dart';
 import 'package:fl_clash/common/api_health.dart';
+import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/api_remote_config_cache.dart';
 import 'package:fl_clash/common/remote_config_cipher.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -100,6 +101,80 @@ void main() {
     expect(probes, 4);
     expect(first.percentage, 50);
     expect(second.percentage, 50);
+  });
+
+  test('real API probe GETs a valid XBoard guest config', () async {
+    _useDirectHttpClient();
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final requests = <String>[];
+    unawaited(() async {
+      await for (final request in server) {
+        requests.add('${request.method} ${request.uri}');
+        request.response
+          ..headers.contentType = ContentType.json
+          ..write(
+            jsonEncode({'status': 'success', 'data': <String, Object?>{}}),
+          );
+        await request.response.close();
+      }
+    }());
+    final endpoint = Uri.parse(
+      'http://${server.address.address}:${server.port}/ignored?private=value',
+    );
+
+    final health = await ApiHealthService(
+      configUrl: '',
+    ).probeEndpoint(endpoint);
+
+    expect(health.reachable, isTrue);
+    expect(requests, ['GET /api/v1/guest/comm/config']);
+  });
+
+  test('root page success does not mask a failed API route', () async {
+    _useDirectHttpClient();
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    unawaited(() async {
+      await for (final request in server) {
+        request.response.statusCode = request.uri.path == '/' ? 200 : 503;
+        await request.response.close();
+      }
+    }());
+    final endpoint = Uri.parse(
+      'http://${server.address.address}:${server.port}/',
+    );
+
+    final health = await ApiHealthService(
+      configUrl: '',
+    ).probeEndpoint(endpoint);
+
+    expect(health.reachable, isFalse);
+    expect(health.diagnostic?.failure, ApiNetworkFailure.http);
+    expect(health.diagnostic?.statusCode, 503);
+  });
+
+  test('API probe rejects a malformed successful envelope', () async {
+    _useDirectHttpClient();
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    unawaited(() async {
+      await for (final request in server) {
+        request.response
+          ..headers.contentType = ContentType.json
+          ..write(jsonEncode({'status': 'success', 'data': <Object?>[]}));
+        await request.response.close();
+      }
+    }());
+    final endpoint = Uri.parse(
+      'http://${server.address.address}:${server.port}/',
+    );
+
+    final health = await ApiHealthService(
+      configUrl: '',
+    ).probeEndpoint(endpoint);
+
+    expect(health.reachable, isFalse);
   });
 
   test('missing config URL returns an unavailable snapshot', () async {
@@ -442,6 +517,14 @@ class _ProxyOnlyHttpOverrides extends HttpOverrides {
     client.findProxy = (_) => 'PROXY 127.0.0.1:1';
     return client;
   }
+}
+
+class _DirectHttpOverrides extends HttpOverrides {}
+
+void _useDirectHttpClient() {
+  final previous = HttpOverrides.current;
+  HttpOverrides.global = _DirectHttpOverrides();
+  addTearDown(() => HttpOverrides.global = previous);
 }
 
 ApiHealthSnapshot _snapshot(int total, int reachable) {

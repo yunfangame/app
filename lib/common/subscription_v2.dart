@@ -35,11 +35,25 @@ bool isLegacyXboardSubscriptionProfileSource(String value) {
 }
 
 class SubscriptionV2Exception implements Exception {
-  const SubscriptionV2Exception(this.code, {this.statusCode, this.diagnostic});
+  const SubscriptionV2Exception(
+    this.code, {
+    this.statusCode,
+    this.diagnostic,
+    this.requestRef,
+  });
 
   final String code;
   final int? statusCode;
   final ApiNetworkDiagnostic? diagnostic;
+  final String? requestRef;
+
+  SubscriptionV2Exception withRequestRef(String value) =>
+      SubscriptionV2Exception(
+        code,
+        statusCode: statusCode,
+        diagnostic: diagnostic,
+        requestRef: requestRef ?? value,
+      );
 
   @override
   String toString() => 'SubscriptionV2Exception($code)';
@@ -238,7 +252,9 @@ class SubscriptionV2Client {
     final config = parseSubscriptionV2RemoteConfig(
       await _apiHealthService.loadConfig(),
     );
-    if (config == null) return null;
+    if (config == null) {
+      throw const SubscriptionV2Exception('secure_config_disabled');
+    }
     final gateway = _buildGatewayUri(endpoint, config.gatewayPath);
     final identity = await _loadIdentity();
     final credentialKey = _credentialKey(userToken);
@@ -337,7 +353,9 @@ class SubscriptionV2Client {
     final config = parseSubscriptionV2RemoteConfig(
       await _apiHealthService.loadConfig(),
     );
-    if (config == null) return null;
+    if (config == null) {
+      throw const SubscriptionV2Exception('secure_config_disabled');
+    }
     final gateway = _buildGatewayUri(endpoint, config.gatewayPath);
     final identity = await _loadIdentity();
     try {
@@ -529,13 +547,28 @@ class SubscriptionV2Client {
       'ciphertext': _encodeBase64Url(encrypted.cipherText),
       'tag': _encodeBase64Url(encrypted.mac.bytes),
     };
-    final response = await (_requester ?? _request)(gateway, envelope);
-    return _decryptResponse(
-      config: config,
-      requestId: requestId,
-      shared: shared,
-      response: response,
-    );
+    final requestRef = _subscriptionV2RequestRef(requestId);
+    late final Map<String, Object?> response;
+    try {
+      response = await (_requester ?? _request)(gateway, envelope);
+    } on SubscriptionV2Exception catch (error) {
+      throw error.withRequestRef(requestRef);
+    }
+    try {
+      return await _decryptResponse(
+        config: config,
+        requestId: requestId,
+        shared: shared,
+        response: response,
+      );
+    } on SubscriptionV2Exception catch (error) {
+      throw error.withRequestRef(requestRef);
+    } catch (_) {
+      throw SubscriptionV2Exception(
+        'invalid_response_payload',
+        requestRef: requestRef,
+      );
+    }
   }
 
   Future<Map<String, Object?>> _decryptResponse({
@@ -610,6 +643,10 @@ class SubscriptionV2Client {
   ) async {
     final stopwatch = Stopwatch()..start();
     final attemptId = newApiDiagnosticAttemptId();
+    final requestId = envelope['request_id'];
+    final requestRef = requestId is String
+        ? _subscriptionV2RequestRef(requestId)
+        : null;
     ApiNetworkDiagnostic? diagnostic;
     try {
       final response = await _dio.postUri<Object?>(
@@ -663,7 +700,7 @@ class SubscriptionV2Client {
         emitApiDiagnosticEvent(
           _diagnosticRecorder,
           'api.secure_gateway.failed',
-          diagnostic.toDiagnosticFields(),
+          {...diagnostic.toDiagnosticFields(), 'request_ref': ?requestRef},
         );
       }
     }
@@ -748,6 +785,11 @@ class SubscriptionV2Client {
   List<int> _randomBytes(int length) =>
       List<int>.generate(length, (_) => _random.nextInt(256));
 }
+
+String _subscriptionV2RequestRef(String requestId) => dart_crypto.sha256
+    .convert(utf8.encode(requestId))
+    .toString()
+    .substring(0, 12);
 
 SubscriptionV2RemoteConfig? parseSubscriptionV2RemoteConfig(Object? source) {
   if (source is! Map) return null;

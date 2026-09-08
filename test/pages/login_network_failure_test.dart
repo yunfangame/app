@@ -124,6 +124,31 @@ void main() {
     expect(find.byKey(const Key('login-network-failure')), findsNothing);
   });
 
+  for (final entry in {
+    XboardAuthFailure.unavailable: '服务暂时不可用，请稍后重试',
+    XboardAuthFailure.secureProtocolRejected: '安全登录响应校验失败，请导出日志',
+  }.entries) {
+    testWidgets(
+      '${entry.key.name} without diagnostics does not claim a network failure',
+      (tester) async {
+        _useSize(tester, const Size(1200, 900));
+        await tester.pumpWidget(
+          _app(
+            authenticate: (_, _) async => throw XboardAuthException(
+              failure: entry.key,
+              message: entry.value,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('login-submit-button')));
+        await tester.pumpAndSettle();
+        expect(find.text(entry.value), findsOneWidget);
+        expect(find.byKey(const Key('login-network-failure')), findsNothing);
+      },
+    );
+  }
+
   testWidgets('export failure resets busy state and allows retry', (
     tester,
   ) async {

@@ -50,6 +50,8 @@ enum XboardAuthFailure {
   registrationRejected,
   passwordResetRejected,
   invalidResponse,
+  secureProtocolRejected,
+  secureServiceRejected,
   unavailable,
 }
 
@@ -2034,6 +2036,7 @@ class XboardAuthService {
       XboardAuthException? secureFailure;
       var useLegacyLogin = false;
       for (final baseEndpoint in endpoints) {
+        SubscriptionV2Exception? secureError;
         final loginEndpoint = buildXboardLoginUri(baseEndpoint);
         final attemptId = newApiDiagnosticAttemptId();
         final stopwatch = Stopwatch()..start();
@@ -2079,9 +2082,10 @@ class XboardAuthService {
           );
           return result;
         } on SubscriptionV2Exception catch (error) {
+          secureError = error;
           final mapped = _mapSubscriptionV2Error(error, loginEndpoint);
-          if (error.code != 'gateway_unavailable' &&
-              error.code != 'temporary_unavailable') {
+          secureFailure = mapped;
+          if (!_shouldRetrySecureLogin(error.code)) {
             _recordAuthAttempt(
               'failed',
               stage: 'secure_login',
@@ -2089,23 +2093,31 @@ class XboardAuthService {
               attemptId: attemptId,
               elapsedMilliseconds: stopwatch.elapsedMilliseconds,
               failure: mapped,
+              secureError: error,
             );
             throw mapped;
           }
-          secureFailure = mapped;
         } on FormatException {
+          secureError = const SubscriptionV2Exception('invalid_secure_config');
           secureFailure = XboardAuthException(
-            failure: XboardAuthFailure.unavailable,
+            failure: XboardAuthFailure.secureProtocolRejected,
             message: '安全登录配置校验失败',
             endpoint: loginEndpoint,
           );
-        } catch (error) {
+        } on ApiRemoteConfigException catch (error) {
           secureFailure = _authNetworkFailure(
             error,
             stage: 'secure_login',
             endpoint: loginEndpoint,
             attemptId: attemptId,
             elapsedMilliseconds: stopwatch.elapsedMilliseconds,
+          );
+        } catch (_) {
+          secureError = const SubscriptionV2Exception('secure_client_failure');
+          secureFailure = XboardAuthException(
+            failure: XboardAuthFailure.secureProtocolRejected,
+            message: '安全登录客户端校验失败，请重试或导出日志',
+            endpoint: loginEndpoint,
           );
         } finally {
           stopwatch.stop();
@@ -2117,6 +2129,7 @@ class XboardAuthService {
           attemptId: attemptId,
           elapsedMilliseconds: stopwatch.elapsedMilliseconds,
           failure: secureFailure,
+          secureError: secureError,
         );
       }
       if (!useLegacyLogin && secureFailure != null) {
@@ -2291,6 +2304,7 @@ class XboardAuthService {
     required String attemptId,
     required int elapsedMilliseconds,
     XboardAuthException? failure,
+    SubscriptionV2Exception? secureError,
   }) {
     emitApiDiagnosticEvent(_diagnosticRecorder, 'auth.api.attempt.$outcome', {
       'stage': stage,
@@ -2299,9 +2313,35 @@ class XboardAuthService {
       'elapsed_ms': elapsedMilliseconds,
       if (failure != null) 'failure': failure.failure.name,
       if (failure?.statusCode != null) 'http_status': failure!.statusCode,
+      if (secureError != null)
+        'subscription_v2_code': _safeSubscriptionV2ErrorCode(secureError.code),
+      'request_ref': ?_safeSubscriptionV2RequestRef(secureError?.requestRef),
       ...?failure?.diagnostic?.toDiagnosticFields(),
     });
   }
+
+  bool _shouldRetrySecureLogin(String code) => const {
+    'gateway_unavailable',
+    'temporary_unavailable',
+    'invalid_response_envelope',
+    'invalid_server_signature',
+    'invalid_response_payload',
+    'invalid_response_data',
+    'invalid_signature',
+    'invalid_ciphertext',
+    'invalid_nonce',
+    'invalid_tag',
+    'invalid_token',
+    'invalid_auth_data',
+    'invalid_device_id',
+    'invalid_device_expires_at',
+    'invalid_subscription',
+    'subscription_v2_rejected',
+    'invalid_device_key',
+    'invalid_device_signature',
+    'replayed_request',
+    'unknown_operation',
+  }.contains(code);
 
   XboardAuthException _mapSubscriptionV2Error(
     SubscriptionV2Exception error,
@@ -2328,11 +2368,17 @@ class XboardAuthService {
         endpoint: endpoint,
       );
     }
-    if (error.code == 'device_not_registered' ||
-        error.code == 'secure_config_disabled') {
+    if (error.code == 'device_not_registered') {
       return XboardAuthException(
         failure: XboardAuthFailure.authenticationRejected,
         message: '安全设备凭证已失效，请重新登录',
+        endpoint: endpoint,
+      );
+    }
+    if (error.code == 'secure_config_disabled') {
+      return XboardAuthException(
+        failure: XboardAuthFailure.secureProtocolRejected,
+        message: '安全登录配置不可用，请刷新配置后重试',
         endpoint: endpoint,
       );
     }
@@ -2341,6 +2387,56 @@ class XboardAuthService {
         failure: XboardAuthFailure.subscriptionUnavailable,
         message: '当前订阅不可用',
         endpoint: endpoint,
+      );
+    }
+    if (error.code == 'ip_blocked') {
+      return XboardAuthException(
+        failure: XboardAuthFailure.secureServiceRejected,
+        message: '当前登录 IP 已被限制，请联系客服',
+        endpoint: endpoint,
+      );
+    }
+    if (error.code == 'request_expired') {
+      return XboardAuthException(
+        failure: XboardAuthFailure.secureProtocolRejected,
+        message: '本机时间与服务器时间偏差过大，请校准系统时间后重试',
+        endpoint: endpoint,
+      );
+    }
+    if (const {
+      'invalid_response_envelope',
+      'invalid_server_signature',
+      'invalid_response_payload',
+      'invalid_response_data',
+      'invalid_signature',
+      'invalid_ciphertext',
+      'invalid_nonce',
+      'invalid_tag',
+      'invalid_token',
+      'invalid_auth_data',
+      'invalid_device_id',
+      'invalid_device_expires_at',
+      'invalid_subscription',
+      'subscription_v2_rejected',
+      'invalid_device_key',
+      'invalid_device_signature',
+      'replayed_request',
+      'unknown_operation',
+    }.contains(error.code)) {
+      return XboardAuthException(
+        failure: XboardAuthFailure.secureProtocolRejected,
+        message: '安全登录响应校验失败，请重试或导出日志',
+        endpoint: endpoint,
+        statusCode: error.statusCode,
+      );
+    }
+    if (error.code != 'gateway_unavailable' &&
+        error.code != 'temporary_unavailable') {
+      return XboardAuthException(
+        failure: XboardAuthFailure.secureServiceRejected,
+        message: '安全登录服务返回业务异常，请稍后重试',
+        endpoint: endpoint,
+        statusCode: error.statusCode,
       );
     }
     return XboardAuthException(
@@ -3055,6 +3151,21 @@ Uri buildXboardTicketSaveUri(Uri baseEndpoint) {
 
 Uri buildXboardGuestConfigUri(Uri baseEndpoint) {
   return baseEndpoint.resolve(xboardGuestConfigPath);
+}
+
+String _safeSubscriptionV2ErrorCode(String value) {
+  final normalized = value.trim().toLowerCase();
+  return RegExp(r'^[a-z0-9_]{1,64}$').hasMatch(normalized)
+      ? normalized
+      : 'invalid_error_code';
+}
+
+String? _safeSubscriptionV2RequestRef(String? value) {
+  final normalized = value?.trim().toLowerCase();
+  if (normalized == null || !RegExp(r'^[a-f0-9]{12}$').hasMatch(normalized)) {
+    return null;
+  }
+  return normalized;
 }
 
 Uri buildXboardSendEmailVerifyUri(Uri baseEndpoint) {

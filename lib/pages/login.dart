@@ -220,8 +220,7 @@ class _LoginPageState extends State<LoginPage> {
       if (!expired &&
           error.failure != XboardAuthFailure.authenticationRejected &&
           (diagnostic != null ||
-              error.failure == XboardAuthFailure.noAvailableHost ||
-              error.failure == XboardAuthFailure.unavailable)) {
+              error.failure == XboardAuthFailure.noAvailableHost)) {
         setState(() {
           _networkFailure =
               diagnostic ??
