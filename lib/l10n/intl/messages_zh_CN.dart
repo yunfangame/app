@@ -206,9 +206,6 @@ class MessageLookup extends MessageLookupByLibrary {
       "离线模式下无法获取最新公告",
     ),
     "apiDiagnostics": MessageLookupByLibrary.simpleMessage("API 诊断"),
-    "apiEndpointApplied": MessageLookupByLibrary.simpleMessage(
-      "已设为全局首选 API 节点",
-    ),
     "apiEndpointLabel": m1,
     "apiEndpointsAvailable": m2,
     "apiFailureCancelled": MessageLookupByLibrary.simpleMessage(
@@ -257,7 +254,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "apiLogExportFailed": MessageLookupByLibrary.simpleMessage("日志导出失败，请重试。"),
     "apiReachabilityHint": MessageLookupByLibrary.simpleMessage(
-      "仅检测配置与 API 能否连通，不代表登录一定成功；登录前即可检测，无需先连接代理。",
+      "客户端登录时会从多个 API 中自动选择可用站点；这里只检测配置与 API 连通性，不代表登录一定成功，也不支持手动指定。",
     ),
     "apiStatus": MessageLookupByLibrary.simpleMessage("API 连通状态"),
     "apiStatusUnavailable": MessageLookupByLibrary.simpleMessage(
@@ -508,7 +505,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "creationTime": MessageLookupByLibrary.simpleMessage("创建时间"),
     "currentActiveConnections": MessageLookupByLibrary.simpleMessage("当前活跃连接"),
     "currentConnections": MessageLookupByLibrary.simpleMessage("当前连接"),
-    "currentEndpoint": MessageLookupByLibrary.simpleMessage("当前使用"),
+    "currentEndpoint": MessageLookupByLibrary.simpleMessage("选择方式"),
     "currentMonthTraffic": MessageLookupByLibrary.simpleMessage("本月流量"),
     "currentNode": MessageLookupByLibrary.simpleMessage("当前节点"),
     "currentNodeDelay": MessageLookupByLibrary.simpleMessage("当前节点延迟"),

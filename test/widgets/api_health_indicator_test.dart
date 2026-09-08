@@ -157,7 +157,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('shows percentage details and refreshes remote config', (
+  testWidgets('shows read-only endpoint status and refreshes remote config', (
     tester,
   ) async {
     var configLoads = 0;
@@ -198,6 +198,9 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('api-health-test-all-button')), findsOneWidget);
+    expect(find.byKey(const Key('api-health-confirm-button')), findsNothing);
+    expect(find.text('选择方式'), findsOneWidget);
+    expect(find.text('自动选择'), findsOneWidget);
     expect(find.text('api-0.example.com'), findsNothing);
 
     await tester.tap(find.byKey(const Key('api-health-refresh-config-button')));
@@ -206,11 +209,10 @@ void main() {
     expect(configLoads, 2);
     await tester.tap(find.byKey(const Key('api-health-endpoint-1')));
     await tester.pumpAndSettle();
-    expect(find.text('站点2'), findsWidgets);
-    await tester.tap(find.byKey(const Key('api-health-confirm-button')));
+    expect(await service.loadLastSuccessfulEndpoint(), isNull);
+    await tester.tap(find.byKey(const Key('api-health-dialog-close')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('api-health-dialog')), findsNothing);
-    expect((await service.loadPreferredEndpoint())?.host, 'api-1.example.com');
   });
 
   testWidgets('service status dialog fits a narrow dark theme viewport', (
@@ -238,7 +240,8 @@ void main() {
 
     expect(find.byKey(const Key('api-health-dialog')), findsOneWidget);
     expect(find.text('1/1'), findsOneWidget);
-    expect(find.byKey(const Key('api-health-confirm-button')), findsOneWidget);
+    expect(find.byKey(const Key('api-health-confirm-button')), findsNothing);
+    expect(find.text('Автовыбор'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

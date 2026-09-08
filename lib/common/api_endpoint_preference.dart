@@ -5,17 +5,20 @@ class ApiEndpointPreferenceStore {
     Future<SharedPreferences> Function()? preferencesLoader,
   }) : _preferencesLoader = preferencesLoader ?? SharedPreferences.getInstance;
 
-  static const _preferredEndpointKey = 'xboard.preferred_api_endpoint';
+  static const _lastSuccessfulEndpointKey =
+      'xboard.last_successful_api_endpoint';
+  static const _legacyManualPreferenceKey = 'xboard.preferred_api_endpoint';
 
   final Future<SharedPreferences> Function() _preferencesLoader;
 
   Future<Uri?> load() async {
     final preferences = await _preferencesLoader();
+    await preferences.remove(_legacyManualPreferenceKey);
     final endpoint = Uri.tryParse(
-      preferences.getString(_preferredEndpointKey) ?? '',
+      preferences.getString(_lastSuccessfulEndpointKey) ?? '',
     );
     if (!_isValid(endpoint)) {
-      await preferences.remove(_preferredEndpointKey);
+      await preferences.remove(_lastSuccessfulEndpointKey);
       return null;
     }
     return endpoint;
@@ -26,15 +29,17 @@ class ApiEndpointPreferenceStore {
       throw ArgumentError.value(endpoint, 'endpoint');
     }
     final preferences = await _preferencesLoader();
+    await preferences.remove(_legacyManualPreferenceKey);
     await preferences.setString(
-      _preferredEndpointKey,
+      _lastSuccessfulEndpointKey,
       normalizeApiEndpoint(endpoint).toString(),
     );
   }
 
   Future<void> clear() async {
     final preferences = await _preferencesLoader();
-    await preferences.remove(_preferredEndpointKey);
+    await preferences.remove(_lastSuccessfulEndpointKey);
+    await preferences.remove(_legacyManualPreferenceKey);
   }
 }
 

@@ -255,9 +255,6 @@ class MessageLookup extends MessageLookupByLibrary {
       "Новые объявления недоступны в автономном режиме",
     ),
     "apiDiagnostics": MessageLookupByLibrary.simpleMessage("Диагностика API"),
-    "apiEndpointApplied": MessageLookupByLibrary.simpleMessage(
-      "Выбран как основной API-сервер для всего приложения",
-    ),
     "apiEndpointLabel": m1,
     "apiEndpointsAvailable": m2,
     "apiFailureCancelled": MessageLookupByLibrary.simpleMessage(
@@ -308,7 +305,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Не удалось экспортировать журнал. Повторите попытку.",
     ),
     "apiReachabilityHint": MessageLookupByLibrary.simpleMessage(
-      "Проверяется конфигурация и доступность API, но не успешность входа. Проверка доступна до входа и не требует подключения прокси.",
+      "При входе приложение автоматически выбирает доступный сервер из нескольких API. Здесь проверяются только конфигурация и доступность API; успешный вход не гарантируется, ручной выбор недоступен.",
     ),
     "apiStatus": MessageLookupByLibrary.simpleMessage("Состояние API"),
     "apiStatusUnavailable": MessageLookupByLibrary.simpleMessage(
@@ -687,9 +684,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "currentConnections": MessageLookupByLibrary.simpleMessage(
       "Текущие подключения",
     ),
-    "currentEndpoint": MessageLookupByLibrary.simpleMessage(
-      "Используется сейчас",
-    ),
+    "currentEndpoint": MessageLookupByLibrary.simpleMessage("Режим выбора"),
     "currentMonthTraffic": MessageLookupByLibrary.simpleMessage(
       "За этот месяц",
     ),

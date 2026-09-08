@@ -293,12 +293,12 @@ class ApiHealthService {
     );
   }
 
-  Future<Uri?> loadPreferredEndpoint() => _preferenceStore.load();
+  Future<Uri?> loadLastSuccessfulEndpoint() => _preferenceStore.load();
 
   Future<List<Uri>> loadCandidateEndpoints() async {
-    Uri? preferred;
+    Uri? lastSuccessful;
     try {
-      preferred = await loadPreferredEndpoint();
+      lastSuccessful = await loadLastSuccessfulEndpoint();
     } catch (_) {}
     final cached = await _loadVerifiedCache();
     if (cached != null) {
@@ -307,7 +307,7 @@ class ApiHealthService {
         'candidate_count': cached.endpoints.length,
       });
       _refreshRemoteConfigInBackground();
-      return _prioritizePreferred(cached.endpoints, preferred);
+      return _prioritizeLastSuccessful(cached.endpoints, lastSuccessful);
     }
 
     ApiRemoteConfigException? remoteFailure;
@@ -315,7 +315,7 @@ class ApiHealthService {
     try {
       final remote = await remoteLoad.timeout(initialRemoteWait);
       await _saveVerifiedCache(remote);
-      return _prioritizePreferred(remote.endpoints, preferred);
+      return _prioritizeLastSuccessful(remote.endpoints, lastSuccessful);
     } on ApiRemoteConfigException catch (error) {
       remoteFailure = error;
     } on TimeoutException catch (error) {
@@ -334,52 +334,34 @@ class ApiHealthService {
         'candidate_count': emergency.endpoints.length,
       });
       await _saveVerifiedCache(emergency);
-      return _prioritizePreferred(emergency.endpoints, preferred);
+      return _prioritizeLastSuccessful(emergency.endpoints, lastSuccessful);
     } on ApiRemoteConfigException catch (emergencyFailure) {
-      if (preferred != null) {
+      if (lastSuccessful != null) {
         emitApiDiagnosticEvent(_diagnosticRecorder, 'api.config.fallback', {
-          'source': 'preferred_endpoint',
+          'source': 'last_successful_endpoint',
           'candidate_count': 1,
         });
-        return List.unmodifiable([preferred]);
+        return List.unmodifiable([lastSuccessful]);
       }
       throw _moreImportantFailure(remoteFailure, emergencyFailure);
     }
   }
 
-  List<Uri> _prioritizePreferred(List<Uri> values, Uri? preferred) {
+  List<Uri> _prioritizeLastSuccessful(List<Uri> values, Uri? lastSuccessful) {
     final endpoints = values.toList();
-    if (preferred == null) return List.unmodifiable(endpoints);
-    final preferredIndex = endpoints.indexWhere(
-      (endpoint) => isSameApiEndpoint(endpoint, preferred),
+    if (lastSuccessful == null) return List.unmodifiable(endpoints);
+    final lastSuccessfulIndex = endpoints.indexWhere(
+      (endpoint) => isSameApiEndpoint(endpoint, lastSuccessful),
     );
-    if (preferredIndex > 0) {
-      final selected = endpoints.removeAt(preferredIndex);
-      endpoints.insert(0, selected);
+    if (lastSuccessfulIndex > 0) {
+      final endpoint = endpoints.removeAt(lastSuccessfulIndex);
+      endpoints.insert(0, endpoint);
     }
     return List.unmodifiable(endpoints);
   }
 
-  Future<void> savePreferredEndpoint(Uri endpoint) =>
+  Future<void> rememberSuccessfulEndpoint(Uri endpoint) =>
       _preferenceStore.save(endpoint);
-
-  Future<List<ApiEndpointHealth>> orderedReachableEndpoints(
-    ApiHealthSnapshot snapshot,
-  ) async {
-    final endpoints =
-        snapshot.endpoints.where((endpoint) => endpoint.reachable).toList()
-          ..sort((left, right) => left.latency.compareTo(right.latency));
-    final preferred = await loadPreferredEndpoint();
-    if (preferred == null) return List.unmodifiable(endpoints);
-    final preferredIndex = endpoints.indexWhere(
-      (endpoint) => isSameApiEndpoint(endpoint.endpoint, preferred),
-    );
-    if (preferredIndex > 0) {
-      final selected = endpoints.removeAt(preferredIndex);
-      endpoints.insert(0, selected);
-    }
-    return List.unmodifiable(endpoints);
-  }
 
   Future<_VerifiedRemoteConfig> _loadRemoteConfigWithRetries({
     bool requireEndpoints = false,

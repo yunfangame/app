@@ -1089,7 +1089,7 @@ void main() {
     expect(calls, 1);
   });
 
-  test('global API preference is tried first and keeps failover', () async {
+  test('last successful API is tried first and keeps failover', () async {
     final preferenceStore = ApiEndpointPreferenceStore();
     await preferenceStore.save(Uri.parse('https://two.example.com:15699'));
     final healthService = ApiHealthService(
@@ -1136,6 +1136,10 @@ void main() {
       Uri.parse('https://one.example.com:15699/api/v1/passport/auth/login'),
     ]);
     expect(result.endpoint.host, 'one.example.com');
+    expect(
+      await preferenceStore.load(),
+      Uri.parse('https://one.example.com:15699'),
+    );
   });
 
   test('fails over to the next available host and parses auth data', () async {
@@ -1251,6 +1255,34 @@ void main() {
     expect(service.currentSession, same(result));
   });
 
+  test('restored session follows the working subscription endpoint', () async {
+    final subscriptionCalls = <Uri>[];
+    final service = XboardAuthService(
+      endpointLoader: () async => [Uri.parse('https://backup.example.com')],
+      subscriptionRequester: (endpoint, authData) async {
+        subscriptionCalls.add(endpoint);
+        if (endpoint.host == 'saved.example.com') {
+          return const XboardLoginResponse(statusCode: 503);
+        }
+        return _successfulSubscriptionResponse();
+      },
+    );
+
+    final result = await service.restoreSession(
+      preferredEndpoint: Uri.parse(
+        'https://saved.example.com/api/v1/passport/auth/login',
+      ),
+      token: 'subscription-token',
+      authData: 'Bearer saved-token',
+    );
+
+    expect(subscriptionCalls, [
+      Uri.parse('https://saved.example.com/api/v1/user/getSubscribe'),
+      Uri.parse('https://backup.example.com/api/v1/user/getSubscribe'),
+    ]);
+    expect(result.endpoint.host, 'backup.example.com');
+  });
+
   test('accepts a subscription response without a legacy URL for V2', () async {
     final service = XboardAuthService(
       subscriptionRequester: (endpoint, authData) async {
@@ -1277,7 +1309,7 @@ void main() {
     expect(subscription.token, '0123456789abcdef0123456789abcdef');
   });
 
-  test('global API preference overrides the previously saved host', () async {
+  test('last successful API overrides the previously saved host', () async {
     final preferenceStore = ApiEndpointPreferenceStore();
     await preferenceStore.save(Uri.parse('https://two.example.com'));
     final subscriptionCalls = <Uri>[];
@@ -1378,6 +1410,7 @@ void main() {
         Uri.parse('https://one.example.com/api/v1/user/getSubscribe'),
         Uri.parse('https://two.example.com/api/v1/user/getSubscribe'),
       ]);
+      expect(result.endpoint.host, 'two.example.com');
       expect(result.subscription.isUnlimitedTime, isFalse);
       expect(result.subscription.isMonthlyPlan, isTrue);
       expect(result.subscription.expiredAtEpochSeconds, 1800000000);
@@ -1816,6 +1849,39 @@ void main() {
     },
   );
 
+  test('secure session restore fails over to another API endpoint', () async {
+    final summaryEndpoints = <Uri>[];
+    final service = XboardAuthService(
+      endpointLoader: () async => [
+        Uri.parse('https://one.example.com'),
+        Uri.parse('https://two.example.com'),
+      ],
+      subscriptionV2Client: _FakeSubscriptionV2Client(
+        onSummary: (endpoint) async {
+          summaryEndpoints.add(endpoint);
+          if (endpoint.host == 'one.example.com') {
+            throw const SubscriptionV2Exception('gateway_unavailable');
+          }
+          return _secureSummary;
+        },
+      ),
+    );
+
+    final session = await service.restoreSession(
+      preferredEndpoint: Uri.parse('https://one.example.com'),
+      token: 'secure-token',
+      authData: 'Bearer secure-auth',
+      secureSubscription: true,
+    );
+
+    expect(summaryEndpoints.map((endpoint) => endpoint.host), [
+      'one.example.com',
+      'two.example.com',
+    ]);
+    expect(session.endpoint.host, 'two.example.com');
+    expect(session.secureSubscription, isTrue);
+  });
+
   test('successful response must contain token and auth_data', () async {
     final service = XboardAuthService(
       endpointLoader: () async => [Uri.parse('https://api.example.com')],
@@ -1863,12 +1929,14 @@ class _FakeSubscriptionV2Client extends SubscriptionV2Client {
     this.loginError,
     this.summary,
     this.onLogin,
+    this.onSummary,
   });
 
   final SubscriptionV2Login? login;
   final SubscriptionV2Exception? loginError;
   final Map<String, Object?>? summary;
   final Future<SubscriptionV2Login?> Function(Uri endpoint)? onLogin;
+  final Future<Map<String, Object?>> Function(Uri endpoint)? onSummary;
 
   @override
   Future<SubscriptionV2Login?> secureLogin({
@@ -1889,6 +1957,8 @@ class _FakeSubscriptionV2Client extends SubscriptionV2Client {
     required Uri endpoint,
     required String userToken,
   }) async {
+    final handler = onSummary;
+    if (handler != null) return handler(endpoint);
     final value = summary;
     if (value == null) {
       throw const SubscriptionV2Exception('device_not_registered');

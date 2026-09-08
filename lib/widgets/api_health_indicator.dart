@@ -15,9 +15,7 @@ Future<void> showApiHealthDiagnostics(
       onExportLogs: onExportLogs,
     ),
   );
-  if (context.mounted && result?.applied == true) {
-    context.showNotifier(context.appLocalizations.apiEndpointApplied);
-  }
+  if (!context.mounted || result == null) return;
 }
 
 class ApiHealthControl extends StatefulWidget {
@@ -107,9 +105,6 @@ class _ApiHealthControlState extends State<ApiHealthControl> {
     );
     if (!mounted || result == null) return;
     setState(() => _snapshot = result.snapshot);
-    if (result.applied) {
-      context.showNotifier(context.appLocalizations.apiEndpointApplied);
-    }
   }
 
   @override
@@ -135,10 +130,9 @@ class _ApiHealthControlState extends State<ApiHealthControl> {
 }
 
 class _ApiHealthDialogResult {
-  const _ApiHealthDialogResult({required this.snapshot, required this.applied});
+  const _ApiHealthDialogResult({required this.snapshot});
 
   final ApiHealthSnapshot? snapshot;
-  final bool applied;
 }
 
 class _ApiHealthDialog extends StatefulWidget {
@@ -159,9 +153,6 @@ class _ApiHealthDialog extends StatefulWidget {
 class _ApiHealthDialogState extends State<_ApiHealthDialog> {
   ApiHealthSnapshot? _snapshot;
   bool _checkingAll = false;
-  bool _loadingSelection = true;
-  bool _savingSelection = false;
-  Uri? _selectedEndpoint;
   final _testingIndexes = <int>{};
 
   @override
@@ -170,44 +161,7 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
     _snapshot = widget.initialSnapshot;
     if (_snapshot == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _refreshAll());
-    } else {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _syncSelection());
     }
-  }
-
-  Future<void> _syncSelection() async {
-    final snapshot = _snapshot;
-    if (snapshot == null) return;
-    final currentSelection = _selectedEndpoint;
-    final currentStillReachable =
-        currentSelection != null &&
-        snapshot.endpoints.any(
-          (endpoint) =>
-              endpoint.reachable &&
-              isSameApiEndpoint(endpoint.endpoint, currentSelection),
-        );
-    Uri? selected;
-    try {
-      selected = currentStillReachable
-          ? currentSelection
-          : (await widget.service.orderedReachableEndpoints(
-              snapshot,
-            )).firstOrNull?.endpoint;
-    } catch (error) {
-      commonPrint.event(
-        'api.health.selection_load.failed',
-        fields: {'error_type': error.runtimeType.toString()},
-      );
-      selected = snapshot.endpoints
-          .where((endpoint) => endpoint.reachable)
-          .firstOrNull
-          ?.endpoint;
-    }
-    if (!mounted) return;
-    setState(() {
-      _selectedEndpoint = selected;
-      _loadingSelection = false;
-    });
   }
 
   Future<void> _refreshAll() async {
@@ -217,18 +171,15 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
       final snapshot = await widget.service.check();
       if (!mounted) return;
       setState(() => _snapshot = snapshot);
-      await _syncSelection();
     } catch (error) {
       commonPrint.event(
         'api.health.ui.failed',
         fields: {'error_type': error.runtimeType.toString()},
       );
       if (mounted) {
-        setState(() {
-          _snapshot = ApiHealthSnapshot.unavailable('check_failed');
-          _loadingSelection = false;
-          _selectedEndpoint = null;
-        });
+        setState(
+          () => _snapshot = ApiHealthSnapshot.unavailable('check_failed'),
+        );
       }
     } finally {
       if (mounted) setState(() => _checkingAll = false);
@@ -263,7 +214,6 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
           checkedAt: DateTime.now(),
         );
       });
-      await _syncSelection();
     } catch (error) {
       commonPrint.event(
         'api.health.endpoint_ui.failed',
@@ -274,48 +224,6 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
       }
     } finally {
       if (mounted) setState(() => _testingIndexes.remove(index));
-    }
-  }
-
-  int get _currentIndex {
-    final endpoints = _snapshot?.endpoints ?? const <ApiEndpointHealth>[];
-    final selected = _selectedEndpoint;
-    final index = selected == null
-        ? endpoints.indexWhere((endpoint) => endpoint.reachable)
-        : endpoints.indexWhere(
-            (endpoint) => isSameApiEndpoint(endpoint.endpoint, selected),
-          );
-    return index < 0 ? 0 : index;
-  }
-
-  Future<void> _confirmSelection() async {
-    if (_savingSelection || _loadingSelection) return;
-    final selected = _selectedEndpoint;
-    if (selected == null) {
-      Navigator.pop(
-        context,
-        _ApiHealthDialogResult(snapshot: _snapshot, applied: false),
-      );
-      return;
-    }
-    setState(() => _savingSelection = true);
-    try {
-      await widget.service.savePreferredEndpoint(selected);
-      if (!mounted) return;
-      Navigator.pop(
-        context,
-        _ApiHealthDialogResult(snapshot: _snapshot, applied: true),
-      );
-    } catch (error) {
-      commonPrint.event(
-        'api.health.selection.failed',
-        fields: {'error_type': error.runtimeType.toString()},
-      );
-      if (mounted) {
-        context.showNotifier(context.appLocalizations.apiFailureNetwork);
-      }
-    } finally {
-      if (mounted) setState(() => _savingSelection = false);
     }
   }
 
@@ -379,10 +287,7 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
                     key: const Key('api-health-dialog-close'),
                     onPressed: () => Navigator.pop(
                       context,
-                      _ApiHealthDialogResult(
-                        snapshot: _snapshot,
-                        applied: false,
-                      ),
+                      _ApiHealthDialogResult(snapshot: _snapshot),
                     ),
                     icon: const Icon(Icons.close_rounded),
                   ),
@@ -408,9 +313,7 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
                           Expanded(
                             child: _ApiHealthSummaryCard(
                               label: l10n.currentEndpoint,
-                              value: snapshot == null || snapshot.total == 0
-                                  ? '--'
-                                  : l10n.loginEndpointLabel(_currentIndex + 1),
+                              value: l10n.automaticSelection,
                             ),
                           ),
                         ],
@@ -474,51 +377,22 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
                               const SizedBox(height: 10),
                           itemBuilder: (context, index) {
                             final endpoint = snapshot.endpoints[index];
-                            final selected =
-                                _selectedEndpoint != null &&
-                                isSameApiEndpoint(
-                                  endpoint.endpoint,
-                                  _selectedEndpoint!,
-                                );
                             final testing = _testingIndexes.contains(index);
-                            return Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                key: ValueKey('api-health-endpoint-$index'),
-                                onTap: endpoint.reachable && !_savingSelection
-                                    ? () => setState(
-                                        () => _selectedEndpoint =
-                                            endpoint.endpoint,
-                                      )
-                                    : null,
+                            return Container(
+                              key: ValueKey('api-health-endpoint-$index'),
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: colors.surfaceContainerLow,
                                 borderRadius: BorderRadius.circular(18),
-                                child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 180),
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: selected
-                                        ? colors.primaryContainer.withValues(
-                                            alpha: .38,
-                                          )
-                                        : colors.surfaceContainerLow,
-                                    borderRadius: BorderRadius.circular(18),
-                                    border: Border.all(
-                                      color: selected
-                                          ? colors.primary.withValues(
-                                              alpha: .72,
-                                            )
-                                          : colors.outlineVariant,
-                                      width: selected ? 1.6 : 1,
-                                    ),
-                                  ),
-                                  child: _ApiHealthEndpointRow(
-                                    endpoint: endpoint,
-                                    index: index,
-                                    selected: selected,
-                                    testing: testing || _checkingAll,
-                                    onTest: () => _testEndpoint(index),
-                                  ),
+                                border: Border.all(
+                                  color: colors.outlineVariant,
                                 ),
+                              ),
+                              child: _ApiHealthEndpointRow(
+                                endpoint: endpoint,
+                                index: index,
+                                testing: testing || _checkingAll,
+                                onTest: () => _testEndpoint(index),
                               ),
                             );
                           },
@@ -526,29 +400,6 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              FilledButton(
-                key: const Key('api-health-confirm-button'),
-                onPressed:
-                    _loadingSelection ||
-                        _savingSelection ||
-                        _selectedEndpoint == null
-                    ? null
-                    : _confirmSelection,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(60),
-                  backgroundColor: colors.primary,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                ),
-                child: _savingSelection
-                    ? const SizedBox.square(
-                        dimension: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2.4),
-                      )
-                    : Text(l10n.confirm),
               ),
             ],
           ),
@@ -562,14 +413,12 @@ class _ApiHealthEndpointRow extends StatelessWidget {
   const _ApiHealthEndpointRow({
     required this.endpoint,
     required this.index,
-    required this.selected,
     required this.testing,
     required this.onTest,
   });
 
   final ApiEndpointHealth endpoint;
   final int index;
-  final bool selected;
   final bool testing;
   final VoidCallback onTest;
 
@@ -591,9 +440,6 @@ class _ApiHealthEndpointRow extends StatelessWidget {
         fontWeight: FontWeight.w700,
       ),
     );
-    final selectionIcon = selected
-        ? Icon(Icons.check_rounded, color: colors.onSurface)
-        : const SizedBox.shrink();
     final latency = Text(
       endpoint.reachable
           ? '${endpoint.latency.inMilliseconds} ms'
@@ -626,7 +472,6 @@ class _ApiHealthEndpointRow extends StatelessWidget {
                   statusIcon,
                   const SizedBox(width: 12),
                   Expanded(child: endpointLabel),
-                  selectionIcon,
                   const SizedBox(width: 8),
                   latency,
                 ],
@@ -641,7 +486,6 @@ class _ApiHealthEndpointRow extends StatelessWidget {
             statusIcon,
             const SizedBox(width: 12),
             Expanded(child: endpointLabel),
-            selectionIcon,
             const SizedBox(width: 10),
             latency,
             const SizedBox(width: 12),

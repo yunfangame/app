@@ -220,9 +220,6 @@ class MessageLookup extends MessageLookupByLibrary {
       "オフラインモードでは最新のお知らせを取得できません",
     ),
     "apiDiagnostics": MessageLookupByLibrary.simpleMessage("API 診断"),
-    "apiEndpointApplied": MessageLookupByLibrary.simpleMessage(
-      "グローバル優先 API 接続先に設定しました",
-    ),
     "apiEndpointLabel": m1,
     "apiEndpointsAvailable": m2,
     "apiFailureCancelled": MessageLookupByLibrary.simpleMessage(
@@ -273,7 +270,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "ログを出力できませんでした。再試行してください。",
     ),
     "apiReachabilityHint": MessageLookupByLibrary.simpleMessage(
-      "設定と API への到達性を確認します。ログイン成功を保証するものではありません。ログイン前でも、プロキシ接続なしで診断できます。",
+      "ログイン時に、アプリは複数の API から利用可能な接続先を自動選択します。ここでは設定と接続性のみを診断し、ログイン成功を保証せず、手動選択もできません。",
     ),
     "apiStatus": MessageLookupByLibrary.simpleMessage("API 接続状態"),
     "apiStatusUnavailable": MessageLookupByLibrary.simpleMessage(
@@ -562,7 +559,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "creationTime": MessageLookupByLibrary.simpleMessage("作成時間"),
     "currentActiveConnections": MessageLookupByLibrary.simpleMessage("現在の接続数"),
     "currentConnections": MessageLookupByLibrary.simpleMessage("現在の接続"),
-    "currentEndpoint": MessageLookupByLibrary.simpleMessage("現在使用中"),
+    "currentEndpoint": MessageLookupByLibrary.simpleMessage("選択方法"),
     "currentMonthTraffic": MessageLookupByLibrary.simpleMessage("今月の通信量"),
     "currentNode": MessageLookupByLibrary.simpleMessage("現在のノード"),
     "currentNodeDelay": MessageLookupByLibrary.simpleMessage("現在のノード遅延"),

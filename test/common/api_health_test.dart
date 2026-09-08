@@ -243,36 +243,39 @@ void main() {
     expect(endpoints, [Uri.parse('https://last-good.example.com:15699')]);
   });
 
-  test('persists and prioritizes the selected healthy endpoint', () async {
+  test('legacy manual API preference is ignored and removed', () async {
+    SharedPreferences.setMockInitialValues({
+      'xboard.preferred_api_endpoint': 'https://manual.example.com',
+    });
     final store = ApiEndpointPreferenceStore();
-    final service = ApiHealthService(preferenceStore: store);
-    await service.savePreferredEndpoint(
-      Uri.parse('https://preferred.example.com/health?source=config'),
+
+    expect(await store.load(), isNull);
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.containsKey('xboard.preferred_api_endpoint'), isFalse);
+  });
+
+  test('persists and prioritizes the last successful endpoint', () async {
+    final store = ApiEndpointPreferenceStore();
+    final service = ApiHealthService(
+      configUrl: 'https://config.example.com/app.json',
+      preferenceStore: store,
+      configLoader: (_) async => {
+        'Authentication': 'FengWo',
+        'hosts': ['https://first.example.com', 'https://last-good.example.com'],
+      },
     );
-    final snapshot = ApiHealthSnapshot(
-      endpoints: [
-        ApiEndpointHealth(
-          endpoint: Uri.parse('https://fast.example.com'),
-          reachable: true,
-          latency: const Duration(milliseconds: 20),
-        ),
-        ApiEndpointHealth(
-          endpoint: Uri.parse('https://preferred.example.com'),
-          reachable: true,
-          latency: const Duration(milliseconds: 200),
-        ),
-      ],
-      checkedAt: DateTime(2026),
+    await service.rememberSuccessfulEndpoint(
+      Uri.parse('https://last-good.example.com/health?source=config'),
     );
 
-    final ordered = await service.orderedReachableEndpoints(snapshot);
+    final candidates = await service.loadCandidateEndpoints();
 
     expect(
-      await service.loadPreferredEndpoint(),
-      Uri.parse('https://preferred.example.com'),
+      await service.loadLastSuccessfulEndpoint(),
+      Uri.parse('https://last-good.example.com'),
     );
-    expect(ordered.first.endpoint.host, 'preferred.example.com');
-    expect(ordered.last.endpoint.host, 'fast.example.com');
+    expect(candidates.first.host, 'last-good.example.com');
+    expect(candidates.last.host, 'first.example.com');
   });
 
   test('persists verified candidates before any login succeeds', () async {

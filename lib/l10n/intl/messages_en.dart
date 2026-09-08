@@ -257,9 +257,6 @@ class MessageLookup extends MessageLookupByLibrary {
       "Latest announcements are unavailable in offline mode",
     ),
     "apiDiagnostics": MessageLookupByLibrary.simpleMessage("API diagnostics"),
-    "apiEndpointApplied": MessageLookupByLibrary.simpleMessage(
-      "Set as the global preferred API endpoint",
-    ),
     "apiEndpointLabel": m1,
     "apiEndpointsAvailable": m2,
     "apiFailureCancelled": MessageLookupByLibrary.simpleMessage(
@@ -310,7 +307,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Logs could not be exported. Please try again.",
     ),
     "apiReachabilityHint": MessageLookupByLibrary.simpleMessage(
-      "This checks configuration and API reachability, not whether login will be accepted. It works before login without a proxy connection.",
+      "At login, the app automatically chooses an available endpoint from multiple APIs. This checks configuration and API reachability only, does not guarantee login, and does not allow manual selection.",
     ),
     "apiStatus": MessageLookupByLibrary.simpleMessage("API status"),
     "apiStatusUnavailable": MessageLookupByLibrary.simpleMessage(
@@ -671,7 +668,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "currentConnections": MessageLookupByLibrary.simpleMessage(
       "Current connections",
     ),
-    "currentEndpoint": MessageLookupByLibrary.simpleMessage("Currently used"),
+    "currentEndpoint": MessageLookupByLibrary.simpleMessage("Selection mode"),
     "currentMonthTraffic": MessageLookupByLibrary.simpleMessage("This month"),
     "currentNode": MessageLookupByLibrary.simpleMessage("Current node"),
     "currentNodeDelay": MessageLookupByLibrary.simpleMessage(

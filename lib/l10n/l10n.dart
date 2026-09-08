@@ -64,10 +64,10 @@ class AppLocalizations {
     );
   }
 
-  /// `This checks configuration and API reachability, not whether login will be accepted. It works before login without a proxy connection.`
+  /// `At login, the app automatically chooses an available endpoint from multiple APIs. This checks configuration and API reachability only, does not guarantee login, and does not allow manual selection.`
   String get apiReachabilityHint {
     return Intl.message(
-      'This checks configuration and API reachability, not whether login will be accepted. It works before login without a proxy connection.',
+      'At login, the app automatically chooses an available endpoint from multiple APIs. This checks configuration and API reachability only, does not guarantee login, and does not allow manual selection.',
       name: 'apiReachabilityHint',
       desc: '',
       args: [],
@@ -6703,10 +6703,10 @@ class AppLocalizations {
     );
   }
 
-  /// `Currently used`
+  /// `Selection mode`
   String get currentEndpoint {
     return Intl.message(
-      'Currently used',
+      'Selection mode',
       name: 'currentEndpoint',
       desc: '',
       args: [],
@@ -6745,16 +6745,6 @@ class AppLocalizations {
       name: 'loginEndpointLabel',
       desc: '',
       args: [index],
-    );
-  }
-
-  /// `Set as the global preferred API endpoint`
-  String get apiEndpointApplied {
-    return Intl.message(
-      'Set as the global preferred API endpoint',
-      name: 'apiEndpointApplied',
-      desc: '',
-      args: [],
     );
   }
 

@@ -1942,15 +1942,15 @@ class XboardAuthService {
     final availableEndpoints =
         await (_endpointLoader ?? _loadAvailableEndpoints)();
     final preferredBaseEndpoint = _asXboardBaseEndpoint(preferredEndpoint);
-    final configuredPreferred = _endpointLoader == null
-        ? await _apiHealthService.loadPreferredEndpoint()
+    final lastSuccessfulEndpoint = _endpointLoader == null
+        ? await _apiHealthService.loadLastSuccessfulEndpoint()
         : null;
-    final configuredPreferredAvailable =
-        configuredPreferred != null &&
+    final lastSuccessfulEndpointAvailable =
+        lastSuccessfulEndpoint != null &&
         availableEndpoints.any(
-          (endpoint) => isSameApiEndpoint(endpoint, configuredPreferred),
+          (endpoint) => isSameApiEndpoint(endpoint, lastSuccessfulEndpoint),
         );
-    final endpoints = configuredPreferredAvailable
+    final endpoints = lastSuccessfulEndpointAvailable
         ? <Uri>[
             ...availableEndpoints,
             if (preferredBaseEndpoint != null &&
@@ -1987,11 +1987,9 @@ class XboardAuthService {
     );
     late final XboardSubscriptionData subscription;
     if (secureSubscription) {
-      subscription = await fetchSubscription(
-        endpoint: endpoints.first,
-        authData: normalizedAuthData,
+      subscription = await _fetchSecureSubscriptionWithFailover(
         userToken: normalizedToken,
-        secureSubscription: true,
+        endpoints: endpoints,
       );
     } else {
       subscription = await _fetchSubscription(
@@ -2000,8 +1998,10 @@ class XboardAuthService {
         endpoints: endpoints,
       );
     }
+    final activeBaseEndpoint =
+        _asXboardBaseEndpoint(subscription.endpoint) ?? endpoints.first;
     final result = XboardLoginResult(
-      endpoint: auth.endpoint,
+      endpoint: buildXboardLoginUri(activeBaseEndpoint),
       token: auth.token,
       authData: auth.authData,
       isAdmin: auth.isAdmin,
@@ -2009,6 +2009,7 @@ class XboardAuthService {
       secureSubscription: secureSubscription,
       rawData: auth.rawData,
     );
+    await _rememberSuccessfulEndpoint(activeBaseEndpoint);
     _currentSession = result;
     return result;
   }
@@ -2085,7 +2086,7 @@ class XboardAuthService {
           secureError = error;
           final mapped = _mapSubscriptionV2Error(error, loginEndpoint);
           secureFailure = mapped;
-          if (!_shouldRetrySecureLogin(error.code)) {
+          if (!_shouldRetrySecureEndpoint(error.code)) {
             _recordAuthAttempt(
               'failed',
               stage: 'secure_login',
@@ -2164,8 +2165,10 @@ class XboardAuthService {
             preferredEndpoint: baseEndpoint,
             endpoints: endpoints,
           );
+          final activeBaseEndpoint =
+              _asXboardBaseEndpoint(subscription.endpoint) ?? baseEndpoint;
           final result = XboardLoginResult(
-            endpoint: auth.endpoint,
+            endpoint: buildXboardLoginUri(activeBaseEndpoint),
             token: auth.token,
             authData: auth.authData,
             isAdmin: auth.isAdmin,
@@ -2173,7 +2176,7 @@ class XboardAuthService {
             secureSubscription: false,
             rawData: auth.rawData,
           );
-          await _rememberSuccessfulEndpoint(baseEndpoint);
+          await _rememberSuccessfulEndpoint(activeBaseEndpoint);
           _currentSession = result;
           _recordAuthAttempt(
             'succeeded',
@@ -2320,7 +2323,7 @@ class XboardAuthService {
     });
   }
 
-  bool _shouldRetrySecureLogin(String code) => const {
+  bool _shouldRetrySecureEndpoint(String code) => const {
     'gateway_unavailable',
     'temporary_unavailable',
     'invalid_response_envelope',
@@ -2464,8 +2467,35 @@ class XboardAuthService {
 
   Future<void> _rememberSuccessfulEndpoint(Uri endpoint) async {
     try {
-      await _apiHealthService.savePreferredEndpoint(endpoint);
+      await _apiHealthService.rememberSuccessfulEndpoint(endpoint);
     } catch (_) {}
+  }
+
+  Future<XboardSubscriptionData> _fetchSecureSubscriptionWithFailover({
+    required String userToken,
+    required List<Uri> endpoints,
+  }) async {
+    final client = _subscriptionV2Client ?? SubscriptionV2Client();
+    XboardAuthException? lastFailure;
+    for (final baseEndpoint in endpoints) {
+      final requestEndpoint = buildXboardSubscribeUri(baseEndpoint);
+      try {
+        final summary = await client.fetchSummary(
+          endpoint: baseEndpoint,
+          userToken: userToken,
+        );
+        return _parseSubscriptionSuccess(requestEndpoint, {'data': summary});
+      } on SubscriptionV2Exception catch (error) {
+        final failure = _mapSubscriptionV2Error(error, requestEndpoint);
+        if (!_shouldRetrySecureEndpoint(error.code)) throw failure;
+        lastFailure = failure;
+      }
+    }
+    throw lastFailure ??
+        const XboardAuthException(
+          failure: XboardAuthFailure.subscriptionUnavailable,
+          message: '所有安全订阅接口均不可用，请稍后重试',
+        );
   }
 
   Future<XboardSubscriptionData> _fetchSubscription({
