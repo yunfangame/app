@@ -58,6 +58,8 @@ void main() {
     bool offlineMode = false,
     bool nestedLeaf = false,
     Locale locale = const Locale('en'),
+    List<Rule>? savedRules,
+    List<int> disabledRuleIds = const [],
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -67,6 +69,7 @@ void main() {
 
     const profile = Profile(
       id: 1,
+      label: 'Test plan',
       autoUpdateDuration: Duration.zero,
       currentGroupName: 'Manual select',
       selectedMap: {'Manual select': 'Node A'},
@@ -79,6 +82,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
+        viewSizeProvider.overrideWithBuild((_, _) => size),
         groupsProvider.overrideWithValue([
           group,
           if (nestedLeaf)
@@ -94,6 +98,14 @@ void main() {
         patchClashConfigProvider.overrideWithBuild(
           (_, _) => PatchClashConfig(mode: mode),
         ),
+        if (savedRules != null)
+          profileAddedRulesProvider(
+            profile.id,
+          ).overrideWith(() => _TestProfileAddedRules(savedRules)),
+        if (savedRules != null)
+          profileDisabledRuleIdsProvider(
+            profile.id,
+          ).overrideWith(() => _TestProfileDisabledRuleIds(disabledRuleIds)),
       ],
     );
     addTearDown(container.dispose);
@@ -413,6 +425,117 @@ void main() {
     expect(find.text('clerk.openrouter.ai:443'), findsOneWidget);
     expect(tester.takeException(), null);
   });
+
+  testWidgets('desktop shows saved rules for the current profile and edit UI', (
+    tester,
+  ) async {
+    await pumpView(
+      tester,
+      size: const Size(1500, 980),
+      reader: () async => [connection()],
+      savedRules: const [
+        Rule(
+          id: 11,
+          ruleAction: RuleAction.DOMAIN,
+          content: 'webmail.vip.163.com',
+          ruleTarget: 'DIRECT',
+          order: 'a',
+        ),
+        Rule(
+          id: 12,
+          ruleAction: RuleAction.MATCH,
+          ruleTarget: 'Manual select',
+          order: 'b',
+        ),
+      ],
+      disabledRuleIds: const [12],
+    );
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const ValueKey('connection-section-saved-rules')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Current subscription: Test plan'), findsOneWidget);
+    expect(find.text('webmail.vip.163.com'), findsOneWidget);
+    expect(find.text('All remaining traffic'), findsOneWidget);
+    expect(find.text('Target policy: Direct · Enabled'), findsOneWidget);
+    expect(
+      find.text('Target policy: Manual select · Disabled'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('edit-saved-rule-11')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit rule'), findsOneWidget);
+    expect(find.text('webmail.vip.163.com'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mobile saved rules remain scrollable without overflow', (
+    tester,
+  ) async {
+    await pumpView(
+      tester,
+      size: const Size(390, 844),
+      reader: () async => [],
+      savedRules: List.generate(
+        8,
+        (index) => Rule(
+          id: index + 20,
+          ruleAction: RuleAction.DOMAIN_SUFFIX,
+          content: 'service-$index.example.com',
+          ruleTarget: 'Manual select',
+          order: '$index',
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const ValueKey('connection-section-saved-rules')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('saved-rules-list')), findsOneWidget);
+    expect(find.text('service-0.example.com'), findsOneWidget);
+    await tester.drag(
+      find.byKey(const ValueKey('saved-rules-list')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('service-7.example.com'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('saved rules section pauses live connection polling', (
+    tester,
+  ) async {
+    var reads = 0;
+    await pumpView(
+      tester,
+      size: const Size(1500, 980),
+      reader: () async {
+        reads++;
+        return [];
+      },
+      savedRules: const [],
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey('connection-section-saved-rules')),
+    );
+    await tester.pumpAndSettle();
+    final readsAfterSwitch = reads;
+
+    await tester.pump(const Duration(seconds: 3));
+
+    expect(reads, readsAfterSwitch);
+    expect(find.text('No saved rules'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 XboardNodeData _backendNode(Object? status, {String name = 'Node A'}) {
@@ -463,4 +586,22 @@ class _TestApp extends StatelessWidget {
       home: child,
     );
   }
+}
+
+class _TestProfileAddedRules extends ProfileAddedRules {
+  final List<Rule> initialRules;
+
+  _TestProfileAddedRules(this.initialRules);
+
+  @override
+  Stream<List<Rule>> build(int profileId) => Stream.value(initialRules);
+}
+
+class _TestProfileDisabledRuleIds extends ProfileDisabledRuleIds {
+  final List<int> initialRuleIds;
+
+  _TestProfileDisabledRuleIds(this.initialRuleIds);
+
+  @override
+  Stream<List<int>> build(int profileId) => Stream.value(initialRuleIds);
 }

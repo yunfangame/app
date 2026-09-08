@@ -4,6 +4,7 @@ import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/core/method.dart';
 import 'package:fl_clash/enum/enum.dart';
+import 'package:fl_clash/features/overwrite/rule.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
@@ -32,6 +33,10 @@ enum _ConnectionSort {
 }
 
 enum _ConnectionAction { details, addRule, close }
+
+enum _ConnectionSection { current, savedRules }
+
+enum _SavedRuleAction { edit, delete }
 
 class FengWoConnectionsView extends ConsumerStatefulWidget {
   final Future<List<TrackerInfo>> Function()? connectionsReader;
@@ -67,6 +72,8 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
   bool _loading = true;
   bool _refreshing = false;
   bool _closingAll = false;
+  bool _savingRules = false;
+  _ConnectionSection _section = _ConnectionSection.current;
   _ConnectionSort _sort = _ConnectionSort.start;
   bool _ascending = false;
 
@@ -74,7 +81,8 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
   Duration get pollInterval => const Duration(seconds: 1);
 
   @override
-  bool get canPoll => _autoRefresh && super.canPoll;
+  bool get canPoll =>
+      _section == _ConnectionSection.current && _autoRefresh && super.canPoll;
 
   DateTime get _now => widget.now?.call() ?? DateTime.now();
 
@@ -174,6 +182,20 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     } else {
       stopPolling();
     }
+  }
+
+  void _selectSection(_ConnectionSection section) {
+    if (_section == section) return;
+    setState(() => _section = section);
+    if (section == _ConnectionSection.current && _autoRefresh) {
+      startPolling();
+    } else {
+      stopPolling();
+    }
+  }
+
+  void _showSavedRules() {
+    _selectSection(_ConnectionSection.savedRules);
   }
 
   void _changeSort(_ConnectionSort sort) {
@@ -311,7 +333,8 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
       ...groupTargets,
     ];
     final mode = ref.read(patchClashConfigProvider).mode;
-    await showDialog<void>(
+    bool? changed;
+    final applied = await showDialog<bool>(
       context: context,
       builder: (_) => _AddConnectionRuleDialog(
         connection: connection,
@@ -332,7 +355,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
                   switchToRuleMode: switchToRuleMode,
                 );
               } else {
-                await _applyRule(
+                changed = await _applyRule(
                   connection: connection,
                   rule: rule,
                   fallbackTarget: fallbackTarget,
@@ -342,9 +365,121 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
             },
       ),
     );
+    if (applied != true || !mounted) return;
+    _showRuleSavedFeedback(
+      changed == false
+          ? context.appLocalizations.connectionRuleAlreadyExists
+          : mode == Mode.global
+          ? context.appLocalizations.connectionRuleAppliedAndSwitched
+          : context.appLocalizations.connectionRuleApplied,
+    );
   }
 
-  Future<void> _applyRule({
+  void _showRuleSavedFeedback(String message) {
+    context.showNotifier(
+      message,
+      actionState: MessageActionState(
+        actionText: context.appLocalizations.viewSavedRules,
+        action: _showSavedRules,
+      ),
+    );
+  }
+
+  Future<void> _addOrEditSavedRule([Rule? rule]) async {
+    final profile = ref.read(currentProfileProvider);
+    if (profile == null || _savingRules) {
+      if (profile == null) {
+        context.showNotifier(context.appLocalizations.noProfileForRule);
+      }
+      return;
+    }
+    final result = await globalState.showCommonDialog<Rule>(
+      child: AddOrEditRuleDialog(rule: rule),
+    );
+    if (result == null || !mounted) return;
+    final savedRule = result.copyWith(order: rule?.order);
+    await _runSavedRuleMutation(
+      mutation: () => ref
+          .read(profileAddedRulesProvider(profile.id).notifier)
+          .putAndWait(savedRule),
+      successMessage: rule == null
+          ? context.appLocalizations.connectionRuleApplied
+          : context.appLocalizations.savedRuleUpdated,
+    );
+  }
+
+  Future<void> _deleteSavedRule(Rule rule) async {
+    final profile = ref.read(currentProfileProvider);
+    if (profile == null || _savingRules) return;
+    final confirmed = await globalState.showMessage(
+      title: context.appLocalizations.delete,
+      message: TextSpan(
+        text: context.appLocalizations.deleteTip(context.appLocalizations.rule),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _runSavedRuleMutation(
+      mutation: () => ref
+          .read(profileAddedRulesProvider(profile.id).notifier)
+          .delAllAndWait([rule.id]),
+      successMessage: context.appLocalizations.savedRuleDeleted,
+    );
+  }
+
+  Future<void> _toggleSavedRule(Rule rule, bool enabled) async {
+    final profile = ref.read(currentProfileProvider);
+    if (profile == null || _savingRules) return;
+    final notifier = ref.read(
+      profileDisabledRuleIdsProvider(profile.id).notifier,
+    );
+    await _runSavedRuleMutation(
+      mutation: enabled
+          ? () => notifier.delAndWait(rule.id)
+          : () => notifier.putAndWait(rule.id),
+      successMessage: enabled
+          ? context.appLocalizations.savedRuleEnabled
+          : context.appLocalizations.savedRuleDisabled,
+    );
+  }
+
+  Future<void> _reorderSavedRule(int oldIndex, int newIndex) async {
+    final profile = ref.read(currentProfileProvider);
+    if (profile == null || _savingRules || oldIndex == newIndex) return;
+    await _runSavedRuleMutation(
+      mutation: () => ref
+          .read(profileAddedRulesProvider(profile.id).notifier)
+          .orderAndWait(oldIndex, newIndex),
+      successMessage: context.appLocalizations.savedRulesReordered,
+    );
+  }
+
+  Future<void> _runSavedRuleMutation({
+    required Future<void> Function() mutation,
+    required String successMessage,
+  }) async {
+    if (_savingRules) return;
+    setState(() => _savingRules = true);
+    try {
+      await mutation();
+      await ref
+          .read(setupActionProvider.notifier)
+          .applyProfile(force: true, silence: true);
+      if (mounted) context.showNotifier(successMessage);
+    } catch (error) {
+      if (mounted) context.showNotifier(error.toString());
+    } finally {
+      if (mounted) setState(() => _savingRules = false);
+    }
+  }
+
+  void _retrySavedRules() {
+    final profile = ref.read(currentProfileProvider);
+    if (profile == null) return;
+    ref.invalidate(profileAddedRulesProvider(profile.id));
+    ref.invalidate(profileDisabledRuleIdsProvider(profile.id));
+  }
+
+  Future<bool> _applyRule({
     required TrackerInfo connection,
     required Rule rule,
     required String? fallbackTarget,
@@ -393,14 +528,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
         .read(setupActionProvider.notifier)
         .applyProfile(force: true, silence: true);
     await _closeConnection(connection);
-    if (!mounted) return;
-    context.showNotifier(
-      !changed
-          ? context.appLocalizations.connectionRuleAlreadyExists
-          : switchToRuleMode
-          ? context.appLocalizations.connectionRuleAppliedAndSwitched
-          : context.appLocalizations.connectionRuleApplied,
-    );
+    return changed;
   }
 
   void _handleAction(_ConnectionAction action, TrackerInfo connection) {
@@ -444,6 +572,14 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
   Widget build(BuildContext context) {
     final colors = _ConnectionColors.of(context);
     final delay = _currentDelay(ref);
+    final profile = ref.watch(currentProfileProvider);
+    final savedRules = profile == null
+        ? null
+        : ref.watch(profileAddedRulesProvider(profile.id));
+    final disabledRuleIds = profile == null
+        ? const <int>[]
+        : ref.watch(profileDisabledRuleIdsProvider(profile.id)).value ??
+              const <int>[];
     final backendStatus = resolveXboardNodeDisplayStatus(
       delay.nodeName,
       globalState.xboardNodes,
@@ -460,9 +596,20 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
               connections,
               delay.delay,
               backendStatus,
+              profile,
+              savedRules,
+              disabledRuleIds,
             );
           }
-          return _buildMobile(colors, connections, delay.delay, backendStatus);
+          return _buildMobile(
+            colors,
+            connections,
+            delay.delay,
+            backendStatus,
+            profile,
+            savedRules,
+            disabledRuleIds,
+          );
         },
       ),
     );
@@ -473,42 +620,67 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     List<TrackerInfo> connections,
     int? delay,
     XboardNodeDisplayStatus backendStatus,
+    Profile? profile,
+    AsyncValue<List<Rule>>? savedRules,
+    List<int> disabledRuleIds,
   ) {
     return Column(
       children: [
         _ConnectionHero(colors: colors),
+        _ConnectionSectionTabs(
+          colors: colors,
+          section: _section,
+          savedRulesCount: savedRules?.value?.length ?? 0,
+          onChanged: _selectSection,
+        ),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(24, 0, 24, 22),
-            child: Column(
-              children: [
-                Expanded(
-                  child: _ConnectionPanel(
+            child: _section == _ConnectionSection.current
+                ? Column(
+                    children: [
+                      Expanded(
+                        child: _ConnectionPanel(
+                          colors: colors,
+                          connectionCount: _connections.length,
+                          searchController: _searchController,
+                          query: _query,
+                          autoRefresh: _autoRefresh,
+                          refreshing: _refreshing,
+                          closingAll: _closingAll,
+                          onQueryChanged: (value) =>
+                              setState(() => _query = value),
+                          onAutoRefreshChanged: _toggleAutoRefresh,
+                          onRefresh: _refresh,
+                          onCloseAll: _closeAllConnections,
+                          child: _buildDesktopTable(colors, connections),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      _ConnectionSummaryRow(
+                        colors: colors,
+                        active: _connections.length,
+                        downloadSpeed: _downloadSpeed,
+                        uploadSpeed: _uploadSpeed,
+                        delay: delay,
+                        backendStatus: backendStatus,
+                      ),
+                    ],
+                  )
+                : _SavedConnectionRulesPanel(
                     colors: colors,
-                    connectionCount: _connections.length,
-                    searchController: _searchController,
-                    query: _query,
-                    autoRefresh: _autoRefresh,
-                    refreshing: _refreshing,
-                    closingAll: _closingAll,
-                    onQueryChanged: (value) => setState(() => _query = value),
-                    onAutoRefreshChanged: _toggleAutoRefresh,
-                    onRefresh: _refresh,
-                    onCloseAll: _closeAllConnections,
-                    child: _buildDesktopTable(colors, connections),
+                    profile: profile,
+                    rules: savedRules,
+                    disabledRuleIds: disabledRuleIds,
+                    saving: _savingRules,
+                    compact: false,
+                    onAdd: _addOrEditSavedRule,
+                    onEdit: _addOrEditSavedRule,
+                    onDelete: _deleteSavedRule,
+                    onToggle: _toggleSavedRule,
+                    onReorder: _reorderSavedRule,
+                    onRetry: _retrySavedRules,
                   ),
-                ),
-                const SizedBox(height: 14),
-                _ConnectionSummaryRow(
-                  colors: colors,
-                  active: _connections.length,
-                  downloadSpeed: _downloadSpeed,
-                  uploadSpeed: _uploadSpeed,
-                  delay: delay,
-                  backendStatus: backendStatus,
-                ),
-              ],
-            ),
           ),
         ),
       ],
@@ -520,7 +692,43 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     List<TrackerInfo> connections,
     int? delay,
     XboardNodeDisplayStatus backendStatus,
+    Profile? profile,
+    AsyncValue<List<Rule>>? savedRules,
+    List<int> disabledRuleIds,
   ) {
+    if (_section == _ConnectionSection.savedRules) {
+      return Column(
+        children: [
+          _ConnectionHero(colors: colors),
+          _ConnectionSectionTabs(
+            colors: colors,
+            section: _section,
+            savedRulesCount: savedRules?.value?.length ?? 0,
+            compact: true,
+            onChanged: _selectSection,
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 20),
+              child: _SavedConnectionRulesPanel(
+                colors: colors,
+                profile: profile,
+                rules: savedRules,
+                disabledRuleIds: disabledRuleIds,
+                saving: _savingRules,
+                compact: true,
+                onAdd: _addOrEditSavedRule,
+                onEdit: _addOrEditSavedRule,
+                onDelete: _deleteSavedRule,
+                onToggle: _toggleSavedRule,
+                onReorder: _reorderSavedRule,
+                onRetry: _retrySavedRules,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
     return RefreshIndicator(
       onRefresh: _refresh,
       child: CustomScrollView(
@@ -528,6 +736,15 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           SliverToBoxAdapter(child: _ConnectionHero(colors: colors)),
+          SliverToBoxAdapter(
+            child: _ConnectionSectionTabs(
+              colors: colors,
+              section: _section,
+              savedRulesCount: savedRules?.value?.length ?? 0,
+              compact: true,
+              onChanged: _selectSection,
+            ),
+          ),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
             sliver: SliverToBoxAdapter(
@@ -818,6 +1035,607 @@ class _ConnectionHero extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ConnectionSectionTabs extends StatelessWidget {
+  final _ConnectionColors colors;
+  final _ConnectionSection section;
+  final int savedRulesCount;
+  final bool compact;
+  final ValueChanged<_ConnectionSection> onChanged;
+
+  const _ConnectionSectionTabs({
+    required this.colors,
+    required this.section,
+    required this.savedRulesCount,
+    required this.onChanged,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.appLocalizations;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(compact ? 14 : 24, 0, compact ? 14 : 24, 14),
+      child: Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: Container(
+          width: compact ? double.infinity : 460,
+          padding: const EdgeInsets.all(5),
+          decoration: BoxDecoration(
+            color: colors.surfaceSoft,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colors.outline),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: _ConnectionSectionTab(
+                  key: const ValueKey('connection-section-current'),
+                  colors: colors,
+                  selected: section == _ConnectionSection.current,
+                  icon: Icons.link_rounded,
+                  label: l10n.currentConnections,
+                  onPressed: () => onChanged(_ConnectionSection.current),
+                ),
+              ),
+              const SizedBox(width: 5),
+              Expanded(
+                child: _ConnectionSectionTab(
+                  key: const ValueKey('connection-section-saved-rules'),
+                  colors: colors,
+                  selected: section == _ConnectionSection.savedRules,
+                  icon: Icons.rule_folder_outlined,
+                  label: l10n.savedRules,
+                  count: savedRulesCount,
+                  onPressed: () => onChanged(_ConnectionSection.savedRules),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ConnectionSectionTab extends StatelessWidget {
+  final _ConnectionColors colors;
+  final bool selected;
+  final IconData icon;
+  final String label;
+  final int? count;
+  final VoidCallback onPressed;
+
+  const _ConnectionSectionTab({
+    super.key,
+    required this.colors,
+    required this.selected,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.count,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: selected ? colors.surface : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: selected
+                ? [BoxShadow(color: colors.shadow, blurRadius: 10)]
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 19,
+                color: selected ? colors.primary : colors.muted,
+              ),
+              const SizedBox(width: 7),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected ? colors.primary : colors.muted,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              if (count != null) ...[
+                const SizedBox(width: 6),
+                Container(
+                  constraints: const BoxConstraints(minWidth: 21),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: selected ? colors.primary : colors.outline,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '$count',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: selected ? Colors.white : colors.muted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SavedConnectionRulesPanel extends StatelessWidget {
+  final _ConnectionColors colors;
+  final Profile? profile;
+  final AsyncValue<List<Rule>>? rules;
+  final List<int> disabledRuleIds;
+  final bool saving;
+  final bool compact;
+  final VoidCallback onAdd;
+  final ValueChanged<Rule> onEdit;
+  final ValueChanged<Rule> onDelete;
+  final void Function(Rule rule, bool enabled) onToggle;
+  final void Function(int oldIndex, int newIndex) onReorder;
+  final VoidCallback onRetry;
+
+  const _SavedConnectionRulesPanel({
+    required this.colors,
+    required this.profile,
+    required this.rules,
+    required this.disabledRuleIds,
+    required this.saving,
+    required this.compact,
+    required this.onAdd,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onToggle,
+    required this.onReorder,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.appLocalizations;
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface.withValues(alpha: 0.98),
+        borderRadius: BorderRadius.circular(compact ? 22 : 28),
+        border: Border.all(color: colors.outline),
+        boxShadow: [BoxShadow(color: colors.shadow, blurRadius: 24)],
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              compact ? 14 : 20,
+              compact ? 13 : 16,
+              compact ? 10 : 18,
+              compact ? 11 : 14,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: colors.primarySoft,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.rule_folder_outlined,
+                    color: colors.primary,
+                    size: 21,
+                  ),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.savedRules,
+                        style: TextStyle(
+                          color: colors.text,
+                          fontSize: compact ? 17 : 20,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      Text(
+                        l10n.savedRulesOrderHint,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: colors.muted, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                if (saving)
+                  const Padding(
+                    padding: EdgeInsets.all(11),
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                else if (compact)
+                  IconButton.filledTonal(
+                    key: const ValueKey('add-saved-rule'),
+                    tooltip: l10n.addRule,
+                    onPressed: profile == null ? null : onAdd,
+                    icon: const Icon(Icons.add_rounded),
+                  )
+                else
+                  FilledButton.tonalIcon(
+                    key: const ValueKey('add-saved-rule'),
+                    onPressed: profile == null ? null : onAdd,
+                    icon: const Icon(Icons.add_rounded),
+                    label: Text(l10n.addRule),
+                  ),
+              ],
+            ),
+          ),
+          Divider(height: 1, color: colors.outline),
+          if (profile != null)
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                compact ? 12 : 18,
+                compact ? 12 : 16,
+                compact ? 12 : 18,
+                0,
+              ),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(13),
+                decoration: BoxDecoration(
+                  color: colors.primarySoft,
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(
+                    color: colors.primary.withValues(alpha: 0.22),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.cloud_outlined, color: colors.primary, size: 21),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            l10n.savedRulesProfileScope(
+                              profile!.label.takeFirstValid([
+                                profile!.id.toString(),
+                              ]),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: colors.text,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            l10n.savedRulesProfileHint,
+                            style: TextStyle(color: colors.muted, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          Expanded(child: _buildRules(context)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRules(BuildContext context) {
+    final l10n = context.appLocalizations;
+    if (profile == null || rules == null) {
+      return _SavedRulesStatus(
+        colors: colors,
+        icon: Icons.cloud_off_outlined,
+        title: l10n.noProfileForRule,
+        message: l10n.savedRulesRequireProfile,
+      );
+    }
+    return rules!.when(
+      data: (items) {
+        if (items.isEmpty) {
+          return _SavedRulesStatus(
+            colors: colors,
+            icon: Icons.rule_folder_outlined,
+            title: l10n.noSavedRules,
+            message: l10n.noSavedRulesDescription,
+            actionLabel: l10n.addRule,
+            onAction: saving ? null : onAdd,
+          );
+        }
+        return ReorderableListView.builder(
+          key: const ValueKey('saved-rules-list'),
+          buildDefaultDragHandles: false,
+          padding: EdgeInsets.fromLTRB(
+            compact ? 12 : 18,
+            14,
+            compact ? 12 : 18,
+            compact ? 18 : 22,
+          ),
+          itemCount: items.length,
+          proxyDecorator: (child, _, animation) => AnimatedBuilder(
+            animation: animation,
+            builder: (context, _) => Material(
+              elevation: 8 * animation.value,
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+              child: child,
+            ),
+          ),
+          itemBuilder: (context, index) {
+            final rule = items[index];
+            return Padding(
+              key: ValueKey('saved-rule-${rule.id}'),
+              padding: const EdgeInsets.only(bottom: 9),
+              child: _SavedRuleCard(
+                colors: colors,
+                rule: rule,
+                index: index,
+                enabled: !disabledRuleIds.contains(rule.id),
+                saving: saving,
+                compact: compact,
+                onEdit: () => onEdit(rule),
+                onDelete: () => onDelete(rule),
+                onToggle: (enabled) => onToggle(rule, enabled),
+              ),
+            );
+          },
+          onReorderItem: saving ? (_, _) {} : onReorder,
+        );
+      },
+      error: (_, _) => _SavedRulesStatus(
+        colors: colors,
+        icon: Icons.error_outline_rounded,
+        title: l10n.savedRulesLoadFailed,
+        message: l10n.savedRulesLoadFailedDescription,
+        actionLabel: l10n.retry,
+        onAction: onRetry,
+      ),
+      loading: () => const Center(child: CircularProgressIndicator()),
+    );
+  }
+}
+
+class _SavedRuleCard extends StatelessWidget {
+  final _ConnectionColors colors;
+  final Rule rule;
+  final int index;
+  final bool enabled;
+  final bool saving;
+  final bool compact;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final ValueChanged<bool> onToggle;
+
+  const _SavedRuleCard({
+    required this.colors,
+    required this.rule,
+    required this.index,
+    required this.enabled,
+    required this.saving,
+    required this.compact,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.appLocalizations;
+    final rawContent = rule.realContent?.trim();
+    final content = rawContent?.isNotEmpty == true
+        ? rawContent!
+        : l10n.allRemainingTraffic;
+    final target = switch (rule.realTarget?.toUpperCase()) {
+      'DIRECT' => l10n.direct,
+      'REJECT' => l10n.reject,
+      final value? when value.isNotEmpty => rule.realTarget!,
+      _ => l10n.unknown,
+    };
+    return Container(
+      decoration: BoxDecoration(
+        color: enabled ? colors.surfaceSoft : colors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.outline),
+      ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 8 : 12,
+          vertical: compact ? 9 : 11,
+        ),
+        child: Row(
+          children: [
+            ReorderableDragStartListener(
+              index: index,
+              enabled: !saving,
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Icon(Icons.drag_indicator_rounded, color: colors.muted),
+              ),
+            ),
+            const SizedBox(width: 3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    rule.ruleAction.value,
+                    style: TextStyle(
+                      color: colors.muted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    content,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: enabled ? colors.text : colors.muted,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${l10n.targetPolicy}: $target · ${enabled ? l10n.enabled : l10n.disabled}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: enabled ? colors.success : colors.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Switch.adaptive(
+              value: enabled,
+              onChanged: saving ? null : onToggle,
+            ),
+            if (compact)
+              PopupMenuButton<_SavedRuleAction>(
+                key: ValueKey('saved-rule-menu-${rule.id}'),
+                enabled: !saving,
+                tooltip: l10n.actions,
+                onSelected: (action) {
+                  switch (action) {
+                    case _SavedRuleAction.edit:
+                      onEdit();
+                    case _SavedRuleAction.delete:
+                      onDelete();
+                  }
+                },
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: _SavedRuleAction.edit,
+                    child: ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.edit_outlined),
+                      title: Text(l10n.edit),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _SavedRuleAction.delete,
+                    child: ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.delete_outline_rounded),
+                      title: Text(l10n.delete),
+                    ),
+                  ),
+                ],
+              )
+            else ...[
+              IconButton(
+                key: ValueKey('edit-saved-rule-${rule.id}'),
+                tooltip: l10n.edit,
+                onPressed: saving ? null : onEdit,
+                icon: const Icon(Icons.edit_outlined),
+              ),
+              IconButton(
+                key: ValueKey('delete-saved-rule-${rule.id}'),
+                tooltip: l10n.delete,
+                onPressed: saving ? null : onDelete,
+                icon: const Icon(Icons.delete_outline_rounded),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SavedRulesStatus extends StatelessWidget {
+  final _ConnectionColors colors;
+  final IconData icon;
+  final String title;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  const _SavedRulesStatus({
+    required this.colors,
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 58, color: colors.primary.withValues(alpha: 0.55)),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: colors.text,
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: colors.muted),
+            ),
+            if (actionLabel != null) ...[
+              const SizedBox(height: 16),
+              FilledButton.tonal(
+                onPressed: onAction,
+                child: Text(actionLabel!),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -2014,7 +2832,7 @@ class _AddConnectionRuleDialogState extends State<_AddConnectionRuleDialog> {
         fallbackTarget: widget.switchToRuleMode ? _fallbackTarget : null,
         switchToRuleMode: widget.switchToRuleMode,
       );
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
       if (mounted) context.showNotifier(error.toString());
     } finally {

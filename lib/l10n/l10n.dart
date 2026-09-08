@@ -8608,11 +8608,186 @@ class AppLocalizations {
     );
   }
 
-  /// `VPN acceleration is active and protecting your network connections`
+  /// `View active network connections and manage custom routing rules`
   String get realTimeConnectionsSubtitle {
     return Intl.message(
-      'VPN acceleration is active and protecting your network connections',
+      'View active network connections and manage custom routing rules',
       name: 'realTimeConnectionsSubtitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Current connections`
+  String get currentConnections {
+    return Intl.message(
+      'Current connections',
+      name: 'currentConnections',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Saved rules`
+  String get savedRules {
+    return Intl.message('Saved rules', name: 'savedRules', desc: '', args: []);
+  }
+
+  /// `View saved rules`
+  String get viewSavedRules {
+    return Intl.message(
+      'View saved rules',
+      name: 'viewSavedRules',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Rules match from top to bottom. Drag to change priority`
+  String get savedRulesOrderHint {
+    return Intl.message(
+      'Rules match from top to bottom. Drag to change priority',
+      name: 'savedRulesOrderHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Current subscription: {profile}`
+  String savedRulesProfileScope(String profile) {
+    return Intl.message(
+      'Current subscription: $profile',
+      name: 'savedRulesProfileScope',
+      desc: '',
+      args: [profile],
+    );
+  }
+
+  /// `Switching subscriptions shows the rules saved for that subscription`
+  String get savedRulesProfileHint {
+    return Intl.message(
+      'Switching subscriptions shows the rules saved for that subscription',
+      name: 'savedRulesProfileHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Select a subscription before adding or managing rules`
+  String get savedRulesRequireProfile {
+    return Intl.message(
+      'Select a subscription before adding or managing rules',
+      name: 'savedRulesRequireProfile',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No saved rules`
+  String get noSavedRules {
+    return Intl.message(
+      'No saved rules',
+      name: 'noSavedRules',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Add a rule from a live connection, or create one here`
+  String get noSavedRulesDescription {
+    return Intl.message(
+      'Add a rule from a live connection, or create one here',
+      name: 'noSavedRulesDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unable to load saved rules`
+  String get savedRulesLoadFailed {
+    return Intl.message(
+      'Unable to load saved rules',
+      name: 'savedRulesLoadFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Retry after checking the local profile data`
+  String get savedRulesLoadFailedDescription {
+    return Intl.message(
+      'Retry after checking the local profile data',
+      name: 'savedRulesLoadFailedDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Rule updated and applied`
+  String get savedRuleUpdated {
+    return Intl.message(
+      'Rule updated and applied',
+      name: 'savedRuleUpdated',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Rule deleted and the profile was reapplied`
+  String get savedRuleDeleted {
+    return Intl.message(
+      'Rule deleted and the profile was reapplied',
+      name: 'savedRuleDeleted',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Rule enabled and applied`
+  String get savedRuleEnabled {
+    return Intl.message(
+      'Rule enabled and applied',
+      name: 'savedRuleEnabled',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Rule disabled and applied`
+  String get savedRuleDisabled {
+    return Intl.message(
+      'Rule disabled and applied',
+      name: 'savedRuleDisabled',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Rule priority updated and applied`
+  String get savedRulesReordered {
+    return Intl.message(
+      'Rule priority updated and applied',
+      name: 'savedRulesReordered',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Enabled`
+  String get enabled {
+    return Intl.message('Enabled', name: 'enabled', desc: '', args: []);
+  }
+
+  /// `Disabled`
+  String get disabled {
+    return Intl.message('Disabled', name: 'disabled', desc: '', args: []);
+  }
+
+  /// `All remaining traffic`
+  String get allRemainingTraffic {
+    return Intl.message(
+      'All remaining traffic',
+      name: 'allRemainingTraffic',
       desc: '',
       args: [],
     );

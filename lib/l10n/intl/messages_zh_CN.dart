@@ -119,27 +119,29 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m47(count) => "已保存 ${count} 个，开启覆写后生效";
 
-  static String m48(count) => "${count} 秒";
+  static String m48(profile) => "当前订阅：${profile}";
 
-  static String m49(count) => "已选择 ${count} 项";
+  static String m49(count) => "${count} 秒";
 
-  static String m50(date) => "套餐已于 ${date} 到期，请及时续费后继续使用。";
+  static String m50(count) => "已选择 ${count} 项";
 
-  static String m51(date) => "套餐将在 ${date} 到期，剩余不足 3 天，请及时续费。";
+  static String m51(date) => "套餐已于 ${date} 到期，请及时续费后继续使用。";
 
-  static String m52(remaining) => "剩余流量仅 ${remaining} GB，已不足 10 GB，请及时购买或续费套餐。";
+  static String m52(date) => "套餐将在 ${date} 到期，剩余不足 3 天，请及时续费。";
 
-  static String m53(code) => "系统代理开启失败（${code}），开关已回滚，请导出日志排查";
+  static String m53(remaining) => "剩余流量仅 ${remaining} GB，已不足 10 GB，请及时购买或续费套餐。";
 
-  static String m54(code) => "系统代理关闭失败（${code}），请在 Windows 设置中手动关闭";
+  static String m54(code) => "系统代理开启失败（${code}），开关已回滚，请导出日志排查";
 
-  static String m55(count) => "共 ${count} 个订单";
+  static String m55(code) => "系统代理关闭失败（${code}），请在 Windows 设置中手动关闭";
 
-  static String m56(ip) => "解除后，IP ${ip} 可以再次登录此账号。";
+  static String m56(count) => "共 ${count} 个订单";
 
-  static String m57(label) => "${label}必须为URL";
+  static String m57(ip) => "解除后，IP ${ip} 可以再次登录此账号。";
 
-  static String m58(count) => "${count} 年前";
+  static String m58(label) => "${label}必须为URL";
+
+  static String m59(count) => "${count} 年前";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -191,6 +193,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "agree": MessageLookupByLibrary.simpleMessage("同意"),
     "allGeodataUpdated": MessageLookupByLibrary.simpleMessage("全部地理数据已更新"),
     "allPlans": MessageLookupByLibrary.simpleMessage("全部"),
+    "allRemainingTraffic": MessageLookupByLibrary.simpleMessage("其余所有流量"),
     "allowBypass": MessageLookupByLibrary.simpleMessage("允许应用绕过VPN"),
     "allowBypassDesc": MessageLookupByLibrary.simpleMessage("开启后部分应用可绕过VPN"),
     "allowLan": MessageLookupByLibrary.simpleMessage("局域网代理"),
@@ -504,6 +507,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "creatingOrder": MessageLookupByLibrary.simpleMessage("正在创建订单…"),
     "creationTime": MessageLookupByLibrary.simpleMessage("创建时间"),
     "currentActiveConnections": MessageLookupByLibrary.simpleMessage("当前活跃连接"),
+    "currentConnections": MessageLookupByLibrary.simpleMessage("当前连接"),
     "currentEndpoint": MessageLookupByLibrary.simpleMessage("当前使用"),
     "currentMonthTraffic": MessageLookupByLibrary.simpleMessage("本月流量"),
     "currentNode": MessageLookupByLibrary.simpleMessage("当前节点"),
@@ -546,6 +550,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "direct": MessageLookupByLibrary.simpleMessage("直连"),
     "disableProxy": MessageLookupByLibrary.simpleMessage("停止"),
     "disableUDP": MessageLookupByLibrary.simpleMessage("禁用UDP"),
+    "disabled": MessageLookupByLibrary.simpleMessage("已停用"),
     "disclaimer": MessageLookupByLibrary.simpleMessage("免责声明"),
     "disclaimerDesc": MessageLookupByLibrary.simpleMessage(
       "本软件仅供学习交流、科研等非商业性质的用途，严禁将本软件用于商业目的。如有任何商业行为，均与本软件无关。",
@@ -590,6 +595,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "enableOfflineTitle": MessageLookupByLibrary.simpleMessage("开启离线模式？"),
     "enableProxy": MessageLookupByLibrary.simpleMessage("启用"),
+    "enabled": MessageLookupByLibrary.simpleMessage("已启用"),
     "enterConfirmPassword": MessageLookupByLibrary.simpleMessage("请再次输入密码"),
     "enterEmail": MessageLookupByLibrary.simpleMessage("请输入邮箱"),
     "enterEmailAddress": MessageLookupByLibrary.simpleMessage("请输入邮箱地址"),
@@ -1000,6 +1006,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "noRecords": MessageLookupByLibrary.simpleMessage("暂无记录"),
     "noResolve": MessageLookupByLibrary.simpleMessage("不解析IP"),
     "noResolveHostname": MessageLookupByLibrary.simpleMessage("不解析主机名"),
+    "noSavedRules": MessageLookupByLibrary.simpleMessage("暂无已保存规则"),
+    "noSavedRulesDescription": MessageLookupByLibrary.simpleMessage(
+      "可从实时连接添加规则，也可以在这里直接创建",
+    ),
     "noSuccessfulLogin": MessageLookupByLibrary.simpleMessage("尚未产生成功登录"),
     "noTrafficRecords": MessageLookupByLibrary.simpleMessage("本月暂无流量记录"),
     "nodeAvailable": MessageLookupByLibrary.simpleMessage("可用"),
@@ -1252,7 +1262,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "reachable": MessageLookupByLibrary.simpleMessage("可连接"),
     "realTimeConnections": MessageLookupByLibrary.simpleMessage("实时连接"),
     "realTimeConnectionsSubtitle": MessageLookupByLibrary.simpleMessage(
-      "VPN 智能加速中，全面保护您的网络连接",
+      "查看当前网络连接并管理自定义分流规则",
     ),
     "recurringPlans": MessageLookupByLibrary.simpleMessage("周期性"),
     "redirPort": MessageLookupByLibrary.simpleMessage("Redir端口"),
@@ -1440,6 +1450,26 @@ class MessageLookup extends MessageLookupByLibrary {
     "save": MessageLookupByLibrary.simpleMessage("保存"),
     "saveChanges": MessageLookupByLibrary.simpleMessage("保存修改"),
     "savedDnsServersCount": m47,
+    "savedRuleDeleted": MessageLookupByLibrary.simpleMessage("规则已删除，配置已重新应用"),
+    "savedRuleDisabled": MessageLookupByLibrary.simpleMessage("规则已停用并生效"),
+    "savedRuleEnabled": MessageLookupByLibrary.simpleMessage("规则已启用并生效"),
+    "savedRuleUpdated": MessageLookupByLibrary.simpleMessage("规则已修改并生效"),
+    "savedRules": MessageLookupByLibrary.simpleMessage("已保存规则"),
+    "savedRulesLoadFailed": MessageLookupByLibrary.simpleMessage("已保存规则加载失败"),
+    "savedRulesLoadFailedDescription": MessageLookupByLibrary.simpleMessage(
+      "请检查本地订阅数据后重试",
+    ),
+    "savedRulesOrderHint": MessageLookupByLibrary.simpleMessage(
+      "规则从上到下匹配，可拖动调整优先级",
+    ),
+    "savedRulesProfileHint": MessageLookupByLibrary.simpleMessage(
+      "切换订阅后，将显示该订阅对应的规则",
+    ),
+    "savedRulesProfileScope": m48,
+    "savedRulesReordered": MessageLookupByLibrary.simpleMessage("规则优先级已更新并生效"),
+    "savedRulesRequireProfile": MessageLookupByLibrary.simpleMessage(
+      "请先选择订阅，再添加或管理规则",
+    ),
     "scanToPay": MessageLookupByLibrary.simpleMessage("扫码支付"),
     "scanWithPaymentApp": MessageLookupByLibrary.simpleMessage(
       "请使用对应的支付应用扫描下方二维码",
@@ -1453,7 +1483,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "搜索域名、IP、规则或节点",
     ),
     "seconds": MessageLookupByLibrary.simpleMessage("秒"),
-    "secondsCount": m48,
+    "secondsCount": m49,
     "selectAll": MessageLookupByLibrary.simpleMessage("全选"),
     "selectPaymentMethod": MessageLookupByLibrary.simpleMessage("选择支付方式"),
     "selectProxies": MessageLookupByLibrary.simpleMessage("选择代理"),
@@ -1465,7 +1495,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "selectSubRule": MessageLookupByLibrary.simpleMessage("请选择子规则"),
     "selectWithdrawalMethod": MessageLookupByLibrary.simpleMessage("请选择提现方式"),
     "selected": MessageLookupByLibrary.simpleMessage("已选择"),
-    "selectedCountTitle": m49,
+    "selectedCountTitle": m50,
     "selectingHongKongNode": MessageLookupByLibrary.simpleMessage(
       "正在选择可用的香港节点…",
     ),
@@ -1537,12 +1567,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "subRuleNotEmpty": MessageLookupByLibrary.simpleMessage("子规则不能为空"),
     "submit": MessageLookupByLibrary.simpleMessage("提交"),
     "submitWithdrawalTicket": MessageLookupByLibrary.simpleMessage("提交提现工单"),
-    "subscriptionExpiredWarning": m50,
-    "subscriptionExpiringWarning": m51,
+    "subscriptionExpiredWarning": m51,
+    "subscriptionExpiringWarning": m52,
     "subscriptionImportFailed": MessageLookupByLibrary.simpleMessage(
       "订阅节点加载失败，请检查网络后重试",
     ),
-    "subscriptionLowTrafficWarning": m52,
+    "subscriptionLowTrafficWarning": m53,
     "subscriptionNormalTooltip": MessageLookupByLibrary.simpleMessage(
       "套餐状态正常，点击查看详情",
     ),
@@ -1572,9 +1602,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "system": MessageLookupByLibrary.simpleMessage("系统"),
     "systemApp": MessageLookupByLibrary.simpleMessage("系统应用"),
     "systemProxy": MessageLookupByLibrary.simpleMessage("系统代理"),
-    "systemProxyApplyFailed": m53,
+    "systemProxyApplyFailed": m54,
     "systemProxyDesc": MessageLookupByLibrary.simpleMessage("设置系统代理"),
-    "systemProxyDisableFailed": m54,
+    "systemProxyDisableFailed": m55,
     "systemProxyStaleCleaned": MessageLookupByLibrary.simpleMessage(
       "已清理上次异常退出残留的系统代理",
     ),
@@ -1615,7 +1645,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "tools": MessageLookupByLibrary.simpleMessage("工具"),
     "totalCommission": MessageLookupByLibrary.simpleMessage("累计获得佣金"),
     "totalLoginCount": MessageLookupByLibrary.simpleMessage("登录次数"),
-    "totalOrders": m55,
+    "totalOrders": m56,
     "totalTrafficLabel": MessageLookupByLibrary.simpleMessage("总量"),
     "tproxyPort": MessageLookupByLibrary.simpleMessage("Tproxy端口"),
     "trafficDetailRecords": MessageLookupByLibrary.simpleMessage("流量详细记录表"),
@@ -1637,7 +1667,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "turnOn": MessageLookupByLibrary.simpleMessage("开启"),
     "twoYearBilling": MessageLookupByLibrary.simpleMessage("两年付"),
     "unblockLoginIp": MessageLookupByLibrary.simpleMessage("解除"),
-    "unblockLoginIpMessage": m56,
+    "unblockLoginIpMessage": m57,
     "unblockLoginIpTitle": MessageLookupByLibrary.simpleMessage("解除这个 IP 的限制？"),
     "unbound": MessageLookupByLibrary.simpleMessage("未绑定"),
     "undo": MessageLookupByLibrary.simpleMessage("撤销"),
@@ -1659,7 +1689,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "uploaded": MessageLookupByLibrary.simpleMessage("已上传"),
     "url": MessageLookupByLibrary.simpleMessage("URL"),
     "urlDesc": MessageLookupByLibrary.simpleMessage("通过URL获取配置文件"),
-    "urlTip": m57,
+    "urlTip": m58,
     "useHosts": MessageLookupByLibrary.simpleMessage("使用Hosts"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage("使用系统Hosts"),
     "usedTrafficLabel": MessageLookupByLibrary.simpleMessage("已使用"),
@@ -1679,6 +1709,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "viewApps": MessageLookupByLibrary.simpleMessage("查看应用"),
     "viewDetails": MessageLookupByLibrary.simpleMessage("查看详情"),
     "viewOrderDetails": MessageLookupByLibrary.simpleMessage("查看详情"),
+    "viewSavedRules": MessageLookupByLibrary.simpleMessage("查看已保存规则"),
     "vpnConfigChangeDetected": MessageLookupByLibrary.simpleMessage(
       "检测到VPN相关配置改动",
     ),
@@ -1711,7 +1742,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "提交后将在系统内自动创建工单，管理员将根据工单内容处理。",
     ),
     "yearlyBilling": MessageLookupByLibrary.simpleMessage("年付"),
-    "yearsAgo": m58,
+    "yearsAgo": m59,
     "zh_CN": MessageLookupByLibrary.simpleMessage("中文简体"),
     "zoomIn": MessageLookupByLibrary.simpleMessage("放大"),
     "zoomOut": MessageLookupByLibrary.simpleMessage("缩小"),

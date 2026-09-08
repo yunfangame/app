@@ -129,33 +129,35 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m47(count) => "${count} saved; active when override is enabled";
 
-  static String m48(count) => "${count} seconds";
+  static String m48(profile) => "Current subscription: ${profile}";
 
-  static String m49(count) => "${count} items have been selected";
+  static String m49(count) => "${count} seconds";
 
-  static String m50(date) =>
-      "Your plan expired on ${date}. Renew it to continue using the service.";
+  static String m50(count) => "${count} items have been selected";
 
   static String m51(date) =>
+      "Your plan expired on ${date}. Renew it to continue using the service.";
+
+  static String m52(date) =>
       "Your plan expires on ${date}, in less than 3 days. Renew it soon.";
 
-  static String m52(remaining) =>
+  static String m53(remaining) =>
       "Only ${remaining} GB remains, which is below 10 GB. Purchase or renew a plan soon.";
 
-  static String m53(code) =>
+  static String m54(code) =>
       "Could not enable the system proxy (${code}). The switch was reverted. Export logs for diagnosis";
 
-  static String m54(code) =>
+  static String m55(code) =>
       "Could not disable the system proxy (${code}). Disable it manually in Windows Settings";
 
-  static String m55(count) => "${count} orders";
+  static String m56(count) => "${count} orders";
 
-  static String m56(ip) =>
+  static String m57(ip) =>
       "IP ${ip} will be able to log in to this account again.";
 
-  static String m57(label) => "${label} must be a url";
+  static String m58(label) => "${label} must be a url";
 
-  static String m58(count) =>
+  static String m59(count) =>
       "${Intl.plural(count, one: '1 year ago', other: '${count} years ago')}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
@@ -228,6 +230,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "All geodata resources have been updated",
     ),
     "allPlans": MessageLookupByLibrary.simpleMessage("All"),
+    "allRemainingTraffic": MessageLookupByLibrary.simpleMessage(
+      "All remaining traffic",
+    ),
     "allowBypass": MessageLookupByLibrary.simpleMessage(
       "Allow applications to bypass VPN",
     ),
@@ -663,6 +668,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "currentActiveConnections": MessageLookupByLibrary.simpleMessage(
       "Active connections",
     ),
+    "currentConnections": MessageLookupByLibrary.simpleMessage(
+      "Current connections",
+    ),
     "currentEndpoint": MessageLookupByLibrary.simpleMessage("Currently used"),
     "currentMonthTraffic": MessageLookupByLibrary.simpleMessage("This month"),
     "currentNode": MessageLookupByLibrary.simpleMessage("Current node"),
@@ -725,6 +733,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "direct": MessageLookupByLibrary.simpleMessage("Direct"),
     "disableProxy": MessageLookupByLibrary.simpleMessage("Stop"),
     "disableUDP": MessageLookupByLibrary.simpleMessage("Disable UDP"),
+    "disabled": MessageLookupByLibrary.simpleMessage("Disabled"),
     "disclaimer": MessageLookupByLibrary.simpleMessage("Disclaimer"),
     "disclaimerDesc": MessageLookupByLibrary.simpleMessage(
       "This software is only used for non-commercial purposes such as learning exchanges and scientific research. It is strictly prohibited to use this software for commercial purposes. Any commercial activity, if any, has nothing to do with this software.",
@@ -787,6 +796,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Enable offline mode?",
     ),
     "enableProxy": MessageLookupByLibrary.simpleMessage("Enable"),
+    "enabled": MessageLookupByLibrary.simpleMessage("Enabled"),
     "enterConfirmPassword": MessageLookupByLibrary.simpleMessage(
       "Enter your password again",
     ),
@@ -1352,6 +1362,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "noResolveHostname": MessageLookupByLibrary.simpleMessage(
       "No resolve hostname",
     ),
+    "noSavedRules": MessageLookupByLibrary.simpleMessage("No saved rules"),
+    "noSavedRulesDescription": MessageLookupByLibrary.simpleMessage(
+      "Add a rule from a live connection, or create one here",
+    ),
     "noSuccessfulLogin": MessageLookupByLibrary.simpleMessage(
       "No successful login recorded",
     ),
@@ -1700,7 +1714,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Live connections",
     ),
     "realTimeConnectionsSubtitle": MessageLookupByLibrary.simpleMessage(
-      "VPN acceleration is active and protecting your network connections",
+      "View active network connections and manage custom routing rules",
     ),
     "recurringPlans": MessageLookupByLibrary.simpleMessage("Recurring"),
     "redirPort": MessageLookupByLibrary.simpleMessage("Redir Port"),
@@ -1980,6 +1994,38 @@ class MessageLookup extends MessageLookupByLibrary {
     "save": MessageLookupByLibrary.simpleMessage("Save"),
     "saveChanges": MessageLookupByLibrary.simpleMessage("Save changes"),
     "savedDnsServersCount": m47,
+    "savedRuleDeleted": MessageLookupByLibrary.simpleMessage(
+      "Rule deleted and the profile was reapplied",
+    ),
+    "savedRuleDisabled": MessageLookupByLibrary.simpleMessage(
+      "Rule disabled and applied",
+    ),
+    "savedRuleEnabled": MessageLookupByLibrary.simpleMessage(
+      "Rule enabled and applied",
+    ),
+    "savedRuleUpdated": MessageLookupByLibrary.simpleMessage(
+      "Rule updated and applied",
+    ),
+    "savedRules": MessageLookupByLibrary.simpleMessage("Saved rules"),
+    "savedRulesLoadFailed": MessageLookupByLibrary.simpleMessage(
+      "Unable to load saved rules",
+    ),
+    "savedRulesLoadFailedDescription": MessageLookupByLibrary.simpleMessage(
+      "Retry after checking the local profile data",
+    ),
+    "savedRulesOrderHint": MessageLookupByLibrary.simpleMessage(
+      "Rules match from top to bottom. Drag to change priority",
+    ),
+    "savedRulesProfileHint": MessageLookupByLibrary.simpleMessage(
+      "Switching subscriptions shows the rules saved for that subscription",
+    ),
+    "savedRulesProfileScope": m48,
+    "savedRulesReordered": MessageLookupByLibrary.simpleMessage(
+      "Rule priority updated and applied",
+    ),
+    "savedRulesRequireProfile": MessageLookupByLibrary.simpleMessage(
+      "Select a subscription before adding or managing rules",
+    ),
     "scanToPay": MessageLookupByLibrary.simpleMessage("Scan to pay"),
     "scanWithPaymentApp": MessageLookupByLibrary.simpleMessage(
       "Scan the QR code below with the matching payment app",
@@ -1993,7 +2039,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Search domain, IP, rule, or node",
     ),
     "seconds": MessageLookupByLibrary.simpleMessage("Seconds"),
-    "secondsCount": m48,
+    "secondsCount": m49,
     "selectAll": MessageLookupByLibrary.simpleMessage("Select all"),
     "selectPaymentMethod": MessageLookupByLibrary.simpleMessage(
       "Select a payment method",
@@ -2021,7 +2067,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Select a withdrawal method",
     ),
     "selected": MessageLookupByLibrary.simpleMessage("Selected"),
-    "selectedCountTitle": m49,
+    "selectedCountTitle": m50,
     "selectingHongKongNode": MessageLookupByLibrary.simpleMessage(
       "Selecting an available Hong Kong node…",
     ),
@@ -2125,12 +2171,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "submitWithdrawalTicket": MessageLookupByLibrary.simpleMessage(
       "Submit withdrawal ticket",
     ),
-    "subscriptionExpiredWarning": m50,
-    "subscriptionExpiringWarning": m51,
+    "subscriptionExpiredWarning": m51,
+    "subscriptionExpiringWarning": m52,
     "subscriptionImportFailed": MessageLookupByLibrary.simpleMessage(
       "Failed to load subscription nodes. Check your network and try again",
     ),
-    "subscriptionLowTrafficWarning": m52,
+    "subscriptionLowTrafficWarning": m53,
     "subscriptionNormalTooltip": MessageLookupByLibrary.simpleMessage(
       "Plan status is normal. Click to view details",
     ),
@@ -2164,11 +2210,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "system": MessageLookupByLibrary.simpleMessage("System"),
     "systemApp": MessageLookupByLibrary.simpleMessage("System APP"),
     "systemProxy": MessageLookupByLibrary.simpleMessage("System proxy"),
-    "systemProxyApplyFailed": m53,
+    "systemProxyApplyFailed": m54,
     "systemProxyDesc": MessageLookupByLibrary.simpleMessage(
       "Attach HTTP proxy to VpnService",
     ),
-    "systemProxyDisableFailed": m54,
+    "systemProxyDisableFailed": m55,
     "systemProxyStaleCleaned": MessageLookupByLibrary.simpleMessage(
       "The system proxy left by the previous abnormal exit was cleared",
     ),
@@ -2215,7 +2261,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "tools": MessageLookupByLibrary.simpleMessage("Tools"),
     "totalCommission": MessageLookupByLibrary.simpleMessage("Total commission"),
     "totalLoginCount": MessageLookupByLibrary.simpleMessage("Login count"),
-    "totalOrders": m55,
+    "totalOrders": m56,
     "totalTrafficLabel": MessageLookupByLibrary.simpleMessage("Total"),
     "tproxyPort": MessageLookupByLibrary.simpleMessage("Tproxy Port"),
     "trafficDetailRecords": MessageLookupByLibrary.simpleMessage(
@@ -2245,7 +2291,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "turnOn": MessageLookupByLibrary.simpleMessage("Turn On"),
     "twoYearBilling": MessageLookupByLibrary.simpleMessage("2 years"),
     "unblockLoginIp": MessageLookupByLibrary.simpleMessage("Unblock"),
-    "unblockLoginIpMessage": m56,
+    "unblockLoginIpMessage": m57,
     "unblockLoginIpTitle": MessageLookupByLibrary.simpleMessage(
       "Unblock this IP?",
     ),
@@ -2275,7 +2321,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "urlDesc": MessageLookupByLibrary.simpleMessage(
       "Obtain profile through URL",
     ),
-    "urlTip": m57,
+    "urlTip": m58,
     "useHosts": MessageLookupByLibrary.simpleMessage("Use hosts"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage("Use system hosts"),
     "usedTrafficLabel": MessageLookupByLibrary.simpleMessage("Used"),
@@ -2303,6 +2349,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "viewApps": MessageLookupByLibrary.simpleMessage("View apps"),
     "viewDetails": MessageLookupByLibrary.simpleMessage("View details"),
     "viewOrderDetails": MessageLookupByLibrary.simpleMessage("View details"),
+    "viewSavedRules": MessageLookupByLibrary.simpleMessage("View saved rules"),
     "vpnConfigChangeDetected": MessageLookupByLibrary.simpleMessage(
       "VPN configuration change detected",
     ),
@@ -2353,7 +2400,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "A support ticket will be created in the system for an administrator to process.",
     ),
     "yearlyBilling": MessageLookupByLibrary.simpleMessage("Yearly"),
-    "yearsAgo": m58,
+    "yearsAgo": m59,
     "zh_CN": MessageLookupByLibrary.simpleMessage("Simplified Chinese"),
     "zoomIn": MessageLookupByLibrary.simpleMessage("Zoom in"),
     "zoomOut": MessageLookupByLibrary.simpleMessage("Zoom out"),

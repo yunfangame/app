@@ -302,18 +302,25 @@ class ProfileAddedRules extends _$ProfileAddedRules with AsyncNotifierMixin {
   }
 
   void delAll(Iterable<int> ruleIds) {
+    unawaited(delAllAndWait(ruleIds));
+  }
+
+  Future<void> delAllAndWait(Iterable<int> ruleIds) async {
+    final ids = ruleIds.toList(growable: false);
     final previous = List<Rule>.from(value);
-    value = List.from(previous.where((item) => !ruleIds.contains(item.id)));
-    unawaited(
-      withRollback(
-        snapshot: previous,
-        action: () => database.rulesDao.delRules(ruleIds),
-        rollback: (v) => value = v,
-      ),
+    value = List.from(previous.where((item) => !ids.contains(item.id)));
+    await withRollback(
+      snapshot: previous,
+      action: () => database.rulesDao.delRules(ids),
+      rollback: (v) => value = v,
     );
   }
 
   void order(int oldIndex, int newIndex) {
+    unawaited(orderAndWait(oldIndex, newIndex));
+  }
+
+  Future<void> orderAndWait(int oldIndex, int newIndex) async {
     final previous = List<Rule>.from(value);
     final item = previous[oldIndex];
     final nextItems = previous.copyAndReorder(oldIndex, newIndex);
@@ -321,16 +328,14 @@ class ProfileAddedRules extends _$ProfileAddedRules with AsyncNotifierMixin {
     final preOrder = nextItems.safeGet(newIndex - 1)?.order;
     final nextOrder = nextItems.safeGet(newIndex + 1)?.order;
     final newOrder = indexing.generateKeyBetween(preOrder, nextOrder)!;
-    unawaited(
-      withRollback(
-        snapshot: previous,
-        action: () => database.rulesDao.orderProfileAddedRule(
-          profileId,
-          ruleId: item.id,
-          order: newOrder,
-        ),
-        rollback: (v) => value = v,
+    await withRollback(
+      snapshot: previous,
+      action: () => database.rulesDao.orderProfileAddedRule(
+        profileId,
+        ruleId: item.id,
+        order: newOrder,
       ),
+      rollback: (v) => value = v,
     );
   }
 }
@@ -538,26 +543,30 @@ class ProfileDisabledRuleIds extends _$ProfileDisabledRuleIds
   }
 
   void del(int ruleId) {
+    unawaited(delAndWait(ruleId));
+  }
+
+  Future<void> delAndWait(int ruleId) async {
     final previous = List<int>.from(value);
     value = List.from(previous.where((item) => item != ruleId));
-    unawaited(
-      withRollback(
-        snapshot: previous,
-        action: () => database.rulesDao.delDisabledLink(profileId, ruleId),
-        rollback: (v) => value = v,
-      ),
+    await withRollback(
+      snapshot: previous,
+      action: () => database.rulesDao.delDisabledLink(profileId, ruleId),
+      rollback: (v) => value = v,
     );
   }
 
   void put(int ruleId) {
+    unawaited(putAndWait(ruleId));
+  }
+
+  Future<void> putAndWait(int ruleId) async {
     final previous = List<int>.from(value);
     _put(ruleId);
-    unawaited(
-      withRollback(
-        snapshot: previous,
-        action: () => database.rulesDao.putDisabledLink(profileId, ruleId),
-        rollback: (v) => value = v,
-      ),
+    await withRollback(
+      snapshot: previous,
+      action: () => database.rulesDao.putDisabledLink(profileId, ruleId),
+      rollback: (v) => value = v,
     );
   }
 }
