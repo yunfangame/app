@@ -1488,6 +1488,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "nodeStatusUnknown": MessageLookupByLibrary.simpleMessage(
       "Статус неизвестен",
     ),
+    "nodeUpdateSuccess": MessageLookupByLibrary.simpleMessage(
+      "Получена актуальная информация об узлах",
+    ),
     "nodesCount": m40,
     "none": MessageLookupByLibrary.simpleMessage("Нет"),
     "notEnabled": MessageLookupByLibrary.simpleMessage("Не включено"),

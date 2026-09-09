@@ -796,6 +796,7 @@
   "qualityNodes": "优质节点",
   "availabilityRate": "可用率",
   "refreshNodes": "刷新",
+  "nodeUpdateSuccess": "已获取最新节点信息",
   "online": "在线",
   "offline": "离线",
   "nodeBackendOnline": "后台在线",

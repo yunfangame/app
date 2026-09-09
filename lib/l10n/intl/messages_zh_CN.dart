@@ -1050,6 +1050,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "选择最优节点，畅享极速稳定的网络连接",
     ),
     "nodeStatusUnknown": MessageLookupByLibrary.simpleMessage("状态未知"),
+    "nodeUpdateSuccess": MessageLookupByLibrary.simpleMessage("已获取最新节点信息"),
     "nodesCount": m40,
     "none": MessageLookupByLibrary.simpleMessage("无"),
     "notEnabled": MessageLookupByLibrary.simpleMessage("未开启"),

@@ -1428,6 +1428,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "Choose the best node for a fast and stable connection",
     ),
     "nodeStatusUnknown": MessageLookupByLibrary.simpleMessage("Status unknown"),
+    "nodeUpdateSuccess": MessageLookupByLibrary.simpleMessage(
+      "Latest node information loaded",
+    ),
     "nodesCount": m40,
     "none": MessageLookupByLibrary.simpleMessage("none"),
     "notEnabled": MessageLookupByLibrary.simpleMessage("Not enabled"),

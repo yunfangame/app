@@ -45,6 +45,7 @@ class GlobalState {
   Future<bool> Function()? enableOfflineMode;
   Future<bool> Function()? restoreOnlineMode;
   Future<bool> Function()? refreshXboardSubscription;
+  Future<bool> Function()? refreshXboardNodes;
   XboardAnnouncementRequest? showXboardAnnouncements;
   bool _xboardAnnouncementPromptPending = false;
   final offlineModeNotifier = ValueNotifier(false);

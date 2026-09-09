@@ -6588,6 +6588,16 @@ class AppLocalizations {
     return Intl.message('Refresh', name: 'refreshNodes', desc: '', args: []);
   }
 
+  /// `Latest node information loaded`
+  String get nodeUpdateSuccess {
+    return Intl.message(
+      'Latest node information loaded',
+      name: 'nodeUpdateSuccess',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Online`
   String get online {
     return Intl.message('Online', name: 'online', desc: '', args: []);

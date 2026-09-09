@@ -36,7 +36,9 @@ class FengWoNodeSelector {
 enum _NodeSort { original, delayAscending, delayDescending, name }
 
 class FengWoNodeSelectorView extends ConsumerStatefulWidget {
-  const FengWoNodeSelectorView({super.key});
+  const FengWoNodeSelectorView({super.key, this.onRefresh});
+
+  final Future<bool> Function()? onRefresh;
 
   @override
   ConsumerState<FengWoNodeSelectorView> createState() =>
@@ -49,6 +51,7 @@ class _FengWoNodeSelectorViewState
   String _query = '';
   _NodeSort _sort = _NodeSort.original;
   bool _testingAll = false;
+  bool _refreshingNodes = false;
 
   Group _selectedGroup(List<Group> groups) {
     final requested = _selectedGroupName.takeFirstValid([
@@ -71,6 +74,32 @@ class _FengWoNodeSelectorViewState
       await delayTest(testable, group.testUrl);
     } finally {
       if (mounted) setState(() => _testingAll = false);
+    }
+  }
+
+  Future<void> _refreshNodes() async {
+    if (_refreshingNodes) return;
+    final refresh = widget.onRefresh ?? globalState.refreshXboardNodes;
+    if (refresh == null) return;
+    setState(() => _refreshingNodes = true);
+    try {
+      final refreshed = await refresh();
+      if (!mounted) return;
+      context.showNotifier(
+        refreshed
+            ? context.appLocalizations.nodeUpdateSuccess
+            : context.appLocalizations.requestFailed,
+      );
+    } catch (error, stackTrace) {
+      commonPrint.log(
+        'refresh latest nodes failed: $error, $stackTrace',
+        logLevel: LogLevel.warning,
+      );
+      if (mounted) {
+        context.showNotifier(context.appLocalizations.requestFailed);
+      }
+    } finally {
+      if (mounted) setState(() => _refreshingNodes = false);
     }
   }
 
@@ -102,12 +131,22 @@ class _FengWoNodeSelectorViewState
         .map((group) => rawGroups.getGroup(group.name) ?? group)
         .toList();
     final colors = _SelectorColors.of(context);
+    final canRefresh =
+        !_refreshingNodes &&
+        (widget.onRefresh != null ||
+            (!globalState.isOfflineMode &&
+                globalState.xboardSession != null &&
+                globalState.refreshXboardNodes != null));
     return ClipRRect(
       borderRadius: BorderRadius.circular(28),
       child: Material(
         color: colors.background,
         child: groups.isEmpty
-            ? _EmptyNodes(colors: colors)
+            ? _EmptyNodes(
+                colors: colors,
+                refreshing: _refreshingNodes,
+                onRefresh: canRefresh ? _refreshNodes : null,
+              )
             : LayoutBuilder(
                 builder: (context, constraints) {
                   final group = _selectedGroup(groups);
@@ -154,10 +193,12 @@ class _FengWoNodeSelectorViewState
                                 query: _query,
                                 sort: _sort,
                                 testingAll: _testingAll,
+                                refreshingNodes: _refreshingNodes,
                                 onQueryChanged: (value) =>
                                     setState(() => _query = value),
                                 onSortChanged: (value) =>
                                     setState(() => _sort = value),
+                                onRefresh: canRefresh ? _refreshNodes : null,
                                 onTestAll: () => _testAll(group),
                                 onSelect: (proxy) => _selectProxy(group, proxy),
                               ),
@@ -415,8 +456,10 @@ class _NodePane extends ConsumerWidget {
   final String query;
   final _NodeSort sort;
   final bool testingAll;
+  final bool refreshingNodes;
   final ValueChanged<String> onQueryChanged;
   final ValueChanged<_NodeSort> onSortChanged;
+  final VoidCallback? onRefresh;
   final VoidCallback onTestAll;
   final ValueChanged<Proxy> onSelect;
 
@@ -426,8 +469,10 @@ class _NodePane extends ConsumerWidget {
     required this.query,
     required this.sort,
     required this.testingAll,
+    required this.refreshingNodes,
     required this.onQueryChanged,
     required this.onSortChanged,
+    required this.onRefresh,
     required this.onTestAll,
     required this.onSelect,
   });
@@ -435,6 +480,7 @@ class _NodePane extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.appLocalizations;
+    final compactActions = MediaQuery.sizeOf(context).width < 520;
     final delayMap = <String, int?>{
       for (final proxy in group.all)
         proxy.name: ref.watch(
@@ -495,16 +541,53 @@ class _NodePane extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  FilledButton.tonalIcon(
-                    onPressed: testingAll || !canTestAll ? null : onTestAll,
-                    icon: testingAll
-                        ? const SizedBox.square(
-                            dimension: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.speed_rounded),
-                    label: Text(l10n.delayTest),
-                  ),
+                  if (compactActions)
+                    IconButton(
+                      key: const ValueKey('fengwo-selector-refresh'),
+                      onPressed: refreshingNodes ? null : onRefresh,
+                      tooltip: l10n.refreshSubscription,
+                      icon: refreshingNodes
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.refresh_rounded),
+                    )
+                  else
+                    TextButton.icon(
+                      key: const ValueKey('fengwo-selector-refresh'),
+                      onPressed: refreshingNodes ? null : onRefresh,
+                      icon: refreshingNodes
+                          ? const SizedBox.square(
+                              dimension: 17,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.refresh_rounded),
+                      label: Text(l10n.update),
+                    ),
+                  const SizedBox(width: 6),
+                  if (compactActions)
+                    IconButton.filledTonal(
+                      onPressed: testingAll || !canTestAll ? null : onTestAll,
+                      tooltip: l10n.delayTest,
+                      icon: testingAll
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.speed_rounded),
+                    )
+                  else
+                    FilledButton.tonalIcon(
+                      onPressed: testingAll || !canTestAll ? null : onTestAll,
+                      icon: testingAll
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.speed_rounded),
+                      label: Text(l10n.delayTest),
+                    ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -710,8 +793,14 @@ class _NodeRow extends StatelessWidget {
 
 class _EmptyNodes extends StatelessWidget {
   final _SelectorColors colors;
+  final bool refreshing;
+  final VoidCallback? onRefresh;
 
-  const _EmptyNodes({required this.colors});
+  const _EmptyNodes({
+    required this.colors,
+    required this.refreshing,
+    required this.onRefresh,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -724,6 +813,18 @@ class _EmptyNodes extends StatelessWidget {
           Text(
             context.appLocalizations.proxyGroupEmpty,
             style: TextStyle(color: colors.muted),
+          ),
+          const SizedBox(height: 14),
+          FilledButton.tonalIcon(
+            key: const ValueKey('fengwo-selector-empty-refresh'),
+            onPressed: refreshing ? null : onRefresh,
+            icon: refreshing
+                ? const SizedBox.square(
+                    dimension: 17,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh_rounded),
+            label: Text(context.appLocalizations.update),
           ),
         ],
       ),

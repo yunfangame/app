@@ -709,17 +709,32 @@ class ApplicationState extends ConsumerState<Application> {
     }
   }
 
-  Future<bool> _refreshXboardSubscription() async {
+  Future<bool> _refreshXboardSubscription() {
+    return _refreshXboardData(
+      retryWhenUnchanged: true,
+      refreshNodeMetadata: false,
+    );
+  }
+
+  Future<bool> _refreshXboardNodes() {
+    return _refreshXboardData(
+      retryWhenUnchanged: false,
+      refreshNodeMetadata: true,
+    );
+  }
+
+  Future<bool> _refreshXboardData({
+    required bool retryWhenUnchanged,
+    required bool refreshNodeMetadata,
+  }) async {
     if (globalState.isOfflineMode) return false;
     final activeSession = globalState.xboardSession;
     if (activeSession == null || activeSession.authData.isEmpty) return false;
     final activeRevision = globalState.xboardSessionRevision;
     final activeEmail = _loginPersistence.state.email;
-    const retryDelays = [
-      Duration.zero,
-      Duration(seconds: 1),
-      Duration(seconds: 2),
-    ];
+    final retryDelays = retryWhenUnchanged
+        ? const [Duration.zero, Duration(seconds: 1), Duration(seconds: 2)]
+        : const [Duration.zero];
     Object? lastError;
     StackTrace? lastStackTrace;
     for (var attempt = 0; attempt < retryDelays.length; attempt++) {
@@ -739,7 +754,8 @@ class ApplicationState extends ConsumerState<Application> {
           return false;
         }
         final isLastAttempt = attempt == retryDelays.length - 1;
-        if (!isLastAttempt &&
+        if (retryWhenUnchanged &&
+            !isLastAttempt &&
             _sameSubscriptionState(activeSession.subscription, subscription)) {
           continue;
         }
@@ -755,8 +771,20 @@ class ApplicationState extends ConsumerState<Application> {
           secureSubscription: activeSession.secureSubscription,
           rawData: activeSession.rawData,
         );
+        final updatedRevision = globalState.activateXboardSession(
+          updatedSession,
+          nodes: globalState.xboardNodes,
+        );
+        if (refreshNodeMetadata) {
+          await _loadXboardNodes(updatedSession);
+        }
+        if (!globalState.isActiveXboardSession(
+          updatedSession,
+          updatedRevision,
+        )) {
+          return false;
+        }
         final nodes = globalState.xboardNodes;
-        globalState.activateXboardSession(updatedSession, nodes: nodes);
         try {
           if (activeEmail != null) {
             await _xboardSessionStorage.updateStoredToken(
@@ -788,7 +816,7 @@ class ApplicationState extends ConsumerState<Application> {
       }
     }
     commonPrint.log(
-      'refresh XBoard subscription after payment failed: '
+      'refresh XBoard data failed: '
       '$lastError, $lastStackTrace',
       logLevel: LogLevel.warning,
     );
@@ -927,6 +955,7 @@ class ApplicationState extends ConsumerState<Application> {
     globalState.enableOfflineMode = _enableOfflineMode;
     globalState.restoreOnlineMode = _restoreOnlineMode;
     globalState.refreshXboardSubscription = _refreshXboardSubscription;
+    globalState.refreshXboardNodes = _refreshXboardNodes;
     unawaited(_xboardAuthService.prepareApiConfiguration());
     unawaited(_restoreRememberedSession());
     SystemNavigator.setFrameworkHandlesBack(true);
@@ -1183,6 +1212,7 @@ class ApplicationState extends ConsumerState<Application> {
     globalState.enableOfflineMode = null;
     globalState.restoreOnlineMode = null;
     globalState.refreshXboardSubscription = null;
+    globalState.refreshXboardNodes = null;
     super.dispose();
   }
 }

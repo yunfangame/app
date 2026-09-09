@@ -1937,6 +1937,130 @@ void main() {
     expect(find.text('日本大阪 1x'), findsOneWidget);
     expect(tester.takeException(), null);
   });
+
+  testWidgets('node selector refreshes latest nodes once per request', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const group = Group(
+      name: '蜂窝5年AI专线加速器',
+      type: GroupType.Selector,
+      hidden: false,
+      now: '新加坡-01',
+      all: [Proxy(name: '新加坡-01', type: 'vless')],
+    );
+    final container = ProviderContainer(
+      overrides: [
+        groupsProvider.overrideWithValue([group]),
+        currentProfileProvider.overrideWithValue(
+          const Profile(
+            id: 1,
+            autoUpdateDuration: Duration.zero,
+            currentGroupName: '蜂窝5年AI专线加速器',
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    globalState.container = container;
+    final refresh = Completer<bool>();
+    var refreshes = 0;
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: _TestApp(
+          child: FengWoNodeSelectorView(
+            onRefresh: () {
+              refreshes++;
+              return refresh.future;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final refreshButton = find.byKey(const ValueKey('fengwo-selector-refresh'));
+    await tester.tap(refreshButton);
+    await tester.pump();
+    await tester.tap(refreshButton);
+    await tester.pump();
+
+    expect(refreshes, 1);
+    expect(
+      find.descendant(
+        of: refreshButton,
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+
+    refresh.complete(true);
+    await tester.pumpAndSettle();
+
+    expect(refreshes, 1);
+    expect(
+      find.descendant(
+        of: refreshButton,
+        matching: find.byIcon(Icons.refresh_rounded),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), null);
+  });
+
+  testWidgets('node selector restores refresh action after failure', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1100, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const group = Group(
+      name: '自动选择',
+      type: GroupType.URLTest,
+      hidden: false,
+      now: '香港-01',
+      all: [Proxy(name: '香港-01', type: 'vless')],
+    );
+    final container = ProviderContainer(
+      overrides: [
+        groupsProvider.overrideWithValue([group]),
+      ],
+    );
+    addTearDown(container.dispose);
+    globalState.container = container;
+    var refreshes = 0;
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: _TestApp(
+          child: FengWoNodeSelectorView(
+            onRefresh: () async {
+              refreshes++;
+              throw StateError('refresh failed');
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final refreshButton = find.byKey(const ValueKey('fengwo-selector-refresh'));
+    await tester.tap(refreshButton);
+    await tester.pumpAndSettle();
+
+    expect(refreshes, 1);
+    expect(tester.widget<TextButton>(refreshButton).onPressed, isNotNull);
+    expect(tester.takeException(), null);
+  });
 }
 
 XboardLoginResult _testTrafficSession() {

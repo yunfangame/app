@@ -796,6 +796,7 @@
   "qualityNodes": "高品質ノード",
   "availabilityRate": "稼働率",
   "refreshNodes": "更新",
+  "nodeUpdateSuccess": "最新のノード情報を取得しました",
   "online": "オンライン",
   "offline": "オフライン",
   "nodeBackendOnline": "サーバー稼働中",

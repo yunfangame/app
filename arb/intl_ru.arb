@@ -796,6 +796,7 @@
   "qualityNodes": "Качественные узлы",
   "availabilityRate": "Доступность",
   "refreshNodes": "Обновить",
+  "nodeUpdateSuccess": "Получена актуальная информация об узлах",
   "online": "В сети",
   "offline": "Не в сети",
   "nodeBackendOnline": "Сервер доступен",

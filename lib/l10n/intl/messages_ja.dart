@@ -1198,6 +1198,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "最適なノードを選び、高速で安定した接続を利用できます",
     ),
     "nodeStatusUnknown": MessageLookupByLibrary.simpleMessage("状態不明"),
+    "nodeUpdateSuccess": MessageLookupByLibrary.simpleMessage(
+      "最新のノード情報を取得しました",
+    ),
     "nodesCount": m40,
     "none": MessageLookupByLibrary.simpleMessage("なし"),
     "notEnabled": MessageLookupByLibrary.simpleMessage("未設定"),

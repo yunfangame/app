@@ -796,6 +796,7 @@
   "qualityNodes": "Quality nodes",
   "availabilityRate": "Availability",
   "refreshNodes": "Refresh",
+  "nodeUpdateSuccess": "Latest node information loaded",
   "online": "Online",
   "offline": "Offline",
   "nodeBackendOnline": "Backend online",
