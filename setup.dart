@@ -6,7 +6,7 @@ import 'package:path/path.dart' as p;
 
 const _allTargets = <String, String>{
   'android': 'apk',
-  'linux': 'deb', // appimage + rpm added for amd64 only
+  'linux': 'deb',
   'macos': 'pkg',
   'windows': 'exe,zip',
 };
@@ -289,6 +289,27 @@ Future<int> _package(
     stderr.write(utf8.decode(data));
   });
   final exitCode = await process.exitCode;
+  if (exitCode == 0 && platform == 'windows') {
+    final runtimeArch = arch == 'arm64' ? 'arm64' : 'x64';
+    final verification = await Process.start(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        p.join(rootDir, 'tooling', 'windows', 'verify_vc_runtime_bundle.ps1'),
+        '-Architecture',
+        runtimeArch,
+        '-BundleDirectory',
+        p.join(rootDir, 'build', 'windows', runtimeArch, 'runner', 'Release'),
+      ],
+      workingDirectory: rootDir,
+      mode: ProcessStartMode.inheritStdio,
+    );
+    return verification.exitCode;
+  }
   if (exitCode == 0 && platform == 'macos') {
     try {
       await verifyUniversalMacosBuild(rootDir);
@@ -356,9 +377,41 @@ Future<int> _ensureDependencies(
       return _ensureMacosDependencies(targets);
     case 'linux':
       return _ensureLinuxDependencies(arch);
+    case 'windows':
+      return prepareWindowsRuntime(Directory.current.path, arch);
     default:
       return 0;
   }
+}
+
+List<String> windowsRuntimePreparationArgs(String rootDir, String arch) {
+  final runtimeArch = switch (arch) {
+    'amd64' || 'x64' => 'x64',
+    'arm64' => 'arm64',
+    _ => throw ArgumentError.value(arch, 'arch', 'Unsupported Windows target'),
+  };
+  return [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    p.join(rootDir, 'tooling', 'windows', 'prepare_vc_runtime.ps1'),
+    '-Architecture',
+    runtimeArch,
+    '-OutputDirectory',
+    p.join(rootDir, '.dart_tool', 'windows_runtime', runtimeArch),
+  ];
+}
+
+Future<int> prepareWindowsRuntime(String rootDir, String arch) async {
+  final process = await Process.start(
+    'powershell.exe',
+    windowsRuntimePreparationArgs(rootDir, arch),
+    workingDirectory: rootDir,
+    mode: ProcessStartMode.inheritStdio,
+  );
+  return process.exitCode;
 }
 
 bool macosTargetsNeedAppDmg(String targets) {

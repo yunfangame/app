@@ -49,6 +49,15 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Test Windows runtime prerequisites
+        shell: pwsh
+        run: |
+          ./tooling/windows/test_prepare_vc_runtime.ps1
+          ./tooling/windows/test_vc_runtime_bundle.ps1
+          ./tooling/windows/test_vc_runtime_installer.ps1
+          flutter test test/windows_runtime_bundle_test.dart --reporter expanded
+          if ($LASTEXITCODE -ne 0) { throw 'Windows packaging tests failed' }
+
       - name: Apply pinned Core patches
         run: dart tooling/apply_core_patches.dart
 
@@ -127,6 +136,7 @@ jobs:
           $core = Get-ChildItem verify-windows -Recurse -Filter FlClashCore.exe | Select-Object -First 1
           $wifiPlugin = Get-ChildItem verify-windows -Recurse -Filter wifi_ssid_plugin.dll | Select-Object -First 1
           if ($null -eq $app) { throw 'FlClash.exe not found' }
+          ./tooling/windows/verify_vc_runtime_bundle.ps1 -Architecture x64 -BundleDirectory $app.DirectoryName
           if ($null -eq $core) { throw 'FlClashCore.exe not found' }
           if ($null -eq $wifiPlugin) { throw 'wifi_ssid_plugin.dll not found' }
           if ($app.VersionInfo.ProductName -ne '蜂窝加速器') { throw "Unexpected product name: $($app.VersionInfo.ProductName)" }

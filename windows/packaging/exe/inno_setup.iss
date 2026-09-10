@@ -1,3 +1,8 @@
+#include "{{SOURCE_DIR}}\prerequisites\vc_runtime.iss"
+#if VcRuntimeArchitecture != "{{ARCH}}"
+  #error "Visual C++ runtime architecture does not match the application"
+#endif
+
 [Setup]
 AppId={{APP_ID}}
 AppVersion={{APP_VERSION}}
@@ -19,6 +24,8 @@ ArchitecturesAllowed={{ARCH}}
 ArchitecturesInstallIn64BitMode={{ARCH}}
 
 [Code]
+#include "{{SOURCE_DIR}}\prerequisites\vc_runtime_code.iss"
+
 procedure KillProcesses;
 var
   Processes: TArrayOfString;
@@ -47,6 +54,8 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
+  Result := EnsureVcRuntime(NeedsRestart);
+  if Result <> '' then Exit;
   UnregisterHelperService;
   KillProcesses;
   Result := '';
@@ -90,14 +99,32 @@ Name: "chineseSimplified"; MessagesFile: {% if locale.file %}{{ locale.file }}{%
 {% if locale.lang == 'uk' %}Name: "ukrainian"; MessagesFile: "compiler:Languages\\Ukrainian.isl"{% endif %}
 {% endfor %}
 
+[CustomMessages]
+VcRuntimeInstalling=Installing Microsoft Visual C++ runtime. Please wait...
+VcRuntimeInvalid=The bundled Visual C++ runtime is missing or damaged. Download the complete installer again.
+VcRuntimeLogFailed=Unable to create the runtime installation log directory. Check administrator permissions and disk space.
+VcRuntimeFailed=Visual C++ runtime installation failed (code %1). Installation cannot continue. Log: %2
+VcRuntimeVerifyFailed=Visual C++ runtime verification failed. Repair the installed Microsoft Visual C++ runtime and run this installer again. Log: %1
+VcRuntimeRestart=Windows must restart to finish installing the Visual C++ runtime. Restart and run this installer again.
+{% for locale in LOCALES %}
+{% if locale.lang == 'zh' %}
+chineseSimplified.VcRuntimeInstalling=正在安装 Microsoft Visual C++ 运行库，请稍候……
+chineseSimplified.VcRuntimeInvalid=安装包中的 Visual C++ 运行库缺失或损坏，请重新下载完整安装包。
+chineseSimplified.VcRuntimeLogFailed=无法创建运行库安装日志目录，请检查管理员权限和磁盘空间。
+chineseSimplified.VcRuntimeFailed=Visual C++ 运行库安装失败（错误码 %1），无法继续安装。日志：%2
+chineseSimplified.VcRuntimeVerifyFailed=Visual C++ 运行库安装后验证失败，请修复系统中已安装的 Microsoft Visual C++ 运行库后重试。日志：%1
+chineseSimplified.VcRuntimeRestart=需要重启 Windows 才能完成运行库安装，请重启后再次运行安装包。
+{% endif %}
+{% endfor %}
+
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: {% if CREATE_DESKTOP_ICON != true %}unchecked{% else %}checkedonce{% endif %}
 [Files]
-Source: "{{SOURCE_DIR}}\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; NOTE: Don't use "Flags: ignoreversion" on any shared system files
+Source: "{{SOURCE_DIR}}\prerequisites\vc_redist.exe"; Flags: dontcopy
+Source: "{{SOURCE_DIR}}\\*"; DestDir: "{app}"; Excludes: "prerequisites\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\\{{DISPLAY_NAME}}"; Filename: "{app}\\{{EXECUTABLE_NAME}}"; WorkingDir: "{app}"
 Name: "{autodesktop}\\{{DISPLAY_NAME}}"; Filename: "{app}\\{{EXECUTABLE_NAME}}"; WorkingDir: "{app}"; Tasks: desktopicon
 [Run]
-Filename: "{app}\\{{EXECUTABLE_NAME}}"; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{{DISPLAY_NAME}}}"; Flags: {% if PRIVILEGES_REQUIRED == 'admin' %}runascurrentuser{% endif %} nowait postinstall skipifsilent
+Filename: "{app}\\{{EXECUTABLE_NAME}}"; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{{DISPLAY_NAME}}}"; Check: CanLaunchAfterRuntime; Flags: {% if PRIVILEGES_REQUIRED == 'admin' %}runascurrentuser{% endif %} nowait postinstall skipifsilent

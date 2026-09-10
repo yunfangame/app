@@ -402,6 +402,14 @@ jobs:
       - name: Package Windows test installer and archive
         run: dart setup.dart windows --env stable --targets exe,zip
 
+      - name: Test Windows runtime prerequisites
+        run: |
+          ./tooling/windows/test_prepare_vc_runtime.ps1
+          ./tooling/windows/test_vc_runtime_bundle.ps1
+          ./tooling/windows/test_vc_runtime_installer.ps1
+          flutter test test/windows_runtime_bundle_test.dart --reporter expanded
+          if ($LASTEXITCODE -ne 0) { throw 'Windows packaging tests failed' }
+
       - name: Test Windows system proxy round trip
         env:
           FENGWO_PROXY_MUTATING_TEST: '1'
@@ -425,6 +433,8 @@ jobs:
           $core = Get-ChildItem verify-windows -Recurse -Filter FlClashCore.exe | Select-Object -First 1
           $helper = Get-ChildItem verify-windows -Recurse -Filter FlClashHelperService.exe | Select-Object -First 1
           $wifiPlugin = Get-ChildItem verify-windows -Recurse -Filter wifi_ssid_plugin.dll | Select-Object -First 1
+          if ($null -eq $app) { throw 'FlClash.exe not found' }
+          ./tooling/windows/verify_vc_runtime_bundle.ps1 -Architecture x64 -BundleDirectory $app.DirectoryName
           foreach ($binary in @($app, $core, $helper, $wifiPlugin)) {
             if ($null -eq $binary) { throw 'Required Windows executable or plugin not found' }
             $bytes = [System.IO.File]::ReadAllBytes($binary.FullName)
