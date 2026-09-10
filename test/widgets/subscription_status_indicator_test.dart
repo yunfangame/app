@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/state.dart';
@@ -32,7 +34,7 @@ void main() {
     final boundary = evaluateSubscriptionStatus(
       _subscription(
         remainingGigabytes: 10,
-        expiresAt: now.add(const Duration(days: 3)),
+        expiresAt: now.add(const Duration(days: 7)),
       ),
       now: now,
     );
@@ -96,7 +98,7 @@ void main() {
     );
     expect(find.text('套餐预警'), findsOneWidget);
     expect(find.textContaining('不足 10 GB'), findsOneWidget);
-    expect(find.textContaining('剩余不足 3 天'), findsOneWidget);
+    expect(find.textContaining('剩余不足 7 天'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('subscription-status-confirm')),
       findsNothing,
@@ -199,9 +201,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Продлить'), findsOneWidget);
+    expect(find.text('Продлить'), findsNothing);
     expect(find.text('Сбросить трафик'), findsOneWidget);
-    expect(find.text('Улучшить тариф'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('subscription-change-plan-button')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const ValueKey('subscription-status-close')),
       findsOneWidget,
@@ -237,7 +242,7 @@ void main() {
 
     expect(
       find.byKey(const ValueKey('subscription-renew-button')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const ValueKey('subscription-reset-traffic-button')),
@@ -246,6 +251,14 @@ void main() {
     await tester.tap(
       find.byKey(const ValueKey('subscription-reset-traffic-button')),
     );
+    await _pumpDialogTransition(tester);
+
+    expect(periods, isEmpty);
+    expect(
+      find.byKey(const ValueKey('subscription-reset-notice-dialog')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('subscription-reset-continue')));
     await _pumpDialogTransition(tester);
 
     expect(find.byKey(const ValueKey('payment-ready')), findsOneWidget);
@@ -281,8 +294,14 @@ void main() {
       const ValueKey('subscription-change-plan-button'),
     );
     expect(changePlanButton, findsOneWidget);
-    expect(find.text('升级'), findsOneWidget);
+    expect(find.text('升级套餐'), findsOneWidget);
     await tester.tap(changePlanButton);
+    await _pumpDialogTransition(tester);
+
+    expect(changedPlan, isFalse);
+    await tester.tap(
+      find.byKey(const ValueKey('subscription-upgrade-confirm')),
+    );
     await _pumpDialogTransition(tester);
 
     expect(changedPlan, isTrue);
@@ -298,7 +317,10 @@ void main() {
     tester,
   ) async {
     final periods = <String>[];
-    final subscription = _subscription(remainingGigabytes: 9);
+    final subscription = _subscription(
+      remainingGigabytes: 9,
+      expiresAt: now.add(const Duration(days: 6)),
+    );
     globalState
       ..setOfflineMode(false)
       ..xboardSession = _session(subscription);
@@ -343,7 +365,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('unlimited subscription omits renewal and keeps upgrade reset', (
+  testWidgets('unlimited subscription only keeps low-traffic reset', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -366,13 +388,602 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('subscription-change-plan-button')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const ValueKey('subscription-reset-traffic-button')),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
+  });
+
+  test('actions use strict seven-day and ten-GB boundaries', () {
+    final boundary = _subscription(
+      remainingGigabytes: 10,
+      expiresAt: now.add(const Duration(days: 7)),
+    );
+    expect(subscriptionPlanActions(boundary, now: now), isEmpty);
+    expect(
+      subscriptionPlanActions(
+        boundary,
+        now: now.add(const Duration(microseconds: 1)),
+      ),
+      [SubscriptionPlanAction.renew],
+    );
+    expect(
+      subscriptionPlanActions(_subscription(remainingGigabytes: 9), now: now),
+      [SubscriptionPlanAction.upgrade, SubscriptionPlanAction.reset],
+    );
+    expect(
+      subscriptionPlanActions(
+        _subscription(remainingGigabytes: 10, expiresAt: now),
+        now: now,
+      ),
+      [SubscriptionPlanAction.renew],
+    );
+    expect(subscriptionPlanActions(null, now: now), isEmpty);
+    expect(
+      subscriptionPlanActions(
+        _subscription(remainingGigabytes: 9, expiresAt: now),
+        now: now,
+      ),
+      [SubscriptionPlanAction.renew],
+    );
+    expect(
+      subscriptionPlanActions(
+        _subscription(remainingGigabytes: 9, unlimited: true, hasPlan: false),
+        now: now,
+      ),
+      isEmpty,
+    );
+    expect(
+      subscriptionPlanActions(
+        _subscription(
+          remainingGigabytes: 10,
+          remainingBytes: subscriptionLowTrafficThresholdBytes - 1,
+          unlimited: true,
+        ),
+        now: now,
+      ),
+      [SubscriptionPlanAction.reset],
+    );
+  });
+
+  for (final sample
+      in <
+        ({
+          String name,
+          XboardSubscriptionData? subscription,
+          bool upgrade,
+          bool empty,
+        })
+      >[
+        (name: 'null', subscription: null, upgrade: false, empty: true),
+        (
+          name: 'unlimited low traffic',
+          subscription: _subscription(remainingGigabytes: 9, unlimited: true),
+          upgrade: false,
+          empty: false,
+        ),
+        (
+          name: 'expired low traffic',
+          subscription: _subscription(remainingGigabytes: 9, expiresAt: now),
+          upgrade: false,
+          empty: false,
+        ),
+        (
+          name: 'exactly ten GB',
+          subscription: _subscription(remainingGigabytes: 10),
+          upgrade: false,
+          empty: true,
+        ),
+        (
+          name: 'one byte above ten GB',
+          subscription: _subscription(
+            remainingGigabytes: 10,
+            remainingBytes: subscriptionLowTrafficThresholdBytes + 1,
+          ),
+          upgrade: false,
+          empty: true,
+        ),
+        (
+          name: 'one byte below ten GB',
+          subscription: _subscription(
+            remainingGigabytes: 10,
+            remainingBytes: subscriptionLowTrafficThresholdBytes - 1,
+          ),
+          upgrade: true,
+          empty: false,
+        ),
+      ]) {
+    testWidgets(
+      'upgrade eligibility is shared across both entries: ${sample.name}',
+      (tester) async {
+        await tester.pumpWidget(
+          _TestApp(
+            child: SubscriptionPlanActionBar(
+              subscription: sample.subscription,
+              embedded: true,
+              now: now,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('traffic-upgrade-plan')),
+          sample.upgrade ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey('subscription-plan-actions')),
+          sample.empty ? findsNothing : findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(
+          _TestApp(
+            child: SubscriptionStatusIndicator(
+              subscription: sample.subscription,
+              now: now,
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.tap(
+          find.byKey(const ValueKey('subscription-status-indicator')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('subscription-change-plan-button')),
+          sample.upgrade ? findsOneWidget : findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
+  testWidgets('unlimited low traffic opens reset payment without countdown', (
+    tester,
+  ) async {
+    final subscription = _subscription(remainingGigabytes: 9, unlimited: true);
+    final periods = <String>[];
+    globalState
+      ..setOfflineMode(false)
+      ..xboardSession = _session(subscription);
+    addTearDown(globalState.clearXboardSession);
+    await tester.pumpWidget(
+      _TestApp(
+        child: SubscriptionPlanActionBar(
+          subscription: subscription,
+          authService: _paymentService(periods),
+          now: now,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('traffic-reset-plan')));
+    await _pumpDialogTransition(tester);
+    expect(
+      find.byKey(const ValueKey('subscription-reset-notice-dialog')),
+      findsNothing,
+    );
+    expect(find.textContaining('下次流量重置'), findsNothing);
+    expect(find.byKey(const ValueKey('payment-ready')), findsOneWidget);
+    expect(periods, isEmpty);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+    'active low-traffic subscription upgrades only after confirmation',
+    (tester) async {
+      var navigations = 0;
+      await tester.pumpWidget(
+        _TestApp(
+          child: SubscriptionPlanActionBar(
+            subscription: _subscription(remainingGigabytes: 9),
+            embedded: true,
+            now: now,
+            onUpgrade: () => navigations++,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('traffic-renew-plan')), findsNothing);
+      expect(find.byKey(const ValueKey('traffic-reset-plan')), findsOneWidget);
+      final upgrade = find.byKey(const ValueKey('traffic-upgrade-plan'));
+      final callback = tester.widget<FilledButton>(upgrade).onPressed!;
+      callback();
+      callback();
+      await _pumpDialogTransition(tester);
+      expect(
+        find.byKey(const ValueKey('subscription-upgrade-confirm-dialog')),
+        findsOneWidget,
+      );
+      expect(navigations, 0);
+      await tester.tap(
+        find.byKey(const ValueKey('subscription-upgrade-cancel')),
+      );
+      await tester.pumpAndSettle();
+      expect(navigations, 0);
+      expect(tester.widget<FilledButton>(upgrade).onPressed, isNotNull);
+      await tester.tap(upgrade);
+      await _pumpDialogTransition(tester);
+      await tester.tap(
+        find.byKey(const ValueKey('subscription-upgrade-confirm')),
+      );
+      await tester.pumpAndSettle();
+      expect(navigations, 1);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  for (final locale in [const Locale('zh', 'CN'), const Locale('ru')]) {
+    testWidgets(
+      'embedded actions wrap at narrow width and large text $locale',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 1000);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await tester.pumpWidget(
+          _TestApp(
+            locale: locale,
+            textScale: 2,
+            child: SizedBox(
+              width: 250,
+              child: SubscriptionPlanActionBar(
+                subscription: _subscription(
+                  remainingGigabytes: 9,
+                  expiresAt: now.add(const Duration(days: 2)),
+                ),
+                now: now,
+                embedded: true,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final container = tester.widget<Container>(
+          find.byKey(const ValueKey('subscription-plan-actions')),
+        );
+        expect(container.decoration, isNull);
+        expect(find.byType(FittedBox), findsNothing);
+        expect(
+          find.byKey(const ValueKey('traffic-renew-plan')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('traffic-reset-plan')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
+  for (final testCase
+      in <
+        ({
+          Duration? resetIn,
+          bool unlimited,
+          bool expired,
+          String expected,
+          bool forfeiture,
+        })
+      >[
+        (
+          resetIn: const Duration(days: 2, hours: 1),
+          unlimited: false,
+          expired: false,
+          expected: '还有 3 天',
+          forfeiture: true,
+        ),
+        (
+          resetIn: const Duration(days: 1),
+          unlimited: false,
+          expired: false,
+          expected: '还有 1 天',
+          forfeiture: true,
+        ),
+        (
+          resetIn: const Duration(hours: 23),
+          unlimited: false,
+          expired: false,
+          expected: '不足 1 天',
+          forfeiture: true,
+        ),
+        (
+          resetIn: null,
+          unlimited: false,
+          expired: false,
+          expected: '暂未获取有效',
+          forfeiture: false,
+        ),
+        (
+          resetIn: Duration.zero,
+          unlimited: false,
+          expired: false,
+          expected: '暂未获取有效',
+          forfeiture: false,
+        ),
+        (
+          resetIn: const Duration(days: -1),
+          unlimited: false,
+          expired: false,
+          expected: '暂未获取有效',
+          forfeiture: false,
+        ),
+        (
+          resetIn: const Duration(days: 20),
+          unlimited: false,
+          expired: false,
+          expected: '暂未获取有效',
+          forfeiture: false,
+        ),
+        (
+          resetIn: const Duration(days: 21),
+          unlimited: false,
+          expired: false,
+          expected: '暂未获取有效',
+          forfeiture: false,
+        ),
+      ]) {
+    testWidgets('reset notice is accurate for $testCase', (tester) async {
+      final periods = <String>[];
+      await tester.pumpWidget(
+        _TestApp(
+          child: SubscriptionPlanActionBar(
+            subscription: _subscription(
+              remainingGigabytes: 9,
+              expiresAt: testCase.expired
+                  ? now
+                  : now.add(const Duration(days: 20)),
+              unlimited: testCase.unlimited,
+              nextResetAt: testCase.resetIn == null
+                  ? null
+                  : now.add(testCase.resetIn!),
+            ),
+            authService: _paymentService(periods),
+            now: now,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('traffic-reset-plan')));
+      await _pumpDialogTransition(tester);
+      expect(find.textContaining(testCase.expected), findsOneWidget);
+      expect(
+        find.textContaining('不结转'),
+        testCase.forfeiture ? findsOneWidget : findsNothing,
+      );
+      expect(periods, isEmpty);
+      await tester.tap(find.byKey(const ValueKey('subscription-reset-cancel')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.byKey(const ValueKey('traffic-reset-plan')),
+            )
+            .onPressed,
+        isNotNull,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
+  testWidgets('expired renewal selects a period without traffic promises', (
+    tester,
+  ) async {
+    final periods = <String>[];
+    final subscription = _subscription(remainingGigabytes: 20, expiresAt: now);
+    globalState
+      ..setOfflineMode(false)
+      ..xboardSession = _session(subscription);
+    addTearDown(globalState.clearXboardSession);
+    await tester.pumpWidget(
+      _TestApp(
+        child: SubscriptionPlanActionBar(
+          subscription: subscription,
+          authService: _paymentService(periods),
+          now: now,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('traffic-renew-plan')));
+    await _pumpDialogTransition(tester);
+    expect(
+      find.byKey(const ValueKey('subscription-renewal-period-dialog')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('不会重置'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('subscription-renewal-period-month_price')),
+      findsOneWidget,
+    );
+    expect(periods, isEmpty);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('switching accounts during reset confirmation aborts lookup', (
+    tester,
+  ) async {
+    var lookups = 0;
+    final subscription = _subscription(remainingGigabytes: 9);
+    globalState
+      ..setOfflineMode(false)
+      ..xboardSession = _session(subscription);
+    addTearDown(globalState.clearXboardSession);
+    final service = XboardAuthService(
+      plansRequester: (_, _) async {
+        lookups++;
+        throw StateError('must not look up');
+      },
+    );
+    await tester.pumpWidget(
+      _TestApp(
+        child: SubscriptionPlanActionBar(
+          subscription: subscription,
+          authService: service,
+          now: now,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('traffic-reset-plan')));
+    await _pumpDialogTransition(tester);
+    globalState.xboardSession = _session(subscription);
+    await tester.tap(find.byKey(const ValueKey('subscription-reset-continue')));
+    await tester.pumpAndSettle();
+    expect(lookups, 0);
+    expect(find.byKey(const ValueKey('payment-ready')), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('failed plan lookup re-enables actions and disposal is safe', (
+    tester,
+  ) async {
+    final subscription = _subscription(
+      remainingGigabytes: 9,
+      expiresAt: now.add(const Duration(days: 2)),
+    );
+    globalState
+      ..setOfflineMode(false)
+      ..xboardSession = _session(subscription);
+    addTearDown(globalState.clearXboardSession);
+    final pending = Completer<XboardLoginResponse>();
+    final service = XboardAuthService(plansRequester: (_, _) => pending.future);
+    await tester.pumpWidget(
+      _TestApp(
+        child: SubscriptionPlanActionBar(
+          subscription: subscription,
+          authService: service,
+          now: now,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('traffic-renew-plan')));
+    await tester.pump();
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('traffic-upgrade-plan')),
+          )
+          .onPressed,
+      isNull,
+    );
+    pending.completeError(StateError('catalog unavailable'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('traffic-renew-plan')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+    'fixed clock updates action boundary and timers dispose on resume',
+    (tester) async {
+      final subscription = _subscription(
+        remainingGigabytes: 20,
+        expiresAt: now.add(const Duration(days: 7)),
+      );
+      Widget app(DateTime? time) => _TestApp(
+        child: SubscriptionPlanActionBar(
+          subscription: subscription,
+          now: time,
+          embedded: true,
+        ),
+      );
+      await tester.pumpWidget(app(now));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('traffic-renew-plan')), findsNothing);
+      await tester.pumpWidget(app(now.add(const Duration(seconds: 1))));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('traffic-renew-plan')), findsOneWidget);
+      await tester.pumpWidget(app(null));
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump(const Duration(minutes: 1));
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(minutes: 2));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('late plan lookup after disposal cannot open payment', (
+    tester,
+  ) async {
+    final subscription = _subscription(
+      remainingGigabytes: 9,
+      expiresAt: now.add(const Duration(days: 2)),
+    );
+    globalState
+      ..setOfflineMode(false)
+      ..xboardSession = _session(subscription);
+    addTearDown(globalState.clearXboardSession);
+    final pending = Completer<XboardLoginResponse>();
+    final service = XboardAuthService(plansRequester: (_, _) => pending.future);
+    await tester.pumpWidget(
+      _TestApp(
+        child: SubscriptionPlanActionBar(
+          subscription: subscription,
+          authService: service,
+          now: now,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('traffic-renew-plan')));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    pending.complete(
+      const XboardLoginResponse(
+        statusCode: 200,
+        data: {
+          'data': {'id': 1, 'name': 'test', 'month_price': 1000, 'renew': 1},
+        },
+      ),
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('payment-ready')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('failed upgrade navigation releases busy state', (tester) async {
+    await tester.pumpWidget(
+      _TestApp(
+        child: SubscriptionPlanActionBar(
+          subscription: _subscription(remainingGigabytes: 9),
+          now: now,
+          onUpgrade: () => throw StateError('navigation failed'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('traffic-upgrade-plan')));
+    await _pumpDialogTransition(tester);
+    await tester.tap(
+      find.byKey(const ValueKey('subscription-upgrade-confirm')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('traffic-upgrade-plan')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 }
 
@@ -386,6 +997,9 @@ XboardSubscriptionData _subscription({
   required int remainingGigabytes,
   DateTime? expiresAt,
   bool unlimited = false,
+  DateTime? nextResetAt,
+  bool hasPlan = true,
+  int? remainingBytes,
 }) {
   final endpoint = Uri.parse('https://api.example.com');
   const usedBytes = bytesPerGigabyte;
@@ -394,12 +1008,18 @@ XboardSubscriptionData _subscription({
     subscribeUrl: Uri.parse('https://subscribe.example.com/client/token'),
     uploadBytes: usedBytes,
     downloadBytes: 0,
-    transferEnableBytes: usedBytes + remainingGigabytes * bytesPerGigabyte,
-    planId: 1,
-    plan: const XboardPlanData(id: 1, name: '蜂窝月付套餐', rawData: {}),
+    transferEnableBytes:
+        usedBytes + (remainingBytes ?? remainingGigabytes * bytesPerGigabyte),
+    planId: hasPlan ? 1 : null,
+    plan: hasPlan
+        ? const XboardPlanData(id: 1, name: '蜂窝月付套餐', rawData: {})
+        : null,
     expiredAtEpochSeconds: unlimited
         ? null
         : (expiresAt ?? DateTime(2027, 8, 29)).millisecondsSinceEpoch ~/ 1000,
+    nextResetAtEpochSeconds: nextResetAt == null
+        ? null
+        : nextResetAt.millisecondsSinceEpoch ~/ 1000,
     rawData: const {},
   );
 }
@@ -471,11 +1091,13 @@ class _TestApp extends StatelessWidget {
     required this.child,
     this.locale = const Locale('zh', 'CN'),
     this.themeMode = ThemeMode.light,
+    this.textScale = 1,
   });
 
   final Widget child;
   final Locale locale;
   final ThemeMode themeMode;
+  final double textScale;
 
   @override
   Widget build(BuildContext context) {
@@ -494,6 +1116,12 @@ class _TestApp extends StatelessWidget {
         GlobalWidgetsLocalizations.delegate,
       ],
       supportedLocales: AppLocalizations.delegate.supportedLocales,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        child: child!,
+      ),
       home: Scaffold(body: Center(child: child)),
     );
   }

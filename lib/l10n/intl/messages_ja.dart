@@ -130,24 +130,28 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m51(date) => "プランは ${date} に期限切れとなりました。更新後に引き続きご利用いただけます。";
 
-  static String m52(date) => "プランは ${date} に期限切れとなり、残り 3 日未満です。早めに更新してください。";
+  static String m52(date) => "プランは ${date} に期限切れとなり、残り 7 日未満です。早めに更新してください。";
 
   static String m53(remaining) =>
       "残り通信量は ${remaining} GB で、10 GB を下回っています。早めに購入または更新してください。";
 
-  static String m54(code) =>
+  static String m54(days, date) => "次の通信量リセットまであと ${days} 日（${date}）です。";
+
+  static String m55(date) => "次の通信量リセットまで 1 日未満（${date}）です。";
+
+  static String m56(code) =>
       "システムプロキシを有効にできませんでした（${code}）。スイッチを元に戻しました。診断用ログをエクスポートしてください";
 
-  static String m55(code) =>
+  static String m57(code) =>
       "システムプロキシを無効にできませんでした（${code}）。Windows の設定で手動で無効にしてください";
 
-  static String m56(count) => "全 ${count} 件";
+  static String m58(count) => "全 ${count} 件";
 
-  static String m57(ip) => "IP ${ip} からこのアカウントに再びログインできるようになります。";
+  static String m59(ip) => "IP ${ip} からこのアカウントに再びログインできるようになります。";
 
-  static String m58(label) => "${label}はURLである必要があります";
+  static String m60(label) => "${label}はURLである必要があります";
 
-  static String m59(count) => "${count}年前";
+  static String m61(count) => "${count}年前";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -1857,14 +1861,38 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionPlanUnavailable": MessageLookupByLibrary.simpleMessage(
       "現在のプラン情報が見つかりません。更新してからもう一度お試しください",
     ),
+    "subscriptionResetContinue": MessageLookupByLibrary.simpleMessage(
+      "リセットを続ける",
+    ),
+    "subscriptionResetCountdown": m54,
+    "subscriptionResetExpired": MessageLookupByLibrary.simpleMessage(
+      "プランの有効期限が切れています。先に更新してください。リセット予定は更新後のプラン情報に従います。",
+    ),
+    "subscriptionResetNoSchedule": MessageLookupByLibrary.simpleMessage(
+      "このプランには定期的なリセット日がありません。",
+    ),
+    "subscriptionResetNoticeTitle": MessageLookupByLibrary.simpleMessage(
+      "通信量リセットについて",
+    ),
+    "subscriptionResetScheduleUnavailable":
+        MessageLookupByLibrary.simpleMessage(
+          "有効な次回リセット日をまだ取得できていません。プラン情報を更新してください。",
+        ),
     "subscriptionResetSuccess": MessageLookupByLibrary.simpleMessage(
       "購読情報をリセットして同期しました",
     ),
+    "subscriptionResetWithinDay": m55,
     "subscriptionStatusNormalMessage": MessageLookupByLibrary.simpleMessage(
       "残り通信量と有効期限はいずれも正常です。",
     ),
     "subscriptionStatusNormalTitle": MessageLookupByLibrary.simpleMessage(
       "プランは正常です",
+    ),
+    "subscriptionTrafficExpiresAtReset": MessageLookupByLibrary.simpleMessage(
+      "今期の未使用通信量は次のリセット日に失効し、繰り越されません。",
+    ),
+    "subscriptionUpgradeNotice": MessageLookupByLibrary.simpleMessage(
+      "アップグレードしたプランが有効になると、現在のプランは置き換えられます。ストアへ進みますか？",
     ),
     "subscriptionWarningTitle": MessageLookupByLibrary.simpleMessage("プラン警告"),
     "subscriptionWarningTooltip": MessageLookupByLibrary.simpleMessage(
@@ -1882,11 +1910,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "system": MessageLookupByLibrary.simpleMessage("システム"),
     "systemApp": MessageLookupByLibrary.simpleMessage("システムアプリ"),
     "systemProxy": MessageLookupByLibrary.simpleMessage("システムプロキシ"),
-    "systemProxyApplyFailed": m54,
+    "systemProxyApplyFailed": m56,
     "systemProxyDesc": MessageLookupByLibrary.simpleMessage(
       "HTTPプロキシをVpnServiceに接続",
     ),
-    "systemProxyDisableFailed": m55,
+    "systemProxyDisableFailed": m57,
     "systemProxyStaleCleaned": MessageLookupByLibrary.simpleMessage(
       "前回の異常終了で残ったシステムプロキシを消去しました",
     ),
@@ -1927,7 +1955,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "tools": MessageLookupByLibrary.simpleMessage("ツール"),
     "totalCommission": MessageLookupByLibrary.simpleMessage("累計報酬"),
     "totalLoginCount": MessageLookupByLibrary.simpleMessage("ログイン回数"),
-    "totalOrders": m56,
+    "totalOrders": m58,
     "totalTrafficLabel": MessageLookupByLibrary.simpleMessage("合計"),
     "tproxyPort": MessageLookupByLibrary.simpleMessage("Tproxyポート"),
     "trafficDetailRecords": MessageLookupByLibrary.simpleMessage("通信量の詳細履歴"),
@@ -1951,7 +1979,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "turnOn": MessageLookupByLibrary.simpleMessage("オン"),
     "twoYearBilling": MessageLookupByLibrary.simpleMessage("2年"),
     "unblockLoginIp": MessageLookupByLibrary.simpleMessage("解除"),
-    "unblockLoginIpMessage": m57,
+    "unblockLoginIpMessage": m59,
     "unblockLoginIpTitle": MessageLookupByLibrary.simpleMessage(
       "この IP の制限を解除しますか？",
     ),
@@ -1970,14 +1998,14 @@ class MessageLookup extends MessageLookupByLibrary {
     "unreachable": MessageLookupByLibrary.simpleMessage("接続不可"),
     "update": MessageLookupByLibrary.simpleMessage("更新"),
     "updateAll": MessageLookupByLibrary.simpleMessage("すべて更新"),
-    "upgradePlanAction": MessageLookupByLibrary.simpleMessage("アップグレード"),
+    "upgradePlanAction": MessageLookupByLibrary.simpleMessage("プランをアップグレード"),
     "upload": MessageLookupByLibrary.simpleMessage("アップロード"),
     "uploadSpeed": MessageLookupByLibrary.simpleMessage("アップロード速度"),
     "uploadTraffic": MessageLookupByLibrary.simpleMessage("アップロード"),
     "uploaded": MessageLookupByLibrary.simpleMessage("アップロード済み"),
     "url": MessageLookupByLibrary.simpleMessage("URL"),
     "urlDesc": MessageLookupByLibrary.simpleMessage("URL経由でプロファイルを取得"),
-    "urlTip": m58,
+    "urlTip": m60,
     "useHosts": MessageLookupByLibrary.simpleMessage("ホストを使用"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage("システムホストを使用"),
     "usedTrafficLabel": MessageLookupByLibrary.simpleMessage("使用済み"),
@@ -2038,7 +2066,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "送信するとシステム内にチケットが作成され、管理者が内容を確認して処理します。",
     ),
     "yearlyBilling": MessageLookupByLibrary.simpleMessage("年払い"),
-    "yearsAgo": m59,
+    "yearsAgo": m61,
     "zh_CN": MessageLookupByLibrary.simpleMessage("簡体字中国語"),
     "zoomIn": MessageLookupByLibrary.simpleMessage("拡大"),
     "zoomOut": MessageLookupByLibrary.simpleMessage("縮小"),

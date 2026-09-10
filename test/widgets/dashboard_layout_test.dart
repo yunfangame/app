@@ -20,6 +20,144 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final mobile in [true, false]) {
+    for (final scenario in [
+      (name: 'normal', expiresIn: const Duration(days: 20), remaining: 20),
+      (
+        name: 'near expiry low traffic',
+        expiresIn: const Duration(days: 6),
+        remaining: 9,
+      ),
+      (
+        name: 'active low traffic',
+        expiresIn: const Duration(days: 20),
+        remaining: 9,
+      ),
+      (
+        name: 'expired low traffic',
+        expiresIn: const Duration(days: -1),
+        remaining: 9,
+      ),
+      (name: 'unlimited low traffic', expiresIn: null, remaining: 9),
+    ]) {
+      testWidgets(
+        '${mobile ? 'mobile' : 'desktop'} traffic plan actions: ${scenario.name}',
+        (tester) async {
+          final size = mobile ? const Size(360, 800) : const Size(864, 677);
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          final container = ProviderContainer(
+            overrides: [
+              profilesProvider.overrideWithValue(const []),
+              groupsProvider.overrideWithValue(const []),
+              currentProfileProvider.overrideWithValue(null),
+            ],
+          );
+          addTearDown(container.dispose);
+          addTearDown(globalState.clearXboardSession);
+          globalState.container = container;
+          final endpoint = Uri.parse('https://api.example.com');
+          globalState.xboardSession = XboardLoginResult(
+            endpoint: endpoint,
+            token: 'test-token',
+            authData: 'test-auth',
+            isAdmin: false,
+            subscription: XboardSubscriptionData(
+              endpoint: endpoint,
+              subscribeUrl: null,
+              uploadBytes: 0,
+              downloadBytes: 0,
+              transferEnableBytes: scenario.remaining * bytesPerGigabyte,
+              planId: 1,
+              plan: const XboardPlanData(id: 1, name: '测试套餐', rawData: {}),
+              expiredAtEpochSeconds: scenario.expiresIn == null
+                  ? null
+                  : DateTime.now()
+                            .add(scenario.expiresIn!)
+                            .millisecondsSinceEpoch ~/
+                        1000,
+              rawData: const {},
+            ),
+          );
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: _TestApp(
+                locale: const Locale('zh', 'CN'),
+                platform: mobile
+                    ? TargetPlatform.android
+                    : TargetPlatform.macOS,
+                child: mobile
+                    ? const FengWoMobileDashboard()
+                    : const FengWoDesktopDashboard(),
+              ),
+            ),
+          );
+          await tester.pump();
+          final actionArea = find.byKey(
+            ValueKey(
+              mobile
+                  ? 'fengwo-mobile-traffic-plan-actions'
+                  : 'fengwo-desktop-traffic-plan-actions',
+            ),
+          );
+          expect(actionArea, findsOneWidget);
+          final upgrade = find.descendant(
+            of: actionArea,
+            matching: find.byKey(const ValueKey('traffic-upgrade-plan')),
+          );
+          final showsUpgrade =
+              scenario.expiresIn != null &&
+              !scenario.expiresIn!.isNegative &&
+              scenario.remaining < 10;
+          expect(upgrade, showsUpgrade ? findsOneWidget : findsNothing);
+          expect(
+            find.descendant(
+              of: actionArea,
+              matching: find.byKey(const ValueKey('traffic-renew-plan')),
+            ),
+            scenario.expiresIn != null &&
+                    scenario.expiresIn! < const Duration(days: 7)
+                ? findsOneWidget
+                : findsNothing,
+          );
+          expect(
+            find.descendant(
+              of: actionArea,
+              matching: find.byKey(const ValueKey('traffic-reset-plan')),
+            ),
+            scenario.remaining < 10 &&
+                    (scenario.expiresIn == null ||
+                        !scenario.expiresIn!.isNegative)
+                ? findsOneWidget
+                : findsNothing,
+          );
+          if (showsUpgrade) {
+            if (mobile) {
+              await tester.ensureVisible(upgrade);
+              await tester.pump();
+            }
+            expect(upgrade.hitTestable(), findsOneWidget);
+            await tester.tap(upgrade);
+            await tester.pump(const Duration(milliseconds: 300));
+            expect(
+              find.byKey(const ValueKey('subscription-upgrade-confirm-dialog')),
+              findsOneWidget,
+            );
+            await tester.tap(
+              find.byKey(const ValueKey('subscription-upgrade-cancel')),
+            );
+            await tester.pump(const Duration(milliseconds: 300));
+          }
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox.shrink());
+        },
+      );
+    }
+  }
+
   testWidgets('dashboard chooses the desktop layout for a wide viewport', (
     tester,
   ) async {

@@ -39,10 +39,10 @@ void main() {
     expect(find.byKey(const ValueKey('traffic-summary-month')), findsOne);
     expect(find.byKey(const ValueKey('traffic-summary-remaining')), findsOne);
     expect(find.byKey(const ValueKey('traffic-summary-total')), findsOne);
-    expect(find.byKey(const ValueKey('subscription-plan-actions')), findsOne);
-    expect(find.byKey(const ValueKey('traffic-renew-plan')), findsOne);
-    expect(find.byKey(const ValueKey('traffic-upgrade-plan')), findsOne);
-    expect(find.byKey(const ValueKey('traffic-reset-plan')), findsOne);
+    expect(find.byKey(const ValueKey('subscription-plan-actions')), findsNothing);
+    expect(find.byKey(const ValueKey('traffic-renew-plan')), findsNothing);
+    expect(find.byKey(const ValueKey('traffic-upgrade-plan')), findsNothing);
+    expect(find.byKey(const ValueKey('traffic-reset-plan')), findsNothing);
     expect(find.text('9 MB'), findsNWidgets(2));
     expect(find.text('1500 GB'), findsOne);
     expect(find.text('2000 GB'), findsOne);
@@ -88,7 +88,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('unlimited traffic view only offers upgrade and reset', (
+  testWidgets('unlimited traffic view hides upgrade and ample reset', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -97,24 +97,14 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(globalState.clearXboardSession);
     globalState.xboardSession = _testSession(unlimited: true);
-    var upgraded = false;
-
     await tester.pumpWidget(
-      _TestApp(
-        child: FengWoTrafficDetailsView(
-          authService: _testService(),
-          onUpgradePlan: () => upgraded = true,
-        ),
-      ),
+      _TestApp(child: FengWoTrafficDetailsView(authService: _testService())),
     );
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('traffic-renew-plan')), findsNothing);
-    expect(find.byKey(const ValueKey('traffic-upgrade-plan')), findsOne);
-    expect(find.byKey(const ValueKey('traffic-reset-plan')), findsOne);
-    await tester.tap(find.byKey(const ValueKey('traffic-upgrade-plan')));
-    await tester.pump();
-    expect(upgraded, isTrue);
+    expect(find.byKey(const ValueKey('traffic-upgrade-plan')), findsNothing);
+    expect(find.byKey(const ValueKey('traffic-reset-plan')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }
@@ -191,7 +181,12 @@ XboardLoginResult _testSession({bool unlimited = false}) {
       transferEnableBytes: bytesPerGigabyte * 2000,
       planId: 7,
       email: 'member@example.com',
-      expiredAtEpochSeconds: unlimited ? null : 1819497600,
+      expiredAtEpochSeconds: unlimited
+          ? null
+          : DateTime.now()
+                    .add(const Duration(days: 30))
+                    .millisecondsSinceEpoch ~/
+                1000,
       plan: const XboardPlanData(id: 7, name: '会员套餐', rawData: {}),
       rawData: const {},
     ),

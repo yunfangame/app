@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:fl_clash/common/common.dart';
@@ -9,7 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 const subscriptionLowTrafficThresholdBytes = 10 * bytesPerGigabyte;
-const subscriptionExpiryWarningWindow = Duration(days: 3);
+const subscriptionExpiryWarningWindow = Duration(days: 7);
 
 @immutable
 class SubscriptionStatusEvaluation {
@@ -29,14 +30,98 @@ class SubscriptionStatusEvaluation {
 enum SubscriptionPlanAction { renew, upgrade, reset }
 
 List<SubscriptionPlanAction> subscriptionPlanActions(
-  XboardSubscriptionData? subscription,
-) {
-  if (subscription == null) return const [];
+  XboardSubscriptionData? subscription, {
+  DateTime? now,
+}) {
+  final status = evaluateSubscriptionStatus(subscription, now: now);
   return [
-    if (subscription.isMonthlyPlan) SubscriptionPlanAction.renew,
-    SubscriptionPlanAction.upgrade,
-    SubscriptionPlanAction.reset,
+    if (subscription?.isMonthlyPlan == true &&
+        (status.expiringSoon || status.expired))
+      SubscriptionPlanAction.renew,
+    if (subscription?.isMonthlyPlan == true &&
+        !status.expired &&
+        status.lowTraffic)
+      SubscriptionPlanAction.upgrade,
+    if (subscription != null &&
+        status.lowTraffic &&
+        !status.expired &&
+        (subscription.isMonthlyPlan ||
+            subscription.planId != null ||
+            subscription.plan?.id != null ||
+            subscription.plan?.name?.trim().isNotEmpty == true))
+      SubscriptionPlanAction.reset,
   ];
+}
+
+class _SubscriptionClock extends ChangeNotifier with WidgetsBindingObserver {
+  _SubscriptionClock(this.subscription, this.fixedNow) {
+    WidgetsBinding.instance.addObserver(this);
+    _schedule();
+  }
+
+  XboardSubscriptionData? subscription;
+  DateTime? fixedNow;
+  Timer? _timer;
+  bool _disposed = false;
+
+  DateTime get now => fixedNow ?? DateTime.now();
+
+  void update(XboardSubscriptionData? value, DateTime? time) {
+    subscription = value;
+    fixedNow = time;
+    _schedule();
+  }
+
+  void _schedule() {
+    _timer?.cancel();
+    if (_disposed || fixedNow != null) return;
+    final current = now;
+    final boundaries = [current.add(const Duration(minutes: 1))];
+    final expiresAt = subscription?.expiresAt;
+    if (expiresAt != null) {
+      boundaries.addAll([
+        expiresAt,
+        expiresAt
+            .subtract(subscriptionExpiryWarningWindow)
+            .add(const Duration(microseconds: 1)),
+      ]);
+    }
+    final resetAt = subscription?.nextResetAt;
+    if (resetAt != null && resetAt.isAfter(current)) {
+      final remaining = resetAt.difference(current);
+      final days = (remaining.inMicroseconds / Duration.microsecondsPerDay)
+          .ceil();
+      boundaries.addAll([
+        resetAt,
+        resetAt
+            .subtract(const Duration(days: 1))
+            .add(const Duration(microseconds: 1)),
+        resetAt.subtract(Duration(days: days - 1)),
+      ]);
+    }
+    final next = boundaries
+        .where((boundary) => boundary.isAfter(current))
+        .reduce((left, right) => left.isBefore(right) ? left : right);
+    _timer = Timer(next.difference(current), () {
+      notifyListeners();
+      _schedule();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    notifyListeners();
+    _schedule();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _timer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 }
 
 Future<XboardAvailablePlan?> _loadSubscriptionPlan({
@@ -80,16 +165,67 @@ Future<void> _executeSubscriptionPlanAction({
   required XboardSubscriptionData? subscription,
   required XboardAuthService authService,
   VoidCallback? onUpgrade,
+  DateTime? now,
 }) async {
+  if (!subscriptionPlanActions(subscription, now: now).contains(action)) {
+    return;
+  }
+  final actionSession = globalState.xboardSession;
   if (action == SubscriptionPlanAction.upgrade) {
-    if (onUpgrade != null) {
-      onUpgrade();
-    } else {
-      globalState.container
-          .read(currentPageLabelProvider.notifier)
-          .toPage(PageLabel.profiles);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const ValueKey('subscription-upgrade-confirm-dialog'),
+        scrollable: true,
+        title: Text(context.appLocalizations.upgradePlanAction),
+        content: Text(context.appLocalizations.subscriptionUpgradeNotice),
+        actions: [
+          TextButton(
+            key: const ValueKey('subscription-upgrade-cancel'),
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(context.appLocalizations.cancel),
+          ),
+          FilledButton(
+            key: const ValueKey('subscription-upgrade-confirm'),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(context.appLocalizations.confirm),
+          ),
+        ],
+      ),
+    );
+    if (!context.mounted || confirmed != true) return;
+    try {
+      if (onUpgrade != null) {
+        onUpgrade();
+      } else {
+        globalState.container
+            .read(currentPageLabelProvider.notifier)
+            .toPage(PageLabel.profiles);
+      }
+    } catch (error) {
+      commonPrint.event(
+        'subscription.upgrade.navigation_failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
+      if (context.mounted) {
+        context.showNotifier(context.appLocalizations.planCatalogFailed);
+      }
     }
     return;
+  }
+  if (action == SubscriptionPlanAction.reset &&
+      subscription?.isMonthlyPlan == true) {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) =>
+          _TrafficResetNoticeDialog(subscription: subscription!, now: now),
+    );
+    if (!context.mounted ||
+        confirmed != true ||
+        !identical(actionSession, globalState.xboardSession) ||
+        !subscriptionPlanActions(subscription, now: now).contains(action)) {
+      return;
+    }
   }
   final session = globalState.xboardSession;
   if (session == null || globalState.isOfflineMode) {
@@ -105,7 +241,11 @@ Future<void> _executeSubscriptionPlanAction({
       authService: authService,
       subscription: subscription,
     );
-    if (!context.mounted) return;
+    if (!context.mounted ||
+        !identical(session, globalState.xboardSession) ||
+        !subscriptionPlanActions(subscription, now: now).contains(action)) {
+      return;
+    }
     if (plan == null) {
       context.showNotifier(
         context.appLocalizations.subscriptionPlanUnavailable,
@@ -135,9 +275,20 @@ Future<void> _executeSubscriptionPlanAction({
     }
     final period = await showDialog<String>(
       context: context,
-      builder: (context) => _RenewalPeriodDialog(plan: plan, periods: periods),
+      builder: (context) => _RenewalPeriodDialog(
+        plan: plan,
+        periods: periods,
+        showTrafficNotice: !evaluateSubscriptionStatus(
+          subscription,
+          now: now,
+        ).expired,
+      ),
     );
-    if (!context.mounted || period == null) return;
+    if (!context.mounted ||
+        period == null ||
+        !identical(session, globalState.xboardSession)) {
+      return;
+    }
     await showXboardPaymentDialog(
       context: context,
       authService: authService,
@@ -211,16 +362,19 @@ class _SubscriptionStatusIndicatorState
     with SingleTickerProviderStateMixin {
   late final XboardAuthService _authService;
   late final AnimationController _rotationController;
+  late final _SubscriptionClock _clock;
   bool _dialogOpen = false;
   bool _processingAction = false;
 
   SubscriptionStatusEvaluation get _status =>
-      evaluateSubscriptionStatus(widget.subscription, now: widget.now);
+      evaluateSubscriptionStatus(widget.subscription, now: _clock.now);
 
   @override
   void initState() {
     super.initState();
     _authService = widget.authService ?? XboardAuthService();
+    _clock = _SubscriptionClock(widget.subscription, widget.now)
+      ..addListener(_updateClock);
     _rotationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 460),
@@ -231,6 +385,13 @@ class _SubscriptionStatusIndicatorState
   @override
   void didUpdateWidget(covariant SubscriptionStatusIndicator oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _clock.update(widget.subscription, widget.now);
+    _syncAnimation();
+  }
+
+  void _updateClock() {
+    if (!mounted) return;
+    setState(() {});
     _syncAnimation();
   }
 
@@ -256,6 +417,7 @@ class _SubscriptionStatusIndicatorState
         builder: (context) => _SubscriptionStatusDialog(
           subscription: widget.subscription,
           status: _status,
+          now: _clock.now,
         ),
       );
       if (action != null && mounted) await _handleAction(action);
@@ -277,6 +439,7 @@ class _SubscriptionStatusIndicatorState
         subscription: widget.subscription,
         authService: _authService,
         onUpgrade: widget.onChangePlan,
+        now: widget.now,
       );
     } finally {
       if (mounted) {
@@ -288,6 +451,7 @@ class _SubscriptionStatusIndicatorState
 
   @override
   void dispose() {
+    _clock.dispose();
     _rotationController.dispose();
     super.dispose();
   }
@@ -347,10 +511,12 @@ class _SubscriptionStatusDialog extends StatelessWidget {
   const _SubscriptionStatusDialog({
     required this.subscription,
     required this.status,
+    required this.now,
   });
 
   final XboardSubscriptionData? subscription;
   final SubscriptionStatusEvaluation status;
+  final DateTime now;
 
   String _remainingTraffic(XboardSubscriptionData subscription) {
     final value = subscription.remainingGb;
@@ -362,6 +528,7 @@ class _SubscriptionStatusDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = context.appLocalizations;
     final scheme = context.colorScheme;
+    final actions = subscriptionPlanActions(subscription, now: now);
     final warning = status.hasWarning;
     final statusColor = warning
         ? const Color(0xFFFF3B57)
@@ -481,7 +648,7 @@ class _SubscriptionStatusDialog extends StatelessWidget {
         ),
       ),
       actions: [
-        if (warning && subscription != null && subscription!.isMonthlyPlan)
+        if (actions.contains(SubscriptionPlanAction.renew))
           FilledButton.icon(
             key: const ValueKey('subscription-renew-button'),
             onPressed: () =>
@@ -489,7 +656,7 @@ class _SubscriptionStatusDialog extends StatelessWidget {
             icon: const Icon(Icons.event_repeat_rounded),
             label: Text(l10n.renewPlanAction),
           ),
-        if (warning && subscription != null)
+        if (actions.contains(SubscriptionPlanAction.upgrade))
           FilledButton.tonalIcon(
             key: const ValueKey('subscription-change-plan-button'),
             onPressed: () =>
@@ -497,7 +664,7 @@ class _SubscriptionStatusDialog extends StatelessWidget {
             icon: const Icon(Icons.upgrade_rounded),
             label: Text(l10n.upgradePlanAction),
           ),
-        if (warning && subscription != null)
+        if (actions.contains(SubscriptionPlanAction.reset))
           OutlinedButton.icon(
             key: const ValueKey('subscription-reset-traffic-button'),
             onPressed: () =>
@@ -516,11 +683,15 @@ class SubscriptionPlanActionBar extends StatefulWidget {
     required this.subscription,
     this.authService,
     this.onUpgrade,
+    this.embedded = false,
+    this.now,
   });
 
   final XboardSubscriptionData? subscription;
   final XboardAuthService? authService;
   final VoidCallback? onUpgrade;
+  final bool embedded;
+  final DateTime? now;
 
   @override
   State<SubscriptionPlanActionBar> createState() =>
@@ -529,6 +700,30 @@ class SubscriptionPlanActionBar extends StatefulWidget {
 
 class _SubscriptionPlanActionBarState extends State<SubscriptionPlanActionBar> {
   SubscriptionPlanAction? _processingAction;
+  late final _SubscriptionClock _clock;
+
+  @override
+  void initState() {
+    super.initState();
+    _clock = _SubscriptionClock(widget.subscription, widget.now)
+      ..addListener(_updateClock);
+  }
+
+  void _updateClock() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didUpdateWidget(covariant SubscriptionPlanActionBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _clock.update(widget.subscription, widget.now);
+  }
+
+  @override
+  void dispose() {
+    _clock.dispose();
+    super.dispose();
+  }
 
   Future<void> _handleAction(SubscriptionPlanAction action) async {
     if (_processingAction != null) return;
@@ -540,6 +735,7 @@ class _SubscriptionPlanActionBarState extends State<SubscriptionPlanActionBar> {
         subscription: widget.subscription,
         authService: widget.authService ?? XboardAuthService(),
         onUpgrade: widget.onUpgrade,
+        now: widget.now,
       );
     } finally {
       if (mounted) setState(() => _processingAction = null);
@@ -548,31 +744,52 @@ class _SubscriptionPlanActionBarState extends State<SubscriptionPlanActionBar> {
 
   @override
   Widget build(BuildContext context) {
-    final actions = subscriptionPlanActions(widget.subscription);
+    final actions = subscriptionPlanActions(
+      widget.subscription,
+      now: _clock.now,
+    );
     if (actions.isEmpty) return const SizedBox.shrink();
     final scheme = context.colorScheme;
     return Container(
       key: const ValueKey('subscription-plan-actions'),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerLowest.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: scheme.outlineVariant),
-        boxShadow: [
-          BoxShadow(
-            color: scheme.shadow.withValues(alpha: 0.08),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          for (var index = 0; index < actions.length; index++) ...[
-            Expanded(child: _buildButton(context, actions[index])),
-            if (index != actions.length - 1) const SizedBox(width: 10),
-          ],
-        ],
+      padding: widget.embedded ? EdgeInsets.zero : const EdgeInsets.all(10),
+      decoration: widget.embedded
+          ? null
+          : BoxDecoration(
+              color: scheme.surfaceContainerLowest.withValues(alpha: 0.96),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: scheme.outlineVariant),
+              boxShadow: [
+                BoxShadow(
+                  color: scheme.shadow.withValues(alpha: 0.08),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.hasBoundedWidth
+              ? constraints.maxWidth
+              : MediaQuery.sizeOf(context).width;
+          final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+          final columns = ((width + 10) / (148 * textScale + 10)).floor().clamp(
+            1,
+            actions.length,
+          );
+          final buttonWidth = (width - (columns - 1) * 10) / columns;
+          return Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final action in actions)
+                SizedBox(
+                  width: buttonWidth,
+                  child: _buildButton(context, action),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -604,7 +821,7 @@ class _SubscriptionPlanActionBarState extends State<SubscriptionPlanActionBar> {
     final style = ButtonStyle(
       minimumSize: const WidgetStatePropertyAll(Size.fromHeight(52)),
       padding: const WidgetStatePropertyAll(
-        EdgeInsets.symmetric(horizontal: 8),
+        EdgeInsets.symmetric(horizontal: 10, vertical: 12),
       ),
       shape: WidgetStatePropertyAll(
         RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
@@ -658,13 +875,10 @@ class _SubscriptionActionContent extends StatelessWidget {
           Icon(icon, size: 19),
         const SizedBox(width: 7),
         Flexible(
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              label,
-              maxLines: 1,
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontWeight: FontWeight.w800),
           ),
         ),
       ],
@@ -672,11 +886,114 @@ class _SubscriptionActionContent extends StatelessWidget {
   }
 }
 
+class _TrafficResetNoticeDialog extends StatefulWidget {
+  const _TrafficResetNoticeDialog({required this.subscription, this.now});
+
+  final XboardSubscriptionData subscription;
+  final DateTime? now;
+
+  @override
+  State<_TrafficResetNoticeDialog> createState() =>
+      _TrafficResetNoticeDialogState();
+}
+
+class _TrafficResetNoticeDialogState extends State<_TrafficResetNoticeDialog> {
+  late final _SubscriptionClock _clock;
+
+  @override
+  void initState() {
+    super.initState();
+    _clock = _SubscriptionClock(widget.subscription, widget.now)
+      ..addListener(_updateClock);
+  }
+
+  void _updateClock() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _clock.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.appLocalizations;
+    final subscription = widget.subscription;
+    final now = _clock.now;
+    final resetAt = subscription.nextResetAt;
+    final status = evaluateSubscriptionStatus(subscription, now: now);
+    final hasSchedule =
+        subscription.isMonthlyPlan &&
+        !status.expired &&
+        resetAt != null &&
+        resetAt.isAfter(now) &&
+        resetAt.isBefore(subscription.expiresAt!);
+    final String schedule;
+    if (!subscription.isMonthlyPlan) {
+      schedule = l10n.subscriptionResetNoSchedule;
+    } else if (status.expired) {
+      schedule = l10n.subscriptionResetExpired;
+    } else if (!hasSchedule) {
+      schedule = l10n.subscriptionResetScheduleUnavailable;
+    } else {
+      final remaining = resetAt.difference(now);
+      final date = DateFormat.yMd(
+        Localizations.localeOf(context).toLanguageTag(),
+      ).add_Hm().format(resetAt);
+      schedule = remaining < const Duration(days: 1)
+          ? l10n.subscriptionResetWithinDay(date)
+          : l10n.subscriptionResetCountdown(
+              (remaining.inMicroseconds / Duration.microsecondsPerDay).ceil(),
+              date,
+            );
+    }
+    return AlertDialog(
+      key: const ValueKey('subscription-reset-notice-dialog'),
+      scrollable: true,
+      icon: const Icon(Icons.info_outline_rounded),
+      title: Text(l10n.subscriptionResetNoticeTitle),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 430),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(schedule, key: const ValueKey('subscription-reset-schedule')),
+            if (hasSchedule) ...[
+              const SizedBox(height: 12),
+              Text(l10n.subscriptionTrafficExpiresAtReset),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('subscription-reset-cancel'),
+          onPressed: () => Navigator.pop(context, false),
+          child: Text(l10n.cancel),
+        ),
+        FilledButton(
+          key: const ValueKey('subscription-reset-continue'),
+          onPressed: () => Navigator.pop(context, true),
+          child: Text(l10n.subscriptionResetContinue),
+        ),
+      ],
+    );
+  }
+}
+
 class _RenewalPeriodDialog extends StatelessWidget {
-  const _RenewalPeriodDialog({required this.plan, required this.periods});
+  const _RenewalPeriodDialog({
+    required this.plan,
+    required this.periods,
+    required this.showTrafficNotice,
+  });
 
   final XboardAvailablePlan plan;
   final List<String> periods;
+  final bool showTrafficNotice;
 
   String _price(int value) {
     final amount = value / 100;
@@ -713,33 +1030,37 @@ class _RenewalPeriodDialog extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFA000).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: const Color(0xFFFFA000).withValues(alpha: 0.35),
+              if (showTrafficNotice)
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFA000).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: const Color(0xFFFFA000).withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.info_outline_rounded,
+                        color: Color(0xFFE28A00),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          l10n.renewalDoesNotResetTraffic,
+                          style: TextStyle(
+                            color: scheme.onSurface,
+                            height: 1.45,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(
-                      Icons.info_outline_rounded,
-                      color: Color(0xFFE28A00),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        l10n.renewalDoesNotResetTraffic,
-                        style: TextStyle(color: scheme.onSurface, height: 1.45),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
+              if (showTrafficNotice) const SizedBox(height: 18),
               Text(
                 l10n.selectRenewalPeriod,
                 style: TextStyle(

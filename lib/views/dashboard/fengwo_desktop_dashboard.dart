@@ -10,6 +10,7 @@ import 'package:fl_clash/views/dashboard/widgets/dashboard_subscription_refresh_
 import 'package:fl_clash/views/dashboard/widgets/global_mode_confirmation.dart';
 import 'package:fl_clash/views/proxies/common.dart';
 import 'package:fl_clash/widgets/fengwo_marquee.dart';
+import 'package:fl_clash/widgets/subscription_status_indicator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -718,143 +719,166 @@ class _ConnectionStatusPanel extends StatelessWidget {
     return _GlassPanel(
       colors: colors,
       padding: const EdgeInsets.all(18),
-      child: Column(
-        children: [
-          Row(
+      child: LayoutBuilder(
+        builder: (context, panelConstraints) => SingleChildScrollView(
+          key: const ValueKey('fengwo-desktop-connection-scroll'),
+          child: Column(
             children: [
-              Icon(Icons.wifi_rounded, color: colors.success, size: 28),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  l10n.connectionStatus,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colors.text,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              IconButton(
-                onPressed: onRefresh,
-                tooltip: l10n.delayTest,
-                icon: const Icon(Icons.refresh_rounded, size: 20),
-              ),
-              const SizedBox(width: 3),
-              _StatusPill(colors: colors, connected: isStart),
-            ],
-          ),
-          const SizedBox(height: 11),
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: colors.primarySoft,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(Icons.public_rounded, color: colors.primary),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      l10n.currentNode,
-                      style: TextStyle(color: colors.muted, fontSize: 12),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      nodeName,
+              Row(
+                children: [
+                  Icon(Icons.wifi_rounded, color: colors.success, size: 28),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      l10n.connectionStatus,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: colors.text,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                  ],
+                  ),
+                  IconButton(
+                    onPressed: onRefresh,
+                    tooltip: l10n.delayTest,
+                    icon: const Icon(Icons.refresh_rounded, size: 20),
+                  ),
+                  const SizedBox(width: 3),
+                  _StatusPill(colors: colors, connected: isStart),
+                ],
+              ),
+              const SizedBox(height: 11),
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: colors.primarySoft,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(Icons.public_rounded, color: colors.primary),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l10n.currentNode,
+                          style: TextStyle(color: colors.muted, fontSize: 12),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          nodeName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: colors.text,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: onOpenNodes,
+                    child: Text(l10n.switchNode),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SubscriptionPlanActionBar(
+                key: const ValueKey('fengwo-desktop-traffic-plan-actions'),
+                subscription: subscription,
+                embedded: true,
+              ),
+              Divider(height: 20, color: colors.outline),
+              SizedBox(
+                height: math.max(
+                  240 * MediaQuery.textScalerOf(context).scale(13) / 13,
+                  panelConstraints.maxHeight - 205,
+                ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final cellWidth = (constraints.maxWidth - 10) / 2;
+                    final cellHeight = (constraints.maxHeight - 10) / 2;
+                    return GridView.count(
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisCount: 2,
+                      childAspectRatio: cellWidth / cellHeight,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                      children: [
+                        Tooltip(
+                          message: l10n.referenceDelayExplanation,
+                          child: _MetricCard(
+                            colors: colors,
+                            icon: Icons.equalizer_rounded,
+                            color: _delayColor(delay, colors),
+                            label: connectionDelay == null
+                                ? l10n.referenceStandardizedDelay
+                                : l10n.referenceConnectionDelay,
+                            value: switch (delay) {
+                              null => '--',
+                              < 0 => l10n.timeout,
+                              final value => '$value',
+                            },
+                            fitValue: delay != null && delay! < 0,
+                            unit: delay != null && delay! < 0 ? '' : 'ms',
+                            footer: delay == null
+                                ? l10n.notTested
+                                : delay! < 0
+                                ? null
+                                : connectionDelay != null &&
+                                      standardDelay != null
+                                ? '${l10n.referenceStandardizedDelay} $standardDetail'
+                                : null,
+                            latency: delay,
+                          ),
+                        ),
+                        _MetricCard(
+                          colors: colors,
+                          icon: Icons.arrow_downward_rounded,
+                          color: colors.primary,
+                          label: l10n.download,
+                          value: traffic.down.traffic.show,
+                          unit: '/s',
+                          samples: trafficHistory
+                              .map((item) => item.down)
+                              .toList(),
+                        ),
+                        _MetricCard(
+                          colors: colors,
+                          icon: Icons.arrow_upward_rounded,
+                          color: const Color(0xFF8A4DFF),
+                          label: l10n.upload,
+                          value: traffic.up.traffic.show,
+                          unit: '/s',
+                          samples: trafficHistory
+                              .map((item) => item.up)
+                              .toList(),
+                        ),
+                        _TrafficDetailsMetricCard(
+                          colors: colors,
+                          used: used,
+                          remaining: remaining,
+                          total: total,
+                          progress: total > 0
+                              ? (used / total).clamp(0, 1).toDouble()
+                              : 0,
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
-              TextButton(onPressed: onOpenNodes, child: Text(l10n.switchNode)),
             ],
           ),
-          Divider(height: 20, color: colors.outline),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final cellWidth = (constraints.maxWidth - 10) / 2;
-                final cellHeight = (constraints.maxHeight - 10) / 2;
-                return GridView.count(
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 2,
-                  childAspectRatio: cellWidth / cellHeight,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
-                  children: [
-                    Tooltip(
-                      message: l10n.referenceDelayExplanation,
-                      child: _MetricCard(
-                        colors: colors,
-                        icon: Icons.equalizer_rounded,
-                        color: _delayColor(delay, colors),
-                        label: connectionDelay == null
-                            ? l10n.referenceStandardizedDelay
-                            : l10n.referenceConnectionDelay,
-                        value: switch (delay) {
-                          null => '--',
-                          < 0 => l10n.timeout,
-                          final value => '$value',
-                        },
-                        fitValue: delay != null && delay! < 0,
-                        unit: delay != null && delay! < 0 ? '' : 'ms',
-                        footer: delay == null
-                            ? l10n.notTested
-                            : delay! < 0
-                            ? null
-                            : connectionDelay != null && standardDelay != null
-                            ? '${l10n.referenceStandardizedDelay} $standardDetail'
-                            : null,
-                        latency: delay,
-                      ),
-                    ),
-                    _MetricCard(
-                      colors: colors,
-                      icon: Icons.arrow_downward_rounded,
-                      color: colors.primary,
-                      label: l10n.download,
-                      value: traffic.down.traffic.show,
-                      unit: '/s',
-                      samples: trafficHistory.map((item) => item.down).toList(),
-                    ),
-                    _MetricCard(
-                      colors: colors,
-                      icon: Icons.arrow_upward_rounded,
-                      color: const Color(0xFF8A4DFF),
-                      label: l10n.upload,
-                      value: traffic.up.traffic.show,
-                      unit: '/s',
-                      samples: trafficHistory.map((item) => item.up).toList(),
-                    ),
-                    _TrafficDetailsMetricCard(
-                      colors: colors,
-                      used: used,
-                      remaining: remaining,
-                      total: total,
-                      progress: total > 0
-                          ? (used / total).clamp(0, 1).toDouble()
-                          : 0,
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

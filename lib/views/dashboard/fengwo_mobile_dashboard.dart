@@ -1169,6 +1169,12 @@ class _MobileTrafficCard extends StatelessWidget {
               ),
             ),
           ],
+          const SizedBox(height: 12),
+          SubscriptionPlanActionBar(
+            key: const ValueKey('fengwo-mobile-traffic-plan-actions'),
+            subscription: subscription,
+            embedded: true,
+          ),
         ],
       ),
     );

@@ -8543,10 +8543,10 @@ class AppLocalizations {
     );
   }
 
-  /// `Your plan expires on {date}, in less than 3 days. Renew it soon.`
+  /// `Your plan expires on {date}, in less than 7 days. Renew it soon.`
   String subscriptionExpiringWarning(Object date) {
     return Intl.message(
-      'Your plan expires on $date, in less than 3 days. Renew it soon.',
+      'Your plan expires on $date, in less than 7 days. Renew it soon.',
       name: 'subscriptionExpiringWarning',
       desc: '',
       args: [date],
@@ -8598,11 +8598,101 @@ class AppLocalizations {
     );
   }
 
-  /// `Upgrade`
+  /// `Upgrade plan`
   String get upgradePlanAction {
     return Intl.message(
-      'Upgrade',
+      'Upgrade plan',
       name: 'upgradePlanAction',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Once activated, the upgraded plan will replace your current plan. Continue to the store?`
+  String get subscriptionUpgradeNotice {
+    return Intl.message(
+      'Once activated, the upgraded plan will replace your current plan. Continue to the store?',
+      name: 'subscriptionUpgradeNotice',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The next traffic reset is in {days} days ({date}).`
+  String subscriptionResetCountdown(Object days, String date) {
+    return Intl.message(
+      'The next traffic reset is in $days days ($date).',
+      name: 'subscriptionResetCountdown',
+      desc: '',
+      args: [days, date],
+    );
+  }
+
+  /// `The next traffic reset is in less than 1 day ({date}).`
+  String subscriptionResetWithinDay(String date) {
+    return Intl.message(
+      'The next traffic reset is in less than 1 day ($date).',
+      name: 'subscriptionResetWithinDay',
+      desc: '',
+      args: [date],
+    );
+  }
+
+  /// `A valid next reset date is not available yet. Please refresh your plan information.`
+  String get subscriptionResetScheduleUnavailable {
+    return Intl.message(
+      'A valid next reset date is not available yet. Please refresh your plan information.',
+      name: 'subscriptionResetScheduleUnavailable',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This plan has no scheduled recurring reset date.`
+  String get subscriptionResetNoSchedule {
+    return Intl.message(
+      'This plan has no scheduled recurring reset date.',
+      name: 'subscriptionResetNoSchedule',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Your plan has expired. Renew it first; the reset schedule will follow the updated plan information.`
+  String get subscriptionResetExpired {
+    return Intl.message(
+      'Your plan has expired. Renew it first; the reset schedule will follow the updated plan information.',
+      name: 'subscriptionResetExpired',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unused traffic from this cycle expires at the next reset and does not roll over.`
+  String get subscriptionTrafficExpiresAtReset {
+    return Intl.message(
+      'Unused traffic from this cycle expires at the next reset and does not roll over.',
+      name: 'subscriptionTrafficExpiresAtReset',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Traffic reset information`
+  String get subscriptionResetNoticeTitle {
+    return Intl.message(
+      'Traffic reset information',
+      name: 'subscriptionResetNoticeTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Continue with reset`
+  String get subscriptionResetContinue {
+    return Intl.message(
+      'Continue with reset',
+      name: 'subscriptionResetContinue',
       desc: '',
       args: [],
     );

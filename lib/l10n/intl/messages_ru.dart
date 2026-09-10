@@ -138,24 +138,30 @@ class MessageLookup extends MessageLookupByLibrary {
       "Срок действия тарифа истёк ${date}. Продлите его, чтобы продолжить работу.";
 
   static String m52(date) =>
-      "Тариф истекает ${date}, менее чем через 3 дня. Продлите его заранее.";
+      "Тариф истекает ${date}, менее чем через 7 дней. Продлите его заранее.";
 
   static String m53(remaining) =>
       "Осталось только ${remaining} ГБ — меньше 10 ГБ. Купите или продлите тариф.";
 
-  static String m54(code) =>
+  static String m54(days, date) =>
+      "До следующего сброса трафика осталось ${days} дн. (${date}).";
+
+  static String m55(date) =>
+      "До следующего сброса трафика осталось менее 1 дня (${date}).";
+
+  static String m56(code) =>
       "Не удалось включить системный прокси (${code}). Переключатель возвращён назад. Экспортируйте журналы для диагностики";
 
-  static String m55(code) =>
+  static String m57(code) =>
       "Не удалось отключить системный прокси (${code}). Отключите его вручную в настройках Windows";
 
-  static String m56(count) => "Заказов: ${count}";
+  static String m58(count) => "Заказов: ${count}";
 
-  static String m57(ip) => "С IP ${ip} снова можно будет войти в этот аккаунт.";
+  static String m59(ip) => "С IP ${ip} снова можно будет войти в этот аккаунт.";
 
-  static String m58(label) => "${label} должен быть URL";
+  static String m60(label) => "${label} должен быть URL";
 
-  static String m59(count) =>
+  static String m61(count) =>
       "${Intl.plural(count, one: '${count} год назад', few: '${count} года назад', many: '${count} лет назад', other: '${count} года назад')}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
@@ -2313,14 +2319,37 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionPlanUnavailable": MessageLookupByLibrary.simpleMessage(
       "Не удалось найти текущий тариф. Обновите данные и повторите попытку",
     ),
+    "subscriptionResetContinue": MessageLookupByLibrary.simpleMessage(
+      "Продолжить сброс",
+    ),
+    "subscriptionResetCountdown": m54,
+    "subscriptionResetExpired": MessageLookupByLibrary.simpleMessage(
+      "Срок действия тарифа истёк. Сначала продлите его; график сброса будет определяться обновлёнными данными тарифа.",
+    ),
+    "subscriptionResetNoSchedule": MessageLookupByLibrary.simpleMessage(
+      "Для этого тарифа нет даты регулярного сброса.",
+    ),
+    "subscriptionResetNoticeTitle": MessageLookupByLibrary.simpleMessage(
+      "О сбросе трафика",
+    ),
+    "subscriptionResetScheduleUnavailable": MessageLookupByLibrary.simpleMessage(
+      "Корректная дата следующего сброса пока недоступна. Обновите информацию о тарифе.",
+    ),
     "subscriptionResetSuccess": MessageLookupByLibrary.simpleMessage(
       "Подписка сброшена и синхронизирована",
     ),
+    "subscriptionResetWithinDay": m55,
     "subscriptionStatusNormalMessage": MessageLookupByLibrary.simpleMessage(
       "Остаток трафика и срок действия тарифа находятся в норме.",
     ),
     "subscriptionStatusNormalTitle": MessageLookupByLibrary.simpleMessage(
       "Тариф в норме",
+    ),
+    "subscriptionTrafficExpiresAtReset": MessageLookupByLibrary.simpleMessage(
+      "Остаток трафика за текущий период сгорает при следующем сбросе и не переносится.",
+    ),
+    "subscriptionUpgradeNotice": MessageLookupByLibrary.simpleMessage(
+      "После активации улучшенный тариф заменит текущий. Перейти в магазин?",
     ),
     "subscriptionWarningTitle": MessageLookupByLibrary.simpleMessage(
       "Предупреждение о тарифе",
@@ -2340,11 +2369,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "system": MessageLookupByLibrary.simpleMessage("Система"),
     "systemApp": MessageLookupByLibrary.simpleMessage("Системное приложение"),
     "systemProxy": MessageLookupByLibrary.simpleMessage("Системный прокси"),
-    "systemProxyApplyFailed": m54,
+    "systemProxyApplyFailed": m56,
     "systemProxyDesc": MessageLookupByLibrary.simpleMessage(
       "Прикрепить HTTP-прокси к VpnService",
     ),
-    "systemProxyDisableFailed": m55,
+    "systemProxyDisableFailed": m57,
     "systemProxyStaleCleaned": MessageLookupByLibrary.simpleMessage(
       "Системный прокси, оставшийся после предыдущего аварийного завершения, очищен",
     ),
@@ -2399,7 +2428,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "tools": MessageLookupByLibrary.simpleMessage("Инструменты"),
     "totalCommission": MessageLookupByLibrary.simpleMessage("Всего заработано"),
     "totalLoginCount": MessageLookupByLibrary.simpleMessage("Входов"),
-    "totalOrders": m56,
+    "totalOrders": m58,
     "totalTrafficLabel": MessageLookupByLibrary.simpleMessage("Всего"),
     "tproxyPort": MessageLookupByLibrary.simpleMessage("Tproxy-порт"),
     "trafficDetailRecords": MessageLookupByLibrary.simpleMessage(
@@ -2431,7 +2460,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "turnOn": MessageLookupByLibrary.simpleMessage("Включить"),
     "twoYearBilling": MessageLookupByLibrary.simpleMessage("2 года"),
     "unblockLoginIp": MessageLookupByLibrary.simpleMessage("Разблокировать"),
-    "unblockLoginIpMessage": m57,
+    "unblockLoginIpMessage": m59,
     "unblockLoginIpTitle": MessageLookupByLibrary.simpleMessage(
       "Разблокировать этот IP?",
     ),
@@ -2465,7 +2494,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "urlDesc": MessageLookupByLibrary.simpleMessage(
       "Получить профиль через URL",
     ),
-    "urlTip": m58,
+    "urlTip": m60,
     "useHosts": MessageLookupByLibrary.simpleMessage("Использовать hosts"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage(
       "Использовать системные hosts",
@@ -2546,7 +2575,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "В системе будет создана заявка, которую обработает администратор.",
     ),
     "yearlyBilling": MessageLookupByLibrary.simpleMessage("Год"),
-    "yearsAgo": m59,
+    "yearsAgo": m61,
     "zh_CN": MessageLookupByLibrary.simpleMessage("Упрощенный китайский"),
     "zoomIn": MessageLookupByLibrary.simpleMessage("Увеличить"),
     "zoomOut": MessageLookupByLibrary.simpleMessage("Уменьшить"),
