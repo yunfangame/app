@@ -6,6 +6,7 @@ import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/fengwo_account_avatar.dart';
 import 'package:fl_clash/widgets/fengwo_logout_button.dart';
+import 'package:fl_clash/widgets/inherited.dart';
 import 'package:fl_clash/widgets/offline_mode_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -48,6 +49,8 @@ class _FengWoPersonalCenterViewState
   bool _obscureOldPassword = true;
   bool _obscureNewPassword = true;
   bool _obscureConfirmPassword = true;
+  bool? _wasPageActive;
+  int _userInfoRequestRevision = 0;
 
   @override
   void initState() {
@@ -56,6 +59,18 @@ class _FengWoPersonalCenterViewState
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadUserInfo();
       _loadLoginIps();
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final isPageActive = PageActivityScope.isActiveOf(context);
+    final becameActive = _wasPageActive == false && isPageActive;
+    _wasPageActive = isPageActive;
+    if (!becameActive) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_loadUserInfo());
     });
   }
 
@@ -69,6 +84,7 @@ class _FengWoPersonalCenterViewState
   }
 
   Future<void> _loadUserInfo() async {
+    final requestRevision = ++_userInfoRequestRevision;
     if (globalState.isOfflineMode) {
       if (mounted) setState(() => _loading = false);
       return;
@@ -84,7 +100,7 @@ class _FengWoPersonalCenterViewState
       return;
     }
     setState(() {
-      _loading = true;
+      _loading = _userInfo == null;
       _failed = false;
     });
     try {
@@ -92,17 +108,32 @@ class _FengWoPersonalCenterViewState
         endpoint: session.endpoint,
         authData: session.authData,
       );
-      if (!mounted) return;
+      if (!_isCurrentUserInfoRequest(requestRevision, session)) return;
       setState(() => _userInfo = userInfo);
     } catch (error, stackTrace) {
       commonPrint.log(
         'load XBoard user info failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
-      if (mounted) setState(() => _failed = true);
+      if (_isCurrentUserInfoRequest(requestRevision, session)) {
+        setState(() => _failed = true);
+      }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (_isCurrentUserInfoRequest(requestRevision, session)) {
+        setState(() => _loading = false);
+      }
     }
+  }
+
+  bool _isCurrentUserInfoRequest(
+    int requestRevision,
+    XboardLoginResult session,
+  ) {
+    final activeSession = globalState.xboardSession;
+    return mounted &&
+        requestRevision == _userInfoRequestRevision &&
+        activeSession?.endpoint == session.endpoint &&
+        activeSession?.authData == session.authData;
   }
 
   Future<void> _loadLoginIps() async {

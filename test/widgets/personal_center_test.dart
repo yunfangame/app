@@ -4,6 +4,7 @@ import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/account/fengwo_personal_center.dart';
 import 'package:fl_clash/widgets/fengwo_account_avatar.dart';
+import 'package:fl_clash/widgets/inherited.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -370,21 +371,78 @@ void main() {
     expect(scrollable.position.pixels, greaterThan(0));
     expect(tester.takeException(), isNull);
   });
+
+  for (final scenario in [
+    (name: 'desktop', size: const Size(760, 1000), mobileLayout: false),
+    (name: 'mobile', size: const Size(390, 844), mobileLayout: true),
+  ]) {
+    testWidgets(
+      '${scenario.name} account balance refreshes when personal center becomes active',
+      (tester) async {
+        tester.view.physicalSize = scenario.size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(globalState.clearXboardSession);
+        globalState.xboardSession = _testSession();
+        final pageActive = ValueNotifier(true);
+        addTearDown(pageActive.dispose);
+        var userInfoRequests = 0;
+
+        await tester.pumpWidget(
+          _TestApp(
+            mobileLayout: scenario.mobileLayout,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: pageActive,
+              child: FengWoPersonalCenterView(
+                authService: _testService(
+                  userBalance: () => userInfoRequests == 0 ? 1250 : 8800,
+                  onUserInfoFetched: () => userInfoRequests++,
+                ),
+              ),
+              builder: (context, isActive, child) =>
+                  PageActivityScope(isActive: isActive, child: child!),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(userInfoRequests, 1);
+        expect(find.text('12.50'), findsOneWidget);
+
+        pageActive.value = false;
+        await tester.pumpAndSettle();
+        expect(userInfoRequests, 1);
+
+        pageActive.value = true;
+        await tester.pumpAndSettle();
+
+        expect(userInfoRequests, 2);
+        expect(find.text('88.00'), findsOneWidget);
+        expect(find.text('12.50'), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 }
 
 XboardAuthService _testService({
   VoidCallback? onPasswordChanged,
   _LoginIpTestState? loginIpState,
+  int Function()? userBalance,
+  VoidCallback? onUserInfoFetched,
 }) {
   final state = loginIpState ?? _LoginIpTestState();
   return XboardAuthService(
     userInfoRequester: (endpoint, authData) async {
-      return const XboardLoginResponse(
+      final balance = userBalance?.call() ?? 1250;
+      onUserInfoFetched?.call();
+      return XboardLoginResponse(
         statusCode: 200,
         data: {
           'data': {
             'email': 'member@example.com',
-            'balance': 1250,
+            'balance': balance,
             'commission_balance': 0,
             'remind_expire': 1,
             'remind_traffic': 0,
