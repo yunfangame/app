@@ -7873,10 +7873,10 @@ class AppLocalizations {
     );
   }
 
-  /// `Global mode routes traffic handled by the app through one node. After confirmation, an available Hong Kong node will be selected before switching modes.`
+  /// `Global mode routes traffic handled by the app through one node. After confirmation, the app will try to keep the node currently selected in rule mode.`
   String get globalModeWarningDescription {
     return Intl.message(
-      'Global mode routes traffic handled by the app through one node. After confirmation, an available Hong Kong node will be selected before switching modes.',
+      'Global mode routes traffic handled by the app through one node. After confirmation, the app will try to keep the node currently selected in rule mode.',
       name: 'globalModeWarningDescription',
       desc: '',
       args: [],
@@ -7903,10 +7903,10 @@ class AppLocalizations {
     );
   }
 
-  /// `If no Hong Kong node is available, the current mode and node will remain unchanged.`
+  /// `If the target mode does not contain that node, its previous node selection will be kept.`
   String get proxyNeededChooseNode {
     return Intl.message(
-      'If no Hong Kong node is available, the current mode and node will remain unchanged.',
+      'If the target mode does not contain that node, its previous node selection will be kept.',
       name: 'proxyNeededChooseNode',
       desc: '',
       args: [],
@@ -7923,21 +7923,21 @@ class AppLocalizations {
     );
   }
 
-  /// `Select Hong Kong and switch`
-  String get switchAndSelectHongKong {
+  /// `Keep current node and switch`
+  String get switchAndKeepCurrentNode {
     return Intl.message(
-      'Select Hong Kong and switch',
-      name: 'switchAndSelectHongKong',
+      'Keep current node and switch',
+      name: 'switchAndKeepCurrentNode',
       desc: '',
       args: [],
     );
   }
 
-  /// `Selecting an available Hong Kong node…`
-  String get selectingHongKongNode {
+  /// `Syncing the current node and switching modes…`
+  String get syncingCurrentNodeForModeSwitch {
     return Intl.message(
-      'Selecting an available Hong Kong node…',
-      name: 'selectingHongKongNode',
+      'Syncing the current node and switching modes…',
+      name: 'syncingCurrentNodeForModeSwitch',
       desc: '',
       args: [],
     );
@@ -7958,6 +7958,16 @@ class AppLocalizations {
     return Intl.message(
       'Unable to switch nodes. Please try again or check the logs.',
       name: 'hongKongSelectionFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unable to switch modes. Please try again or check the logs.`
+  String get modeSwitchFailed {
+    return Intl.message(
+      'Unable to switch modes. Please try again or check the logs.',
+      name: 'modeSwitchFailed',
       desc: '',
       args: [],
     );

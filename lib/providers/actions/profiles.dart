@@ -6,6 +6,7 @@ class ProfilesAction extends _$ProfilesAction {
   void build() {}
 
   void updateCurrentSelectedMap(String groupName, String proxyName) {
+    if (isChainProxyRuntimeName(proxyName)) return;
     final currentProfile = ref.read(currentProfileProvider);
     if (currentProfile != null &&
         currentProfile.selectedMap[groupName] != proxyName) {

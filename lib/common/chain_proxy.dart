@@ -8,6 +8,11 @@ import 'package:fl_clash/models/models.dart';
 
 const chainProxyRuntimeName = '蜂窝链式代理';
 
+bool isChainProxyRuntimeName(String name) {
+  return name == chainProxyRuntimeName ||
+      name.startsWith('$chainProxyRuntimeName ');
+}
+
 enum ChainProxyValidationStatus { available, wrongProtocol, unavailable }
 
 class ChainProxyValidationResult {
@@ -57,7 +62,7 @@ Map<String, dynamic> applyChainProxyConfig(
   final rules = List<String>.from(config['rules'] as List? ?? const []);
   if (mode == Mode.global) {
     final target = globalTarget?.trim();
-    if (target == null || target.isEmpty || target == chainProxyRuntimeName) {
+    if (target == null || target.isEmpty || isChainProxyRuntimeName(target)) {
       return config;
     }
     proxies.add(_proxyMap(chainProxy, chainProxyRuntimeName, target));

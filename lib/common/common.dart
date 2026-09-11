@@ -30,6 +30,7 @@ export 'local_secret_store.dart';
 export 'lock.dart';
 export 'measure.dart';
 export 'mixin.dart';
+export 'mode_node_selection.dart';
 export 'navigation.dart';
 export 'navigator.dart';
 export 'network.dart';

@@ -27,6 +27,7 @@ class ProxiesTabView extends ConsumerStatefulWidget {
 class ProxiesTabViewState extends ConsumerState<ProxiesTabView>
     with TickerProviderStateMixin {
   TabController? _tabController;
+  int _tabControllerEpoch = 0;
   final _hasMoreButtonNotifier = ValueNotifier<bool>(false);
   ProxyGroupViewKeyMap _keyMap = {};
 
@@ -142,12 +143,16 @@ class ProxiesTabViewState extends ConsumerState<ProxiesTabView>
   }
 
   void _tabControllerListener([int? index]) {
+    final controller = _tabController;
+    final epoch = _tabControllerEpoch;
     final group = _getGroup(index ?? _tabController?.index);
     if (group == null) {
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
+      if (!mounted ||
+          epoch != _tabControllerEpoch ||
+          !identical(controller, _tabController)) {
         return;
       }
       updateCurrentGroupName(group.name);
@@ -155,6 +160,7 @@ class ProxiesTabViewState extends ConsumerState<ProxiesTabView>
   }
 
   void _destroyTabController() {
+    _tabControllerEpoch++;
     _tabController?.removeListener(_tabControllerListener);
     _tabController?.dispose();
     _tabController = null;

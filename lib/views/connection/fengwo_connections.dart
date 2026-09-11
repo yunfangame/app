@@ -522,7 +522,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
       changed = true;
     }
     if (switchToRuleMode) {
-      ref.read(setupActionProvider.notifier).changeMode(Mode.rule);
+      ref.read(setupActionProvider.notifier).changeModeOnly(Mode.rule);
     }
     await ref
         .read(setupActionProvider.notifier)

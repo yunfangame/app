@@ -525,7 +525,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('fengwo-power-button')));
     await tester.pump();
 
-    expect(action.requests, [true]);
+    expect(action.runningRequests, [true]);
     expect(container.read(isStartProvider), isTrue);
     expect(tester.takeException(), null);
 
@@ -546,7 +546,7 @@ void main() {
   });
 
   testWidgets(
-    'desktop global mode confirms before delegating Hong Kong selection',
+    'desktop global mode confirms before preserving the rule node',
     (tester) async {
       tester.view.physicalSize = const Size(1440, 900);
       tester.view.devicePixelRatio = 1;
@@ -556,7 +556,8 @@ void main() {
       const profile = Profile(
         id: 1,
         autoUpdateDuration: Duration.zero,
-        selectedMap: {'GLOBAL': '旧节点'},
+        currentGroupName: '规则节点组',
+        selectedMap: {'GLOBAL': '旧节点', '规则节点组': '规则节点'},
       );
       final container = ProviderContainer(
         overrides: [
@@ -571,7 +572,6 @@ void main() {
             (_, _) => const PatchClashConfig(mode: Mode.rule),
           ),
           setupActionProvider.overrideWith(_RecordingSetupAction.new),
-          proxiesActionProvider.overrideWith(_HongKongProxiesAction.new),
         ],
       );
       addTearDown(container.dispose);
@@ -597,9 +597,9 @@ void main() {
       );
       expect(container.read(patchClashConfigProvider).mode, Mode.rule);
       expect(
-        (container.read(proxiesActionProvider.notifier)
-                as _HongKongProxiesAction)
-            .requests,
+        (container.read(setupActionProvider.notifier)
+                as _RecordingSetupAction)
+            .modeRequests,
         isEmpty,
       );
 
@@ -626,7 +626,7 @@ void main() {
       );
       expect(
         container.read(profilesProvider).single.selectedMap['GLOBAL'],
-        '香港测试节点',
+        '规则节点',
       );
 
       container
@@ -642,9 +642,9 @@ void main() {
       );
       expect(container.read(patchClashConfigProvider).mode, Mode.global);
       expect(
-        (container.read(proxiesActionProvider.notifier)
-                as _HongKongProxiesAction)
-            .requests,
+        (container.read(setupActionProvider.notifier)
+                as _RecordingSetupAction)
+            .modeRequests,
         [Mode.global, Mode.global],
       );
       expect(tester.takeException(), null);
@@ -829,7 +829,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('fengwo-mobile-power-button')));
     await tester.pump();
 
-    expect(action.requests, [true]);
+    expect(action.runningRequests, [true]);
 
     final switchNode = find.byKey(const ValueKey('fengwo-mobile-switch-node'));
     await tester.ensureVisible(switchNode);
@@ -2246,41 +2246,43 @@ XboardLoginResult _android16TrafficSession() {
 }
 
 class _RecordingSetupAction extends SetupAction {
-  final requests = <bool>[];
+  final runningRequests = <bool>[];
+  final modeRequests = <Mode>[];
 
   @override
   Future<void> setRunning(bool running, {bool initialize = false}) {
-    requests.add(running);
+    runningRequests.add(running);
     ref.read(runTimeProvider.notifier).value = running ? 1 : null;
     return Future.value();
   }
-}
-
-class _HongKongProxiesAction extends ProxiesAction {
-  final requests = <Mode>[];
 
   @override
-  Future<HongKongSelectionResult> selectHongKongForMode(
+  Future<ModeSwitchResult> changeModeAndWait(
     Mode mode, {
     bool Function()? isCancelled,
   }) async {
-    requests.add(mode);
+    modeRequests.add(mode);
     if (isCancelled?.call() == true) {
-      return HongKongSelectionResult.cancelled;
+      return ModeSwitchResult.cancelled;
     }
-    final profile = ref.read(currentProfileProvider)!;
-    ref
-        .read(profilesProvider.notifier)
-        .put(
-          profile.copyWith(
-            currentGroupName: 'GLOBAL',
-            selectedMap: {...profile.selectedMap, 'GLOBAL': '香港测试节点'},
-          ),
-        );
+    final profile = ref.read(currentProfileProvider);
+    if (profile != null && mode == Mode.global) {
+      final ruleNode = profile.selectedMap[profile.currentGroupName];
+      if (ruleNode != null) {
+        ref
+            .read(profilesProvider.notifier)
+            .put(
+              profile.copyWith(
+                currentGroupName: 'GLOBAL',
+                selectedMap: {...profile.selectedMap, 'GLOBAL': ruleNode},
+              ),
+            );
+      }
+    }
     ref
         .read(patchClashConfigProvider.notifier)
         .update((config) => config.copyWith(mode: mode));
-    return HongKongSelectionResult.selected;
+    return ModeSwitchResult.switched;
   }
 }
 

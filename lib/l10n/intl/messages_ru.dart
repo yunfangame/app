@@ -1005,7 +1005,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Глобальная сеть ускорения",
     ),
     "globalModeWarningDescription": MessageLookupByLibrary.simpleMessage(
-      "В глобальном режиме трафик, обрабатываемый приложением, проходит через один узел. После подтверждения сначала будет выбран доступный узел в Гонконге, затем изменён режим.",
+      "В глобальном режиме трафик, обрабатываемый приложением, проходит через один узел. После подтверждения приложение постарается сохранить узел, выбранный в режиме правил.",
     ),
     "globalNodeDistribution": MessageLookupByLibrary.simpleMessage(
       "Распределение узлов",
@@ -1297,6 +1297,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "Общий порт HTTP и SOCKS5",
     ),
     "mode": MessageLookupByLibrary.simpleMessage("Режим"),
+    "modeSwitchFailed": MessageLookupByLibrary.simpleMessage(
+      "Не удалось переключить режим. Повторите попытку или проверьте журнал.",
+    ),
     "monochromeScheme": MessageLookupByLibrary.simpleMessage("Монохром"),
     "monthlyBilling": MessageLookupByLibrary.simpleMessage("Месяц"),
     "monthsAgo": m31,
@@ -1789,7 +1792,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Домен для разрешения прокси-узлов",
     ),
     "proxyNeededChooseNode": MessageLookupByLibrary.simpleMessage(
-      "Если доступных узлов в Гонконге нет, текущие режим и узел останутся без изменений.",
+      "Если в целевом режиме такого узла нет, сохранится ранее выбранный для него узел.",
     ),
     "proxyPort": MessageLookupByLibrary.simpleMessage("Порт прокси"),
     "proxyProtocolMismatch": MessageLookupByLibrary.simpleMessage(
@@ -2196,9 +2199,6 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "selected": MessageLookupByLibrary.simpleMessage("Выбрано"),
     "selectedCountTitle": m50,
-    "selectingHongKongNode": MessageLookupByLibrary.simpleMessage(
-      "Выбор доступного узла в Гонконге…",
-    ),
     "sendVerificationCode": MessageLookupByLibrary.simpleMessage("Отправить"),
     "sendingVerificationCode": MessageLookupByLibrary.simpleMessage(
       "Отправка...",
@@ -2358,14 +2358,17 @@ class MessageLookup extends MessageLookupByLibrary {
       "Предупреждение о тарифе. Нажмите, чтобы узнать подробности",
     ),
     "suspended": MessageLookupByLibrary.simpleMessage("Приостановлено..."),
-    "switchAndSelectHongKong": MessageLookupByLibrary.simpleMessage(
-      "Выбрать Гонконг и переключить",
+    "switchAndKeepCurrentNode": MessageLookupByLibrary.simpleMessage(
+      "Сохранить текущий узел и переключить",
     ),
     "switchNode": MessageLookupByLibrary.simpleMessage("Сменить узел"),
     "switchToGlobalMode": MessageLookupByLibrary.simpleMessage(
       "Переключиться в глобальный режим",
     ),
     "sync": MessageLookupByLibrary.simpleMessage("Синхронизация"),
+    "syncingCurrentNodeForModeSwitch": MessageLookupByLibrary.simpleMessage(
+      "Синхронизация текущего узла и переключение режима…",
+    ),
     "system": MessageLookupByLibrary.simpleMessage("Система"),
     "systemApp": MessageLookupByLibrary.simpleMessage("Системное приложение"),
     "systemProxy": MessageLookupByLibrary.simpleMessage("Системный прокси"),

@@ -32,12 +32,11 @@ void main() {
   testWidgets(
     'confirmation delegates selection without premature state writes',
     (tester) async {
-      final pending = Completer<HongKongSelectionResult>();
+      final pending = Completer<ModeSwitchResult>();
       final fixture = await _pumpHarness(tester, select: () => pending.future);
       await _openConfirmation(tester);
 
       expect(fixture.action.requests, isEmpty);
-      expect(fixture.action.manualCancellations, isEmpty);
       expect(find.byKey(_dialogKey), findsOneWidget);
       await tester.tap(find.byKey(_rememberKey));
       await tester.pump();
@@ -47,7 +46,6 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(fixture.action.requests, [Mode.global]);
-      expect(fixture.action.manualCancellations, [true]);
       expect(fixture.action.isCancelled?.call(), isFalse);
       expect(find.byKey(_progressKey), findsOneWidget);
       expect(find.byType(CommonCircleLoading), findsOneWidget);
@@ -64,7 +62,7 @@ void main() {
       expect(find.byKey(_progressKey), findsOneWidget);
       expect(fixture.action.requests, [Mode.global]);
 
-      pending.complete(HongKongSelectionResult.selected);
+      pending.complete(ModeSwitchResult.switched);
       await tester.pumpAndSettle();
       expect(find.byKey(_progressKey), findsNothing);
       expect(find.byType(CommonCircleLoading), findsNothing);
@@ -107,7 +105,7 @@ void main() {
   testWidgets('remembered preference skips confirmation but still selects', (
     tester,
   ) async {
-    final pending = Completer<HongKongSelectionResult>();
+    final pending = Completer<ModeSwitchResult>();
     final fixture = await _pumpHarness(
       tester,
       skipConfirmation: true,
@@ -121,17 +119,13 @@ void main() {
     expect(find.byKey(_progressKey), findsOneWidget);
     expect(fixture.action.requests, [Mode.global]);
     expect(fixture.container.read(patchClashConfigProvider).mode, Mode.rule);
-    pending.complete(HongKongSelectionResult.selected);
+    pending.complete(ModeSwitchResult.switched);
     await tester.pumpAndSettle();
     expect(find.byKey(_progressKey), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  for (final result in [
-    HongKongSelectionResult.unavailable,
-    HongKongSelectionResult.failed,
-    HongKongSelectionResult.cancelled,
-  ]) {
+  for (final result in [ModeSwitchResult.failed, ModeSwitchResult.cancelled]) {
     testWidgets(
       '$result preserves selection and provides appropriate feedback',
       (tester) async {
@@ -149,16 +143,8 @@ void main() {
         );
         expect(fixture.container.read(currentProfileProvider), _profile);
         expect(
-          find.text(l10n.hongKongNodesUnavailable),
-          result == HongKongSelectionResult.unavailable
-              ? findsOneWidget
-              : findsNothing,
-        );
-        expect(
-          find.text(l10n.hongKongSelectionFailed),
-          result == HongKongSelectionResult.failed
-              ? findsOneWidget
-              : findsNothing,
+          find.text(l10n.modeSwitchFailed),
+          result == ModeSwitchResult.failed ? findsOneWidget : findsNothing,
         );
         expect(tester.takeException(), isNull);
       },
@@ -179,7 +165,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(_progressKey), findsNothing);
-    expect(find.text(l10n.hongKongSelectionFailed), findsOneWidget);
+    expect(find.text(l10n.modeSwitchFailed), findsOneWidget);
     expect(find.textContaining(privateError), findsNothing);
     expect(fixture.container.read(patchClashConfigProvider).mode, Mode.rule);
     expect(fixture.container.read(currentProfileProvider), _profile);
@@ -189,7 +175,7 @@ void main() {
   testWidgets(
     'disposing the requester cancels selection and clears its dialog',
     (tester) async {
-      final pending = Completer<HongKongSelectionResult>();
+      final pending = Completer<ModeSwitchResult>();
       final fixture = await _pumpHarness(tester, select: () => pending.future);
       final l10n = tester.element(find.byKey(_triggerKey)).appLocalizations;
       await _openConfirmation(tester);
@@ -200,19 +186,19 @@ void main() {
       await tester.pump();
 
       expect(fixture.action.isCancelled?.call(), isTrue);
-      pending.complete(HongKongSelectionResult.unavailable);
+      pending.complete(ModeSwitchResult.cancelled);
       await tester.pumpAndSettle();
 
       expect(find.byKey(_progressKey), findsNothing);
       expect(find.text(l10n.hongKongNodesUnavailable), findsNothing);
-      expect(find.text(l10n.hongKongSelectionFailed), findsNothing);
+      expect(find.text(l10n.modeSwitchFailed), findsNothing);
       expect(fixture.container.read(patchClashConfigProvider).mode, Mode.rule);
       expect(tester.takeException(), isNull);
     },
   );
 
   testWidgets('loading cleanup does not dismiss a newer route', (tester) async {
-    final pending = Completer<HongKongSelectionResult>();
+    final pending = Completer<ModeSwitchResult>();
     await _pumpHarness(tester, select: () => pending.future);
     await _openConfirmation(tester);
     await tester.tap(find.byKey(_confirmKey));
@@ -230,7 +216,7 @@ void main() {
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    pending.complete(HongKongSelectionResult.selected);
+    pending.complete(ModeSwitchResult.switched);
     await tester.pumpAndSettle();
 
     expect(find.byKey(_progressKey), findsNothing);
@@ -270,7 +256,7 @@ void main() {
       await tester.ensureVisible(find.byKey(_confirmKey));
       await tester.pumpAndSettle();
 
-      final label = find.text(l10n.switchAndSelectHongKong);
+      final label = find.text(l10n.switchAndKeepCurrentNode);
       expect(label, findsOneWidget);
       expect(
         tester.renderObject<RenderParagraph>(label).didExceedMaxLines,
@@ -295,7 +281,7 @@ Future<void> _openConfirmation(WidgetTester tester) async {
 
 Future<_Fixture> _pumpHarness(
   WidgetTester tester, {
-  Future<HongKongSelectionResult> Function()? select,
+  Future<ModeSwitchResult> Function()? select,
   bool skipConfirmation = false,
   Mode mode = Mode.rule,
   Size size = const Size(1000, 900),
@@ -307,12 +293,12 @@ Future<_Fixture> _pumpHarness(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   final showRequester = ValueNotifier(true);
-  final action = _RecordingProxiesAction(
-    select ?? () async => HongKongSelectionResult.selected,
+  final action = _RecordingSetupAction(
+    select ?? () async => ModeSwitchResult.switched,
   );
   final container = ProviderContainer(
     overrides: [
-      proxiesActionProvider.overrideWith(() => action),
+      setupActionProvider.overrideWith(() => action),
       viewSizeProvider.overrideWithBuild((_, _) => size),
       currentProfileProvider.overrideWithValue(_profile),
       patchClashConfigProvider.overrideWithBuild(
@@ -370,28 +356,21 @@ Future<_Fixture> _pumpHarness(
 
 class _Fixture {
   final ProviderContainer container;
-  final _RecordingProxiesAction action;
+  final _RecordingSetupAction action;
   final ValueNotifier<bool> showRequester;
 
   const _Fixture(this.container, this.action, this.showRequester);
 }
 
-class _RecordingProxiesAction extends ProxiesAction {
-  final Future<HongKongSelectionResult> Function() select;
+class _RecordingSetupAction extends SetupAction {
+  final Future<ModeSwitchResult> Function() select;
   final requests = <Mode>[];
-  final manualCancellations = <bool>[];
   bool Function()? isCancelled;
 
-  _RecordingProxiesAction(this.select);
+  _RecordingSetupAction(this.select);
 
   @override
-  void cancelHongKongSelection({bool manual = false}) {
-    manualCancellations.add(manual);
-    super.cancelHongKongSelection(manual: manual);
-  }
-
-  @override
-  Future<HongKongSelectionResult> selectHongKongForMode(
+  Future<ModeSwitchResult> changeModeAndWait(
     Mode mode, {
     bool Function()? isCancelled,
   }) {

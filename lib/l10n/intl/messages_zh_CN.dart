@@ -714,7 +714,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "global": MessageLookupByLibrary.simpleMessage("全局"),
     "globalAccelerationNetwork": MessageLookupByLibrary.simpleMessage("全球加速网络"),
     "globalModeWarningDescription": MessageLookupByLibrary.simpleMessage(
-      "全局模式会让客户端接管的流量使用同一节点。确认后会先选择可用的香港节点，再切换到全局模式。",
+      "全局模式会让客户端接管的流量使用同一节点。确认后会优先沿用规则模式当前选中的节点。",
     ),
     "globalNodeDistribution": MessageLookupByLibrary.simpleMessage("全球节点分布"),
     "globalRuleModeSwitchHint": MessageLookupByLibrary.simpleMessage(
@@ -908,6 +908,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "HTTP 与 SOCKS5 共用端口",
     ),
     "mode": MessageLookupByLibrary.simpleMessage("模式"),
+    "modeSwitchFailed": MessageLookupByLibrary.simpleMessage(
+      "模式切换失败，请重试或查看日志。",
+    ),
     "monochromeScheme": MessageLookupByLibrary.simpleMessage("单色"),
     "monthlyBilling": MessageLookupByLibrary.simpleMessage("月付"),
     "monthsAgo": m31,
@@ -1261,7 +1264,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "proxyNameserver": MessageLookupByLibrary.simpleMessage("代理域名服务器"),
     "proxyNameserverDesc": MessageLookupByLibrary.simpleMessage("用于解析代理节点的域名"),
     "proxyNeededChooseNode": MessageLookupByLibrary.simpleMessage(
-      "香港节点均不可用时，将保留当前模式和节点，不会切换。",
+      "如果目标模式不包含该节点，将保留目标模式原来的节点选择。",
     ),
     "proxyPort": MessageLookupByLibrary.simpleMessage("代理端口"),
     "proxyProtocolMismatch": MessageLookupByLibrary.simpleMessage(
@@ -1528,9 +1531,6 @@ class MessageLookup extends MessageLookupByLibrary {
     "selectWithdrawalMethod": MessageLookupByLibrary.simpleMessage("请选择提现方式"),
     "selected": MessageLookupByLibrary.simpleMessage("已选择"),
     "selectedCountTitle": m50,
-    "selectingHongKongNode": MessageLookupByLibrary.simpleMessage(
-      "正在选择可用的香港节点…",
-    ),
     "sendVerificationCode": MessageLookupByLibrary.simpleMessage("发送"),
     "sendingVerificationCode": MessageLookupByLibrary.simpleMessage("发送中..."),
     "serviceStatus": MessageLookupByLibrary.simpleMessage("服务状态"),
@@ -1645,12 +1645,15 @@ class MessageLookup extends MessageLookupByLibrary {
       "套餐存在预警，点击查看详情",
     ),
     "suspended": MessageLookupByLibrary.simpleMessage("挂起中..."),
-    "switchAndSelectHongKong": MessageLookupByLibrary.simpleMessage(
-      "选择香港节点并切换",
+    "switchAndKeepCurrentNode": MessageLookupByLibrary.simpleMessage(
+      "沿用当前节点并切换",
     ),
     "switchNode": MessageLookupByLibrary.simpleMessage("切换节点"),
     "switchToGlobalMode": MessageLookupByLibrary.simpleMessage("切换到全局模式"),
     "sync": MessageLookupByLibrary.simpleMessage("同步"),
+    "syncingCurrentNodeForModeSwitch": MessageLookupByLibrary.simpleMessage(
+      "正在同步当前节点并切换模式…",
+    ),
     "system": MessageLookupByLibrary.simpleMessage("系统"),
     "systemApp": MessageLookupByLibrary.simpleMessage("系统应用"),
     "systemProxy": MessageLookupByLibrary.simpleMessage("系统代理"),

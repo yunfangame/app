@@ -2,6 +2,18 @@ part of '../action.dart';
 
 enum _SetupTaskResult { completed, handoffToCoreRestart }
 
+enum _ActiveChainPostAction { none, restartTarget, restartOriginal, recover }
+
+class _ActiveChainModeOutcome {
+  const _ActiveChainModeOutcome(
+    this.result, {
+    this.postAction = _ActiveChainPostAction.none,
+  });
+
+  final ModeSwitchResult result;
+  final _ActiveChainPostAction postAction;
+}
+
 enum AccessControlApplyResult { saved, reconnectRequested, superseded }
 
 class _RunRequest {
@@ -17,12 +29,16 @@ class SetupAction extends _$SetupAction {
   final _setupScheduler = SerialTaskScheduler();
   final _listenerScheduler = SerialTaskScheduler();
   final _accessControlScheduler = SerialTaskScheduler();
+  final _modeRestartScheduler = SerialTaskScheduler();
   int _accessControlRevision = 0;
   bool _accessControlReconnectNeeded = false;
   AccessControlProps? _managedAccessControl;
   _RunRequest? _latestRunRequest;
   bool? _lastPhysicalNetworkAvailable;
   int _physicalNetworkRecoveryRevision = 0;
+  int _modeChangeRevision = 0;
+  Mode? _pendingMode;
+  Future<ModeSwitchResult>? _pendingModeChange;
   DateTime? _startTime;
   int? _appliedRuleProfileId;
   String? _appliedRuleTarget;
@@ -31,6 +47,9 @@ class SetupAction extends _$SetupAction {
       ref.read(currentProfileIdProvider) == _appliedRuleProfileId
       ? _appliedRuleTarget
       : null;
+
+  Mode get requestedMode =>
+      _pendingMode ?? ref.read(patchClashConfigProvider).mode;
 
   bool get _isRunning => _startTime != null && _startTime!.isBeforeNow;
 
@@ -761,33 +780,39 @@ class SetupAction extends _$SetupAction {
   @visibleForTesting
   Future<void> updateConfig() async {
     final request = _latestRunRequest;
-    await globalState.safeRun(() async {
-      await _inspectSystemProxy('before_update');
-      try {
-        final updateParams = ref.read(updateParamsProvider);
-        final shouldContinueSetup = await requestAdmin(updateParams.tun.enable);
-        if (!ref.mounted || !identical(request, _latestRunRequest)) return;
-        if (!shouldContinueSetup) {
-          await _restartCoreAfterAuthorization();
-          return;
+    var restartAfterAuthorization = false;
+    await _setupScheduler.run(() async {
+      await globalState.safeRun(() async {
+        await _inspectSystemProxy('before_update');
+        try {
+          final updateParams = ref.read(updateParamsProvider);
+          final shouldContinueSetup = await requestAdmin(
+            updateParams.tun.enable,
+          );
+          if (!ref.mounted || !identical(request, _latestRunRequest)) return;
+          if (!shouldContinueSetup) {
+            restartAfterAuthorization = true;
+            return;
+          }
+          final message = await applyCoreUpdate(
+            updateParams.copyWith.tun(
+              enable: _getEffectiveTunEnable(updateParams.tun.enable),
+            ),
+          );
+          ref.read(checkIpNumProvider.notifier).add();
+          if (message.isNotEmpty) throw message;
+        } catch (error) {
+          if (requiresListenerReadiness && request?.running == true) {
+            await _failConnection(request!, error);
+          } else {
+            rethrow;
+          }
+        } finally {
+          await _inspectSystemProxy('after_update');
         }
-        final message = await applyCoreUpdate(
-          updateParams.copyWith.tun(
-            enable: _getEffectiveTunEnable(updateParams.tun.enable),
-          ),
-        );
-        ref.read(checkIpNumProvider.notifier).add();
-        if (message.isNotEmpty) throw message;
-      } catch (error) {
-        if (requiresListenerReadiness && request?.running == true) {
-          await _failConnection(request!, error);
-        } else {
-          rethrow;
-        }
-      } finally {
-        await _inspectSystemProxy('after_update');
-      }
+      });
     });
+    if (restartAfterAuthorization) await _restartCoreAfterAuthorization();
   }
 
   @protected
@@ -836,36 +861,572 @@ class SetupAction extends _$SetupAction {
   }
 
   void changeMode(Mode mode) {
+    unawaited(_changeModeWithFeedback(mode));
+  }
+
+  Future<void> _changeModeWithFeedback(Mode mode) async {
+    final result = await changeModeAndWait(mode);
+    if (!ref.mounted || result != ModeSwitchResult.failed) return;
+    globalState.showNotifier(currentAppLocalizations.modeSwitchFailed);
+  }
+
+  void changeModeOnly(Mode mode) {
+    _modeChangeRevision++;
+    _pendingMode = null;
+    _pendingModeChange = null;
     ref
         .read(proxiesActionProvider.notifier)
         .cancelHongKongSelection(manual: true);
-    if (mode == Mode.global) {
-      unawaited(_selectGlobalHongKong());
-      return;
-    }
+    if (ref.read(patchClashConfigProvider).mode == mode) return;
     ref
         .read(patchClashConfigProvider.notifier)
         .update((state) => state.copyWith(mode: mode));
   }
 
-  Future<void> _selectGlobalHongKong() async {
-    final result = await ref
-        .read(proxiesActionProvider.notifier)
-        .selectHongKongForMode(Mode.global);
-    if (!ref.mounted) return;
-    switch (result) {
-      case HongKongSelectionResult.unavailable:
-        globalState.showNotifier(
-          currentAppLocalizations.hongKongNodesUnavailable,
-        );
-      case HongKongSelectionResult.failed:
-        globalState.showNotifier(
-          currentAppLocalizations.hongKongSelectionFailed,
-        );
-      case HongKongSelectionResult.selected:
-      case HongKongSelectionResult.cancelled:
-        break;
+  @protected
+  Future<bool> rebuildActiveChainForModeChangeWithinTransaction() async {
+    final result = await _setupConfig(
+      force: true,
+      silence: true,
+      onUpdated: () async {
+        await ref.read(proxiesActionProvider.notifier).updateGroups();
+        await ref.read(providersProvider.notifier).syncProviders();
+      },
+    );
+    return result == _SetupTaskResult.handoffToCoreRestart;
+  }
+
+  @protected
+  Future<void> rebuildActiveChainForModeChange() async {
+    final requiresRestart = await _setupScheduler.run(
+      rebuildActiveChainForModeChangeWithinTransaction,
+    );
+    if (requiresRestart) {
+      await _restartCoreAfterAuthorization();
     }
+  }
+
+  @protected
+  Future<void> restartActiveChainAfterAuthorization() {
+    return _restartCoreAfterAuthorization();
+  }
+
+  @protected
+  bool activeChainModeChangeReady({
+    required Mode targetMode,
+    required bool wasRunning,
+  }) {
+    if (ref.read(patchClashConfigProvider).mode != targetMode ||
+        ref.read(coreStatusProvider) != CoreStatus.connected) {
+      return false;
+    }
+    if (wasRunning &&
+        (!ref.read(isStartProvider) || ref.read(runTimeProvider) == null)) {
+      return false;
+    }
+    if (targetMode == Mode.direct) return true;
+    final groups = ref.read(groupsProvider);
+    final hasRuntimeProxy = groups.any(
+      (group) => group.all.any(
+        (proxy) =>
+            proxy.name == chainProxyRuntimeName ||
+            proxy.name.startsWith('$chainProxyRuntimeName '),
+      ),
+    );
+    if (!hasRuntimeProxy) return false;
+    return targetMode != Mode.global ||
+        groups.getGroup(GroupName.GLOBAL.name)?.realNow ==
+            chainProxyRuntimeName;
+  }
+
+  Future<ModeSwitchResult> changeModeAndWait(
+    Mode mode, {
+    bool Function()? isCancelled,
+  }) async {
+    final pending = _pendingModeChange;
+    if (_pendingMode == mode && pending != null) return pending;
+    if (_pendingMode == null &&
+        ref.read(patchClashConfigProvider).mode == mode) {
+      return ModeSwitchResult.unchanged;
+    }
+    final revision = ++_modeChangeRevision;
+    _pendingMode = mode;
+    final operation = _performModeChange(
+      mode,
+      revision: revision,
+      isCancelled: isCancelled,
+    );
+    _pendingModeChange = operation;
+    try {
+      return await operation;
+    } finally {
+      if (revision == _modeChangeRevision) {
+        _pendingMode = null;
+        _pendingModeChange = null;
+      }
+    }
+  }
+
+  Future<ModeSwitchResult> _performModeChange(
+    Mode mode, {
+    required int revision,
+    bool Function()? isCancelled,
+  }) async {
+    ref.read(proxiesActionProvider.notifier).cancelHongKongSelection();
+    final originalMode = ref.read(patchClashConfigProvider).mode;
+    if (originalMode == mode) return ModeSwitchResult.unchanged;
+    final syncsRuleAndGlobal =
+        originalMode == Mode.rule && mode == Mode.global ||
+        originalMode == Mode.global && mode == Mode.rule;
+    final activeChain = activeChainProxy(ref.read(appSettingProvider));
+    final restoresGlobalChain =
+        activeChain != null &&
+        originalMode == Mode.direct &&
+        mode == Mode.global;
+    if (!syncsRuleAndGlobal && !restoresGlobalChain) {
+      bool cancelled() {
+        return !ref.mounted ||
+            revision != _modeChangeRevision ||
+            isCancelled?.call() == true;
+      }
+
+      if (cancelled()) return ModeSwitchResult.cancelled;
+      ref
+          .read(patchClashConfigProvider.notifier)
+          .update((state) => state.copyWith(mode: mode));
+      return ModeSwitchResult.switched;
+    }
+    if (activeChain != null) {
+      return ref
+          .read(proxiesActionProvider.notifier)
+          .runSelectionTransaction(
+            () => _modeRestartScheduler.run(
+              () => _changeActiveChainMode(
+                mode,
+                revision: revision,
+                isCancelled: isCancelled,
+              ),
+            ),
+          );
+    }
+    bool cancelled() {
+      return !ref.mounted ||
+          revision != _modeChangeRevision ||
+          isCancelled?.call() == true;
+    }
+
+    if (mode == Mode.direct) {
+      if (cancelled()) return ModeSwitchResult.cancelled;
+      ref
+          .read(patchClashConfigProvider.notifier)
+          .update((state) => state.copyWith(mode: mode));
+      return ModeSwitchResult.switched;
+    }
+    return ref
+        .read(proxiesActionProvider.notifier)
+        .switchModePreservingNode(
+          mode,
+          ruleGroupName: ruleSelectionGroup,
+          isCancelled: cancelled,
+        );
+  }
+
+  Future<ModeSwitchResult> _changeActiveChainMode(
+    Mode targetMode, {
+    required int revision,
+    bool Function()? isCancelled,
+  }) async {
+    if (!ref.mounted ||
+        revision != _modeChangeRevision ||
+        isCancelled?.call() == true) {
+      return ModeSwitchResult.cancelled;
+    }
+    late Mode originalMode;
+    ChainProxyConfig? initialChain;
+    Profile? initialProfile;
+    Profile? committedProfile;
+    late int sessionRevision;
+    late int initialManualSelectionRevision;
+    String? ruleGroupName;
+    String? targetGroupName;
+    var groups = const <Group>[];
+    ModeNodeSelectionPlan? selectionPlan;
+    var fields = <String, Object>{};
+    var wasRunning = false;
+    var coreActive = false;
+    var modeCommitted = false;
+
+    bool ownsIntent() => ref.mounted && revision == _modeChangeRevision;
+
+    bool ownsContext() {
+      if (!ownsIntent() ||
+          isCancelled?.call() == true ||
+          sessionRevision != globalState.xboardSessionRevision ||
+          ref.read(proxiesActionProvider.notifier).manualSelectionRevision !=
+              initialManualSelectionRevision ||
+          activeChainProxy(ref.read(appSettingProvider)) != initialChain ||
+          ruleSelectionGroup != ruleGroupName) {
+        return false;
+      }
+      return ref.read(currentProfileProvider) ==
+          (committedProfile ?? initialProfile);
+    }
+
+    Future<_ActiveChainPostAction> restoreWithinTransaction() async {
+      if (!ref.mounted) return _ActiveChainPostAction.none;
+      final committed = committedProfile;
+      final original = initialProfile;
+      if (committed != null && original != null) {
+        final currentProfile = ref.read(currentProfileProvider);
+        if (currentProfile != null) {
+          final proxies = ref.read(proxiesActionProvider.notifier);
+          final preservedSelectionKeys = {
+            for (final key in committed.selectedMap.keys)
+              if (proxies.hasManualSelectionAfter(
+                key,
+                initialManualSelectionRevision,
+              ))
+                key,
+          };
+          final restoredProfile = _restoredModeProfile(
+            original: original,
+            committed: committed,
+            current: currentProfile,
+            preservedSelectionKeys: preservedSelectionKeys,
+          );
+          if (restoredProfile != null) {
+            ref.read(profilesProvider.notifier).put(restoredProfile);
+          }
+        }
+      }
+      if (ref.read(patchClashConfigProvider).mode != targetMode) {
+        return _ActiveChainPostAction.none;
+      }
+      ref
+          .read(patchClashConfigProvider.notifier)
+          .update((state) => state.copyWith(mode: originalMode));
+      debouncer.cancel(FunctionTag.updateConfig);
+      modeCommitted = false;
+      if (!coreActive) return _ActiveChainPostAction.none;
+      try {
+        final requiresRestart =
+            await rebuildActiveChainForModeChangeWithinTransaction();
+        if (requiresRestart) return _ActiveChainPostAction.restartOriginal;
+        return activeChainModeChangeReady(
+              targetMode: originalMode,
+              wasRunning: wasRunning,
+            )
+            ? _ActiveChainPostAction.none
+            : _ActiveChainPostAction.recover;
+      } catch (error) {
+        commonPrint.event(
+          'proxy.mode_switch.restore_failed',
+          fields: {...fields, 'error_type': error.runtimeType.toString()},
+        );
+        return _ActiveChainPostAction.recover;
+      }
+    }
+
+    Future<ModeSwitchResult> finishOutcome(
+      _ActiveChainModeOutcome outcome,
+    ) async {
+      switch (outcome.postAction) {
+        case _ActiveChainPostAction.none:
+          return outcome.result;
+        case _ActiveChainPostAction.recover:
+          await recoverActiveChainModeRuntime(
+            expectedMode: originalMode,
+            wasRunning: wasRunning,
+          );
+          return outcome.result;
+        case _ActiveChainPostAction.restartOriginal:
+          try {
+            await restartActiveChainAfterAuthorization();
+            if (!activeChainModeChangeReady(
+              targetMode: originalMode,
+              wasRunning: wasRunning,
+            )) {
+              await recoverActiveChainModeRuntime(
+                expectedMode: originalMode,
+                wasRunning: wasRunning,
+              );
+            }
+          } catch (error) {
+            commonPrint.event(
+              'proxy.mode_switch.restore_failed',
+              fields: {...fields, 'error_type': error.runtimeType.toString()},
+            );
+            await recoverActiveChainModeRuntime(
+              expectedMode: originalMode,
+              wasRunning: wasRunning,
+            );
+          }
+          return outcome.result;
+        case _ActiveChainPostAction.restartTarget:
+          try {
+            await restartActiveChainAfterAuthorization();
+          } catch (error) {
+            commonPrint.event(
+              'proxy.mode_switch.failed',
+              fields: {...fields, 'error_type': error.runtimeType.toString()},
+            );
+          }
+          if (activeChainModeChangeReady(
+                targetMode: targetMode,
+                wasRunning: wasRunning,
+              ) &&
+              ownsContext()) {
+            final connectionRefreshSucceeded = await ref
+                .read(proxiesActionProvider.notifier)
+                .applyModeSwitchConnectionPolicy(fields);
+            commonPrint.event(
+              'proxy.mode_switch.succeeded',
+              fields: {
+                ...fields,
+                'core_active': true,
+                'connection_refresh_succeeded': connectionRefreshSucceeded,
+              },
+            );
+            return ModeSwitchResult.switched;
+          }
+          final postAction = await runModeSwitchTransaction(
+            restoreWithinTransaction,
+          );
+          final result = !ownsIntent() || isCancelled?.call() == true
+              ? ModeSwitchResult.cancelled
+              : ModeSwitchResult.failed;
+          return finishOutcome(
+            _ActiveChainModeOutcome(result, postAction: postAction),
+          );
+      }
+    }
+
+    try {
+      final outcome = await runModeSwitchTransaction(() async {
+        if (!ownsIntent() || isCancelled?.call() == true) {
+          return const _ActiveChainModeOutcome(ModeSwitchResult.cancelled);
+        }
+        originalMode = ref.read(patchClashConfigProvider).mode;
+        initialChain = activeChainProxy(ref.read(appSettingProvider));
+        if (initialChain == null) {
+          return const _ActiveChainModeOutcome(ModeSwitchResult.cancelled);
+        }
+        if (originalMode == targetMode) {
+          return const _ActiveChainModeOutcome(ModeSwitchResult.unchanged);
+        }
+        initialProfile = ref.read(currentProfileProvider);
+        sessionRevision = globalState.xboardSessionRevision;
+        final proxies = ref.read(proxiesActionProvider.notifier);
+        initialManualSelectionRevision = proxies.manualSelectionRevision;
+        ruleGroupName = ruleSelectionGroup;
+        final sourceGroupName = switch ((originalMode, targetMode)) {
+          (Mode.rule, Mode.global) => ruleGroupName,
+          (Mode.global, Mode.rule) => GroupName.GLOBAL.name,
+          _ => null,
+        };
+        targetGroupName = switch (targetMode) {
+          Mode.global => GroupName.GLOBAL.name,
+          Mode.rule => ruleGroupName,
+          Mode.direct => null,
+        };
+        coreActive =
+            ref.read(coreStatusProvider) == CoreStatus.connected &&
+            ref.read(runTimeProvider) != null;
+        groups = coreActive
+            ? await proxies.loadModeSwitchGroups()
+            : ref.read(groupsProvider);
+        if (!ownsContext() ||
+            ref.read(patchClashConfigProvider).mode != originalMode) {
+          return const _ActiveChainModeOutcome(ModeSwitchResult.cancelled);
+        }
+        final inheritedPlan =
+            initialProfile == null ||
+                sourceGroupName == null ||
+                targetGroupName == null
+            ? null
+            : planModeNodeSelection(
+                sourceGroupName: sourceGroupName,
+                targetGroupName: targetGroupName!,
+                groups: groups,
+                selectedMap: initialProfile!.selectedMap,
+              );
+        selectionPlan = inheritedPlan;
+        if (targetMode == Mode.global) {
+          final targetSelections = {
+            ...?initialProfile?.selectedMap,
+            ...?selectionPlan?.selections,
+          };
+          final globalTarget = resolveModeNodeLeaf(
+            rootGroupName: GroupName.GLOBAL.name,
+            groups: groups,
+            selectedMap: targetSelections,
+          );
+          if (globalTarget != null && selectionPlan == null) {
+            selectionPlan = planModeNodeSelection(
+              sourceGroupName: globalTarget,
+              targetGroupName: GroupName.GLOBAL.name,
+              groups: groups,
+              selectedMap: targetSelections,
+            );
+          }
+          if (selectionPlan == null) {
+            commonPrint.event(
+              'proxy.mode_switch.failed',
+              fields: {
+                'from_mode': originalMode.name,
+                'to_mode': targetMode.name,
+                'chain_rebuild': true,
+                'reason': 'chain_global_target_unavailable',
+              },
+            );
+            return const _ActiveChainModeOutcome(ModeSwitchResult.failed);
+          }
+        }
+        fields = <String, Object>{
+          'from_mode': originalMode.name,
+          'to_mode': targetMode.name,
+          'chain_rebuild': true,
+          'selection_inherited': inheritedPlan != null,
+          if (initialProfile != null) 'profile_id': initialProfile!.id,
+          if (selectionPlan != null)
+            'node_ref': diagnosticFingerprint(selectionPlan!.nodeName),
+        };
+        wasRunning = ref.read(isStartProvider);
+        commonPrint.event('proxy.mode_switch.started', fields: fields);
+        committedProfile = _createActiveChainModeProfile(
+          initialProfile,
+          targetGroupName,
+          selectionPlan?.selections ?? const {},
+          groups,
+        );
+        if (committedProfile != null) {
+          ref.read(profilesProvider.notifier).put(committedProfile!);
+        }
+        ref
+            .read(patchClashConfigProvider.notifier)
+            .update((state) => state.copyWith(mode: targetMode));
+        debouncer.cancel(FunctionTag.updateConfig);
+        modeCommitted = true;
+        if (!ownsContext()) {
+          final postAction = await restoreWithinTransaction();
+          return _ActiveChainModeOutcome(
+            ModeSwitchResult.cancelled,
+            postAction: postAction,
+          );
+        }
+        if (!coreActive) {
+          commonPrint.event(
+            'proxy.mode_switch.succeeded',
+            fields: {...fields, 'core_active': false},
+          );
+          return const _ActiveChainModeOutcome(ModeSwitchResult.switched);
+        }
+        bool requiresRestart;
+        try {
+          requiresRestart =
+              await rebuildActiveChainForModeChangeWithinTransaction();
+        } catch (error) {
+          final postAction = await restoreWithinTransaction();
+          commonPrint.event(
+            'proxy.mode_switch.failed',
+            fields: {...fields, 'error_type': error.runtimeType.toString()},
+          );
+          return _ActiveChainModeOutcome(
+            ownsIntent() ? ModeSwitchResult.failed : ModeSwitchResult.cancelled,
+            postAction: postAction,
+          );
+        }
+        if (requiresRestart) {
+          return const _ActiveChainModeOutcome(
+            ModeSwitchResult.switched,
+            postAction: _ActiveChainPostAction.restartTarget,
+          );
+        }
+        if (!activeChainModeChangeReady(
+          targetMode: targetMode,
+          wasRunning: wasRunning,
+        )) {
+          final postAction = await restoreWithinTransaction();
+          commonPrint.event(
+            'proxy.mode_switch.failed',
+            fields: {...fields, 'reason': 'chain_rebuild_not_ready'},
+          );
+          return _ActiveChainModeOutcome(
+            ownsIntent() ? ModeSwitchResult.failed : ModeSwitchResult.cancelled,
+            postAction: postAction,
+          );
+        }
+        if (!ownsContext()) {
+          final postAction = ownsIntent()
+              ? await restoreWithinTransaction()
+              : _ActiveChainPostAction.none;
+          return _ActiveChainModeOutcome(
+            ModeSwitchResult.cancelled,
+            postAction: postAction,
+          );
+        }
+        final connectionRefreshSucceeded = await proxies
+            .applyModeSwitchConnectionPolicy(fields);
+        commonPrint.event(
+          'proxy.mode_switch.succeeded',
+          fields: {
+            ...fields,
+            'core_active': true,
+            'connection_refresh_succeeded': connectionRefreshSucceeded,
+          },
+        );
+        return const _ActiveChainModeOutcome(ModeSwitchResult.switched);
+      });
+      return finishOutcome(outcome);
+    } catch (error) {
+      var postAction = _ActiveChainPostAction.none;
+      if (modeCommitted && ref.mounted) {
+        try {
+          postAction = await runModeSwitchTransaction(restoreWithinTransaction);
+        } catch (_) {
+          postAction = _ActiveChainPostAction.recover;
+        }
+      }
+      commonPrint.event(
+        'proxy.mode_switch.failed',
+        fields: {
+          ...fields,
+          'to_mode': targetMode.name,
+          'chain_rebuild': true,
+          'error_type': error.runtimeType.toString(),
+        },
+      );
+      final result = ownsIntent()
+          ? ModeSwitchResult.failed
+          : ModeSwitchResult.cancelled;
+      return finishOutcome(
+        _ActiveChainModeOutcome(result, postAction: postAction),
+      );
+    }
+  }
+
+  Profile? _createActiveChainModeProfile(
+    Profile? profile,
+    String? groupName,
+    Map<String, String> selections,
+    List<Group> groups,
+  ) {
+    if (profile == null) return null;
+    final nextGroupName = groupName == GroupName.GLOBAL.name
+        ? GroupName.GLOBAL.name
+        : groupName == null
+        ? profile.currentGroupName
+        : resolveRuleModeDisplayGroup(
+            ruleTargetName: groupName,
+            currentGroupName: profile.currentGroupName,
+            groups: groups,
+          );
+    final nextSelections = {...profile.selectedMap, ...selections};
+    final next = profile.copyWith(
+      currentGroupName: nextGroupName,
+      selectedMap: nextSelections,
+    );
+    return next == profile ? null : next;
   }
 
   Future<bool> applySelectedProxyMode(
@@ -873,53 +1434,127 @@ class SetupAction extends _$SetupAction {
     required bool Function() isCancelled,
     bool Function()? canRestore,
   }) {
-    return _setupScheduler.run(() async {
-      if (!ref.mounted || isCancelled()) return false;
-      final params = ref.read(updateParamsProvider);
-      Future<void> restoreMode() async {
-        if (!ref.mounted || canRestore?.call() == false) return;
-        final current = ref.read(updateParamsProvider);
-        final restored = await applyCoreUpdate(
-          current.copyWith.tun(
-            enable: _getEffectiveTunEnable(current.tun.enable),
-          ),
-        );
-        if (restored.isNotEmpty) {
-          throw StateError('proxy_mode_restore_rejected');
-        }
-      }
+    return _setupScheduler.run(
+      () => applySelectedProxyModeWithinTransaction(
+        mode,
+        isCancelled: isCancelled,
+        canRestore: canRestore,
+      ),
+    );
+  }
 
-      try {
-        final message = await applyCoreUpdate(
-          params.copyWith(
-            mode: mode,
-            tun: params.tun.copyWith(
-              enable: _getEffectiveTunEnable(params.tun.enable),
-            ),
-          ),
-        );
-        if (message.isNotEmpty) throw StateError('proxy_mode_update_rejected');
-        if (!ref.mounted) return false;
-        if (isCancelled() || params != ref.read(updateParamsProvider)) {
-          await restoreMode();
-          return false;
-        }
-      } catch (error) {
-        try {
-          await restoreMode();
-        } catch (restoreError) {
-          commonPrint.event(
-            'proxy.hong_kong_selection.mode_restore_failed',
-            fields: {'error_type': restoreError.runtimeType.toString()},
-          );
-        }
-        rethrow;
-      }
-      ref
-          .read(patchClashConfigProvider.notifier)
-          .update((state) => state.copyWith(mode: mode));
+  Future<T> runModeSwitchTransaction<T>(Future<T> Function() transaction) {
+    return _setupScheduler.run(transaction);
+  }
+
+  Future<bool> recoverModeSwitchRuntime() async {
+    try {
+      await _runSetup(force: true, silence: true, propagateErrors: true);
       return true;
-    });
+    } catch (error) {
+      commonPrint.event(
+        'proxy.mode_switch.recovery_failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
+      if (!ref.mounted || !ref.read(isStartProvider)) return false;
+      try {
+        await setRunning(false);
+      } catch (stopError) {
+        commonPrint.event(
+          'proxy.mode_switch.recovery_disconnect_failed',
+          fields: {'error_type': stopError.runtimeType.toString()},
+        );
+      }
+      return false;
+    }
+  }
+
+  @protected
+  Future<bool> recoverActiveChainModeRuntime({
+    required Mode expectedMode,
+    required bool wasRunning,
+  }) async {
+    await recoverModeSwitchRuntime();
+    if (!ref.mounted) return false;
+    if (wasRunning &&
+        !activeChainModeChangeReady(
+          targetMode: expectedMode,
+          wasRunning: true,
+        )) {
+      try {
+        await setRunning(true);
+      } catch (error) {
+        commonPrint.event(
+          'proxy.mode_switch.recovery_restart_failed',
+          fields: {'error_type': error.runtimeType.toString()},
+        );
+      }
+    }
+    final ready = activeChainModeChangeReady(
+      targetMode: expectedMode,
+      wasRunning: wasRunning,
+    );
+    if (!ready) {
+      commonPrint.event(
+        'proxy.mode_switch.recovery_not_ready',
+        fields: {'mode': expectedMode.name, 'was_running': wasRunning},
+      );
+    }
+    return ready;
+  }
+
+  Future<bool> applySelectedProxyModeWithinTransaction(
+    Mode mode, {
+    required bool Function() isCancelled,
+    bool Function()? canRestore,
+  }) async {
+    if (!ref.mounted || isCancelled()) return false;
+    final params = ref.read(updateParamsProvider);
+    Future<void> restoreMode() async {
+      if (!ref.mounted || canRestore?.call() == false) return;
+      final current = ref.read(updateParamsProvider);
+      final restored = await applyCoreUpdate(
+        current.copyWith.tun(
+          enable: _getEffectiveTunEnable(current.tun.enable),
+        ),
+      );
+      if (restored.isNotEmpty) {
+        throw StateError('proxy_mode_restore_rejected');
+      }
+    }
+
+    try {
+      final message = await applyCoreUpdate(
+        params.copyWith(
+          mode: mode,
+          tun: params.tun.copyWith(
+            enable: _getEffectiveTunEnable(params.tun.enable),
+          ),
+        ),
+      );
+      if (message.isNotEmpty) throw StateError('proxy_mode_update_rejected');
+      if (!ref.mounted) return false;
+      if (isCancelled() || params != ref.read(updateParamsProvider)) {
+        await restoreMode();
+        return false;
+      }
+    } catch (error) {
+      try {
+        await restoreMode();
+      } catch (restoreError) {
+        commonPrint.event(
+          'proxy.mode_switch.mode_restore_failed',
+          fields: {'error_type': restoreError.runtimeType.toString()},
+        );
+        throw ModeSwitchRecoveryException(restoreError);
+      }
+      rethrow;
+    }
+    ref
+        .read(patchClashConfigProvider.notifier)
+        .update((state) => state.copyWith(mode: mode));
+    debouncer.cancel(FunctionTag.updateConfig);
+    return true;
   }
 
   void autoApplyProfile() {

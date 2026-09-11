@@ -104,6 +104,7 @@ class _FengWoNodeSelectorViewState
   }
 
   void _selectProxy(Group group, Proxy proxy) {
+    if (isChainProxyRuntimeName(proxy.name)) return;
     if (!group.type.isComputedSelected && group.type != GroupType.Selector) {
       globalState.showNotifier(context.appLocalizations.notSelectedTip);
       return;
@@ -127,9 +128,14 @@ class _FengWoNodeSelectorViewState
   Widget build(BuildContext context) {
     final rawGroups = ref.watch(groupsProvider);
     final visibleGroups = ref.watch(currentGroupsStateProvider).value;
-    final groups = visibleGroups
-        .map((group) => rawGroups.getGroup(group.name) ?? group)
-        .toList();
+    final groups = visibleGroups.map((group) {
+      final rawGroup = rawGroups.getGroup(group.name) ?? group;
+      return rawGroup.copyWith(
+        all: rawGroup.all
+            .where((proxy) => !isChainProxyRuntimeName(proxy.name))
+            .toList(),
+      );
+    }).toList();
     final colors = _SelectorColors.of(context);
     final canRefresh =
         !_refreshingNodes &&

@@ -1,4 +1,5 @@
 import 'package:fl_clash/common/constant.dart';
+import 'package:fl_clash/common/chain_proxy.dart';
 import 'package:fl_clash/common/network.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
@@ -30,7 +31,10 @@ void main() {
         type: GroupType.Selector,
         now: 'Selected',
         hidden: false,
-        all: [Proxy(name: 'Selected', type: 'Direct', now: 'runtime')],
+        all: [
+          Proxy(name: 'Selected', type: 'Direct', now: 'runtime'),
+          Proxy(name: chainProxyRuntimeName, type: 'socks5'),
+        ],
       ),
       const Group(name: 'Hidden', type: GroupType.Selector, hidden: true),
       Group(name: GroupName.GLOBAL.name, type: GroupType.Selector),

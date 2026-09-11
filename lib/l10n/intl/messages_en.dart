@@ -975,7 +975,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Global acceleration network",
     ),
     "globalModeWarningDescription": MessageLookupByLibrary.simpleMessage(
-      "Global mode routes traffic handled by the app through one node. After confirmation, an available Hong Kong node will be selected before switching modes.",
+      "Global mode routes traffic handled by the app through one node. After confirmation, the app will try to keep the node currently selected in rule mode.",
     ),
     "globalNodeDistribution": MessageLookupByLibrary.simpleMessage(
       "Global node distribution",
@@ -1247,6 +1247,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "Shared HTTP & SOCKS5 port",
     ),
     "mode": MessageLookupByLibrary.simpleMessage("Mode"),
+    "modeSwitchFailed": MessageLookupByLibrary.simpleMessage(
+      "Unable to switch modes. Please try again or check the logs.",
+    ),
     "monochromeScheme": MessageLookupByLibrary.simpleMessage("Monochrome"),
     "monthlyBilling": MessageLookupByLibrary.simpleMessage("Monthly"),
     "monthsAgo": m31,
@@ -1719,7 +1722,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Domain for resolving proxy nodes",
     ),
     "proxyNeededChooseNode": MessageLookupByLibrary.simpleMessage(
-      "If no Hong Kong node is available, the current mode and node will remain unchanged.",
+      "If the target mode does not contain that node, its previous node selection will be kept.",
     ),
     "proxyPort": MessageLookupByLibrary.simpleMessage("ProxyPort"),
     "proxyProtocolMismatch": MessageLookupByLibrary.simpleMessage(
@@ -2116,9 +2119,6 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "selected": MessageLookupByLibrary.simpleMessage("Selected"),
     "selectedCountTitle": m50,
-    "selectingHongKongNode": MessageLookupByLibrary.simpleMessage(
-      "Selecting an available Hong Kong node…",
-    ),
     "sendVerificationCode": MessageLookupByLibrary.simpleMessage("Send"),
     "sendingVerificationCode": MessageLookupByLibrary.simpleMessage(
       "Sending...",
@@ -2270,14 +2270,17 @@ class MessageLookup extends MessageLookupByLibrary {
       "Plan warning. Click to view details",
     ),
     "suspended": MessageLookupByLibrary.simpleMessage("Suspended..."),
-    "switchAndSelectHongKong": MessageLookupByLibrary.simpleMessage(
-      "Select Hong Kong and switch",
+    "switchAndKeepCurrentNode": MessageLookupByLibrary.simpleMessage(
+      "Keep current node and switch",
     ),
     "switchNode": MessageLookupByLibrary.simpleMessage("Switch node"),
     "switchToGlobalMode": MessageLookupByLibrary.simpleMessage(
       "Switch to global mode",
     ),
     "sync": MessageLookupByLibrary.simpleMessage("Sync"),
+    "syncingCurrentNodeForModeSwitch": MessageLookupByLibrary.simpleMessage(
+      "Syncing the current node and switching modes…",
+    ),
     "system": MessageLookupByLibrary.simpleMessage("System"),
     "systemApp": MessageLookupByLibrary.simpleMessage("System APP"),
     "systemProxy": MessageLookupByLibrary.simpleMessage("System proxy"),

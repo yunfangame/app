@@ -27,13 +27,10 @@ Future<void> requestGlobalModeSwitch(
     }
   }
   if (!context.mounted) return;
-  await _selectGlobalHongKongNode(context, ref);
+  await _switchToGlobalMode(context, ref);
 }
 
-Future<void> _selectGlobalHongKongNode(
-  BuildContext context,
-  WidgetRef ref,
-) async {
+Future<void> _switchToGlobalMode(BuildContext context, WidgetRef ref) async {
   final l10n = context.appLocalizations;
   final navigator = Navigator.of(context, rootNavigator: true);
   final progressRoute = DialogRoute<void>(
@@ -49,32 +46,29 @@ Future<void> _selectGlobalHongKongNode(
             SizedBox.square(
               dimension: CommonCircleLoading.defaultDimension,
               child: CommonCircleLoading(
-                semanticLabel: l10n.selectingHongKongNode,
+                semanticLabel: l10n.syncingCurrentNodeForModeSwitch,
               ),
             ),
             const SizedBox(height: 16),
-            Text(l10n.selectingHongKongNode, textAlign: TextAlign.center),
+            Text(
+              l10n.syncingCurrentNodeForModeSwitch,
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),
     ),
   );
   unawaited(navigator.push(progressRoute));
-  var result = HongKongSelectionResult.failed;
+  var result = ModeSwitchResult.failed;
   try {
-    ref
-        .read(proxiesActionProvider.notifier)
-        .cancelHongKongSelection(manual: true);
     result = await ref
-        .read(proxiesActionProvider.notifier)
-        .selectHongKongForMode(
-          Mode.global,
-          isCancelled: () => !context.mounted,
-        );
+        .read(setupActionProvider.notifier)
+        .changeModeAndWait(Mode.global, isCancelled: () => !context.mounted);
   } catch (error) {
     try {
       commonPrint.event(
-        'proxy.hong_kong_selection.ui_failed',
+        'proxy.mode_switch.ui_failed',
         fields: {'error_type': error.runtimeType.toString()},
       );
     } catch (_) {}
@@ -85,12 +79,11 @@ Future<void> _selectGlobalHongKongNode(
   }
   if (!context.mounted) return;
   switch (result) {
-    case HongKongSelectionResult.unavailable:
-      context.showNotifier(l10n.hongKongNodesUnavailable);
-    case HongKongSelectionResult.failed:
-      context.showNotifier(l10n.hongKongSelectionFailed);
-    case HongKongSelectionResult.selected:
-    case HongKongSelectionResult.cancelled:
+    case ModeSwitchResult.failed:
+      context.showNotifier(l10n.modeSwitchFailed);
+    case ModeSwitchResult.switched:
+    case ModeSwitchResult.unchanged:
+    case ModeSwitchResult.cancelled:
       break;
   }
 }
@@ -141,7 +134,7 @@ class _GlobalModeConfirmationDialogState
       _DialogActionButton(
         key: const ValueKey('global-mode-confirm'),
         colors: colors,
-        label: l10n.switchAndSelectHongKong,
+        label: l10n.switchAndKeepCurrentNode,
         icon: Icons.error_outline_rounded,
         emphasized: true,
         onTap: () => _close(confirmed: true),

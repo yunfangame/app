@@ -948,7 +948,7 @@ class ApplicationState extends ConsumerState<Application> {
     final proxiesAction = ref.read(proxiesActionProvider.notifier);
     _loginRouting = LoginRoutingCoordinator(
       resetToRule: () =>
-          ref.read(setupActionProvider.notifier).changeMode(Mode.rule),
+          ref.read(setupActionProvider.notifier).changeModeOnly(Mode.rule),
       cancelSelection: proxiesAction.cancelHongKongSelection,
     );
     globalState.logoutXboard = _logoutXboard;

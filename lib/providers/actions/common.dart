@@ -22,10 +22,11 @@ class CommonAction extends _$CommonAction {
   }
 
   void updateMode() {
-    final mode = ref.read(patchClashConfigProvider).mode;
+    final setup = ref.read(setupActionProvider.notifier);
+    final mode = setup.requestedMode;
     final index = Mode.values.indexOf(mode);
     final nextIndex = (index + 1) % Mode.values.length;
-    ref.read(setupActionProvider.notifier).changeMode(Mode.values[nextIndex]);
+    setup.changeMode(Mode.values[nextIndex]);
   }
 
   Future<void> updateTraffic() async {

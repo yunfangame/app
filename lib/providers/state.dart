@@ -25,7 +25,10 @@ GroupsState currentGroupsState(Ref ref) {
       (state) => state.map((item) {
         return item.copyWith(
           now: '',
-          all: item.all.map((proxy) => proxy.copyWith(now: '')).toList(),
+          all: item.all
+              .where((proxy) => !isChainProxyRuntimeName(proxy.name))
+              .map((proxy) => proxy.copyWith(now: ''))
+              .toList(),
         );
       }),
     ),

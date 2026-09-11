@@ -90,6 +90,16 @@ void main() {
     ]);
   });
 
+  test('global mode never creates a chain wrapper around itself', () {
+    for (final target in [chainProxyRuntimeName, '$chainProxyRuntimeName 2']) {
+      final source = {'proxies': <Object>[]};
+      expect(
+        applyChainProxyConfig(source, proxy, Mode.global, globalTarget: target),
+        source,
+      );
+    }
+  });
+
   test('validation reports a detected alternate protocol', () async {
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
     final subscription = server.listen((socket) {

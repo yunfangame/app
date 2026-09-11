@@ -241,6 +241,26 @@ void main() {
     await action.setRunning(false);
   });
 
+  test('config updates wait for an active mode transaction', () async {
+    final transactionEntered = Completer<void>();
+    final releaseTransaction = Completer<void>();
+    final transaction = action.runModeSwitchTransaction(() async {
+      transactionEntered.complete();
+      await releaseTransaction.future;
+      return ModeSwitchResult.unchanged;
+    });
+    await transactionEntered.future;
+
+    final update = action.updateConfig();
+    await Future<void>.delayed(Duration.zero);
+    expect(action.updateCalls, 0);
+
+    releaseTransaction.complete();
+    expect(await transaction, ModeSwitchResult.unchanged);
+    await update;
+    expect(action.updateCalls, 1);
+  });
+
   test(
     'disposal while connecting does not update disposed providers',
     () async {

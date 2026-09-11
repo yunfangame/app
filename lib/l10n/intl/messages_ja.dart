@@ -812,7 +812,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "グローバル高速ネットワーク",
     ),
     "globalModeWarningDescription": MessageLookupByLibrary.simpleMessage(
-      "グローバルモードでは、このアプリが処理する通信に同じノードを使用します。確認後、利用可能な香港ノードを選択してからモードを切り替えます。",
+      "グローバルモードでは、このアプリが処理する通信に同じノードを使用します。確認後、ルールモードで現在選択されているノードを優先して引き継ぎます。",
     ),
     "globalNodeDistribution": MessageLookupByLibrary.simpleMessage(
       "グローバルノード分布",
@@ -1036,6 +1036,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "HTTP と SOCKS5 の共通ポート",
     ),
     "mode": MessageLookupByLibrary.simpleMessage("モード"),
+    "modeSwitchFailed": MessageLookupByLibrary.simpleMessage(
+      "モードの切り替えに失敗しました。再試行するか、ログを確認してください。",
+    ),
     "monochromeScheme": MessageLookupByLibrary.simpleMessage("モノクローム"),
     "monthlyBilling": MessageLookupByLibrary.simpleMessage("月払い"),
     "monthsAgo": m31,
@@ -1439,7 +1442,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "プロキシノード解決用ドメイン",
     ),
     "proxyNeededChooseNode": MessageLookupByLibrary.simpleMessage(
-      "利用可能な香港ノードがない場合、現在のモードとノードを維持し、切り替えません。",
+      "切り替え先のモードに同じノードがない場合、そのモードで以前選択したノードを維持します。",
     ),
     "proxyPort": MessageLookupByLibrary.simpleMessage("プロキシポート"),
     "proxyProtocolMismatch": MessageLookupByLibrary.simpleMessage(
@@ -1768,9 +1771,6 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "selected": MessageLookupByLibrary.simpleMessage("選択済み"),
     "selectedCountTitle": m50,
-    "selectingHongKongNode": MessageLookupByLibrary.simpleMessage(
-      "利用可能な香港ノードを選択中…",
-    ),
     "sendVerificationCode": MessageLookupByLibrary.simpleMessage("送信"),
     "sendingVerificationCode": MessageLookupByLibrary.simpleMessage("送信中..."),
     "serviceStatus": MessageLookupByLibrary.simpleMessage("サービス状態"),
@@ -1899,14 +1899,17 @@ class MessageLookup extends MessageLookupByLibrary {
       "プランに警告があります。クリックして詳細を表示",
     ),
     "suspended": MessageLookupByLibrary.simpleMessage("一時停止中..."),
-    "switchAndSelectHongKong": MessageLookupByLibrary.simpleMessage(
-      "香港ノードを選んで切り替え",
+    "switchAndKeepCurrentNode": MessageLookupByLibrary.simpleMessage(
+      "現在のノードを引き継いで切り替え",
     ),
     "switchNode": MessageLookupByLibrary.simpleMessage("ノード切替"),
     "switchToGlobalMode": MessageLookupByLibrary.simpleMessage(
       "グローバルモードに切り替える",
     ),
     "sync": MessageLookupByLibrary.simpleMessage("同期"),
+    "syncingCurrentNodeForModeSwitch": MessageLookupByLibrary.simpleMessage(
+      "現在のノードを同期してモードを切り替えています…",
+    ),
     "system": MessageLookupByLibrary.simpleMessage("システム"),
     "systemApp": MessageLookupByLibrary.simpleMessage("システムアプリ"),
     "systemProxy": MessageLookupByLibrary.simpleMessage("システムプロキシ"),
