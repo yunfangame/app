@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'core_manifest.dart';
 import 'launcher.dart';
 import 'model.dart';
+import 'process_probe.dart';
 
 enum WindowsHelperReadiness { ready, notReady, manifestMissing }
 
@@ -50,6 +51,9 @@ final class WindowsHelperException implements Exception {
 }
 
 final class WindowsHelperClient {
+  static const startTimeout = Duration(seconds: 15);
+  static const stopTimeout = Duration(seconds: 6);
+
   final Dio _dio;
   final String Function() _expectedHelperPath;
   final Future<String> Function() _readCoreSha256;
@@ -218,7 +222,7 @@ final class WindowsHelperClient {
       final response = await _dio.post<Object?>(
         '$baseUrl/start',
         data: {'address': address, 'sessionId': sessionId},
-        options: _options(ResponseType.json),
+        options: _options(ResponseType.json, receiveTimeout: startTimeout),
       );
       final data = _responseMap(response, operation: 'start');
       final returnedSession = data['sessionId'];
@@ -252,7 +256,7 @@ final class WindowsHelperClient {
       final response = await _dio.post<Object?>(
         '$baseUrl/stop',
         data: {'sessionId': sessionId},
-        options: _options(ResponseType.json),
+        options: _options(ResponseType.json, receiveTimeout: stopTimeout),
       );
       return _parseStopResponse(response, sessionId);
     } on WindowsHelperException {
@@ -370,11 +374,15 @@ final class WindowsHelperClient {
     }
   }
 
-  Options _options(ResponseType responseType, {bool acceptAnyStatus = false}) {
+  Options _options(
+    ResponseType responseType, {
+    bool acceptAnyStatus = false,
+    Duration receiveTimeout = const Duration(seconds: 2),
+  }) {
     return Options(
       responseType: responseType,
       connectTimeout: const Duration(milliseconds: 300),
-      receiveTimeout: const Duration(seconds: 2),
+      receiveTimeout: receiveTimeout,
       // The Helper reports readiness via non-2xx (400, 409, ...), so only
       // transport errors should surface as DioExceptions.
       validateStatus: acceptAnyStatus ? (_) => true : null,
@@ -384,8 +392,12 @@ final class WindowsHelperClient {
 
 final class WindowsHelperLauncher implements CoreProcessLauncher {
   final WindowsHelperClient client;
+  final ProcessLivenessProbe livenessProbe;
 
-  const WindowsHelperLauncher(this.client);
+  const WindowsHelperLauncher(
+    this.client, {
+    this.livenessProbe = isProcessAlive,
+  });
 
   @override
   Future<CoreProcessLease> start({
@@ -401,11 +413,18 @@ final class WindowsHelperLauncher implements CoreProcessLauncher {
         sessionId: response.sessionId,
         pid: response.pid,
         client: client,
+        livenessProbe: livenessProbe,
       );
     } catch (error, stackTrace) {
       try {
         await client.stop(sessionId);
-      } catch (_) {}
+      } catch (releaseError) {
+        commonPrint.log(
+          'Failed to release Helper session $sessionId after a start failure: '
+          '$releaseError',
+          logLevel: LogLevel.warning,
+        );
+      }
       Error.throwWithStackTrace(error, stackTrace);
     }
   }
@@ -479,13 +498,16 @@ final class HelperCoreLease implements CoreProcessLease {
   final int pid;
 
   final WindowsHelperClient _client;
+  final ProcessLivenessProbe _livenessProbe;
   Future<CoreProcessStopResult>? _stopOperation;
 
   HelperCoreLease({
     required this.sessionId,
     required this.pid,
     required WindowsHelperClient client,
-  }) : _client = client;
+    ProcessLivenessProbe livenessProbe = isProcessAlive,
+  }) : _client = client,
+       _livenessProbe = livenessProbe;
 
   @override
   CoreProcessOwner get owner => CoreProcessOwner.windowsHelper;
@@ -508,7 +530,20 @@ final class HelperCoreLease implements CoreProcessLease {
   }
 
   Future<CoreProcessStopResult> _stop() async {
-    final response = await _client.stop(sessionId);
+    final HelperStopResponse response;
+    try {
+      response = await _client.stop(sessionId);
+    } on WindowsHelperException catch (error) {
+      if (error.code != 'transportError' || await _livenessProbe(pid)) {
+        rethrow;
+      }
+      commonPrint.log(
+        'Helper is unreachable and Core $pid has already exited; '
+        'session $sessionId is released',
+        logLevel: LogLevel.warning,
+      );
+      return const CoreProcessStopResult(stopped: false, exitConfirmed: true);
+    }
     return CoreProcessStopResult(
       stopped: response.stopped,
       exitConfirmed: true,

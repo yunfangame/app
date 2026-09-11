@@ -525,7 +525,7 @@ void ProxyPlugin::RegisterWithRegistrar(
           registrar->messenger(), "proxy",
           &flutter::StandardMethodCodec::GetInstance());
 
-  auto plugin = std::make_unique<ProxyPlugin>();
+  auto plugin = std::make_unique<ProxyPlugin>(registrar);
 
   channel->SetMethodCallHandler(
       [pluginPointer = plugin.get()](const auto& call, auto result)
@@ -534,6 +534,48 @@ void ProxyPlugin::RegisterWithRegistrar(
       });
 
   registrar->AddPlugin(std::move(plugin));
+}
+
+ProxyPlugin::ProxyPlugin(flutter::PluginRegistrarWindows* registrar)
+    : registrar_(registrar)
+{
+  window_proc_id_ = registrar_->RegisterTopLevelWindowProcDelegate(
+      [this](HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+      {
+        return HandleWindowProc(window, message, wparam, lparam);
+      });
+}
+
+ProxyPlugin::~ProxyPlugin()
+{
+  if (registrar_ != nullptr)
+  {
+    registrar_->UnregisterTopLevelWindowProcDelegate(window_proc_id_);
+  }
+}
+
+bool ProxyPlugin::IsSessionEnding(UINT message, WPARAM wparam)
+{
+  return message == WM_ENDSESSION && wparam != FALSE;
+}
+
+std::optional<int> ProxyPlugin::AppliedProxyPort(bool success, int port)
+{
+  return success ? std::make_optional(port) : std::nullopt;
+}
+
+std::optional<LRESULT> ProxyPlugin::HandleWindowProc(
+    HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+{
+  if (applied_proxy_port_.has_value() && IsSessionEnding(message, wparam))
+  {
+    const int expectedPort = *applied_proxy_port_;
+    if (StopProxy(&expectedPort).success)
+    {
+      applied_proxy_port_.reset();
+    }
+  }
+  return std::nullopt;
 }
 
 void ProxyPlugin::HandleMethodCall(
@@ -552,6 +594,10 @@ void ProxyPlugin::HandleMethodCall(
       return;
     }
     const auto details = StopProxy(expectedPort);
+    if (details.success)
+    {
+      applied_proxy_port_.reset();
+    }
     if (methodCall.method_name() == "StopProxy")
     {
       result->Success(flutter::EncodableValue(details.success));
@@ -603,6 +649,7 @@ void ProxyPlugin::HandleMethodCall(
       return;
     }
     const auto details = ApplyProxy(true, *port, *bypassDomain);
+    applied_proxy_port_ = AppliedProxyPort(details.success, *port);
     if (methodCall.method_name() == "StartProxy")
     {
       result->Success(flutter::EncodableValue(details.success));

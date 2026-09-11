@@ -100,6 +100,18 @@ TEST(ProxyPlugin, StartProxyRejectsNonStringBypassDomain) {
   EXPECT_EQ(error_code, "bad_args");
 }
 
+TEST(ProxyPlugin, RestoresTheSystemProxyOnlyWhenTheSessionReallyEnds) {
+  EXPECT_TRUE(ProxyPlugin::IsSessionEnding(WM_ENDSESSION, TRUE));
+  EXPECT_FALSE(ProxyPlugin::IsSessionEnding(WM_ENDSESSION, FALSE));
+  EXPECT_FALSE(ProxyPlugin::IsSessionEnding(WM_QUERYENDSESSION, TRUE));
+  EXPECT_FALSE(ProxyPlugin::IsSessionEnding(WM_CLOSE, TRUE));
+}
+
+TEST(ProxyPlugin, OwnsOnlyAProxyThatWasAppliedSuccessfully) {
+  EXPECT_EQ(ProxyPlugin::AppliedProxyPort(true, 7890), 7890);
+  EXPECT_EQ(ProxyPlugin::AppliedProxyPort(false, 7890), std::nullopt);
+}
+
 TEST(ProxyPlugin, StopProxyDetailedRejectsInvalidExpectedPort) {
   ProxyPlugin plugin;
   std::string error_code;

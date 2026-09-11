@@ -39,6 +39,24 @@ void main() {
     },
   );
 
+  test(
+    'start allows the Helper enough time to verify and launch Core',
+    () async {
+      Duration? receiveTimeout;
+      final client = _client(
+        _ResponseAdapter((options) {
+          receiveTimeout = options.receiveTimeout;
+          return _jsonResponse({'sessionId': _sessionId, 'pid': 6456});
+        }),
+      );
+
+      await client.start(address: 'test-address', sessionId: _sessionId);
+
+      expect(receiveTimeout, WindowsHelperClient.startTimeout);
+      expect(receiveTimeout, greaterThan(const Duration(seconds: 2)));
+    },
+  );
+
   test('start rejects a response for another session', () async {
     final client = _client(
       _ResponseAdapter(
@@ -74,6 +92,21 @@ void main() {
     expect(response.sessionId, _sessionId);
     expect(response.stopped, isTrue);
     expect(response.reason, isNull);
+  });
+
+  test('stop covers the Helper process-exit budget', () async {
+    Duration? receiveTimeout;
+    final client = _client(
+      _ResponseAdapter((options) {
+        receiveTimeout = options.receiveTimeout;
+        return _jsonResponse({'sessionId': _sessionId, 'stopped': true});
+      }),
+    );
+
+    await client.stop(_sessionId);
+
+    expect(receiveTimeout, WindowsHelperClient.stopTimeout);
+    expect(receiveTimeout, greaterThan(const Duration(milliseconds: 4500)));
   });
 
   test('stop rejects an unknown unconfirmed reason', () async {
@@ -154,6 +187,46 @@ void main() {
     expect(result.exitConfirmed, isTrue);
   });
 
+  test(
+    'Helper lease releases a dead Core after Helper transport loss',
+    () async {
+      var stopRequests = 0;
+      final probedPids = <int>[];
+      final client = _client(
+        _ResponseAdapter((options) {
+          if (options.path.endsWith('/start')) {
+            return _jsonResponse({'sessionId': _sessionId, 'pid': 6456});
+          }
+          stopRequests++;
+          throw DioException(
+            requestOptions: options,
+            type: DioExceptionType.connectionError,
+          );
+        }),
+      );
+      final launcher = WindowsHelperLauncher(
+        client,
+        livenessProbe: (pid) async {
+          probedPids.add(pid);
+          return false;
+        },
+      );
+      final lease = await launcher.start(
+        sessionId: _sessionId,
+        address: 'test-address',
+      );
+
+      final result = await lease.stop(const Duration(seconds: 1));
+      final repeated = await lease.stop(const Duration(seconds: 1));
+
+      expect(probedPids, [6456]);
+      expect(stopRequests, 1);
+      expect(result.stopped, isFalse);
+      expect(result.exitConfirmed, isTrue);
+      expect(repeated, result);
+    },
+  );
+
   test('Helper lease retries stop after a transport failure', () async {
     var stopRequests = 0;
     final client = _client(
@@ -175,7 +248,10 @@ void main() {
         });
       }),
     );
-    final launcher = WindowsHelperLauncher(client);
+    final launcher = WindowsHelperLauncher(
+      client,
+      livenessProbe: (_) async => true,
+    );
     final lease = await launcher.start(
       sessionId: _sessionId,
       address: 'test-address',
