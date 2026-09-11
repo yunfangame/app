@@ -44,6 +44,21 @@ function Get-VcRuntimeFileVersion {
   return [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Path)
 }
 
+function Get-VcRuntimeSha256 {
+  param([string]$Path)
+  $stream = [IO.File]::OpenRead($Path)
+  try {
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+      return [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+    } finally {
+      $algorithm.Dispose()
+    }
+  } finally {
+    $stream.Dispose()
+  }
+}
+
 function Get-VcRuntimeVisualStudioPaths {
   if ($env:OS -ne 'Windows_NT') { return @() }
   $programFiles = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
@@ -107,7 +122,7 @@ function Get-ValidatedVcRuntime {
   }
   return [pscustomobject]@{
     Version = $fileVersion.ToString(4)
-    SHA256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    SHA256 = Get-VcRuntimeSha256 -Path $Path
   }
 }
 
