@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:fl_clash/common/application_bootstrap.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/login_routing_coordinator.dart';
 import 'package:fl_clash/common/system_dns.dart';
@@ -33,6 +34,10 @@ class Application extends ConsumerStatefulWidget {
 }
 
 class ApplicationState extends ConsumerState<Application> {
+  static const _authenticationBootstrapTimeout = Duration(seconds: 60);
+  static const _applicationReadinessTimeout = Duration(seconds: 20);
+  static const _profileValidationTimeout = Duration(seconds: 15);
+  static const _profileSyncTimeout = Duration(seconds: 30);
   Timer? _autoUpdateProfilesTaskTimer;
   bool _preHasVpn = false;
   bool _isOpeningRegister = false;
@@ -56,10 +61,15 @@ class ApplicationState extends ConsumerState<Application> {
     storage: _xboardSessionStorage,
     onDiagnostic: (event, fields) => commonPrint.event(event, fields: fields),
   );
-  final _appReadyCompleter = Completer<void>();
+  final _authenticationBootstrapController =
+      AuthenticationBootstrapController();
+  final _applicationReadinessGate = ApplicationReadinessGate();
   late final LoginRoutingCoordinator _loginRouting;
   LoginRoutingAttempt? _loginRoutingAttempt;
   XboardLoginResult? _loginRoutingSession;
+  int? _deferredProfileSyncRevision;
+  int? _authenticationBootstrapSessionRevision;
+  final _managedProfileSources = <String>{};
 
   void _beginDefaultLoginRouting(XboardLoginResult session) {
     final revision = globalState.xboardSessionRevision;
@@ -110,7 +120,10 @@ class ApplicationState extends ConsumerState<Application> {
       _loginRouting.select<HongKongSelectionResult>(
         attempt,
         prepare: () async {
-          await _appReadyCompleter.future;
+          final readiness = await _applicationReadinessGate.wait();
+          if (readiness != ApplicationReadiness.ready) {
+            throw StateError('application_not_ready_${readiness.name}');
+          }
           if (!_loginRouting.isCurrent(attempt)) return;
           if (!ref.read(initProvider) ||
               ref.read(coreStatusProvider) != CoreStatus.connected) {
@@ -231,37 +244,71 @@ class ApplicationState extends ConsumerState<Application> {
     }
   }
 
-  Future<void> _restoreRememberedSession() async {
+  bool _isAuthenticationBootstrapCurrent(int revision) {
+    return mounted &&
+        _authenticationBootstrap == _AuthenticationBootstrap.loading &&
+        _authenticationBootstrapController.isCurrent(revision);
+  }
+
+  bool _completeAuthenticationBootstrap(
+    int revision,
+    _AuthenticationBootstrap destination,
+  ) {
+    if (!mounted || !_authenticationBootstrapController.complete(revision)) {
+      return false;
+    }
+    final bootstrapSessionRevision = _authenticationBootstrapSessionRevision;
+    _authenticationBootstrapSessionRevision = null;
+    if (destination == _AuthenticationBootstrap.login &&
+        bootstrapSessionRevision != null &&
+        globalState.xboardSessionRevision == bootstrapSessionRevision) {
+      _loginRouting.cancel();
+      _loginRoutingAttempt = null;
+      _loginRoutingSession = null;
+      _deferredProfileSyncRevision = null;
+      globalState.clearXboardSession();
+    }
+    setState(() {
+      _authenticationBootstrap = destination;
+    });
+    return true;
+  }
+
+  Future<void> _restoreRememberedSession(int bootstrapRevision) async {
     try {
       final storedSession = await _loginPersistence.load();
-      if (!mounted) return;
+      if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
       _applyRememberedLogin(storedSession);
       final offlineCache = await _xboardSessionStorage.loadOfflineCache();
+      if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
       final offlineRequested = await _xboardSessionStorage.loadOfflineMode();
+      if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
       final hasProfiles = ref.read(profilesProvider).isNotEmpty;
       _offlineAvailable =
           hasProfiles &&
           offlineCache != null &&
           offlineCache.isUsableAt(DateTime.now());
-      if (!mounted) return;
       if (offlineRequested && _offlineAvailable) {
         final session = offlineCache!.toSession();
         globalState.activateXboardSession(session, nodes: offlineCache.nodes);
         _beginDefaultLoginRouting(session);
         globalState.setOfflineMode(true);
-        setState(() {
-          _authenticationBootstrap = _AuthenticationBootstrap.home;
-        });
+        _completeAuthenticationBootstrap(
+          bootstrapRevision,
+          _AuthenticationBootstrap.home,
+        );
         _selectDefaultLoginNode(session, applyProfile: true);
         return;
       }
       if (offlineRequested) {
         await _xboardSessionStorage.setOfflineMode(false);
+        if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
       }
       if (!storedSession.canAutoLogin) {
-        setState(() {
-          _authenticationBootstrap = _AuthenticationBootstrap.login;
-        });
+        _completeAuthenticationBootstrap(
+          bootstrapRevision,
+          _AuthenticationBootstrap.login,
+        );
         return;
       }
       try {
@@ -272,32 +319,51 @@ class ApplicationState extends ConsumerState<Application> {
           isAdmin: storedSession.isAdmin,
           secureSubscription: storedSession.secureSubscription,
         );
-        if (!mounted) return;
-        globalState.activateXboardSession(session);
+        if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
+        final sessionRevision = globalState.activateXboardSession(session);
+        _authenticationBootstrapSessionRevision = sessionRevision;
         _beginDefaultLoginRouting(session);
         globalState.setOfflineMode(false);
         await _xboardSessionStorage.setOfflineMode(false);
+        if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
         await _loadXboardNodes(session, ignoreOfflineMode: true);
-        final profile = await _syncSubscriptionProfile(session);
-        if (!mounted) return;
-        if (!identical(session, globalState.xboardSession)) return;
-        _selectDefaultLoginNode(session, expectedProfile: profile);
-        setState(() {
-          _authenticationBootstrap = _AuthenticationBootstrap.home;
-        });
+        if (!_isAuthenticationBootstrapCurrent(bootstrapRevision) ||
+            !globalState.isActiveXboardSession(session, sessionRevision)) {
+          return;
+        }
+        final profile = await _syncSubscriptionProfileForLogin(
+          session,
+          sessionRevision,
+        );
+        if (!_isAuthenticationBootstrapCurrent(bootstrapRevision) ||
+            !globalState.isActiveXboardSession(session, sessionRevision)) {
+          return;
+        }
+        if (profile != null) {
+          _selectDefaultLoginNode(session, expectedProfile: profile);
+        }
+        if (!_completeAuthenticationBootstrap(
+          bootstrapRevision,
+          _AuthenticationBootstrap.home,
+        )) {
+          return;
+        }
         globalState.requestXboardAnnouncementAutoPrompt();
       } on XboardAuthException catch (error) {
+        if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
         final sessionExpired =
             error.failure == XboardAuthFailure.authenticationRejected;
         if (sessionExpired) {
           await _loginPersistence.invalidateSession();
+          if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
           _initialAutoLogin = false;
           _rememberedLoginEmail = null;
         }
-        if (!mounted) return;
-        setState(() {
-          _authenticationBootstrap = _AuthenticationBootstrap.login;
-        });
+        final completed = _completeAuthenticationBootstrap(
+          bootstrapRevision,
+          _AuthenticationBootstrap.login,
+        );
+        if (!completed) return;
         _showStartupMessage(
           sessionExpired
               ? currentAppLocalizations.loginSessionExpired
@@ -309,13 +375,58 @@ class ApplicationState extends ConsumerState<Application> {
     } catch (error) {
       commonPrint.event(
         'auth.bootstrap.failed',
-        fields: {'error_type': error.runtimeType.toString()},
+        fields: {'error_type': error.runtimeType.toString(), 'error': '$error'},
       );
-      if (!mounted) return;
-      setState(() {
-        _authenticationBootstrap = _AuthenticationBootstrap.login;
-      });
+      final completed = _completeAuthenticationBootstrap(
+        bootstrapRevision,
+        _AuthenticationBootstrap.login,
+      );
+      if (!completed) return;
       _showStartupMessage(currentAppLocalizations.automaticLoginUnavailable);
+    }
+  }
+
+  Future<void> _retryDeferredProfileSync() async {
+    final session = globalState.xboardSession;
+    final sessionRevision = globalState.xboardSessionRevision;
+    if (session == null ||
+        _deferredProfileSyncRevision != sessionRevision ||
+        globalState.isOfflineMode) {
+      return;
+    }
+    _deferredProfileSyncRevision = null;
+    bool isCurrent() =>
+        mounted &&
+        !_logoutInProgress &&
+        globalState.isActiveXboardSession(session, sessionRevision);
+    try {
+      final profile = await _syncSubscriptionProfile(session, sessionRevision);
+      if (!isCurrent() || profile == null) return;
+      _selectDefaultLoginNode(session, expectedProfile: profile);
+      if (!isCurrent()) return;
+      globalState.requestXboardAnnouncementAutoPrompt();
+    } on XboardAuthException catch (error) {
+      if (!isCurrent()) return;
+      commonPrint.event(
+        'auth.post_login.sync.failed',
+        fields: {
+          'failure': error.failure.name,
+          'error_type': error.runtimeType.toString(),
+        },
+      );
+      _showStartupMessage(
+        currentAppLocalizations.subscriptionImportFailed,
+        isCurrent: isCurrent,
+      );
+    } catch (error, stackTrace) {
+      commonPrint.event(
+        'auth.post_login.sync.failed',
+        fields: {'error_type': error.runtimeType.toString(), 'error': '$error'},
+      );
+      commonPrint.log(
+        'retry deferred profile sync failed: $error, $stackTrace',
+        logLevel: LogLevel.warning,
+      );
     }
   }
 
@@ -424,21 +535,123 @@ class ApplicationState extends ConsumerState<Application> {
         !identical(session, globalState.xboardSession)) {
       return;
     }
-    final profile = await _syncSubscriptionProfile(session);
-    if (!mounted || !identical(session, globalState.xboardSession)) return;
-    _selectDefaultLoginNode(session, expectedProfile: profile);
+    final sessionRevision = globalState.xboardSessionRevision;
+    final profile = await _syncSubscriptionProfileForLogin(
+      session,
+      sessionRevision,
+    );
+    if (!mounted ||
+        !globalState.isActiveXboardSession(session, sessionRevision)) {
+      return;
+    }
+    if (profile != null) {
+      _selectDefaultLoginNode(session, expectedProfile: profile);
+    }
     globalState.requestXboardAnnouncementAutoPrompt();
   }
 
-  Future<Profile> _syncSubscriptionProfile(XboardLoginResult session) async {
+  Future<Profile?> _syncSubscriptionProfile(
+    XboardLoginResult session,
+    int sessionRevision,
+  ) async {
+    var operationActive = true;
+    bool isCurrent() =>
+        operationActive &&
+        mounted &&
+        !_logoutInProgress &&
+        globalState.isActiveXboardSession(session, sessionRevision);
+    try {
+      return await _runSubscriptionProfileSync(
+        session,
+        sessionRevision,
+        isCurrent,
+      ).timeout(
+        _profileSyncTimeout,
+        onTimeout: () {
+          operationActive = false;
+          throw TimeoutException(
+            'subscription_profile_sync_timeout',
+            _profileSyncTimeout,
+          );
+        },
+      );
+    } on TimeoutException catch (error) {
+      commonPrint.event(
+        'subscription.profile.sync.timed_out',
+        fields: {
+          'timeout_ms': _profileSyncTimeout.inMilliseconds,
+          'error': '$error',
+        },
+      );
+      throw XboardAuthException(
+        failure: XboardAuthFailure.subscriptionUnavailable,
+        message: currentAppLocalizations.subscriptionImportFailed,
+        endpoint: session.endpoint,
+      );
+    } finally {
+      operationActive = false;
+    }
+  }
+
+  Future<Profile?> _syncSubscriptionProfileForLogin(
+    XboardLoginResult session,
+    int sessionRevision,
+  ) async {
+    try {
+      return await _syncSubscriptionProfile(session, sessionRevision);
+    } on XboardAuthException catch (error) {
+      if (error.failure != XboardAuthFailure.subscriptionUnavailable) rethrow;
+      bool isCurrent() =>
+          mounted &&
+          !_logoutInProgress &&
+          globalState.isActiveXboardSession(session, sessionRevision);
+      if (!isCurrent()) return null;
+      commonPrint.event(
+        'auth.profile_sync.degraded',
+        fields: {'failure': error.failure.name},
+      );
+      _showStartupMessage(
+        currentAppLocalizations.subscriptionImportFailed,
+        isCurrent: isCurrent,
+      );
+      return null;
+    }
+  }
+
+  Future<Profile?> _runSubscriptionProfileSync(
+    XboardLoginResult session,
+    int sessionRevision,
+    bool Function() isCurrent,
+  ) async {
+    final readiness = await _applicationReadinessGate.wait();
+    if (!isCurrent()) {
+      commonPrint.event(
+        'subscription.profile.sync.discarded',
+        fields: {'stage': 'application_readiness'},
+      );
+      return null;
+    }
+    if (readiness != ApplicationReadiness.ready) {
+      if (readiness == ApplicationReadiness.timedOut) {
+        _deferredProfileSyncRevision = sessionRevision;
+      }
+      commonPrint.event(
+        'subscription.profile.sync.skipped',
+        fields: {'reason': 'application_${readiness.name}'},
+      );
+      return null;
+    }
+    if (_deferredProfileSyncRevision == sessionRevision) {
+      _deferredProfileSyncRevision = null;
+    }
     commonPrint.event(
       'subscription.profile.sync.started',
       fields: {'secure_subscription': session.secureSubscription},
     );
     try {
-      await _appReadyCompleter.future;
       final planName = session.subscription.plan?.name?.trim();
       final previousUrl = await _xboardSessionStorage.loadManagedProfileUrl();
+      if (!isCurrent()) return null;
       final label = planName == null || planName.isEmpty
           ? currentAppLocalizations.brandName
           : planName;
@@ -448,7 +661,9 @@ class ApplicationState extends ConsumerState<Application> {
         appVersion: globalState.packageInfo.version,
         allowTokenRegistration: !session.secureSubscription,
       );
+      if (!isCurrent()) return null;
       if (secureProfile != null) {
+        _managedProfileSources.add(secureProfile.sourceId);
         final profile = await ref
             .read(profilesActionProvider.notifier)
             .syncSubscriptionProfileBytes(
@@ -457,10 +672,14 @@ class ApplicationState extends ConsumerState<Application> {
               label: label,
               replacingUrl: previousUrl,
               removeLegacyXboardProfiles: true,
+              isCurrent: isCurrent,
+              validationTimeout: _profileValidationTimeout,
             );
+        if (!isCurrent()) return null;
         await _xboardSessionStorage.setManagedProfileUrl(
           secureProfile.sourceId,
         );
+        if (!isCurrent()) return null;
         commonPrint.event(
           'subscription.profile.sync.succeeded',
           fields: {
@@ -478,20 +697,33 @@ class ApplicationState extends ConsumerState<Application> {
         throw const SubscriptionV2Exception('legacy_subscription_unavailable');
       }
       final subscriptionUrl = legacyUrl.toString();
+      if (!isCurrent()) return null;
+      _managedProfileSources.add(subscriptionUrl);
       final profile = await ref
           .read(profilesActionProvider.notifier)
           .syncSubscriptionProfile(
             subscriptionUrl,
             label: label,
             replacingUrl: previousUrl,
+            isCurrent: isCurrent,
+            validationTimeout: _profileValidationTimeout,
           );
+      if (!isCurrent()) return null;
       await _xboardSessionStorage.setManagedProfileUrl(subscriptionUrl);
+      if (!isCurrent()) return null;
       commonPrint.event(
         'subscription.profile.sync.succeeded',
         fields: {'protocol': 'v1'},
       );
       return profile;
     } catch (error, stackTrace) {
+      if (!isCurrent()) {
+        commonPrint.event(
+          'subscription.profile.sync.discarded',
+          fields: {'stage': 'profile_mutation'},
+        );
+        return null;
+      }
       commonPrint.event(
         'subscription.profile.sync.failed',
         fields: {
@@ -545,6 +777,7 @@ class ApplicationState extends ConsumerState<Application> {
     _loginRouting.cancel();
     _loginRoutingAttempt = null;
     _loginRoutingSession = null;
+    _deferredProfileSyncRevision = null;
     try {
       await _performLogoutXboard();
     } finally {
@@ -570,6 +803,7 @@ class ApplicationState extends ConsumerState<Application> {
     final subscriptionUrls = <String>{
       ?activeSubscriptionUrl,
       ?managedProfileUrl,
+      ..._managedProfileSources,
     };
     try {
       await ref.read(systemActionProvider.notifier).handleLogout();
@@ -605,6 +839,7 @@ class ApplicationState extends ConsumerState<Application> {
         );
       }
     }
+    _managedProfileSources.removeAll(subscriptionUrls);
     var cleanupFailed = false;
     for (final cleanup in [
       _xboardSessionStorage.clearManagedProfileUrl,
@@ -695,7 +930,8 @@ class ApplicationState extends ConsumerState<Application> {
       );
       globalState.activateXboardSession(session);
       await _loadXboardNodes(session, ignoreOfflineMode: true);
-      await _syncSubscriptionProfile(session);
+      final sessionRevision = globalState.xboardSessionRevision;
+      await _syncSubscriptionProfile(session, sessionRevision);
       await _xboardSessionStorage.setOfflineMode(false);
       globalState.setOfflineMode(false);
       globalState.requestXboardAnnouncementAutoPrompt();
@@ -805,7 +1041,7 @@ class ApplicationState extends ConsumerState<Application> {
             logLevel: LogLevel.warning,
           );
         }
-        await _syncSubscriptionProfile(updatedSession);
+        await _syncSubscriptionProfile(updatedSession, updatedRevision);
         return true;
       } catch (error, stackTrace) {
         lastError = error;
@@ -957,26 +1193,75 @@ class ApplicationState extends ConsumerState<Application> {
     globalState.restoreOnlineMode = _restoreOnlineMode;
     globalState.refreshXboardSubscription = _refreshXboardSubscription;
     globalState.refreshXboardNodes = _refreshXboardNodes;
+    _applicationReadinessGate.startTimeout(
+      timeout: _applicationReadinessTimeout,
+      onTimeout: () {
+        commonPrint.event(
+          'app.attach.timed_out',
+          fields: {
+            'platform': Platform.operatingSystem,
+            'timeout_ms': _applicationReadinessTimeout.inMilliseconds,
+          },
+        );
+      },
+    );
+    final authenticationBootstrapRevision = _authenticationBootstrapController
+        .begin(
+          timeout: _authenticationBootstrapTimeout,
+          onTimeout: (revision) {
+            if (!_completeAuthenticationBootstrap(
+              revision,
+              _AuthenticationBootstrap.login,
+            )) {
+              return;
+            }
+            commonPrint.event(
+              'auth.bootstrap.timed_out',
+              fields: {
+                'timeout_ms': _authenticationBootstrapTimeout.inMilliseconds,
+              },
+            );
+          },
+        );
     unawaited(_xboardAuthService.prepareApiConfiguration());
-    unawaited(_restoreRememberedSession());
+    unawaited(_restoreRememberedSession(authenticationBootstrapRevision));
     SystemNavigator.setFrameworkHandlesBack(true);
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) async {
       if (globalState.navigatorKey.currentContext != null) {
-        await globalState.attach();
-        commonPrint.event(
-          'app.ready',
-          fields: {
-            'platform': Platform.operatingSystem,
-            'app_version': globalState.packageInfo.version,
-            'build_number': globalState.packageInfo.buildNumber,
-          },
-        );
-        if (!_appReadyCompleter.isCompleted) {
-          _appReadyCompleter.complete();
+        try {
+          await globalState.attach();
+          final late =
+              _applicationReadinessGate.status == ApplicationReadiness.timedOut;
+          _applicationReadinessGate.ready();
+          commonPrint.event(
+            'app.ready',
+            fields: {
+              'platform': Platform.operatingSystem,
+              'app_version': globalState.packageInfo.version,
+              'build_number': globalState.packageInfo.buildNumber,
+              'late': late,
+            },
+          );
+          if (late) unawaited(_retryDeferredProfileSync());
+        } catch (error, stackTrace) {
+          _applicationReadinessGate.fail();
+          commonPrint.event(
+            'app.attach.failed',
+            fields: {
+              'platform': Platform.operatingSystem,
+              'error_type': error.runtimeType.toString(),
+              'error': '$error',
+            },
+          );
+          commonPrint.log(
+            'attach application failed: $error, $stackTrace',
+            logLevel: LogLevel.warning,
+          );
         }
       } else {
         exit(0);
       }
+      if (!mounted) return;
       _autoUpdateProfilesTask();
       _initLink();
       app?.initShortcuts();
@@ -1075,10 +1360,13 @@ class ApplicationState extends ConsumerState<Application> {
   }
 
   void _autoUpdateProfilesTask() {
+    if (!mounted) return;
     _autoUpdateProfilesTaskTimer = Timer(const Duration(minutes: 20), () async {
+      if (!mounted) return;
       if (!globalState.isOfflineMode) {
         await ref.read(profilesActionProvider.notifier).autoUpdateProfiles();
       }
+      if (!mounted) return;
       _autoUpdateProfilesTask();
     });
   }
@@ -1207,6 +1495,8 @@ class ApplicationState extends ConsumerState<Application> {
 
   @override
   void dispose() {
+    _authenticationBootstrapController.dispose();
+    _applicationReadinessGate.dispose();
     _loginRouting.dispose();
     linkManager.destroy();
     _autoUpdateProfilesTaskTimer?.cancel();

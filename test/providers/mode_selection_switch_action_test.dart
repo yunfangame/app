@@ -1625,7 +1625,11 @@ class _TestSetup extends SetupAction {
   }
 
   @override
-  Future<void> setRunning(bool running, {bool initialize = false}) async {
+  Future<void> setRunning(
+    bool running, {
+    bool initialize = false,
+    bool propagateErrors = false,
+  }) async {
     events.add('running:$running');
     runtimeRunning = running;
     if (!running) return;

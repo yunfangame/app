@@ -2,6 +2,7 @@ part of '../action.dart';
 
 @Riverpod(keepAlive: true)
 class CoreAction extends _$CoreAction {
+  final _lifecycleScheduler = SerialTaskScheduler();
   int _requestedRestartRevision = 0;
   Future<void>? _restartOperation;
 
@@ -37,6 +38,35 @@ class CoreAction extends _$CoreAction {
     return coreController.restart();
   }
 
+  @protected
+  Future<CoreLifecycleResult> stopLifecycle() {
+    return coreController.stop();
+  }
+
+  Future<void> restartCoreLifecycleOnly() {
+    return _lifecycleScheduler.run(() async {
+      ref.read(coreStatusProvider.notifier).value = CoreStatus.connecting;
+      try {
+        await restartLifecycle();
+        await initCore();
+        ref.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+      } catch (_) {
+        ref.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
+        rethrow;
+      }
+    });
+  }
+
+  Future<void> stopCoreLifecycleOnly() {
+    return _lifecycleScheduler.run(() async {
+      try {
+        await stopLifecycle();
+      } finally {
+        ref.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
+      }
+    });
+  }
+
   Future<void> restartCore() {
     _requestedRestartRevision++;
     final activeOperation = _restartOperation;
@@ -51,10 +81,7 @@ class CoreAction extends _$CoreAction {
 
   Future<void> _runRestartWorker() async {
     try {
-      ref.read(coreStatusProvider.notifier).value = CoreStatus.connecting;
-      await restartLifecycle();
-      ref.read(coreStatusProvider.notifier).value = CoreStatus.connected;
-      await initCore();
+      await restartCoreLifecycleOnly();
 
       var appliedRevision = 0;
       while (appliedRevision < _requestedRestartRevision) {
@@ -62,11 +89,11 @@ class CoreAction extends _$CoreAction {
         if (ref.read(isStartProvider) || ref.read(connectionPendingProvider)) {
           await ref
               .read(setupActionProvider.notifier)
-              .setRunning(true, initialize: true);
+              .setRunning(true, initialize: true, propagateErrors: true);
         } else {
           await ref
               .read(setupActionProvider.notifier)
-              .applyProfile(force: true);
+              .applyProfile(force: true, propagateErrors: true);
         }
         appliedRevision = revision;
       }

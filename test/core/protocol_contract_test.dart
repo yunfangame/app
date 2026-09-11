@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -12,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 class _RecordingCoreHandler extends CoreHandlerInterface {
   final Map<CoreMethod, Object?> calls = {};
+  final Map<CoreMethod, Duration?> timeouts = {};
 
   @override
   Future<CoreLifecycleResult> start() async => const CoreLifecycleResult(
@@ -35,6 +37,7 @@ class _RecordingCoreHandler extends CoreHandlerInterface {
     Duration? timeout,
   }) async {
     calls[method] = arguments;
+    timeouts[method] = timeout;
     final result = switch (method) {
       CoreMethod.initClash => true as T,
       CoreMethod.getTraffic ||
@@ -114,7 +117,9 @@ class _EmptyConfigCoreHandler extends _RecordingCoreHandler {
     Object? arguments,
     Duration? timeout,
   }) async {
-    if (method == CoreMethod.getConfig) {
+    if (method == CoreMethod.getConfig ||
+        method == CoreMethod.validateConfig ||
+        method == CoreMethod.setupConfig) {
       return null;
     }
     return super.invokeMethod(
@@ -243,20 +248,50 @@ void main() {
     );
   });
 
-  test('getConfig rejects empty transport results', () async {
+  test('critical configuration methods reject timed out results', () async {
     final handler = _EmptyConfigCoreHandler();
 
     await expectLater(
       handler.getConfig('/config.yaml'),
-      throwsA(
-        isA<CoreMethodException>().having(
-          (error) => error.code,
-          'code',
-          'empty_result',
-        ),
-      ),
+      throwsA(isA<TimeoutException>()),
+    );
+    await expectLater(
+      handler.validateConfig('/config.yaml'),
+      throwsA(isA<TimeoutException>()),
+    );
+    await expectLater(
+      handler.setupConfig(const SetupParams(selectedMap: {}, testUrl: 'test')),
+      throwsA(isA<TimeoutException>()),
     );
   });
+
+  test('getConfig forwards its explicit transport timeout', () async {
+    final handler = _RecordingCoreHandler();
+
+    await handler.getConfig(
+      '/config.yaml',
+      timeout: const Duration(seconds: 10),
+    );
+
+    expect(handler.timeouts[CoreMethod.getConfig], const Duration(seconds: 10));
+  });
+
+  test(
+    'configuration operations forward explicit transport timeouts',
+    () async {
+      final handler = _RecordingCoreHandler();
+      const timeout = Duration(seconds: 15);
+
+      await handler.validateConfig('/config.yaml', timeout: timeout);
+      await handler.setupConfig(
+        const SetupParams(selectedMap: {}, testUrl: 'test'),
+        timeout: timeout,
+      );
+
+      expect(handler.timeouts[CoreMethod.validateConfig], timeout);
+      expect(handler.timeouts[CoreMethod.setupConfig], timeout);
+    },
+  );
 
   test('method response separates result and structured errors', () async {
     final fixture =

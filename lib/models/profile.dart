@@ -172,7 +172,10 @@ extension ProfileExtension on Profile {
     return _getFile();
   }
 
-  Future<Profile> update() async {
+  Future<Profile> update({
+    bool Function()? isCurrent,
+    Duration? validationTimeout,
+  }) async {
     final response = await request.getFileResponseForUrl(url);
     final disposition = response.headers.value('content-disposition');
     final userinfo = response.headers.value('subscription-userinfo');
@@ -182,21 +185,44 @@ extension ProfileExtension on Profile {
         id.toString(),
       ]),
       subscriptionInfo: SubscriptionInfo.formHString(userinfo),
-    ).saveFile(response.data ?? Uint8List.fromList([]));
+    ).saveFile(
+      response.data ?? Uint8List.fromList([]),
+      isCurrent: isCurrent,
+      validationTimeout: validationTimeout,
+    );
   }
 
-  Future<Profile> saveFile(Uint8List bytes) async {
+  Future<Profile> saveFile(
+    Uint8List bytes, {
+    bool Function()? isCurrent,
+    Duration? validationTimeout,
+  }) async {
     final path = await appPath.tempFilePath;
     final tempFile = File(path);
-    await tempFile.safeWriteAsBytes(bytes);
-    final message = await coreController.validateConfig(path);
-    if (message.isNotEmpty) {
-      throw message;
+    try {
+      await tempFile.safeWriteAsBytes(bytes);
+      final validation = coreController.validateConfig(
+        path,
+        timeout: validationTimeout,
+      );
+      final message = validationTimeout == null
+          ? await validation
+          : await validation.timeout(validationTimeout);
+      if (message.isNotEmpty) {
+        throw message;
+      }
+      if (isCurrent?.call() == false) {
+        throw StateError('profile_sync_superseded');
+      }
+      final mFile = await file;
+      if (isCurrent?.call() == false) {
+        throw StateError('profile_sync_superseded');
+      }
+      await tempFile.copy(mFile.path);
+      return copyWith(lastUpdateDate: DateTime.now());
+    } finally {
+      await tempFile.safeDelete();
     }
-    final mFile = await file;
-    await tempFile.copy(mFile.path);
-    await tempFile.safeDelete();
-    return copyWith(lastUpdateDate: DateTime.now());
   }
 
   Future<Profile> saveFileWithPath(String path) async {

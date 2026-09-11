@@ -137,7 +137,11 @@ class _Setup extends SetupAction {
   Completer<void>? stopCompletion;
 
   @override
-  Future<void> setRunning(bool running, {bool initialize = false}) {
+  Future<void> setRunning(
+    bool running, {
+    bool initialize = false,
+    bool propagateErrors = false,
+  }) {
     requests.add(running);
     ref.read(runTimeProvider.notifier).value = running ? 1 : null;
     ref.read(connectionPendingProvider.notifier).value = false;

@@ -1,7 +1,28 @@
 part of '../action.dart';
 
+class _ProfileFileSnapshot {
+  const _ProfileFileSnapshot({required this.path, required this.bytes});
+
+  final String path;
+  final Uint8List? bytes;
+}
+
+class _ProfileSyncSnapshot {
+  const _ProfileSyncSnapshot({
+    required this.profiles,
+    required this.currentProfileId,
+    required this.files,
+  });
+
+  final List<Profile> profiles;
+  final int? currentProfileId;
+  final List<_ProfileFileSnapshot> files;
+}
+
 @Riverpod(keepAlive: true)
 class ProfilesAction extends _$ProfilesAction {
+  final _profileMutationScheduler = SerialTaskScheduler();
+
   @override
   void build() {}
 
@@ -63,6 +84,30 @@ class ProfilesAction extends _$ProfilesAction {
     String? replacingUrl,
     Future<Profile> Function(Profile profile)? loader,
     Future<void> Function(int profileId)? effectClearer,
+    bool Function()? isCurrent,
+    Duration? validationTimeout,
+  }) {
+    return _profileMutationScheduler.run(
+      () => _syncSubscriptionProfile(
+        url,
+        label: label,
+        replacingUrl: replacingUrl,
+        loader: loader,
+        effectClearer: effectClearer,
+        isCurrent: isCurrent,
+        validationTimeout: validationTimeout,
+      ),
+    );
+  }
+
+  Future<Profile> _syncSubscriptionProfile(
+    String url, {
+    String? label,
+    String? replacingUrl,
+    Future<Profile> Function(Profile profile)? loader,
+    Future<void> Function(int profileId)? effectClearer,
+    bool Function()? isCurrent,
+    Duration? validationTimeout,
   }) async {
     final subscriptionUri = Uri.tryParse(url);
     if (subscriptionUri == null ||
@@ -85,22 +130,66 @@ class ProfilesAction extends _$ProfilesAction {
 
     final sourceProfile =
         existingProfile ?? Profile.normal(label: label, url: normalizedUrl);
-    final updatedProfile = await (loader ?? (profile) => profile.update())(
-      sourceProfile,
-    );
-
-    ref.read(profilesProvider.notifier).put(updatedProfile);
-    ref.read(currentProfileIdProvider.notifier).value = updatedProfile.id;
-    await ref
-        .read(setupActionProvider.notifier)
-        .applyProfile(force: true, silence: true);
-    if (replacingUrl != null && replacingUrl != normalizedUrl) {
-      await removeSubscriptionProfile(
-        replacingUrl,
-        effectClearer: effectClearer,
-      );
+    void ensureCurrent() {
+      if (isCurrent?.call() == false) {
+        throw StateError('profile_sync_superseded');
+      }
     }
-    return updatedProfile;
+
+    ensureCurrent();
+    final sourceFileSnapshot = await _captureProfileFile(sourceProfile.id);
+    _ProfileSyncSnapshot? transactionSnapshot;
+    var candidateApplied = false;
+    try {
+      ensureCurrent();
+      final updatedProfile =
+          await (loader ??
+              (profile) => profile.update(
+                isCurrent: isCurrent,
+                validationTimeout: validationTimeout,
+              ))(sourceProfile);
+
+      ensureCurrent();
+      if (updatedProfile.id != sourceProfile.id) {
+        throw StateError('profile_sync_changed_profile_id');
+      }
+      transactionSnapshot = await _captureProfileSyncSnapshot(
+        sourceProfileId: sourceProfile.id,
+        sourceFileSnapshot: sourceFileSnapshot,
+      );
+      ensureCurrent();
+      await ref
+          .read(setupActionProvider.notifier)
+          .applyProfile(
+            force: true,
+            silence: true,
+            isCurrent: isCurrent,
+            propagateErrors: true,
+            profileOverride: updatedProfile,
+          );
+      candidateApplied = true;
+      ensureCurrent();
+      await ref.read(profilesProvider.notifier).putDurable(updatedProfile);
+      ensureCurrent();
+      ref.read(currentProfileIdProvider.notifier).value = updatedProfile.id;
+      ensureCurrent();
+      if (replacingUrl != null && replacingUrl != normalizedUrl) {
+        await _removeSubscriptionProfile(
+          replacingUrl,
+          effectClearer: effectClearer,
+          isCurrent: isCurrent,
+        );
+      }
+      ensureCurrent();
+      return updatedProfile;
+    } catch (error, stackTrace) {
+      await _rollbackProfileSync(
+        transactionSnapshot,
+        sourceFileSnapshot: sourceFileSnapshot,
+        restoreCore: candidateApplied,
+      );
+      Error.throwWithStackTrace(error, stackTrace);
+    }
   }
 
   Future<Profile> syncSubscriptionProfileBytes(
@@ -111,6 +200,34 @@ class ProfilesAction extends _$ProfilesAction {
     bool removeLegacyXboardProfiles = false,
     Future<Profile> Function(Profile profile, Uint8List bytes)? loader,
     Future<void> Function(int profileId)? effectClearer,
+    bool Function()? isCurrent,
+    Duration? validationTimeout,
+  }) {
+    return _profileMutationScheduler.run(
+      () => _syncSubscriptionProfileBytes(
+        bytes,
+        sourceId: sourceId,
+        label: label,
+        replacingUrl: replacingUrl,
+        removeLegacyXboardProfiles: removeLegacyXboardProfiles,
+        loader: loader,
+        effectClearer: effectClearer,
+        isCurrent: isCurrent,
+        validationTimeout: validationTimeout,
+      ),
+    );
+  }
+
+  Future<Profile> _syncSubscriptionProfileBytes(
+    Uint8List bytes, {
+    required String sourceId,
+    String? label,
+    String? replacingUrl,
+    bool removeLegacyXboardProfiles = false,
+    Future<Profile> Function(Profile profile, Uint8List bytes)? loader,
+    Future<void> Function(int profileId)? effectClearer,
+    bool Function()? isCurrent,
+    Duration? validationTimeout,
   }) async {
     if (!isSubscriptionV2ProfileSource(sourceId)) {
       throw ArgumentError.value(sourceId, 'sourceId', 'Invalid V2 source');
@@ -131,34 +248,92 @@ class ProfilesAction extends _$ProfilesAction {
         }
       }
     }
+    void ensureCurrent() {
+      if (isCurrent?.call() == false) {
+        throw StateError('profile_sync_superseded');
+      }
+    }
+
     final sourceProfile =
         existingProfile ?? Profile.normal(label: label, url: sourceId);
-    final updatedProfile =
-        await (loader ?? (profile, content) => profile.saveFile(content))(
-          sourceProfile,
-          bytes,
+    ensureCurrent();
+    final sourceFileSnapshot = await _captureProfileFile(sourceProfile.id);
+    _ProfileSyncSnapshot? transactionSnapshot;
+    var candidateApplied = false;
+    try {
+      ensureCurrent();
+      final updatedProfile =
+          await (loader ??
+              (profile, content) => profile.saveFile(
+                content,
+                isCurrent: isCurrent,
+                validationTimeout: validationTimeout,
+              ))(sourceProfile, bytes);
+      ensureCurrent();
+      if (updatedProfile.id != sourceProfile.id) {
+        throw StateError('profile_sync_changed_profile_id');
+      }
+      transactionSnapshot = await _captureProfileSyncSnapshot(
+        sourceProfileId: sourceProfile.id,
+        sourceFileSnapshot: sourceFileSnapshot,
+      );
+      ensureCurrent();
+      await ref
+          .read(setupActionProvider.notifier)
+          .applyProfile(
+            force: true,
+            silence: true,
+            isCurrent: isCurrent,
+            propagateErrors: true,
+            profileOverride: updatedProfile,
+          );
+      candidateApplied = true;
+      ensureCurrent();
+      await ref.read(profilesProvider.notifier).putDurable(updatedProfile);
+      ensureCurrent();
+      ref.read(currentProfileIdProvider.notifier).value = updatedProfile.id;
+      ensureCurrent();
+      if (replacingUrl != null && replacingUrl != sourceId) {
+        await _removeSubscriptionProfile(
+          replacingUrl,
+          effectClearer: effectClearer,
+          isCurrent: isCurrent,
         );
-    ref.read(profilesProvider.notifier).put(updatedProfile);
-    ref.read(currentProfileIdProvider.notifier).value = updatedProfile.id;
-    await ref
-        .read(setupActionProvider.notifier)
-        .applyProfile(force: true, silence: true);
-    if (replacingUrl != null && replacingUrl != sourceId) {
-      await removeSubscriptionProfile(
-        replacingUrl,
-        effectClearer: effectClearer,
+      }
+      ensureCurrent();
+      if (removeLegacyXboardProfiles) {
+        await _removeLegacyXboardSubscriptionProfiles(
+          effectClearer: effectClearer,
+          isCurrent: isCurrent,
+        );
+      }
+      ensureCurrent();
+      return updatedProfile;
+    } catch (error, stackTrace) {
+      await _rollbackProfileSync(
+        transactionSnapshot,
+        sourceFileSnapshot: sourceFileSnapshot,
+        restoreCore: candidateApplied,
       );
+      Error.throwWithStackTrace(error, stackTrace);
     }
-    if (removeLegacyXboardProfiles) {
-      await removeLegacyXboardSubscriptionProfiles(
-        effectClearer: effectClearer,
-      );
-    }
-    return updatedProfile;
   }
 
   Future<void> removeLegacyXboardSubscriptionProfiles({
     Future<void> Function(int profileId)? effectClearer,
+    bool Function()? isCurrent,
+  }) {
+    return _profileMutationScheduler.run(
+      () => _removeLegacyXboardSubscriptionProfiles(
+        effectClearer: effectClearer,
+        isCurrent: isCurrent,
+      ),
+    );
+  }
+
+  Future<void> _removeLegacyXboardSubscriptionProfiles({
+    Future<void> Function(int profileId)? effectClearer,
+    bool Function()? isCurrent,
   }) async {
     final legacyProfiles = ref
         .read(profilesProvider)
@@ -167,9 +342,13 @@ class ProfilesAction extends _$ProfilesAction {
         )
         .toList(growable: false);
     for (final profile in legacyProfiles) {
-      await removeSubscriptionProfile(
+      if (isCurrent?.call() == false) {
+        throw StateError('profile_sync_superseded');
+      }
+      await _removeSubscriptionProfile(
         profile.url,
         effectClearer: effectClearer,
+        isCurrent: isCurrent,
       );
     }
   }
@@ -177,7 +356,25 @@ class ProfilesAction extends _$ProfilesAction {
   Future<void> removeSubscriptionProfile(
     String url, {
     Future<void> Function(int profileId)? effectClearer,
+    bool Function()? isCurrent,
+  }) {
+    return _profileMutationScheduler.run(
+      () => _removeSubscriptionProfile(
+        url,
+        effectClearer: effectClearer,
+        isCurrent: isCurrent,
+      ),
+    );
+  }
+
+  Future<void> _removeSubscriptionProfile(
+    String url, {
+    Future<void> Function(int profileId)? effectClearer,
+    bool Function()? isCurrent,
   }) async {
+    if (isCurrent?.call() == false) {
+      throw StateError('profile_sync_superseded');
+    }
     final matchingProfiles = ref
         .read(profilesProvider)
         .where((profile) => profile.url == url)
@@ -185,13 +382,119 @@ class ProfilesAction extends _$ProfilesAction {
     if (matchingProfiles.isEmpty) return;
     final matchingIds = matchingProfiles.map((profile) => profile.id).toSet();
     if (matchingIds.contains(ref.read(currentProfileIdProvider))) {
+      if (isCurrent?.call() == false) {
+        throw StateError('profile_sync_superseded');
+      }
       ref.read(currentProfileIdProvider.notifier).value = null;
       await ref.read(setupActionProvider.notifier).setRunning(false);
     }
     for (final profile in matchingProfiles) {
+      if (isCurrent?.call() == false) {
+        throw StateError('profile_sync_superseded');
+      }
       await ref.read(profilesProvider.notifier).del(profile.id);
+      if (isCurrent?.call() == false) {
+        throw StateError('profile_sync_superseded');
+      }
       await (effectClearer ?? clearEffect)(profile.id);
     }
+    if (isCurrent?.call() == false) {
+      throw StateError('profile_sync_superseded');
+    }
+  }
+
+  Future<_ProfileSyncSnapshot> _captureProfileSyncSnapshot({
+    required int sourceProfileId,
+    required _ProfileFileSnapshot sourceFileSnapshot,
+  }) async {
+    final profiles = List<Profile>.from(ref.read(profilesProvider));
+    final currentProfileId = ref.read(currentProfileIdProvider);
+    final files = <_ProfileFileSnapshot>[sourceFileSnapshot];
+    for (final profile in profiles) {
+      if (profile.id == sourceProfileId) continue;
+      files.add(await _captureProfileFile(profile.id));
+    }
+    return _ProfileSyncSnapshot(
+      profiles: profiles,
+      currentProfileId: currentProfileId,
+      files: files,
+    );
+  }
+
+  Future<void> _rollbackProfileSync(
+    _ProfileSyncSnapshot? snapshot, {
+    required _ProfileFileSnapshot sourceFileSnapshot,
+    required bool restoreCore,
+  }) async {
+    Object? firstError;
+    StackTrace? firstStackTrace;
+    final files = snapshot?.files ?? [sourceFileSnapshot];
+    for (final file in files) {
+      try {
+        await _restoreProfileFile(file);
+      } catch (error, stackTrace) {
+        firstError ??= error;
+        firstStackTrace ??= stackTrace;
+      }
+    }
+    if (snapshot != null) {
+      try {
+        await ref
+            .read(profilesProvider.notifier)
+            .setAllDurable(snapshot.profiles);
+      } catch (error, stackTrace) {
+        firstError ??= error;
+        firstStackTrace ??= stackTrace;
+      } finally {
+        ref.read(currentProfileIdProvider.notifier).value =
+            snapshot.currentProfileId;
+      }
+      if (restoreCore) {
+        final previousProfile = snapshot.profiles.getProfile(
+          snapshot.currentProfileId,
+        );
+        try {
+          await ref
+              .read(setupActionProvider.notifier)
+              .applyProfile(
+                force: true,
+                silence: true,
+                propagateErrors: true,
+                profileOverride: previousProfile,
+              );
+        } catch (error, stackTrace) {
+          firstError ??= error;
+          firstStackTrace ??= stackTrace;
+          commonPrint.event(
+            'subscription.profile.rollback.core_failed',
+            fields: {'error_type': error.runtimeType.toString()},
+          );
+        }
+      }
+    }
+    if (firstError != null) {
+      commonPrint.log(
+        'restore profile sync transaction failed: $firstError\n$firstStackTrace',
+        logLevel: LogLevel.warning,
+      );
+    }
+  }
+
+  Future<_ProfileFileSnapshot> _captureProfileFile(int profileId) async {
+    final path = await appPath.getProfilePath(profileId.toString());
+    final file = File(path);
+    final bytes = await file.exists() ? await file.readAsBytes() : null;
+    return _ProfileFileSnapshot(path: path, bytes: bytes);
+  }
+
+  Future<void> _restoreProfileFile(_ProfileFileSnapshot snapshot) async {
+    final file = File(snapshot.path);
+    final bytes = snapshot.bytes;
+    if (bytes == null) {
+      await file.safeDelete();
+      return;
+    }
+    await file.safeWriteAsBytes(bytes);
   }
 
   Future<void> updateProfiles() async {
@@ -201,7 +504,13 @@ class ProfilesAction extends _$ProfilesAction {
     }
   }
 
-  Future<void> updateProfile(
+  Future<void> updateProfile(Profile profile, {bool showLoading = false}) {
+    return _profileMutationScheduler.run(
+      () => _updateProfile(profile, showLoading: showLoading),
+    );
+  }
+
+  Future<void> _updateProfile(
     Profile profile, {
     bool showLoading = false,
   }) async {

@@ -21,15 +21,15 @@ mixin CoreInterface {
 
   Future<bool> forceGc();
 
-  Future<String> validateConfig(String path);
+  Future<String> validateConfig(String path, {Duration? timeout});
 
-  Future<Map<String, dynamic>> getConfig(String path);
+  Future<Map<String, dynamic>> getConfig(String path, {Duration? timeout});
 
   Future<Delay> asyncTestDelay(String url, String proxyName);
 
   Future<String> updateConfig(UpdateParams updateParams);
 
-  Future<String> setupConfig(SetupParams setupParams);
+  Future<String> setupConfig(SetupParams setupParams, {Duration? timeout});
 
   Future<ProxiesData> getProxies();
 
@@ -132,12 +132,16 @@ abstract class CoreHandlerInterface with CoreInterface {
   }
 
   @override
-  Future<String> validateConfig(String path) async {
-    return await _invokeMethod<String>(
-          method: CoreMethod.validateConfig,
-          arguments: path,
-        ) ??
-        '';
+  Future<String> validateConfig(String path, {Duration? timeout}) async {
+    final result = await _invokeMethod<String>(
+      method: CoreMethod.validateConfig,
+      arguments: path,
+      timeout: timeout,
+    );
+    if (result == null) {
+      throw TimeoutException('Core method validateConfig timed out');
+    }
+    return result;
   }
 
   @override
@@ -150,27 +154,35 @@ abstract class CoreHandlerInterface with CoreInterface {
   }
 
   @override
-  Future<Map<String, dynamic>> getConfig(String path) async {
+  Future<Map<String, dynamic>> getConfig(
+    String path, {
+    Duration? timeout,
+  }) async {
     final result = await _invokeMethod<Map<String, dynamic>>(
       method: CoreMethod.getConfig,
       arguments: path,
+      timeout: timeout,
     );
     if (result == null) {
-      throw const CoreMethodException(
-        code: 'empty_result',
-        message: 'Core returned an empty config result',
-      );
+      throw TimeoutException('Core method getConfig timed out');
     }
     return result;
   }
 
   @override
-  Future<String> setupConfig(SetupParams setupParams) async {
-    return await _invokeMethod<String>(
-          method: CoreMethod.setupConfig,
-          arguments: setupParams.toJson(),
-        ) ??
-        '';
+  Future<String> setupConfig(
+    SetupParams setupParams, {
+    Duration? timeout,
+  }) async {
+    final result = await _invokeMethod<String>(
+      method: CoreMethod.setupConfig,
+      arguments: setupParams.toJson(),
+      timeout: timeout,
+    );
+    if (result == null) {
+      throw TimeoutException('Core method setupConfig timed out');
+    }
+    return result;
   }
 
   @override

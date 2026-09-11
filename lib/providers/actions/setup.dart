@@ -39,6 +39,7 @@ class SetupAction extends _$SetupAction {
   int _modeChangeRevision = 0;
   Mode? _pendingMode;
   Future<ModeSwitchResult>? _pendingModeChange;
+  String? _lastConfigurationFailureStage;
   DateTime? _startTime;
   int? _appliedRuleProfileId;
   String? _appliedRuleTarget;
@@ -169,9 +170,33 @@ class SetupAction extends _$SetupAction {
   @protected
   bool get requiresListenerReadiness => system.isWindows;
 
-  SetupParams get _setupParams {
+  @protected
+  Duration get configurationCoreReadTimeout => const Duration(seconds: 10);
+
+  @protected
+  Duration get configurationPreparationTimeout => const Duration(seconds: 15);
+
+  @protected
+  bool get supportsCoreSetupTimeoutRecovery => system.isDesktop;
+
+  @protected
+  bool get allowsStartupConfigurationDegrade => system.isMacOS;
+
+  @protected
+  bool shouldDegradeStartupConfiguration(Object error) {
+    return allowsStartupConfigurationDegrade &&
+        const {
+          'profile_refresh',
+          'setup_state',
+          'profile_prepare',
+        }.contains(_lastConfigurationFailureStage);
+  }
+
+  SetupParams _setupParams(Profile? profile) {
     final settings = ref.read(appSettingProvider);
-    final selectedMap = Map<String, String>.from(ref.read(selectedMapProvider));
+    final selectedMap = Map<String, String>.from(
+      profile?.selectedMap ?? ref.read(selectedMapProvider),
+    );
     final mode = ref.read(patchClashConfigProvider).mode;
     if (activeChainProxy(settings) != null && mode == Mode.global) {
       final current = selectedMap[GroupName.GLOBAL.name];
@@ -236,14 +261,36 @@ class SetupAction extends _$SetupAction {
       await _updateStartTime();
     }
     final shouldRun = _isRunning || ref.read(appSettingProvider).autoRun;
-    if (shouldRun) {
-      await setRunning(true, initialize: true);
-    } else {
-      await applyProfile(force: true);
+    try {
+      if (shouldRun) {
+        await setRunning(true, initialize: true);
+      } else {
+        await applyProfile(force: true);
+      }
+    } catch (error, stackTrace) {
+      if (!shouldDegradeStartupConfiguration(error)) rethrow;
+      commonPrint.event(
+        'configuration.startup.degraded',
+        fields: {
+          'should_run': shouldRun,
+          'has_profile': ref.read(currentProfileIdProvider) != null,
+          'stage': _lastConfigurationFailureStage,
+          'error_type': error.runtimeType.toString(),
+          'error': '$error',
+        },
+      );
+      commonPrint.log(
+        'macOS startup configuration degraded: $error, $stackTrace',
+        logLevel: LogLevel.warning,
+      );
     }
   }
 
-  Future<void> setRunning(bool running, {bool initialize = false}) {
+  Future<void> setRunning(
+    bool running, {
+    bool initialize = false,
+    bool propagateErrors = false,
+  }) {
     _physicalNetworkRecoveryRevision++;
     if (!initialize) {
       ref
@@ -279,8 +326,8 @@ class SetupAction extends _$SetupAction {
     }
     return running
         ? requiresListenerReadiness
-              ? _startVerified(request)
-              : _start(request)
+              ? _startVerified(request, propagateErrors: propagateErrors)
+              : _start(request, propagateErrors: propagateErrors)
         : _stop(request);
   }
 
@@ -315,7 +362,10 @@ class SetupAction extends _$SetupAction {
     }
   }
 
-  Future<void> _startVerified(_RunRequest request) async {
+  Future<void> _startVerified(
+    _RunRequest request, {
+    bool propagateErrors = false,
+  }) async {
     try {
       for (var attempt = 0; attempt < 3; attempt++) {
         if (!_isCurrent(request)) return;
@@ -358,8 +408,11 @@ class SetupAction extends _$SetupAction {
         return;
       }
       throw StateError('Listener configuration changed during startup');
-    } catch (error) {
+    } catch (error, stackTrace) {
       await _failConnection(request, error);
+      if (propagateErrors) {
+        Error.throwWithStackTrace(error, stackTrace);
+      }
     }
   }
 
@@ -420,16 +473,23 @@ class SetupAction extends _$SetupAction {
     }
   }
 
-  Future<void> _start(_RunRequest request) async {
+  Future<void> _start(
+    _RunRequest request, {
+    bool propagateErrors = false,
+  }) async {
     if (request.initialize) {
       try {
         await applyProfile(
           force: true,
           preloadInvoke: () => _setCoreRunning(request),
+          propagateErrors: propagateErrors,
         );
-      } catch (_) {
+      } catch (error, stackTrace) {
         if (_isCurrent(request)) {
           await setRunning(false);
+        }
+        if (propagateErrors) {
+          Error.throwWithStackTrace(error, stackTrace);
         }
       }
       return;
@@ -812,12 +872,29 @@ class SetupAction extends _$SetupAction {
         }
       });
     });
-    if (restartAfterAuthorization) await _restartCoreAfterAuthorization();
+    if (restartAfterAuthorization) {
+      await _restartCoreAfterAuthorization();
+      await updateConfig();
+      await _restoreListenerAfterRestart(request);
+    }
   }
 
   @protected
   Future<String> applyCoreUpdate(UpdateParams params) {
     return coreController.updateConfig(params);
+  }
+
+  @protected
+  Future<String> applyCoreSetup({
+    required SetupParams params,
+    Future<void> Function()? preloadInvoke,
+    Duration? timeout,
+  }) {
+    return coreController.setupConfig(
+      params: params,
+      preloadInvoke: preloadInvoke,
+      timeout: timeout,
+    );
   }
 
   Future<void> _inspectSystemProxy(String phase) async {
@@ -898,17 +975,32 @@ class SetupAction extends _$SetupAction {
 
   @protected
   Future<void> rebuildActiveChainForModeChange() async {
-    final requiresRestart = await _setupScheduler.run(
+    var requiresRestart = await _setupScheduler.run(
       rebuildActiveChainForModeChangeWithinTransaction,
     );
     if (requiresRestart) {
       await _restartCoreAfterAuthorization();
+      requiresRestart = await _setupScheduler.run(
+        rebuildActiveChainForModeChangeWithinTransaction,
+      );
+      if (requiresRestart) {
+        throw StateError('configuration_authorization_handoff_repeated');
+      }
+      await _restoreListenerAfterRestart(_latestRunRequest);
     }
   }
 
   @protected
-  Future<void> restartActiveChainAfterAuthorization() {
-    return _restartCoreAfterAuthorization();
+  Future<void> restartActiveChainAfterAuthorization() async {
+    final request = _latestRunRequest;
+    await _restartCoreAfterAuthorization();
+    final requiresRestart = await _setupScheduler.run(
+      rebuildActiveChainForModeChangeWithinTransaction,
+    );
+    if (requiresRestart) {
+      throw StateError('configuration_authorization_handoff_repeated');
+    }
+    await _restoreListenerAfterRestart(request);
   }
 
   @protected
@@ -1567,11 +1659,17 @@ class SetupAction extends _$SetupAction {
     bool silence = false,
     bool force = false,
     Future<void> Function()? preloadInvoke,
+    bool Function()? isCurrent,
+    bool propagateErrors = false,
+    Profile? profileOverride,
   }) {
     return _runSetup(
       force: force,
       silence: silence,
       preloadInvoke: preloadInvoke,
+      isCurrent: isCurrent,
+      propagateErrors: propagateErrors,
+      profileOverride: profileOverride,
     );
   }
 
@@ -1580,31 +1678,84 @@ class SetupAction extends _$SetupAction {
     bool force = false,
     Future<void> Function()? preloadInvoke,
     bool propagateErrors = false,
+    bool Function()? isCurrent,
+    Profile? profileOverride,
   }) async {
     final request = _latestRunRequest;
-    try {
-      final result = await _setupScheduler.run(() {
+    final stableProfile = ref.read(currentProfileProvider);
+    var handedOffToCoreRestart = false;
+    var authorizationRestartCompleted = false;
+    Future<_SetupTaskResult> runAttempt({required bool forceApply}) {
+      return _setupScheduler.run(() {
         return _setupConfig(
-          force: force,
+          force: forceApply,
           silence: silence,
           preloadInvoke: preloadInvoke,
+          isCurrent: isCurrent,
+          profileOverride: profileOverride,
           onUpdated: () async {
             await ref.read(proxiesActionProvider.notifier).updateGroups();
             await ref.read(providersProvider.notifier).syncProviders();
           },
         );
       });
+    }
+
+    try {
+      var result = await runAttempt(forceApply: force);
       if (result == _SetupTaskResult.handoffToCoreRestart) {
+        handedOffToCoreRestart = true;
+        if (isCurrent?.call() == false) {
+          throw StateError('configuration_apply_superseded');
+        }
         await _restartCoreAfterAuthorization();
+        authorizationRestartCompleted = true;
+        if (isCurrent?.call() == false) {
+          throw StateError('configuration_apply_superseded');
+        }
+        result = await runAttempt(forceApply: true);
+        if (result == _SetupTaskResult.handoffToCoreRestart) {
+          throw StateError('configuration_authorization_handoff_repeated');
+        }
+        await _restoreListenerAfterRestart(request);
       }
     } catch (error) {
+      if (handedOffToCoreRestart) {
+        ref.read(authorizedTunEnableProvider.notifier).value =
+            TunAuthorizationState.none;
+        if (authorizationRestartCompleted) {
+          try {
+            await recoverStableCoreConfiguration(
+              stableProfile,
+              reason: 'authorization_reapply_failed',
+            );
+          } catch (_) {}
+        }
+        commonPrint.event(
+          'configuration.apply.failed',
+          fields: {
+            'stage': authorizationRestartCompleted
+                ? 'core_reapply'
+                : 'core_restart',
+            'timed_out': error is TimeoutException,
+            'error_type': error.runtimeType.toString(),
+            'error': '$error',
+            if (error is CoreMethodException) 'error_code': error.code,
+          },
+        );
+      }
+      if (handedOffToCoreRestart &&
+          identical(request, _latestRunRequest) &&
+          ref.read(isStartProvider)) {
+        await setRunning(false);
+      }
       if (!requiresListenerReadiness) rethrow;
       if (request?.running == true) {
         await _failConnection(request!, error);
       } else if (!propagateErrors) {
         notifyListenerFailure(ref.read(patchClashConfigProvider).mixedPort);
       }
-      if (propagateErrors) rethrow;
+      if (propagateErrors || handedOffToCoreRestart) rethrow;
     }
   }
 
@@ -1613,11 +1764,24 @@ class SetupAction extends _$SetupAction {
     required bool silence,
   }) async {
     if (!requiresListenerReadiness) {
-      await globalState.loadingRun(
-        apply,
+      Object? failure;
+      StackTrace? failureStackTrace;
+      await globalState.loadingRun<void>(
+        () async {
+          try {
+            await apply();
+          } catch (error, stackTrace) {
+            failure = error;
+            failureStackTrace = stackTrace;
+            rethrow;
+          }
+        },
         silence: true,
         tag: !silence ? LoadingTag.proxies : null,
       );
+      if (failure != null) {
+        Error.throwWithStackTrace(failure!, failureStackTrace!);
+      }
       return;
     }
     if (!silence) {
@@ -1634,9 +1798,45 @@ class SetupAction extends _$SetupAction {
     }
   }
 
+  @protected
+  Future<void> restartCoreLifecycleOnly() {
+    return ref.read(coreActionProvider.notifier).restartCoreLifecycleOnly();
+  }
+
+  @protected
+  Future<void> stopCoreLifecycleOnly() {
+    return ref.read(coreActionProvider.notifier).stopCoreLifecycleOnly();
+  }
+
+  Future<void> _restoreListenerAfterRestart(_RunRequest? request) {
+    bool shouldRestore() =>
+        ref.mounted &&
+        identical(request, _latestRunRequest) &&
+        !ref.read(suspendProvider) &&
+        (ref.read(isStartProvider) || ref.read(connectionPendingProvider));
+    return _listenerScheduler.run(() async {
+      if (!shouldRestore()) return;
+      if (!await setCoreRunning(true)) {
+        throw StateError('listener_restore_failed');
+      }
+      if (!shouldRestore()) return;
+      final config = ref.read(patchClashConfigProvider);
+      final tunOnly =
+          config.mixedPort == 0 &&
+          !ref.read(networkSettingProvider).systemProxy &&
+          _getEffectiveTunEnable(config.tun.enable);
+      if (requiresListenerReadiness && !tunOnly) {
+        await verifyLocalListener(
+          config.mixedPort,
+          isCancelled: () => !shouldRestore(),
+        );
+      }
+    });
+  }
+
   Future<void> _restartCoreAfterAuthorization() async {
     try {
-      await ref.read(coreActionProvider.notifier).restartCore();
+      await restartCoreLifecycleOnly();
     } catch (_) {
       ref.read(authorizedTunEnableProvider.notifier).value =
           TunAuthorizationState.none;
@@ -1644,9 +1844,71 @@ class SetupAction extends _$SetupAction {
     }
   }
 
+  Future<String> _applyCoreSetupWithDeadline({required SetupParams params}) {
+    final timeout = supportsCoreSetupTimeoutRecovery
+        ? configurationPreparationTimeout
+        : null;
+    final operation = applyCoreSetup(params: params, timeout: timeout);
+    return timeout == null ? operation : operation.timeout(timeout);
+  }
+
+  @protected
+  Future<void> recoverStableCoreConfiguration(
+    Profile? profile, {
+    required String reason,
+  }) async {
+    final request = _latestRunRequest;
+    final stopwatch = Stopwatch()..start();
+    commonPrint.event(
+      'configuration.recovery.started',
+      fields: {'reason': reason, 'has_profile': profile != null},
+    );
+    try {
+      await restartCoreLifecycleOnly();
+      final message = await _applyCoreSetupWithDeadline(
+        params: _setupParams(profile),
+      );
+      if (message.isNotEmpty && !message.endsWith('is empty')) {
+        throw StateError(message);
+      }
+      await ref.read(proxiesActionProvider.notifier).updateGroups();
+      await ref.read(providersProvider.notifier).syncProviders();
+      await _restoreListenerAfterRestart(request);
+      commonPrint.event(
+        'configuration.recovery.succeeded',
+        fields: {'reason': reason, 'elapsed_ms': stopwatch.elapsedMilliseconds},
+      );
+    } catch (error) {
+      var stopped = false;
+      try {
+        await stopCoreLifecycleOnly();
+        stopped = true;
+      } catch (stopError) {
+        commonPrint.event(
+          'configuration.recovery.stop_failed',
+          fields: {
+            'reason': reason,
+            'error_type': stopError.runtimeType.toString(),
+          },
+        );
+      }
+      commonPrint.event(
+        'configuration.recovery.failed',
+        fields: {
+          'reason': reason,
+          'elapsed_ms': stopwatch.elapsedMilliseconds,
+          'error_type': error.runtimeType.toString(),
+          'core_stopped': stopped,
+        },
+      );
+      rethrow;
+    }
+  }
+
   Future<VM2<String, String>> getProfile({
     required SetupState setupState,
     required PatchClashConfig patchConfig,
+    Map<String, String>? selectedMapOverride,
   }) async {
     final profileId = setupState.profileId;
     if (profileId == null) return const VM2('', '');
@@ -1660,14 +1922,17 @@ class SetupAction extends _$SetupAction {
     final appSettings = ref.read(appSettingProvider);
     final appendSystemDns = networkVM2.a;
     final routeMode = networkVM2.b;
-    final selectedMap = ref.read(selectedMapProvider);
+    final Map<String, String> selectedMap =
+        selectedMapOverride ?? ref.read(selectedMapProvider);
     final chainProxyBypassDomains = ref
         .read(profilesProvider)
         .map((profile) => Uri.tryParse(profile.url)?.host ?? '')
         .where((host) => host.isNotEmpty)
         .toSet()
         .toList();
-    final configMap = await coreController.getConfig(profileId);
+    final configMap = await coreController
+        .getConfig(profileId, timeout: configurationCoreReadTimeout)
+        .timeout(configurationPreparationTimeout);
     String? scriptContent;
     final List<Rule> addedRules = [];
     final List<ProxyGroup> proxyGroups = [];
@@ -1776,86 +2041,226 @@ class SetupAction extends _$SetupAction {
     bool silence = false,
     Future<void> Function()? preloadInvoke,
     FutureOr Function()? onUpdated,
+    bool Function()? isCurrent,
+    Profile? profileOverride,
   }) async {
-    var profile = ref.read(currentProfileProvider);
-    final nextProfile = await profile?.checkAndUpdateAndCopy();
-    if (nextProfile != null) {
-      profile = nextProfile;
-      ref.read(profilesProvider.notifier).put(nextProfile);
-    }
-    commonPrint.log('setup ===> ${profile?.realLabel}');
-    await _inspectSystemProxy('before_setup');
+    final stableProfile = ref.read(currentProfileProvider);
+    var profile = profileOverride ?? stableProfile;
     final patchConfig = ref.read(patchClashConfigProvider);
-    final shouldContinueSetup = await requestAdmin(patchConfig.tun.enable);
-    if (!shouldContinueSetup) {
-      return _SetupTaskResult.handoffToCoreRestart;
-    }
-    final effectiveTunEnable = _getEffectiveTunEnable(patchConfig.tun.enable);
-    final realPatchConfig = patchConfig.copyWith.tun(
-      enable: effectiveTunEnable,
-    );
+    final stopwatch = Stopwatch()..start();
+    var stage = 'profile_refresh';
+    _lastConfigurationFailureStage = null;
     commonPrint.event(
       'configuration.apply.started',
       fields: {
         'force': force,
         'has_profile': profile != null,
         'tun_requested': patchConfig.tun.enable,
-        'tun_effective': effectiveTunEnable,
         'mode': patchConfig.mode.name,
       },
     );
-    final setupState = await ref.read(setupStateProvider(profile?.id).future);
-    final vm2 = await getProfile(
-      setupState: setupState,
-      patchConfig: realPatchConfig,
-    );
-    final yamlString = vm2.a;
-    final yamlMd5 = vm2.b;
-    if (yamlMd5 == globalState.lastConfigMd5 && force == false) {
-      return _SetupTaskResult.completed;
+    Future<T> runStage<T>(String nextStage, Future<T> Function() action) async {
+      if (isCurrent?.call() == false) {
+        throw StateError('configuration_apply_superseded');
+      }
+      stage = nextStage;
+      final stageStopwatch = Stopwatch()..start();
+      commonPrint.event(
+        'configuration.apply.stage.started',
+        fields: {'stage': stage},
+      );
+      final result = await action();
+      if (isCurrent?.call() == false) {
+        throw StateError('configuration_apply_superseded');
+      }
+      commonPrint.event(
+        'configuration.apply.stage.completed',
+        fields: {
+          'stage': stage,
+          'elapsed_ms': stageStopwatch.elapsedMilliseconds,
+        },
+      );
+      return result;
     }
-    if (system.isAndroid) {
-      globalState.lastVpnState = ref.read(vpnStateProvider);
-      final sharedState = ref.read(sharedStateProvider);
-      await preferences.saveShareState(sharedState);
-    }
-    await _applyWithFeedback(() async {
-      try {
-        final configFilePath = await appPath.configFilePath;
-        await File(configFilePath).safeWriteAsString(yamlString);
-        final message = await coreController.setupConfig(
-          params: _setupParams,
-          preloadInvoke: preloadInvoke,
-        );
-        if (message.isNotEmpty && !message.endsWith('is empty')) {
-          throw message;
+
+    var effectiveTunEnable = false;
+    String? configFilePath;
+    Uint8List? previousConfigBytes;
+    var configFileExisted = false;
+    var configWriteStarted = false;
+    var coreSetupStarted = false;
+    try {
+      final nextProfile = profileOverride == null
+          ? await runStage(
+              'profile_refresh',
+              () async => profile?.checkAndUpdateAndCopy().timeout(
+                configurationPreparationTimeout,
+              ),
+            )
+          : null;
+      if (nextProfile != null) {
+        profile = nextProfile;
+        if (profileOverride == null) {
+          ref.read(profilesProvider.notifier).put(nextProfile);
         }
-        globalState.lastConfigMd5 = yamlMd5;
-        _appliedRuleProfileId = profile?.id;
-        _appliedRuleTarget = defaultRuleTarget(yamlString);
-        ref.read(checkIpNumProvider.notifier).add();
-        await onUpdated?.call();
+      }
+      commonPrint.log('setup ===> ${profile?.realLabel}');
+      await runStage('system_proxy_before', () async {
+        await _inspectSystemProxy('before_setup');
+      });
+      final shouldContinueSetup = await runStage(
+        'tun_authorization',
+        () => requestAdmin(patchConfig.tun.enable),
+      );
+      if (!shouldContinueSetup) {
+        commonPrint.event(
+          'configuration.apply.handoff',
+          fields: {
+            'has_profile': profile != null,
+            'outcome': 'core_restart_required',
+            'elapsed_ms': stopwatch.elapsedMilliseconds,
+          },
+        );
+        return _SetupTaskResult.handoffToCoreRestart;
+      }
+      effectiveTunEnable = _getEffectiveTunEnable(patchConfig.tun.enable);
+      final realPatchConfig = patchConfig.copyWith.tun(
+        enable: effectiveTunEnable,
+      );
+      final setupState = await runStage(
+        'setup_state',
+        () => ref
+            .read(setupStateProvider(profile?.id).future)
+            .timeout(configurationPreparationTimeout),
+      );
+      final vm2 = await runStage(
+        'profile_prepare',
+        () => getProfile(
+          setupState: setupState,
+          patchConfig: realPatchConfig,
+          selectedMapOverride: profileOverride?.selectedMap,
+        ).timeout(configurationPreparationTimeout),
+      );
+      final yamlString = vm2.a;
+      final yamlMd5 = vm2.b;
+      if (yamlMd5 == globalState.lastConfigMd5 && force == false) {
         commonPrint.event(
           'configuration.apply.succeeded',
           fields: {
             'has_profile': profile != null,
             'tun_effective': effectiveTunEnable,
+            'outcome': 'unchanged',
+            'elapsed_ms': stopwatch.elapsedMilliseconds,
           },
         );
-      } catch (error) {
-        commonPrint.event(
-          'configuration.apply.failed',
-          fields: {
-            'error_type': error.runtimeType.toString(),
-            'error': '$error',
-            'tun_effective': effectiveTunEnable,
-          },
-        );
-        rethrow;
-      } finally {
-        await _inspectSystemProxy('after_setup');
+        return _SetupTaskResult.completed;
       }
-    }, silence: silence);
-    return _SetupTaskResult.completed;
+      if (system.isAndroid) {
+        await runStage('android_shared_state', () async {
+          globalState.lastVpnState = ref.read(vpnStateProvider);
+          final sharedState = ref.read(sharedStateProvider);
+          await preferences.saveShareState(sharedState);
+        });
+      }
+      await _applyWithFeedback(() async {
+        configFilePath = await runStage(
+          'config_path',
+          () => appPath.configFilePath,
+        );
+        await runStage('config_snapshot', () async {
+          final file = File(configFilePath!);
+          configFileExisted = await file.exists();
+          if (configFileExisted) {
+            previousConfigBytes = await file.readAsBytes();
+          }
+        });
+        await runStage('config_write', () {
+          configWriteStarted = true;
+          return File(configFilePath!).safeWriteAsString(yamlString);
+        });
+        final message = await runStage('core_setup', () {
+          coreSetupStarted = true;
+          return _applyCoreSetupWithDeadline(params: _setupParams(profile));
+        });
+        if (message.isNotEmpty && !message.endsWith('is empty')) {
+          throw message;
+        }
+        if (message.isEmpty && preloadInvoke != null) {
+          await runStage('listener_prepare', preloadInvoke);
+        }
+        await runStage('post_update', () async {
+          await onUpdated?.call();
+        });
+        globalState.lastConfigMd5 = yamlMd5;
+        _appliedRuleProfileId = profile?.id;
+        _appliedRuleTarget = defaultRuleTarget(yamlString);
+        ref.read(checkIpNumProvider.notifier).add();
+      }, silence: silence);
+      commonPrint.event(
+        'configuration.apply.succeeded',
+        fields: {
+          'has_profile': profile != null,
+          'tun_effective': effectiveTunEnable,
+          'outcome': 'applied',
+          'elapsed_ms': stopwatch.elapsedMilliseconds,
+        },
+      );
+      return _SetupTaskResult.completed;
+    } catch (error, stackTrace) {
+      _lastConfigurationFailureStage = stage;
+      var configRestored = true;
+      if (configWriteStarted && configFilePath != null) {
+        try {
+          final file = File(configFilePath!);
+          if (configFileExisted) {
+            await file.safeWriteAsBytes(previousConfigBytes ?? const <int>[]);
+          } else {
+            await file.safeDelete();
+          }
+        } catch (restoreError) {
+          configRestored = false;
+          commonPrint.event(
+            'configuration.rollback.failed',
+            fields: {
+              'stage': stage,
+              'error_type': restoreError.runtimeType.toString(),
+            },
+          );
+        }
+      }
+      if (coreSetupStarted) {
+        try {
+          if (configRestored) {
+            await recoverStableCoreConfiguration(
+              stableProfile,
+              reason: error is TimeoutException
+                  ? 'core_setup_timeout'
+                  : 'core_setup_failed',
+            );
+          } else {
+            await stopCoreLifecycleOnly();
+          }
+        } catch (_) {}
+      }
+      commonPrint.event(
+        'configuration.apply.failed',
+        fields: {
+          'stage': stage,
+          'elapsed_ms': stopwatch.elapsedMilliseconds,
+          'timed_out': error is TimeoutException,
+          'error_type': error.runtimeType.toString(),
+          'error': '$error',
+          if (error is CoreMethodException) 'error_code': error.code,
+          'tun_effective': effectiveTunEnable,
+        },
+      );
+      commonPrint.log(
+        'apply configuration failed at $stage: $error, $stackTrace',
+        logLevel: LogLevel.warning,
+      );
+      rethrow;
+    } finally {
+      await _inspectSystemProxy('after_setup');
+    }
   }
 }

@@ -136,8 +136,10 @@ class CoreController {
 
   FutureOr<bool> get isInit => _interface.isInit;
 
-  Future<String> validateConfig(String path) async {
-    final res = await _interface.validateConfig(path);
+  Future<String> validateConfig(String path, {Duration? timeout}) async {
+    final res = timeout == null
+        ? await _interface.validateConfig(path)
+        : await _interface.validateConfig(path, timeout: timeout);
     return res;
   }
 
@@ -160,10 +162,13 @@ class CoreController {
   Future<String> setupConfig({
     required SetupParams params,
     Future<void> Function()? preloadInvoke,
+    Duration? timeout,
   }) async {
     final result = await _withListenerDiagnostics(
       'setupConfig',
-      () => _interface.setupConfig(params),
+      () => timeout == null
+          ? _interface.setupConfig(params)
+          : _interface.setupConfig(params, timeout: timeout),
     );
     if (result.isEmpty) await preloadInvoke?.call();
     return result;
@@ -264,10 +269,10 @@ class CoreController {
     return _interface.asyncTestDelay(url, proxyName);
   }
 
-  Future<Map<String, dynamic>> getConfig(int id) async {
+  Future<Map<String, dynamic>> getConfig(int id, {Duration? timeout}) async {
     final profilePath = await appPath.getProfilePath(id.toString());
     final data = Map<String, dynamic>.from(
-      await _interface.getConfig(profilePath),
+      await _interface.getConfig(profilePath, timeout: timeout),
     );
     data['rules'] = data['rule'];
     data.remove('rule');

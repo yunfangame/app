@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fl_clash/common/network_diagnostic.dart';
+import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/core/desktop/model.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
@@ -11,10 +12,39 @@ import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/database.dart';
 import 'package:fl_clash/providers/state.dart';
+import 'package:fl_clash/state.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:riverpod/riverpod.dart';
 
+class _FakePathProvider extends PathProviderPlatform {
+  _FakePathProvider(this.root);
+
+  final String root;
+
+  @override
+  Future<String?> getTemporaryPath() async => root;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => root;
+
+  @override
+  Future<String?> getApplicationCachePath() async => root;
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  late Directory testDirectory;
+
+  setUpAll(() {
+    testDirectory = Directory.systemTemp.createTempSync('action_test');
+    PathProviderPlatform.instance = _FakePathProvider(testDirectory.path);
+  });
+
+  tearDownAll(() async {
+    await testDirectory.delete(recursive: true);
+  });
+
   group('ProfilesAction', () {
     test('keeps edited profile data when remote update fails', () async {
       final original = Profile.normal(label: 'old label', url: 'bad-url');
@@ -449,6 +479,242 @@ void main() {
     );
 
     test(
+      'discards a subscription result after its session is superseded',
+      () async {
+        const url = 'https://subscribe.example.com/client/superseded-token';
+        final existing = Profile.normal(
+          label: 'Existing',
+          url: 'https://existing.example.com/config',
+        );
+        late _TestSetupAction setupAction;
+        final loader = Completer<Profile>();
+        var sessionCurrent = true;
+        final container = ProviderContainer(
+          overrides: [
+            currentProfileIdProvider.overrideWithBuild((_, _) => existing.id),
+            profilesProvider.overrideWith(() => _TestProfiles([existing])),
+            setupActionProvider.overrideWith(() {
+              setupAction = _TestSetupAction();
+              return setupAction;
+            }),
+          ],
+        );
+        addTearDown(container.dispose);
+        container.read(setupActionProvider);
+        final action = container.read(profilesActionProvider.notifier);
+
+        final syncing = action.syncSubscriptionProfile(
+          url,
+          loader: (_) => loader.future,
+          isCurrent: () => sessionCurrent,
+        );
+        await Future<void>.delayed(Duration.zero);
+        sessionCurrent = false;
+        loader.complete(Profile.normal(label: 'Superseded', url: url));
+
+        await expectLater(syncing, throwsA(isA<StateError>()));
+        expect(container.read(profilesProvider), [existing]);
+        expect(container.read(currentProfileIdProvider), existing.id);
+        expect(setupAction.applyProfileCount, 0);
+      },
+    );
+
+    test(
+      'keeps the previous profile when the session changes during apply',
+      () async {
+        const url = 'https://subscribe.example.com/client/next-account';
+        final existing = Profile.normal(
+          label: 'Existing',
+          url: 'https://existing.example.com/config',
+        );
+        final candidate = Profile.normal(label: 'Candidate', url: url);
+        late File candidateFile;
+        late _TestSetupAction setupAction;
+        var sessionCurrent = true;
+        final applyStarted = Completer<void>();
+        final applyCompletion = Completer<void>();
+        final container = ProviderContainer(
+          overrides: [
+            currentProfileIdProvider.overrideWithBuild((_, _) => existing.id),
+            profilesProvider.overrideWith(() => _TestProfiles([existing])),
+            setupActionProvider.overrideWith(() {
+              setupAction = _TestSetupAction()
+                ..firstApplyStarted = applyStarted
+                ..firstApplyCompleter = applyCompletion;
+              return setupAction;
+            }),
+          ],
+        );
+        addTearDown(container.dispose);
+        container.read(setupActionProvider);
+
+        final syncing = container
+            .read(profilesActionProvider.notifier)
+            .syncSubscriptionProfile(
+              url,
+              loader: (profile) async {
+                candidateFile = File(
+                  await appPath.getProfilePath(profile.id.toString()),
+                );
+                await candidateFile.create(recursive: true);
+                await candidateFile.writeAsString('candidate');
+                return candidate.copyWith(id: profile.id);
+              },
+              isCurrent: () => sessionCurrent,
+            );
+        await applyStarted.future;
+
+        expect(container.read(profilesProvider), [existing]);
+        expect(container.read(currentProfileIdProvider), existing.id);
+        expect(setupAction.lastApplyPropagateErrors, isTrue);
+        expect(setupAction.lastProfileOverride?.url, url);
+        expect(await candidateFile.exists(), isTrue);
+
+        sessionCurrent = false;
+        applyCompletion.complete();
+
+        await expectLater(syncing, throwsA(isA<StateError>()));
+        expect(container.read(profilesProvider), [existing]);
+        expect(container.read(currentProfileIdProvider), existing.id);
+        expect(await candidateFile.exists(), isFalse);
+      },
+    );
+
+    test(
+      'restores an existing profile file after a superseded apply',
+      () async {
+        const url = 'https://subscribe.example.com/client/existing-account';
+        final existing = Profile.normal(label: 'Existing', url: url);
+        final profileFile = File(
+          await appPath.getProfilePath(existing.id.toString()),
+        );
+        await profileFile.create(recursive: true);
+        await profileFile.writeAsString('previous');
+        late _TestSetupAction setupAction;
+        var sessionCurrent = true;
+        final applyStarted = Completer<void>();
+        final applyCompletion = Completer<void>();
+        final container = ProviderContainer(
+          overrides: [
+            currentProfileIdProvider.overrideWithBuild((_, _) => existing.id),
+            profilesProvider.overrideWith(() => _TestProfiles([existing])),
+            setupActionProvider.overrideWith(() {
+              setupAction = _TestSetupAction()
+                ..firstApplyStarted = applyStarted
+                ..firstApplyCompleter = applyCompletion;
+              return setupAction;
+            }),
+          ],
+        );
+        addTearDown(container.dispose);
+        container.read(setupActionProvider);
+
+        final syncing = container
+            .read(profilesActionProvider.notifier)
+            .syncSubscriptionProfile(
+              url,
+              loader: (profile) async {
+                await profileFile.writeAsString('candidate');
+                return profile.copyWith(label: 'Candidate');
+              },
+              isCurrent: () => sessionCurrent,
+            );
+        await applyStarted.future;
+        expect(await profileFile.readAsString(), 'candidate');
+
+        sessionCurrent = false;
+        applyCompletion.complete();
+
+        await expectLater(syncing, throwsA(isA<StateError>()));
+        expect(await profileFile.readAsString(), 'previous');
+        expect(container.read(profilesProvider), [existing]);
+        expect(container.read(currentProfileIdProvider), existing.id);
+      },
+    );
+
+    test(
+      'failed durable profile write restores the previous runtime',
+      () async {
+        final existing = Profile.normal(label: 'Existing');
+        final writeError = StateError('database write failed');
+        final profiles = _FailingDurableProfiles([existing], writeError);
+        final setupAction = _TestSetupAction();
+        final container = ProviderContainer(
+          overrides: [
+            currentProfileIdProvider.overrideWithBuild((_, _) => existing.id),
+            profilesProvider.overrideWith(() => profiles),
+            setupActionProvider.overrideWith(() => setupAction),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await expectLater(
+          container
+              .read(profilesActionProvider.notifier)
+              .syncSubscriptionProfile(
+                'https://subscribe.example.com/client/write-failure',
+                loader: (profile) async => profile,
+              ),
+          throwsA(same(writeError)),
+        );
+
+        expect(container.read(profilesProvider), [existing]);
+        expect(container.read(currentProfileIdProvider), existing.id);
+        expect(setupAction.applyProfileCount, 2);
+        expect(setupAction.lastProfileOverride, existing);
+        expect(setupAction.lastApplyPropagateErrors, isTrue);
+      },
+    );
+
+    for (final useV2 in [false, true]) {
+      test('session invalidation during cleanup rolls back, V2=$useV2', () async {
+        final existing = Profile.normal(
+          label: 'Existing',
+          url:
+              'https://api.example.com/sakula/cddfa43b5a09bdd07b05d85955a7cf0f',
+        );
+        final setupAction = _TestSetupAction();
+        var current = true;
+        final container = ProviderContainer(
+          overrides: [
+            currentProfileIdProvider.overrideWithBuild((_, _) => existing.id),
+            profilesProvider.overrideWith(() => _TestProfiles([existing])),
+            setupActionProvider.overrideWith(() => setupAction),
+          ],
+        );
+        addTearDown(container.dispose);
+        final action = container.read(profilesActionProvider.notifier);
+        Future<void> invalidateDuringCleanup(int id) async {
+          expect(id, existing.id);
+          current = false;
+        }
+
+        final syncing = useV2
+            ? action.syncSubscriptionProfileBytes(
+                Uint8List.fromList([1]),
+                sourceId: 'fengwo-v2://test-key/new-account',
+                removeLegacyXboardProfiles: true,
+                loader: (profile, _) async => profile,
+                effectClearer: invalidateDuringCleanup,
+                isCurrent: () => current,
+              )
+            : action.syncSubscriptionProfile(
+                'https://subscribe.example.com/client/cleanup-failure',
+                replacingUrl: existing.url,
+                loader: (profile) async => profile,
+                effectClearer: invalidateDuringCleanup,
+                isCurrent: () => current,
+              );
+        await expectLater(syncing, throwsA(isA<StateError>()));
+
+        expect(container.read(profilesProvider), [existing]);
+        expect(container.read(currentProfileIdProvider), existing.id);
+        expect(setupAction.applyProfileCount, 2);
+        expect(setupAction.lastProfileOverride, existing);
+      });
+    }
+
+    test(
       'rejects invalid subscription URLs without loading or applying',
       () async {
         late _TestSetupAction setupAction;
@@ -553,6 +819,7 @@ void main() {
       expect(coreAction.lifecycleRestartCount, 1);
       expect(setupAction.setRunningCount, 0);
       expect(setupAction.applyProfileCount, 1);
+      expect(setupAction.lastApplyPropagateErrors, isTrue);
     });
 
     test(
@@ -576,6 +843,7 @@ void main() {
         expect(coreAction.lifecycleRestartCount, 1);
         expect(setupAction.setRunningCount, 1);
         expect(setupAction.applyProfileCount, 0);
+        expect(setupAction.lastSetRunningPropagateErrors, isTrue);
       },
     );
 
@@ -1057,6 +1325,60 @@ void main() {
       );
     });
 
+    for (final wasRunning in [false, true]) {
+      test('Windows authorization handoff rejects a failed strict reapply, '
+          'running=$wasRunning', () async {
+        late _WindowsAuthorizationFailureSetupAction setupAction;
+        final container = ProviderContainer(
+          overrides: [
+            currentProfileProvider.overrideWithValue(null),
+            setupStateProvider.overrideWith(
+              (_, profileId) => SetupState(
+                profileId: profileId,
+                profileLastUpdateDate: null,
+                overwriteType: OverwriteType.standard,
+                rules: const [],
+                proxyGroups: const [],
+                addedRules: const [],
+                script: null,
+                overrideDns: false,
+                dns: const Dns(),
+              ),
+            ),
+            setupActionProvider.overrideWith(() {
+              setupAction = _WindowsAuthorizationFailureSetupAction();
+              return setupAction;
+            }),
+            coreActionProvider.overrideWith(_TestCoreAction.new),
+          ],
+        );
+        addTearDown(container.dispose);
+        container
+            .read(patchClashConfigProvider.notifier)
+            .update((state) => state.copyWith.tun(enable: true));
+        if (wasRunning) {
+          container.read(runTimeProvider.notifier).value = 0;
+        }
+        container.read(setupActionProvider);
+        container.read(coreActionProvider);
+
+        await expectLater(
+          setupAction.applyProfile(force: true),
+          throwsA(same(_strictReapplyFailure)),
+        );
+
+        expect(setupAction.authorizationRequestCount, 1);
+        expect(
+          container.read(authorizedTunEnableProvider),
+          TunAuthorizationState.none,
+        );
+        expect(container.read(coreStatusProvider), CoreStatus.disconnected);
+        if (wasRunning) {
+          expect(container.read(isStartProvider), isFalse);
+        }
+      });
+    }
+
     test('requests admin authorization once per app lifecycle', () async {
       late _AuthorizationSetupAction setupAction;
       final container = ProviderContainer(
@@ -1107,6 +1429,129 @@ void main() {
 
       expect(container.read(autoSetSystemDnsStateProvider).a, isFalse);
     });
+
+    test('profile preparation timeout releases the setup scheduler', () async {
+      late _ProfileTimeoutSetupAction setupAction;
+      final container = ProviderContainer(
+        overrides: [
+          currentProfileProvider.overrideWithValue(null),
+          setupStateProvider.overrideWith(
+            (_, profileId) => SetupState(
+              profileId: profileId,
+              profileLastUpdateDate: null,
+              overwriteType: OverwriteType.standard,
+              rules: const [],
+              proxyGroups: const [],
+              addedRules: const [],
+              script: null,
+              overrideDns: false,
+              dns: const Dns(),
+            ),
+          ),
+          setupActionProvider.overrideWith(() {
+            setupAction = _ProfileTimeoutSetupAction();
+            return setupAction;
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(setupActionProvider);
+
+      await expectLater(
+        setupAction.applyProfile(force: true),
+        throwsA(isA<TimeoutException>()),
+      );
+      await expectLater(
+        setupAction.applyProfile(force: true),
+        throwsA(same(_secondProfileFailure)),
+      );
+
+      expect(setupAction.getProfileCount, 2);
+    });
+
+    test(
+      'profile preparation stops when its login session is superseded',
+      () async {
+        var sessionCurrent = true;
+        late _ProfileGuardSetupAction setupAction;
+        final container = ProviderContainer(
+          overrides: [
+            currentProfileProvider.overrideWithValue(null),
+            setupStateProvider.overrideWith(
+              (_, profileId) => SetupState(
+                profileId: profileId,
+                profileLastUpdateDate: null,
+                overwriteType: OverwriteType.standard,
+                rules: const [],
+                proxyGroups: const [],
+                addedRules: const [],
+                script: null,
+                overrideDns: false,
+                dns: const Dns(),
+              ),
+            ),
+            setupActionProvider.overrideWith(() {
+              setupAction = _ProfileGuardSetupAction();
+              return setupAction;
+            }),
+          ],
+        );
+        addTearDown(container.dispose);
+        container.read(setupActionProvider);
+
+        final applying = setupAction.applyProfile(
+          force: true,
+          isCurrent: () => sessionCurrent,
+        );
+        await setupAction.profilePreparationStarted.future;
+        sessionCurrent = false;
+        setupAction.profilePreparation.complete(const VM2('', ''));
+
+        await expectLater(
+          applying,
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              'configuration_apply_superseded',
+            ),
+          ),
+        );
+      },
+    );
+
+    test('startup configuration failure degrades only when enabled', () async {
+      final previousNeedInitStatus = globalState.needInitStatus;
+      addTearDown(() {
+        globalState.needInitStatus = previousNeedInitStatus;
+      });
+      globalState.needInitStatus = true;
+      final degradedContainer = ProviderContainer(
+        overrides: [
+          setupActionProvider.overrideWith(
+            () => _StartupFailureSetupAction(allowDegrade: true),
+          ),
+        ],
+      );
+      addTearDown(degradedContainer.dispose);
+
+      await degradedContainer.read(setupActionProvider.notifier).initStatus();
+
+      globalState.needInitStatus = true;
+      final strictContainer = ProviderContainer(
+        overrides: [
+          setupActionProvider.overrideWith(
+            () => _StartupFailureSetupAction(allowDegrade: false),
+          ),
+        ],
+      );
+      addTearDown(strictContainer.dispose);
+
+      await expectLater(
+        strictContainer.read(setupActionProvider.notifier).initStatus(),
+        throwsA(same(_startupProfileFailure)),
+      );
+    });
   });
 }
 
@@ -1131,6 +1576,16 @@ class _TestProfiles extends Profiles {
   }
 
   @override
+  Future<void> putDurable(Profile profile) async {
+    put(profile);
+  }
+
+  @override
+  Future<void> setAllDurable(List<Profile> profiles) async {
+    state = List.of(profiles);
+  }
+
+  @override
   Future<void> del(int id) async {
     state = state.where((profile) => profile.id != id).toList();
   }
@@ -1138,6 +1593,18 @@ class _TestProfiles extends Profiles {
   @override
   void reorder(List<Profile> profiles) {
     state = List.of(profiles);
+  }
+}
+
+class _FailingDurableProfiles extends _TestProfiles {
+  _FailingDurableProfiles(super.initial, this.error);
+
+  final Object error;
+
+  @override
+  Future<void> putDurable(Profile profile) async {
+    await super.putDurable(profile);
+    throw error;
   }
 }
 
@@ -1158,12 +1625,20 @@ class _TestCoreAction extends CoreAction {
 class _TestSetupAction extends SetupAction {
   int setRunningCount = 0;
   int applyProfileCount = 0;
+  bool? lastSetRunningPropagateErrors;
+  bool? lastApplyPropagateErrors;
+  Profile? lastProfileOverride;
   Completer<void>? firstApplyStarted;
   Completer<void>? firstApplyCompleter;
 
   @override
-  Future<void> setRunning(bool running, {bool initialize = false}) async {
+  Future<void> setRunning(
+    bool running, {
+    bool initialize = false,
+    bool propagateErrors = false,
+  }) async {
     setRunningCount++;
+    lastSetRunningPropagateErrors = propagateErrors;
   }
 
   @override
@@ -1171,8 +1646,13 @@ class _TestSetupAction extends SetupAction {
     bool silence = false,
     bool force = false,
     Future<void> Function()? preloadInvoke,
+    bool Function()? isCurrent,
+    bool propagateErrors = false,
+    Profile? profileOverride,
   }) async {
     applyProfileCount++;
+    lastApplyPropagateErrors = propagateErrors;
+    lastProfileOverride = profileOverride;
     if (applyProfileCount == 1) {
       firstApplyStarted?.complete();
       await firstApplyCompleter?.future;
@@ -1189,14 +1669,14 @@ class _RestartRecordingCoreAction extends CoreAction {
   int restartCount = 0;
 
   @override
-  Future<void> restartCore() async {
+  Future<void> restartCoreLifecycleOnly() async {
     restartCount++;
   }
 }
 
 class _FailingRestartCoreAction extends CoreAction {
   @override
-  Future<void> restartCore() async {
+  Future<void> restartCoreLifecycleOnly() async {
     throw _restartFailure;
   }
 }
@@ -1216,7 +1696,122 @@ class _AuthorizationSetupAction extends SetupAction {
   Future<AuthorizeCode> authorizeCore() async {
     return authorizationResults[authorizationRequestCount++];
   }
+
+  @override
+  Future<String> applyCoreUpdate(UpdateParams params) async => '';
 }
+
+class _WindowsAuthorizationFailureSetupAction extends SetupAction {
+  int authorizationRequestCount = 0;
+
+  @override
+  bool get requiresListenerReadiness => true;
+
+  @override
+  Future<AuthorizeCode> authorizeCore() async {
+    authorizationRequestCount++;
+    return AuthorizeCode.success;
+  }
+
+  @override
+  Future<VM2<String, String>> getProfile({
+    required SetupState setupState,
+    required PatchClashConfig patchConfig,
+    Map<String, String>? selectedMapOverride,
+  }) {
+    return Future.error(_strictReapplyFailure);
+  }
+
+  @override
+  Future<bool> setCoreRunning(bool running) async => true;
+
+  @override
+  void resetCoreTraffic() {}
+
+  @override
+  void notifyListenerFailure(int port) {}
+
+  @override
+  Future<void> recoverStableCoreConfiguration(
+    Profile? profile, {
+    required String reason,
+  }) async {
+    ref.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
+  }
+}
+
+final _strictReapplyFailure = StateError('strict reapply failed');
+
+class _ProfileTimeoutSetupAction extends SetupAction {
+  int getProfileCount = 0;
+
+  @override
+  bool get requiresListenerReadiness => false;
+
+  @override
+  Duration get configurationPreparationTimeout =>
+      const Duration(milliseconds: 20);
+
+  @override
+  Future<bool> requestAdmin(bool enableTun) async => true;
+
+  @override
+  Future<VM2<String, String>> getProfile({
+    required SetupState setupState,
+    required PatchClashConfig patchConfig,
+    Map<String, String>? selectedMapOverride,
+  }) {
+    getProfileCount++;
+    if (getProfileCount == 1) return Completer<VM2<String, String>>().future;
+    return Future.error(_secondProfileFailure);
+  }
+}
+
+final _secondProfileFailure = StateError('second profile failure');
+
+class _ProfileGuardSetupAction extends SetupAction {
+  final profilePreparationStarted = Completer<void>();
+  final profilePreparation = Completer<VM2<String, String>>();
+
+  @override
+  bool get requiresListenerReadiness => false;
+
+  @override
+  Future<bool> requestAdmin(bool enableTun) async => true;
+
+  @override
+  Future<VM2<String, String>> getProfile({
+    required SetupState setupState,
+    required PatchClashConfig patchConfig,
+    Map<String, String>? selectedMapOverride,
+  }) {
+    profilePreparationStarted.complete();
+    return profilePreparation.future;
+  }
+}
+
+class _StartupFailureSetupAction extends SetupAction {
+  _StartupFailureSetupAction({required this.allowDegrade});
+
+  final bool allowDegrade;
+
+  @override
+  bool shouldDegradeStartupConfiguration(Object error) => allowDegrade;
+
+  @override
+  Future<void> applyProfile({
+    bool silence = false,
+    bool force = false,
+    Future<void> Function()? preloadInvoke,
+    bool Function()? isCurrent,
+    bool propagateErrors = false,
+    Profile? profileOverride,
+  }) {
+    return Future.error(_startupProfileFailure);
+  }
+}
+
+final _startupProfileFailure = StateError('startup profile failure');
 
 class _RaceSetupAction extends SetupAction {
   @override
@@ -1259,6 +1854,9 @@ class _InitializingSetupAction extends _RaceSetupAction {
     bool silence = false,
     bool force = false,
     Future<void> Function()? preloadInvoke,
+    bool Function()? isCurrent,
+    bool propagateErrors = false,
+    Profile? profileOverride,
   }) async {
     await _initializationCompleter.future;
     await preloadInvoke?.call();

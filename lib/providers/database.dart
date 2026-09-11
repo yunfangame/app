@@ -63,6 +63,28 @@ class Profiles extends _$Profiles {
     );
   }
 
+  Future<void> putDurable(Profile profile) async {
+    final previous = List<Profile>.from(state);
+    final newProfile = previous.optimizeLabel(profile);
+    state = previous.copyAndPut(newProfile, (item) => item.id == newProfile.id);
+    await withRollback(
+      snapshot: previous,
+      action: () => database.profiles.put(newProfile.toCompanion()),
+      rollback: (v) => state = v,
+    );
+  }
+
+  Future<void> setAllDurable(List<Profile> profiles) async {
+    final previous = List<Profile>.from(state);
+    final next = List<Profile>.from(profiles);
+    state = next;
+    await withRollback(
+      snapshot: previous,
+      action: () => database.profilesDao.setAll(next),
+      rollback: (v) => state = v,
+    );
+  }
+
   Future<void> del(int id) async {
     final previous = List<Profile>.from(state);
     state = previous.where((e) => e.id != id).toList();
