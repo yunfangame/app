@@ -26,7 +26,17 @@ function ConvertTo-VcRuntimeVersion {
 
 function Get-VcRuntimeSignature {
   param([string]$Path)
-  return Get-AuthenticodeSignature -LiteralPath $Path
+  # A PowerShell 7 parent can pass its PSModulePath to the Windows PowerShell
+  # child launched by setup.dart. Resolve the inbox Security module from the
+  # child's own PSHOME so Authenticode verification does not depend on that
+  # inherited module search path.
+  $securityModule = Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1'
+  if ([IO.File]::Exists($securityModule)) {
+    Import-Module -Name $securityModule -ErrorAction Stop
+  } else {
+    Import-Module -Name Microsoft.PowerShell.Security -ErrorAction Stop
+  }
+  return Microsoft.PowerShell.Security\Get-AuthenticodeSignature -LiteralPath $Path
 }
 
 function Get-VcRuntimeFileVersion {
