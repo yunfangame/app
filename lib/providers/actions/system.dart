@@ -41,7 +41,7 @@ class SystemAction extends _$SystemAction {
   @protected
   Future<void> cleanupLogoutIntegrations() async {
     await Future.wait([
-      if (macOS != null) macOS!.updateDns(true),
+      if (systemDnsCoordinator != null) systemDnsCoordinator!.sync(false),
       cleanupSystemProxy('logout'),
       hideTray(),
     ]);
@@ -71,7 +71,7 @@ class SystemAction extends _$SystemAction {
   Future<void> cleanupExitResources(bool needSave) async {
     await Future.wait([
       if (needSave) preferences.saveConfig(ref.read(configProvider)),
-      if (macOS != null) macOS!.updateDns(true),
+      if (systemDnsCoordinator != null) systemDnsCoordinator!.shutdown(),
       cleanupSystemProxy('exit'),
       if (tray != null) tray!.destroy(),
     ]);

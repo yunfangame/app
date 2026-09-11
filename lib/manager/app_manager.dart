@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/system_dns.dart';
 import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
@@ -79,17 +80,11 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
         });
       }
     });
-    if (system.isMacOS) {
-      ref.listenManual(autoSetSystemDnsStateProvider, (prev, next) async {
-        if (prev == next) {
-          return;
-        }
-        if (next.a == true && next.b == true) {
-          macOS?.updateDns(false);
-        } else {
-          macOS?.updateDns(true);
-        }
-      });
+    final systemDns = systemDnsCoordinator;
+    if (systemDns != null) {
+      ref.listenManual(autoSetSystemDnsStateProvider, (prev, next) {
+        unawaited(systemDns.sync(next.a && next.b));
+      }, fireImmediately: true);
     }
   }
 
@@ -103,6 +98,7 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
   Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
     commonPrint.log('$state');
     if (state == AppLifecycleState.resumed) {
+      unawaited(systemDnsCoordinator?.resync() ?? Future.value());
       permissions.check();
       render?.resume();
       WidgetsBinding.instance.addPostFrameCallback((_) {

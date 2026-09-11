@@ -106,6 +106,7 @@ class CoreController {
     if (!isExists) {
       await homeDir.create(recursive: true);
     }
+    await system.grantHomeDirAccess(homePath);
     const geoFileNameList = [MMDB, GEOIP, GEOSITE, ASN];
     try {
       for (final geoFileName in geoFileNameList) {
