@@ -59,7 +59,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows packaging tests failed' }
 
       - name: Apply pinned Core patches
-        run: dart tooling/apply_core_patches.dart
+        shell: pwsh
+        run: |
+          Push-Location plugins/setup/buildkit/build_tool
+          dart pub get
+          if ($LASTEXITCODE -ne 0) { throw 'Build tool dependencies failed' }
+          Pop-Location
+          dart tooling/apply_core_patches.dart
+          if ($LASTEXITCODE -ne 0) { throw 'Core patch application failed' }
 
       - name: Test Core patch application
         working-directory: plugins/setup/buildkit/build_tool
