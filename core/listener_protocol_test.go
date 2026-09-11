@@ -3,69 +3,25 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net"
-	"os"
-	"path/filepath"
-	"sync"
 	"testing"
-	"time"
-
-	"github.com/metacubex/bbolt"
-	"github.com/metacubex/mihomo/component/profile/cachefile"
-	"github.com/metacubex/mihomo/constant"
 )
-
-type listenerResponseRecorder struct {
-	mutex  sync.Mutex
-	buffer bytes.Buffer
-}
-
-func (recorder *listenerResponseRecorder) Read(data []byte) (int, error) {
-	return 0, io.EOF
-}
-
-func (recorder *listenerResponseRecorder) Write(data []byte) (int, error) {
-	recorder.mutex.Lock()
-	defer recorder.mutex.Unlock()
-	return recorder.buffer.Write(data)
-}
-
-func (recorder *listenerResponseRecorder) Close() error {
-	return nil
-}
 
 func invokeListenerTestMethod(t *testing.T, method CoreMethod, arguments string) MethodResponse {
 	t.Helper()
-	previous := conn
-	recorder := &listenerResponseRecorder{}
-	conn = recorder
-	defer func() { conn = previous }()
-	handleMethodCall(&MethodCall{
-		ID:        "listener-test",
-		Method:    method,
-		Arguments: json.RawMessage(arguments),
-	}, MethodResponse{ID: "listener-test"})
-	recorder.mutex.Lock()
-	defer recorder.mutex.Unlock()
-	for recorder.buffer.Len() > 0 {
-		data, err := readFrame(&recorder.buffer)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var response MethodResponse
-		if err := json.Unmarshal(data, &response); err != nil {
-			t.Fatal(err)
-		}
-		if response.ID == "listener-test" {
-			return response
-		}
+	frame := captureSingleFrame(t, func() {
+		handleMethodCall(&MethodCall{
+			ID:        "listener-test",
+			Method:    method,
+			Arguments: json.RawMessage(arguments),
+		}, MethodResponse{ID: "listener-test"})
+	})
+	var response MethodResponse
+	if err := json.Unmarshal(frame, &response); err != nil {
+		t.Fatal(err)
 	}
-	t.Fatal("listener method response missing")
-	return MethodResponse{}
+	return response
 }
 
 func requireListenerMethodError(t *testing.T, response MethodResponse, protocol string) {
@@ -89,54 +45,21 @@ func TestListenerUpdateMethodReportsStructuredFailure(t *testing.T) {
 	foreign := bindTestTCP(t, 0)
 	port := foreign.Addr().(*net.TCPAddr).Port
 	setListenerTestConfig(port)
-	isRunning = true
+	isRunning.Store(true)
 	requireListenerMethodError(t, invokeListenerTestMethod(t, updateConfigMethod, "{}"), "tcp")
-	if isRunning {
+	if isRunning.Load() {
 		t.Fatal("update method failure left native running state enabled")
 	}
 }
 
 func TestListenerSetupMethodReportsStructuredFailure(t *testing.T) {
-	prepareListenerTest(t)
-	previousHome := constant.Path.HomeDir()
-	constant.SetHomeDir(t.TempDir())
-	t.Cleanup(func() { constant.SetHomeDir(previousHome) })
-	store := cachefile.Cache()
-	previousDB := store.DB
-	cachePath := constant.Path.Cache()
-	if store.DB == nil || store.DB.Path() != cachePath {
-		db, err := bbolt.Open(cachePath, 0600, &bbolt.Options{Timeout: 200 * time.Millisecond})
-		if err != nil {
-			t.Fatal(err)
-		}
-		store.DB = db
-	}
-	t.Cleanup(func() { store.DB = previousDB })
-	t.Cleanup(func() {
-		db, err := bbolt.Open(cachePath, 0600, &bbolt.Options{Timeout: 200 * time.Millisecond})
-		if err != nil {
-			t.Errorf("test cache must release its file lock before temporary directory cleanup: %v", err)
-			return
-		}
-		if err := db.Close(); err != nil {
-			t.Errorf("close reopened test cache: %v", err)
+	withSetupConfig(t, func(*SetupParams) error {
+		return &listenerFailure{
+			Stage:    "bind_failed",
+			Listener: "mixed",
+			Protocol: "tcp",
+			Reason:   "address_in_use",
 		}
 	})
-	t.Cleanup(func() {
-		if err := store.Close(); err != nil {
-			t.Errorf("close test cache: %v", err)
-		}
-	})
-	foreign := bindTestTCP(t, 0)
-	port := foreign.Addr().(*net.TCPAddr).Port
-	data := fmt.Sprintf("mixed-port: %d\nallow-lan: false\nmode: direct\ndns:\n  enable: false\nrules: []\n", port)
-	if err := os.WriteFile(filepath.Join(constant.Path.HomeDir(), "config.yaml"), []byte(data), 0600); err != nil {
-		t.Fatal(err)
-	}
-	isInit.Store(true)
-	isRunning = true
 	requireListenerMethodError(t, invokeListenerTestMethod(t, setupConfigMethod, "{}"), "tcp")
-	if isRunning {
-		t.Fatal("setup method failure left native running state enabled")
-	}
 }
