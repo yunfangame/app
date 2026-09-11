@@ -72,7 +72,9 @@ object ServiceController {
         }
 
         if (binding?.component != nextIntent.component) {
-            clearBinding()
+            if (binding != null) {
+                tearDownServices()
+            }
             lateinit var nextBinding: ManagedServiceBinding
             nextBinding = ManagedServiceBinding(nextIntent) { message ->
                 handleServiceDisconnected(nextBinding, message)
@@ -106,12 +108,26 @@ object ServiceController {
     }
 
     suspend fun stop() = lock.withLock {
+        tearDownServices()
+        runTimeMillis = 0L
+    }
+
+    private suspend fun tearDownServices() {
         binding?.useService { service -> service.stop() }
             ?.onFailure { error ->
                 GlobalState.log("Unable to stop background service: $error")
             }
         clearBinding()
-        runTimeMillis = 0L
+        stopServices()
+    }
+
+    private fun stopServices() {
+        listOf(VpnService::class.intent, ProxyService::class.intent).forEach { intent ->
+            runCatching { GlobalState.application.stopService(intent) }
+                .onFailure { error ->
+                    GlobalState.log("Unable to stop ${intent.component?.className}: $error")
+                }
+        }
     }
 
     suspend fun isVpnServiceActive(): Boolean = lock.withLock {

@@ -81,6 +81,10 @@ android {
             )
         }
     }
+
+    sourceSets {
+        getByName("test").java.setSrcDirs(listOf("../tests/app"))
+    }
 }
 
 kotlin {
@@ -105,4 +109,6 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.crashlytics.ndk)
     implementation(libs.firebase.analytics)
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

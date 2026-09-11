@@ -12,7 +12,7 @@ class CorePatchException implements Exception {
 class CorePatchApplier {
   CorePatchApplier({
     required this.rootDirectory,
-    this.expectedRevision = '0f7f05adff5e2c49775a112dcfe05a6aa36fda0c',
+    this.expectedRevision = '70f0570405c3c2c47bb113b88db95006d239b346',
     this.patchName = 'mixed-listener-readiness.patch',
   });
 

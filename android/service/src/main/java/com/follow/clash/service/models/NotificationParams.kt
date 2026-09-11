@@ -4,4 +4,5 @@ data class NotificationParams(
     val title: String = "蜂窝加速器",
     val stopText: String = "STOP",
     val onlyStatisticsProxy: Boolean = false,
+    val showStopAction: Boolean = true,
 )

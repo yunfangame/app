@@ -305,6 +305,7 @@ abstract class SharedState with _$SharedState {
     required String startTip,
     required String currentProfileName,
     required String stopText,
+    @Default(true) bool showStopAction,
     required bool onlyStatisticsProxy,
     required bool crashlytics,
   }) = _SharedState;

@@ -10,6 +10,7 @@ data class SharedState(
     val currentProfileName: String = "蜂窝加速器",
     val stopText: String = "Stop",
     val onlyStatisticsProxy: Boolean = false,
+    val showStopAction: Boolean = true,
     val vpnOptions: VpnOptions? = null,
     val setupParams: SetupParams? = null,
 )

@@ -42,26 +42,26 @@ class VpnService : SystemVpnService(), ManagedService {
     }
     private val uidPackageNameMap = ConcurrentHashMap<Int, String>()
 
-    private fun resolverProcess(
+    private fun resolveUid(
         protocol: Int,
         source: InetSocketAddress,
         target: InetSocketAddress,
-        uid: Int,
-    ): String {
-        val nextUid = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            connectivity?.getConnectionOwnerUid(protocol, source, target) ?: -1
-        } else {
-            uid
+    ): Int {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return -1
         }
-        if (nextUid == -1) {
-            return ""
-        }
-        return uidPackageNameMap.getOrPut(nextUid) {
-            packageManager
-                .getPackagesForUid(nextUid)
-                ?.firstOrNull()
-                .orEmpty()
-        }
+        return connectivity?.getConnectionOwnerUid(protocol, source, target) ?: -1
+    }
+
+    private fun resolvePackage(uid: Int): String {
+        val cached = uidPackageNameMap[uid]
+        if (cached != null) return cached
+        val packageName = packageManager
+            .getPackagesForUid(uid)
+            ?.firstOrNull()
+            ?.takeIf { it.isNotEmpty() }
+            .orEmpty()
+        return uidPackageNameMap.putIfAbsent(uid, packageName) ?: packageName
     }
 
     private val VpnOptions.tunAddress
@@ -146,14 +146,22 @@ class VpnService : SystemVpnService(), ManagedService {
         synchronized(tunLock) {
             tunRunning = true
             try {
-                Core.startTun(
-                    fd = fd,
-                    protect = this::protect,
-                    resolverProcess = this::resolverProcess,
-                    stack = options.stack,
-                    address = options.tunAddress,
-                    dns = options.tunDns,
-                )
+                // A Core that fails to take the descriptor leaves the system
+                // routes pointing at an interface nothing reads, and it no
+                // longer keeps its own sockets out of them: every connection
+                // then hangs until it times out. Tear the VPN down instead of
+                // reporting a start that only looks successful.
+                check(
+                    Core.startTun(
+                        fd = fd,
+                        protect = this::protect,
+                        resolveUid = this::resolveUid,
+                        resolvePackage = this::resolvePackage,
+                        stack = options.stack,
+                        address = options.tunAddress,
+                        dns = options.tunDns,
+                    ),
+                ) { "Core rejected the tun file descriptor" }
             } catch (error: Exception) {
                 stopTunLocked()
                 throw error
@@ -217,24 +225,25 @@ class VpnService : SystemVpnService(), ManagedService {
         if (!accessControl.enable) return
         when (accessControl.mode) {
             AccessControlMode.ACCEPT_SELECTED -> {
-                (accessControl.acceptList + packageName).distinct().forEach { selectedPackage ->
-                    try {
-                        addAllowedApplication(selectedPackage)
-                    } catch (_: PackageManager.NameNotFoundException) {
-                        GlobalState.log("Skipping uninstalled VPN application: $selectedPackage")
-                    }
+                (accessControl.acceptList + packageName).forEach { name ->
+                    addApplication(name, ::addAllowedApplication)
                 }
             }
 
             AccessControlMode.REJECT_SELECTED -> {
-                (accessControl.rejectList - packageName).distinct().forEach { selectedPackage ->
-                    try {
-                        addDisallowedApplication(selectedPackage)
-                    } catch (_: PackageManager.NameNotFoundException) {
-                        GlobalState.log("Skipping uninstalled bypass application: $selectedPackage")
-                    }
+                (accessControl.rejectList - packageName).forEach { name ->
+                    addApplication(name, ::addDisallowedApplication)
                 }
             }
+        }
+    }
+
+    // A selected package that was uninstalled since must not veto the whole tunnel.
+    private fun addApplication(name: String, add: (String) -> Builder) {
+        try {
+            add(name)
+        } catch (_: PackageManager.NameNotFoundException) {
+            GlobalState.log("Access control skipped an uninstalled package: $name")
         }
     }
 

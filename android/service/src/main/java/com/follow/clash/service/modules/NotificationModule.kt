@@ -34,6 +34,7 @@ import kotlinx.coroutines.launch
 private data class ExtendedNotificationParams(
     val title: String,
     val stopText: String,
+    val showStopAction: Boolean,
     val contentText: String,
 )
 
@@ -41,6 +42,7 @@ private val NotificationParams.extended: ExtendedNotificationParams
     get() = ExtendedNotificationParams(
         title,
         stopText,
+        showStopAction,
         Core.getSpeedTrafficText(onlyStatisticsProxy),
     )
 
@@ -107,11 +109,14 @@ internal class NotificationModule(
                 setContentTitle(params.title)
                 setContentText(params.contentText)
                 clearActions()
-                addAction(
-                    0,
-                    params.stopText,
-                    QuickAction.STOP.quickIntent.toPendingIntent,
-                ).build()
+                if (params.showStopAction) {
+                    addAction(
+                        0,
+                        params.stopText,
+                        QuickAction.STOP.quickIntent.toPendingIntent,
+                    )
+                }
+                build()
             },
         )
     }

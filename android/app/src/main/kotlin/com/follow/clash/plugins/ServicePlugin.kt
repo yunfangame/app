@@ -31,7 +31,8 @@ class ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         ServiceController.setEventListener(null)
     }
 
-    override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+    override fun onMethodCall(call: MethodCall, rawResult: MethodChannel.Result) {
+        val result = MainThreadResult(rawResult)
         when (call.method) {
             "init" -> initialize(result)
             "shutdown" -> shutdown(result)
@@ -105,7 +106,13 @@ class ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     private fun restart(result: MethodChannel.Result) {
-        result.success(ServiceState.requestRestart())
+        scope.launch {
+            if (!ServiceState.requestStop().await()) {
+                result.success(false)
+                return@launch
+            }
+            result.success(ServiceState.requestStart().await())
+        }
     }
 
     private fun sendEvent(value: String?) {

@@ -8,6 +8,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
@@ -20,6 +22,7 @@ import androidx.core.net.toUri
 import com.follow.clash.R
 import com.follow.clash.common.Components
 import com.follow.clash.common.GlobalState
+import com.follow.clash.common.PendingCallback
 import com.follow.clash.common.QuickAction
 import com.follow.clash.common.quickIntent
 import com.follow.clash.getPackageIconPath
@@ -32,6 +35,7 @@ import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.Result
+import io.flutter.plugin.common.PluginRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -42,13 +46,21 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     private var activity: Activity? = null
 
+    private var activityBinding: ActivityPluginBinding? = null
+
+    private val activityResultListener =
+        PluginRegistry.ActivityResultListener(::onActivityResult)
+
+    private val permissionsResultListener =
+        PluginRegistry.RequestPermissionsResultListener(::onRequestPermissionsResultListener)
+
     private lateinit var channel: MethodChannel
 
     private lateinit var scope: CoroutineScope
 
-    private var vpnPrepareCallback: ((Boolean) -> Unit)? = null
+    private val vpnPrepareCallback = PendingCallback<Boolean>()
 
-    private var requestNotificationCallback: ((Boolean) -> Unit)? = null
+    private val requestNotificationCallback = PendingCallback<Boolean>()
 
     private var isRequestingNotificationPermission = false
 
@@ -63,7 +75,18 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     private var skipNotificationPermissionRequest = false
 
-    override fun onMethodCall(call: MethodCall, result: Result) {
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private fun onMainThread(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            mainHandler.post(block)
+        }
+    }
+
+    override fun onMethodCall(call: MethodCall, rawResult: Result) {
+        val result = MainThreadResult(rawResult)
         when (call.method) {
             "moveTaskToBack" -> {
                 activity?.moveTaskToBack(true)
@@ -173,7 +196,6 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     @SuppressLint("BatteryLife")
     private fun openBatteryOptimizationSettings(): Boolean {
-        // VPN continuity is the user-requested core function, so the direct exemption is intentional.
         val activity = activity ?: return false
         return try {
             val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
@@ -212,9 +234,8 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
         task?.setExcludeFromRecents(value ?: false)
     }
 
-    fun requestNotificationPermission(callback: (Boolean) -> Unit) {
-        requestNotificationCallback?.invoke(false)
-        requestNotificationCallback = callback
+    fun requestNotificationPermission(callback: (Boolean) -> Unit) = onMainThread {
+        requestNotificationCallback.replace(callback, supersededValue = false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val permission = ContextCompat.checkSelfPermission(
                 GlobalState.application,
@@ -222,10 +243,10 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
             )
             if (permission == PackageManager.PERMISSION_GRANTED || skipNotificationPermissionRequest) {
                 invokeRequestNotificationCallback(true)
-                return
+                return@onMainThread
             }
             if (isRequestingNotificationPermission) {
-                return
+                return@onMainThread
             }
             isRequestingNotificationPermission = true
             activity?.let {
@@ -235,23 +256,21 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
                     NOTIFICATION_PERMISSION_REQUEST_CODE,
                 )
             } ?: invokeRequestNotificationCallback(true)
-            return
+            return@onMainThread
         }
         invokeRequestNotificationCallback(true)
     }
 
     private fun invokeRequestNotificationCallback(shouldStart: Boolean) {
         isRequestingNotificationPermission = false
-        requestNotificationCallback?.invoke(shouldStart)
-        requestNotificationCallback = null
+        requestNotificationCallback.resolve(shouldStart)
     }
 
-    fun prepareVpn(needPrepare: Boolean, callback: (Boolean) -> Unit) {
-        invokeVpnPrepareCallback(false)
-        vpnPrepareCallback = callback
+    fun prepareVpn(needPrepare: Boolean, callback: (Boolean) -> Unit) = onMainThread {
+        vpnPrepareCallback.replace(callback, supersededValue = false)
         if (!needPrepare) {
             invokeVpnPrepareCallback(true)
-            return
+            return@onMainThread
         }
         val intent = VpnService.prepare(GlobalState.application)
         if (intent != null) {
@@ -262,20 +281,17 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
                 @Suppress("DEPRECATION")
                 activity.startActivityForResult(intent, VPN_PERMISSION_REQUEST_CODE)
             }
-            return
+            return@onMainThread
         }
         invokeVpnPrepareCallback(true)
     }
 
-    fun cancelVpnPreparation(callback: (Boolean) -> Unit) {
-        if (vpnPrepareCallback === callback) {
-            vpnPrepareCallback = null
-        }
+    fun cancelVpnPreparation(callback: (Boolean) -> Unit) = onMainThread {
+        vpnPrepareCallback.cancel(callback)
     }
 
     private fun invokeVpnPrepareCallback(granted: Boolean) {
-        vpnPrepareCallback?.invoke(granted)
-        vpnPrepareCallback = null
+        vpnPrepareCallback.resolve(granted)
     }
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
@@ -297,13 +313,23 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
     }
 
     private fun attachToActivity(binding: ActivityPluginBinding) {
+        detachFromActivity()
+        activityBinding = binding
         activity = binding.activity
-        binding.addActivityResultListener(::onActivityResult)
-        binding.addRequestPermissionsResultListener(::onRequestPermissionsResultListener)
+        binding.addActivityResultListener(activityResultListener)
+        binding.addRequestPermissionsResultListener(permissionsResultListener)
+    }
+
+    private fun detachFromActivity() {
+        activity = null
+        val binding = activityBinding ?: return
+        activityBinding = null
+        binding.removeActivityResultListener(activityResultListener)
+        binding.removeRequestPermissionsResultListener(permissionsResultListener)
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
-        activity = null
+        detachFromActivity()
     }
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
@@ -312,7 +338,7 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     override fun onDetachedFromActivity() {
         channel.invokeMethod("exit", null)
-        activity = null
+        detachFromActivity()
         invokeVpnPrepareCallback(false)
         invokeRequestNotificationCallback(false)
     }
