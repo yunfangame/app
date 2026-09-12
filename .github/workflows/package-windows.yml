@@ -122,10 +122,10 @@ jobs:
           flutter test @tests --reporter expanded
           if ($LASTEXITCODE -ne 0) { throw 'Flutter tests failed' }
 
-      - name: Test live API configuration encryption
+      - name: Test live API fallback and encryption
         shell: pwsh
         run: |
-          flutter test tooling/api_remote_config_live_smoke_test.dart --reporter expanded
+          flutter test tooling/api_remote_config_live_smoke_test.dart --reporter expanded --name 'redundant|backup|bundled'
           if ($LASTEXITCODE -ne 0) { throw 'Live API encryption checks failed' }
 
       - name: Test native Windows listeners

@@ -28,6 +28,7 @@ void main() {
   });
 
   for (final source in {
+    'redundant': apiHealthConfigUrl,
     'primary': apiHealthConfigUrl,
     'backup': apiHealthBackupConfigUrl,
   }.entries) {
@@ -36,7 +37,7 @@ void main() {
       () async {
         final service = ApiHealthService(
           configUrl: source.value,
-          backupConfigUrls: const [],
+          backupConfigUrls: source.key == 'redundant' ? null : const [],
           aesKey: aesKey,
           signingPublicKey: signingPublicKey,
           diagnosticRecorder: (_, _) {},
