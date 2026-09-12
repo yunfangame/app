@@ -1995,6 +1995,90 @@ void main() {
     expect(tester.takeException(), null);
   });
 
+  testWidgets(
+    'node status supports Android large text and refreshes subscription once',
+    (tester) async {
+      tester.view.physicalSize = const Size(411, 914);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      const proxy = Proxy(name: '日本东京节点', type: 'vless');
+      final group = Group(
+        name: '优选线路',
+        type: GroupType.Selector,
+        hidden: false,
+        now: proxy.name,
+        all: const [proxy],
+      );
+      final container = ProviderContainer(
+        overrides: [
+          groupsProvider.overrideWithValue([group]),
+          currentGroupsStateProvider.overrideWithValue(
+            GroupsState(value: [group]),
+          ),
+          currentProfileProvider.overrideWithValue(
+            Profile(
+              id: 1,
+              autoUpdateDuration: Duration.zero,
+              currentGroupName: group.name,
+              selectedMap: {'优选线路': proxy.name},
+            ),
+          ),
+          isStartProvider.overrideWithValue(false),
+          delayProvider(proxyName: proxy.name).overrideWithValue(120),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(() => globalState.xboardNodes = const []);
+      globalState.container = container;
+      final refresh = Completer<bool>();
+      var refreshes = 0;
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _TestApp(
+            locale: const Locale('zh', 'CN'),
+            platform: TargetPlatform.android,
+            textScaler: const TextScaler.linear(1.4),
+            child: FengWoNodeStatusView(
+              onSubscriptionRefresh: () {
+                refreshes++;
+                return refresh.future;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      final refreshButton = find.byKey(
+        const ValueKey('fengwo-node-status-subscription-refresh'),
+      );
+      expect(refreshButton, findsOneWidget);
+      await tester.tap(refreshButton);
+      await tester.pump();
+      await tester.tap(refreshButton);
+      await tester.pump();
+
+      expect(refreshes, 1);
+      expect(
+        find.descendant(
+          of: refreshButton,
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsOneWidget,
+      );
+      refresh.complete(true);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('node selector uses real groups and filters node names', (
     tester,
   ) async {

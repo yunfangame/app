@@ -11,8 +11,13 @@ import 'package:intl/intl.dart';
 
 class FengWoNodeStatusView extends ConsumerStatefulWidget {
   final XboardAuthService? authService;
+  final Future<bool> Function()? onSubscriptionRefresh;
 
-  const FengWoNodeStatusView({super.key, @visibleForTesting this.authService});
+  const FengWoNodeStatusView({
+    super.key,
+    @visibleForTesting this.authService,
+    @visibleForTesting this.onSubscriptionRefresh,
+  });
 
   @override
   ConsumerState<FengWoNodeStatusView> createState() =>
@@ -27,6 +32,7 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
   bool _loadingXboardNodes = false;
   bool _xboardStatusFresh = false;
   bool _testingAll = false;
+  bool _refreshingSubscription = false;
 
   @override
   void initState() {
@@ -104,7 +110,7 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
   }
 
   Future<void> _refreshNodes(Group group, List<Proxy> nodes) async {
-    if (_testingAll || nodes.isEmpty) return;
+    if (_testingAll || _refreshingSubscription || nodes.isEmpty) return;
     setState(() => _testingAll = true);
     try {
       await _loadXboardNodes();
@@ -123,6 +129,39 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
       );
     } finally {
       if (mounted) setState(() => _testingAll = false);
+    }
+  }
+
+  Future<void> _refreshSubscription() async {
+    if (_refreshingSubscription || _testingAll) return;
+    final refresh =
+        widget.onSubscriptionRefresh ?? globalState.refreshXboardNodes;
+    if (refresh == null) return;
+    setState(() => _refreshingSubscription = true);
+    try {
+      final refreshed = await refresh();
+      if (!mounted) return;
+      if (refreshed) {
+        setState(() {
+          _xboardNodes = globalState.xboardNodes;
+          _xboardStatusFresh = _xboardNodes.isNotEmpty;
+        });
+      }
+      context.showNotifier(
+        refreshed
+            ? context.appLocalizations.nodeUpdateSuccess
+            : context.appLocalizations.requestFailed,
+      );
+    } catch (error, stackTrace) {
+      commonPrint.log(
+        'refresh node status subscription failed: $error, $stackTrace',
+        logLevel: LogLevel.warning,
+      );
+      if (mounted) {
+        context.showNotifier(context.appLocalizations.requestFailed);
+      }
+    } finally {
+      if (mounted) setState(() => _refreshingSubscription = false);
     }
   }
 
@@ -175,6 +214,9 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
     final group = _currentGroup(groups, profile);
     final currentNode = _currentNode(group, profile);
     final isStart = ref.watch(isStartProvider);
+    final subscriptionInitializing = ref.watch(
+      loadingProvider(LoadingTag.subscriptionBootstrap),
+    );
     final ipInfo = ref.watch(
       networkDetectionProvider.select((state) => state.originIpInfo),
     );
@@ -242,6 +284,14 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
     final countryCount = _xboardTagCount(_xboardNodes);
     final availability = nodes.isEmpty ? 0.0 : onlineCount / nodes.length;
     final colors = _NodeStatusColors.of(context);
+    final canRefreshSubscription =
+        !subscriptionInitializing &&
+        !_refreshingSubscription &&
+        !_testingAll &&
+        (widget.onSubscriptionRefresh != null ||
+            (!globalState.isOfflineMode &&
+                globalState.xboardSession != null &&
+                globalState.refreshXboardNodes != null));
     return Material(
       color: colors.background,
       child: ClipRRect(
@@ -261,12 +311,16 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
                 selectedName: selectedName,
                 isStart: isStart,
                 testingAll: _testingAll,
+                refreshingSubscription: _refreshingSubscription,
                 countryCount: countryCount,
                 availability: availability,
                 nodesScrollController: _nodesScrollController,
                 onRefresh: group == null
                     ? null
                     : () => _refreshNodes(group, nodes),
+                onSubscriptionRefresh: canRefreshSubscription
+                    ? _refreshSubscription
+                    : null,
                 onSelect: group == null
                     ? null
                     : (proxy) => _selectProxy(group, proxy),
@@ -358,10 +412,12 @@ class _NodeStatusBody extends StatelessWidget {
   final String? selectedName;
   final bool isStart;
   final bool testingAll;
+  final bool refreshingSubscription;
   final int countryCount;
   final double availability;
   final ScrollController nodesScrollController;
   final VoidCallback? onRefresh;
+  final VoidCallback? onSubscriptionRefresh;
   final ValueChanged<Proxy>? onSelect;
   final ValueChanged<Proxy>? onTest;
 
@@ -377,10 +433,12 @@ class _NodeStatusBody extends StatelessWidget {
     required this.selectedName,
     required this.isStart,
     required this.testingAll,
+    required this.refreshingSubscription,
     required this.countryCount,
     required this.availability,
     required this.nodesScrollController,
     required this.onRefresh,
+    required this.onSubscriptionRefresh,
     required this.onSelect,
     required this.onTest,
   });
@@ -468,8 +526,10 @@ class _NodeStatusBody extends StatelessWidget {
                             nodeMetadata: nodeMetadata,
                             selectedName: selectedName,
                             testingAll: testingAll,
+                            refreshingSubscription: refreshingSubscription,
                             scrollController: nodesScrollController,
                             onRefresh: onRefresh,
+                            onSubscriptionRefresh: onSubscriptionRefresh,
                             onSelect: onSelect,
                             onTest: onTest,
                             compact: compact,
@@ -546,9 +606,10 @@ class _NodeStatusTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: compact ? 72 : 108,
+    return ConstrainedBox(
+      constraints: BoxConstraints(minHeight: compact ? 72 : 108),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -755,7 +816,7 @@ class _NodeStat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: compact ? 62 : 112,
+      constraints: BoxConstraints(minHeight: compact ? 62 : 112),
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 4 : 8,
         vertical: compact ? 6 : 8,
@@ -812,8 +873,10 @@ class _PreferredNodesPanel extends StatelessWidget {
   final Map<String, XboardNodeData> nodeMetadata;
   final String? selectedName;
   final bool testingAll;
+  final bool refreshingSubscription;
   final ScrollController scrollController;
   final VoidCallback? onRefresh;
+  final VoidCallback? onSubscriptionRefresh;
   final ValueChanged<Proxy>? onSelect;
   final ValueChanged<Proxy>? onTest;
   final bool compact;
@@ -827,8 +890,10 @@ class _PreferredNodesPanel extends StatelessWidget {
     required this.nodeMetadata,
     required this.selectedName,
     required this.testingAll,
+    required this.refreshingSubscription,
     required this.scrollController,
     required this.onRefresh,
+    required this.onSubscriptionRefresh,
     required this.onSelect,
     required this.onTest,
     required this.compact,
@@ -875,9 +940,26 @@ class _PreferredNodesPanel extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
               ],
+              IconButton(
+                key: const ValueKey('fengwo-node-status-subscription-refresh'),
+                onPressed: refreshingSubscription
+                    ? null
+                    : onSubscriptionRefresh,
+                tooltip: context.appLocalizations.refreshSubscription,
+                visualDensity: VisualDensity.compact,
+                icon: refreshingSubscription
+                    ? const SizedBox.square(
+                        dimension: 17,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.cloud_download_outlined),
+              ),
+              const SizedBox(width: 2),
               TextButton.icon(
                 key: const ValueKey('fengwo-node-status-refresh'),
-                onPressed: testingAll ? null : onRefresh,
+                onPressed: testingAll || refreshingSubscription
+                    ? null
+                    : onRefresh,
                 icon: testingAll
                     ? const SizedBox.square(
                         dimension: 17,
