@@ -85,6 +85,13 @@ jobs:
             'test/core/protocol_contract_test.dart',
             'test/views/proxies/common_test.dart',
             'test/common/task_test.dart',
+            'test/common/startup_test.dart',
+            'test/common/api_health_test.dart',
+            'test/common/remote_config_cipher_test.dart',
+            'test/common/api_remote_config_cache_test.dart',
+            'test/common/subscription_v2_test.dart',
+            'test/database/migration_v1_to_v2_test.dart',
+            'test/database/generated_contract_test.dart',
             'test/models/config_test.dart',
             'test/common/windows_proxy_guard_test.dart',
             'test/common/network_diagnostic_test.dart',
@@ -114,6 +121,12 @@ jobs:
           )
           flutter test @tests --reporter expanded
           if ($LASTEXITCODE -ne 0) { throw 'Flutter tests failed' }
+
+      - name: Test live API configuration encryption
+        shell: pwsh
+        run: |
+          flutter test tooling/api_remote_config_live_smoke_test.dart --reporter expanded
+          if ($LASTEXITCODE -ne 0) { throw 'Live API encryption checks failed' }
 
       - name: Test native Windows listeners
         shell: pwsh
