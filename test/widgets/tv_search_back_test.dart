@@ -12,8 +12,18 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 void main() {
+  setUpAll(() {
+    globalState.packageInfo = PackageInfo(
+      appName: 'FengWo',
+      packageName: 'com.fengwo.app',
+      version: '0.8.97',
+      buildNumber: '20260912',
+    );
+  });
+
   testWidgets('desktop escape runs the back flow and exits search', (
     tester,
   ) async {
@@ -139,6 +149,7 @@ void main() {
     );
     await tester.pump();
     expect(find.byType(NavigationRail), findsOneWidget);
+    expect(find.text('v0.8.97+20260912'), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.search));
     await tester.pumpAndSettle();

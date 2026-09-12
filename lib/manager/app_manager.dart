@@ -285,14 +285,35 @@ class AppSidebarContainer extends ConsumerWidget {
                             ),
                             const SizedBox(width: 10),
                             Expanded(
-                              child: Text(
-                                Intl.message('brandName'),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: context.textTheme.titleMedium?.copyWith(
-                                  color: context.colorScheme.onSurface,
-                                  fontWeight: FontWeight.w900,
-                                ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    Intl.message('brandName'),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: context.textTheme.titleMedium
+                                        ?.copyWith(
+                                          color: context.colorScheme.onSurface,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                  ),
+                                  if (!isMobileView) ...[
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'v${globalState.packageInfo.version}'
+                                      '${globalState.packageInfo.buildNumber.trim().isEmpty ? '' : '+${globalState.packageInfo.buildNumber}'}',
+                                      key: const Key('desktop-package-version'),
+                                      style: context.textTheme.labelSmall
+                                          ?.copyWith(
+                                            color: context
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
                           ],
