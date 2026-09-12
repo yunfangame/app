@@ -47,6 +47,7 @@ export 'render.dart';
 export 'request.dart';
 export 'scroll.dart';
 export 'snowflake.dart';
+export 'startup.dart';
 export 'string.dart';
 export 'subscription_v2.dart';
 export 'system.dart';

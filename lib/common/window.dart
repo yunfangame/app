@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/config.dart';
 import 'package:flutter/material.dart';
 import 'package:screen_retriever/screen_retriever.dart';
@@ -73,6 +74,38 @@ class Window {
     await windowManager.show();
     await windowManager.focus();
     await windowManager.setSkipTaskbar(false);
+  }
+
+  Future<void> showStartup({required bool Function() isActive}) async {
+    try {
+      await windowManager.ensureInitialized();
+      if (!isActive() || await windowManager.isVisible()) return;
+      if (!isActive()) return;
+      await windowManager.show();
+      if (isActive()) await windowManager.focus();
+    } catch (error) {
+      commonPrint.log(
+        'show startup window failed: $error',
+        logLevel: LogLevel.warning,
+      );
+    }
+  }
+
+  Future<void> showInitFailure() async {
+    try {
+      await windowManager.ensureInitialized();
+      if (await windowManager.isVisible()) return;
+      await windowManager.waitUntilReadyToShow(
+        const WindowOptions(size: Size(680, 580), center: true),
+      );
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (error) {
+      commonPrint.log(
+        'show init failure window failed: $error',
+        logLevel: LogLevel.warning,
+      );
+    }
   }
 
   Future<bool> get isVisible async {

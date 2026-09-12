@@ -1,6 +1,77 @@
 import 'package:fl_clash/common/color.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+class InitLoadingScreen extends StatelessWidget {
+  final ValueListenable<String> stage;
+
+  const InitLoadingScreen({super.key, required this.stage});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      themeMode: ThemeMode.system,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF0787C9)),
+      ),
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF40B8F2),
+          brightness: Brightness.dark,
+        ),
+      ),
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.shield_outlined,
+                    size: 38,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  '蜂窝加速器',
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 18),
+                const SizedBox(
+                  width: 26,
+                  height: 26,
+                  child: CircularProgressIndicator(strokeWidth: 3),
+                ),
+                const SizedBox(height: 14),
+                ValueListenableBuilder<String>(
+                  valueListenable: stage,
+                  builder: (_, value, _) => Text(
+                    value,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class InitErrorScreen extends StatelessWidget {
   final Object error;
@@ -14,7 +85,7 @@ class InitErrorScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Init Failed'),
+        title: const Text('启动失败'),
         backgroundColor: colorScheme.error,
         foregroundColor: colorScheme.onError,
         elevation: 0,
@@ -35,7 +106,7 @@ class InitErrorScreen extends StatelessWidget {
                   const SizedBox(width: 12),
                   const Expanded(
                     child: Text(
-                      'The application encountered a critical error during startup and cannot continue.',
+                      '应用启动时遇到问题。请复制错误详情发送给客服，或按 ⌘Q 退出后重试。',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
@@ -45,7 +116,7 @@ class InitErrorScreen extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 24),
-              _buildSectionLabel('Error Details:'),
+              _buildSectionLabel('错误详情'),
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
@@ -63,7 +134,7 @@ class InitErrorScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              _buildSectionLabel('Stack Trace:'),
+              _buildSectionLabel('调用信息'),
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
@@ -89,7 +160,7 @@ class InitErrorScreen extends StatelessWidget {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _copyToClipboard(context),
-        label: const Text('Copy Details'),
+        label: const Text('复制详情'),
         icon: const Icon(Icons.copy),
         backgroundColor: colorScheme.error,
         foregroundColor: colorScheme.onError,
@@ -112,10 +183,7 @@ class InitErrorScreen extends StatelessWidget {
     Clipboard.setData(ClipboardData(text: text));
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Error details copied to clipboard'),
-        duration: Duration(seconds: 2),
-      ),
+      const SnackBar(content: Text('错误详情已复制'), duration: Duration(seconds: 2)),
     );
   }
 }

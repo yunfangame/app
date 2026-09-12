@@ -24,6 +24,9 @@ class WindowExtManager {
         case "shouldTerminate":
           listener.onShouldTerminate();
           break;
+        case "reopen":
+          listener.onReopen();
+          break;
       }
     }
   }
@@ -44,6 +47,10 @@ class WindowExtManager {
     await _channel.invokeMethod('setWindowCornerPreference', {
       'round': round,
     });
+  }
+
+  Future<void> setTerminateHandlerReady(bool ready) async {
+    await _channel.invokeMethod('setTerminateHandlerReady', {'ready': ready});
   }
 }
 

@@ -3,6 +3,7 @@ import FlutterMacOS
 
 public class WindowExtPlugin: NSObject, FlutterPlugin {
     public static var instance: WindowExtPlugin?
+    public private(set) var terminateHandlerReady = false
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "window_ext", binaryMessenger: registrar.messenger)
@@ -19,7 +20,32 @@ public class WindowExtPlugin: NSObject, FlutterPlugin {
         self.channel = channel
     }
 
-    public func handleShouldTerminate() {
+    public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        switch call.method {
+        case "setTerminateHandlerReady":
+            let arguments = call.arguments as? [String: Any]
+            terminateHandlerReady = arguments?["ready"] as? Bool ?? false
+            result(nil)
+        default:
+            result(FlutterMethodNotImplemented)
+        }
+    }
+
+    @discardableResult
+    public func handleShouldTerminate() -> Bool {
+        guard terminateHandlerReady else {
+            return false
+        }
         channel.invokeMethod("shouldTerminate", arguments: nil)
+        return true
+    }
+
+    @discardableResult
+    public func handleReopen() -> Bool {
+        guard terminateHandlerReady else {
+            return false
+        }
+        channel.invokeMethod("reopen", arguments: nil)
+        return true
     }
 }

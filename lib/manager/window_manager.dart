@@ -39,6 +39,9 @@ class _WindowContainerState extends ConsumerState<WindowManager>
       }
     });
     windowExtManager.addListener(this);
+    if (system.isMacOS) {
+      unawaited(windowExtManager.setTerminateHandlerReady(true));
+    }
     windowManager.addListener(this);
   }
 
@@ -59,6 +62,12 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   Future<void> onShouldTerminate() async {
     await ref.read(systemActionProvider.notifier).handleExit();
     super.onShouldTerminate();
+  }
+
+  @override
+  void onReopen() {
+    unawaited(window?.show());
+    super.onReopen();
   }
 
   @override
@@ -101,6 +110,9 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   Future<void> dispose() async {
     windowManager.removeListener(this);
     windowExtManager.removeListener(this);
+    if (system.isMacOS) {
+      unawaited(windowExtManager.setTerminateHandlerReady(false));
+    }
     super.dispose();
   }
 }

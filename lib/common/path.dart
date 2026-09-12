@@ -15,15 +15,23 @@ class AppPath {
 
   AppPath._internal() {
     appDirPath = join(dirname(Platform.resolvedExecutable));
-    getApplicationSupportDirectory().then((value) {
-      dataDir.complete(value);
-    });
-    getTemporaryDirectory().then((value) {
-      tempDir.complete(value);
-    });
-    getApplicationCacheDirectory().then((value) {
-      cacheDir.complete(value);
-    });
+    _completeDirectory(dataDir, getApplicationSupportDirectory());
+    _completeDirectory(tempDir, getTemporaryDirectory());
+    _completeDirectory(cacheDir, getApplicationCacheDirectory());
+  }
+
+  static void _completeDirectory(
+    Completer<Directory> completer,
+    Future<Directory> directory,
+  ) {
+    unawaited(
+      directory.then<void>(
+        completer.complete,
+        onError: (Object error, StackTrace stackTrace) {
+          completer.completeError(error, stackTrace);
+        },
+      ),
+    );
   }
 
   factory AppPath() {
