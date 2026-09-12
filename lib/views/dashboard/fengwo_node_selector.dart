@@ -127,6 +127,7 @@ class _FengWoNodeSelectorViewState
   @override
   Widget build(BuildContext context) {
     final rawGroups = ref.watch(groupsProvider);
+    final loading = ref.watch(loadingProvider(LoadingTag.subscriptionProfile));
     final visibleGroups = ref.watch(currentGroupsStateProvider).value;
     final groups = visibleGroups.map((group) {
       final rawGroup = rawGroups.getGroup(group.name) ?? group;
@@ -147,7 +148,9 @@ class _FengWoNodeSelectorViewState
       borderRadius: BorderRadius.circular(28),
       child: Material(
         color: colors.background,
-        child: groups.isEmpty
+        child: groups.isEmpty && loading
+            ? _LoadingNodes(colors: colors)
+            : groups.isEmpty
             ? _EmptyNodes(
                 colors: colors,
                 refreshing: _refreshingNodes,
@@ -831,6 +834,29 @@ class _EmptyNodes extends StatelessWidget {
                   )
                 : const Icon(Icons.refresh_rounded),
             label: Text(context.appLocalizations.update),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoadingNodes extends StatelessWidget {
+  final _SelectorColors colors;
+
+  const _LoadingNodes({required this.colors});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircularProgressIndicator(color: colors.primary),
+          const SizedBox(height: 16),
+          Text(
+            context.appLocalizations.loading,
+            style: TextStyle(color: colors.muted),
           ),
         ],
       ),

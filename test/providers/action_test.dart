@@ -282,6 +282,7 @@ void main() {
       late _TestSetupAction setupAction;
       Profile? loadedProfile;
       Uint8List? loadedBytes;
+      final diagnosticEvents = <Map<String, Object?>>[];
       final container = ProviderContainer(
         overrides: [
           currentProfileIdProvider.overrideWithBuild((_, _) => oldProfile.id),
@@ -306,6 +307,8 @@ void main() {
               loadedBytes = content;
               return profile.copyWith(label: 'V2 Account');
             },
+            diagnosticRecorder: (event, fields) =>
+                diagnosticEvents.add({'event': event, ...fields}),
           );
 
       expect(loadedProfile?.id, oldProfile.id);
@@ -314,6 +317,30 @@ void main() {
       expect(container.read(profilesProvider), [imported]);
       expect(container.read(currentProfileIdProvider), oldProfile.id);
       expect(setupAction.applyProfileCount, 1);
+      expect(
+        diagnosticEvents,
+        containsAll([
+          {
+            'event': 'subscription.pipeline.started',
+            'stage': 'profile_validation',
+          },
+          {
+            'event': 'subscription.pipeline.completed',
+            'stage': 'profile_validation',
+            'content_bytes': bytes.length,
+          },
+          {'event': 'subscription.pipeline.started', 'stage': 'profile_write'},
+          {
+            'event': 'subscription.pipeline.completed',
+            'stage': 'profile_write',
+            'content_bytes': bytes.length,
+          },
+        ]),
+      );
+      final encodedDiagnostics = jsonEncode(diagnosticEvents);
+      expect(encodedDiagnostics, isNot(contains(oldUrl)));
+      expect(encodedDiagnostics, isNot(contains(sourceId)));
+      expect(encodedDiagnostics, isNot(contains('proxies')));
     });
 
     test('V2 migration removes stale XBoard profiles after applying', () async {
@@ -365,6 +392,7 @@ void main() {
       );
       late _TestSetupAction setupAction;
       final clearedEffects = <int>[];
+      final diagnosticEvents = <Map<String, Object?>>[];
       final container = ProviderContainer(
         overrides: [
           currentProfileIdProvider.overrideWithBuild((_, _) => staleLegacy.id),
@@ -387,6 +415,8 @@ void main() {
               removeLegacyXboardProfiles: true,
               loader: (_, _) async => throw StateError('download failed'),
               effectClearer: (profileId) async => clearedEffects.add(profileId),
+              diagnosticRecorder: (event, fields) =>
+                  diagnosticEvents.add({'event': event, ...fields}),
             ),
         throwsA(isA<StateError>()),
       );
@@ -395,6 +425,15 @@ void main() {
       expect(container.read(currentProfileIdProvider), staleLegacy.id);
       expect(setupAction.applyProfileCount, 0);
       expect(clearedEffects, isEmpty);
+      final failedDiagnostic = diagnosticEvents.singleWhere(
+        (event) => event['event'] == 'subscription.pipeline.failed',
+      );
+      expect(failedDiagnostic, {
+        'event': 'subscription.pipeline.failed',
+        'stage': 'profile_validation',
+        'error_code': 'state_error',
+      });
+      expect(jsonEncode(diagnosticEvents), isNot(contains('download failed')));
     });
 
     test(

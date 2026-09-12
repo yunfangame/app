@@ -464,6 +464,7 @@ enum QueryTag { proxies, access }
 
 enum LoadingTag {
   profiles,
+  subscriptionProfile,
   backup_restore,
   access,
   proxies,

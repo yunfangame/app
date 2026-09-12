@@ -103,11 +103,10 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
     }
   }
 
-  Future<void> _refreshNodes(Group group, List<Proxy> nodes) async {
+  Future<void> _testAll(Group group, List<Proxy> nodes) async {
     if (_testingAll || nodes.isEmpty) return;
     setState(() => _testingAll = true);
     try {
-      await _loadXboardNodes();
       final metadata = _matchXboardNodes(nodes, _xboardNodes);
       final testableNodes = nodes
           .where(
@@ -123,6 +122,36 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
       );
     } finally {
       if (mounted) setState(() => _testingAll = false);
+    }
+  }
+
+  Future<void> _updateNodes() async {
+    if (_loadingXboardNodes) return;
+    final refresh = globalState.refreshXboardNodes;
+    if (refresh == null) return;
+    setState(() => _loadingXboardNodes = true);
+    try {
+      final refreshed = await refresh();
+      if (!mounted) return;
+      setState(() {
+        _xboardNodes = globalState.xboardNodes;
+        _xboardStatusFresh = _xboardNodes.isNotEmpty;
+      });
+      context.showNotifier(
+        refreshed
+            ? context.appLocalizations.nodeUpdateSuccess
+            : context.appLocalizations.requestFailed,
+      );
+    } catch (error, stackTrace) {
+      commonPrint.log(
+        'update latest nodes failed: $error, $stackTrace',
+        logLevel: LogLevel.warning,
+      );
+      if (mounted) {
+        context.showNotifier(context.appLocalizations.requestFailed);
+      }
+    } finally {
+      if (mounted) setState(() => _loadingXboardNodes = false);
     }
   }
 
@@ -260,13 +289,18 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
                 ipInfo: ipInfo,
                 selectedName: selectedName,
                 isStart: isStart,
+                loadingNodes: _loadingXboardNodes,
                 testingAll: _testingAll,
                 countryCount: countryCount,
                 availability: availability,
                 nodesScrollController: _nodesScrollController,
-                onRefresh: group == null
+                onUpdate:
+                    group == null ||
+                        globalState.isOfflineMode ||
+                        globalState.refreshXboardNodes == null
                     ? null
-                    : () => _refreshNodes(group, nodes),
+                    : _updateNodes,
+                onTestAll: group == null ? null : () => _testAll(group, nodes),
                 onSelect: group == null
                     ? null
                     : (proxy) => _selectProxy(group, proxy),
@@ -357,11 +391,13 @@ class _NodeStatusBody extends StatelessWidget {
   final IpInfo? ipInfo;
   final String? selectedName;
   final bool isStart;
+  final bool loadingNodes;
   final bool testingAll;
   final int countryCount;
   final double availability;
   final ScrollController nodesScrollController;
-  final VoidCallback? onRefresh;
+  final VoidCallback? onUpdate;
+  final VoidCallback? onTestAll;
   final ValueChanged<Proxy>? onSelect;
   final ValueChanged<Proxy>? onTest;
 
@@ -376,11 +412,13 @@ class _NodeStatusBody extends StatelessWidget {
     required this.ipInfo,
     required this.selectedName,
     required this.isStart,
+    required this.loadingNodes,
     required this.testingAll,
     required this.countryCount,
     required this.availability,
     required this.nodesScrollController,
-    required this.onRefresh,
+    required this.onUpdate,
+    required this.onTestAll,
     required this.onSelect,
     required this.onTest,
   });
@@ -467,9 +505,11 @@ class _NodeStatusBody extends StatelessWidget {
                             nodeStatuses: nodeStatuses,
                             nodeMetadata: nodeMetadata,
                             selectedName: selectedName,
+                            loadingNodes: loadingNodes,
                             testingAll: testingAll,
                             scrollController: nodesScrollController,
-                            onRefresh: onRefresh,
+                            onUpdate: onUpdate,
+                            onTestAll: onTestAll,
                             onSelect: onSelect,
                             onTest: onTest,
                             compact: compact,
@@ -811,9 +851,11 @@ class _PreferredNodesPanel extends StatelessWidget {
   final Map<String, _NodePresentationStatus> nodeStatuses;
   final Map<String, XboardNodeData> nodeMetadata;
   final String? selectedName;
+  final bool loadingNodes;
   final bool testingAll;
   final ScrollController scrollController;
-  final VoidCallback? onRefresh;
+  final VoidCallback? onUpdate;
+  final VoidCallback? onTestAll;
   final ValueChanged<Proxy>? onSelect;
   final ValueChanged<Proxy>? onTest;
   final bool compact;
@@ -826,9 +868,11 @@ class _PreferredNodesPanel extends StatelessWidget {
     required this.nodeStatuses,
     required this.nodeMetadata,
     required this.selectedName,
+    required this.loadingNodes,
     required this.testingAll,
     required this.scrollController,
-    required this.onRefresh,
+    required this.onUpdate,
+    required this.onTestAll,
     required this.onSelect,
     required this.onTest,
     required this.compact,
@@ -851,41 +895,55 @@ class _PreferredNodesPanel extends StatelessWidget {
                   compact: compact,
                 ),
               ),
-              if (!compact && group != null) ...[
-                Container(
-                  constraints: const BoxConstraints(maxWidth: 180),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 7,
-                  ),
-                  decoration: BoxDecoration(
-                    color: colors.primarySoft,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Text(
-                    group!.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: colors.primary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
+              if (compact)
+                IconButton(
+                  key: const ValueKey('fengwo-node-status-update'),
+                  onPressed: loadingNodes ? null : onUpdate,
+                  tooltip: context.appLocalizations.update,
+                  icon: loadingNodes
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh_rounded),
+                )
+              else
+                TextButton.icon(
+                  key: const ValueKey('fengwo-node-status-update'),
+                  onPressed: loadingNodes ? null : onUpdate,
+                  icon: loadingNodes
+                      ? const SizedBox.square(
+                          dimension: 17,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh_rounded),
+                  label: Text(context.appLocalizations.update),
                 ),
-                const SizedBox(width: 10),
-              ],
-              TextButton.icon(
-                key: const ValueKey('fengwo-node-status-refresh'),
-                onPressed: testingAll ? null : onRefresh,
-                icon: testingAll
-                    ? const SizedBox.square(
-                        dimension: 17,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.refresh_rounded),
-                label: Text(context.appLocalizations.refreshNodes),
-              ),
+              const SizedBox(width: 6),
+              if (compact)
+                IconButton.filledTonal(
+                  key: const ValueKey('fengwo-node-status-delay-test'),
+                  onPressed: testingAll || nodes.isEmpty ? null : onTestAll,
+                  tooltip: context.appLocalizations.delayTest,
+                  icon: testingAll
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.speed_rounded),
+                )
+              else
+                FilledButton.tonalIcon(
+                  key: const ValueKey('fengwo-node-status-delay-test'),
+                  onPressed: testingAll || nodes.isEmpty ? null : onTestAll,
+                  icon: testingAll
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.speed_rounded),
+                  label: Text(context.appLocalizations.delayTest),
+                ),
             ],
           ),
           SizedBox(height: compact ? 10 : 16),

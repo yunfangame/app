@@ -2,6 +2,19 @@ import 'dart:async';
 
 enum ApplicationReadiness { pending, ready, failed, timedOut, disposed }
 
+void runPostAuthenticationTask({
+  required Future<void> Function() task,
+  required void Function(Object error, StackTrace stackTrace) onError,
+}) {
+  unawaited(() async {
+    try {
+      await task();
+    } catch (error, stackTrace) {
+      onError(error, stackTrace);
+    }
+  }());
+}
+
 class AuthenticationBootstrapController {
   Timer? _timer;
   int _revision = 0;

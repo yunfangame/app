@@ -1894,6 +1894,27 @@ void main() {
     final page = find.byType(FengWoNodeStatusView);
     expect(page, findsOneWidget);
     final localizations = tester.element(page).appLocalizations;
+    final updateButton = find.byKey(
+      const ValueKey('fengwo-node-status-update'),
+    );
+    final delayTestButton = find.byKey(
+      const ValueKey('fengwo-node-status-delay-test'),
+    );
+    expect(
+      find.descendant(
+        of: updateButton,
+        matching: find.text(localizations.update),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: delayTestButton,
+        matching: find.text(localizations.delayTest),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text(group.name), findsNothing);
     expect(find.text(localizations.nodeBackendOffline), findsOneWidget);
     expect(find.text(localizations.nodeAvailable), findsWidgets);
     expect(find.text(localizations.timeout), findsWidgets);
@@ -2073,6 +2094,43 @@ void main() {
 
     expect(find.text('新加坡 AWS 2x'), findsOneWidget);
     expect(find.text('日本大阪 1x'), findsOneWidget);
+    expect(tester.takeException(), null);
+  });
+
+  testWidgets('node selector shows loading while login profile sync runs', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1100, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final container = ProviderContainer(
+      overrides: [
+        groupsProvider.overrideWithValue(const []),
+        loadingProvider(LoadingTag.subscriptionProfile).overrideWithValue(true),
+      ],
+    );
+    addTearDown(container.dispose);
+    globalState.container = container;
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _TestApp(child: FengWoNodeSelectorView()),
+      ),
+    );
+    await tester.pump();
+
+    final selector = find.byType(FengWoNodeSelectorView);
+    final localizations = tester.element(selector).appLocalizations;
+    expect(find.text(localizations.loading), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.text(localizations.proxyGroupEmpty), findsNothing);
+    expect(
+      find.byKey(const ValueKey('fengwo-selector-empty-refresh')),
+      findsNothing,
+    );
     expect(tester.takeException(), null);
   });
 

@@ -67,6 +67,7 @@ class ApplicationState extends ConsumerState<Application> {
   late final LoginRoutingCoordinator _loginRouting;
   LoginRoutingAttempt? _loginRoutingAttempt;
   XboardLoginResult? _loginRoutingSession;
+  int? _postLoginProfileSyncRevision;
   int? _deferredProfileSyncRevision;
   int? _authenticationBootstrapSessionRevision;
   final _managedProfileSources = <String>{};
@@ -323,6 +324,7 @@ class ApplicationState extends ConsumerState<Application> {
         final sessionRevision = globalState.activateXboardSession(session);
         _authenticationBootstrapSessionRevision = sessionRevision;
         _beginDefaultLoginRouting(session);
+        _startPostLoginProfileSync(session, sessionRevision);
         globalState.setOfflineMode(false);
         await _xboardSessionStorage.setOfflineMode(false);
         if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
@@ -331,17 +333,6 @@ class ApplicationState extends ConsumerState<Application> {
             !globalState.isActiveXboardSession(session, sessionRevision)) {
           return;
         }
-        final profile = await _syncSubscriptionProfileForLogin(
-          session,
-          sessionRevision,
-        );
-        if (!_isAuthenticationBootstrapCurrent(bootstrapRevision) ||
-            !globalState.isActiveXboardSession(session, sessionRevision)) {
-          return;
-        }
-        if (profile != null) {
-          _selectDefaultLoginNode(session, expectedProfile: profile);
-        }
         if (!_completeAuthenticationBootstrap(
           bootstrapRevision,
           _AuthenticationBootstrap.home,
@@ -349,6 +340,7 @@ class ApplicationState extends ConsumerState<Application> {
           return;
         }
         globalState.requestXboardAnnouncementAutoPrompt();
+        _startPostLoginProfileSync(session, sessionRevision);
       } on XboardAuthException catch (error) {
         if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
         final sessionExpired =
@@ -455,6 +447,7 @@ class ApplicationState extends ConsumerState<Application> {
       if (!mounted || _logoutInProgress) return session;
       globalState.activateXboardSession(session);
       _beginDefaultLoginRouting(session);
+      _startPostLoginProfileSync(session, globalState.xboardSessionRevision);
       await _loadXboardNodes(session, ignoreOfflineMode: true);
       commonPrint.event(
         'auth.remembered_login.succeeded',
@@ -504,14 +497,15 @@ class ApplicationState extends ConsumerState<Application> {
     String password,
     bool rememberMe,
     bool autoLogin,
-  ) async {
+  ) {
     if (!mounted ||
         _logoutInProgress ||
         !identical(session, globalState.xboardSession)) {
-      return;
+      return Future.value();
     }
+    final sessionRevision = globalState.xboardSessionRevision;
     globalState.setOfflineMode(false);
-    final saved = await _loginPersistence.saveAuthenticated(
+    final saving = _loginPersistence.saveAuthenticated(
       session: session,
       email: email,
       password: password,
@@ -519,8 +513,47 @@ class ApplicationState extends ConsumerState<Application> {
       autoLogin: autoLogin,
     );
     _applyRememberedLogin(_loginPersistence.state);
-    if (!saved && !rememberMe) {
-      _showStartupMessage(currentAppLocalizations.rememberedLoginClearFailed);
+    runPostAuthenticationTask(
+      task: () => _finishAuthenticatedSessionPersistence(
+        session,
+        sessionRevision,
+        saving,
+      ),
+      onError: (error, stackTrace) {
+        commonPrint.event(
+          'auth.post_login.persistence.failed',
+          fields: {
+            'error_type': error.runtimeType.toString(),
+            'error': '$error',
+          },
+        );
+        commonPrint.log(
+          'finish authenticated session persistence failed: $error, $stackTrace',
+          logLevel: LogLevel.warning,
+        );
+      },
+    );
+    _startPostLoginProfileSync(session, sessionRevision);
+    globalState.requestXboardAnnouncementAutoPrompt();
+    return Future.value();
+  }
+
+  Future<void> _finishAuthenticatedSessionPersistence(
+    XboardLoginResult session,
+    int sessionRevision,
+    Future<bool> saving,
+  ) async {
+    final saved = await saving;
+    if (!mounted ||
+        !globalState.isActiveXboardSession(session, sessionRevision)) {
+      return;
+    }
+    _applyRememberedLogin(_loginPersistence.state);
+    if (!saved) {
+      commonPrint.event(
+        'auth.credentials.save.degraded',
+        fields: {'session_revision': sessionRevision},
+      );
     }
     try {
       await _xboardSessionStorage.setOfflineMode(false);
@@ -530,24 +563,58 @@ class ApplicationState extends ConsumerState<Application> {
         fields: {'error_type': error.runtimeType.toString()},
       );
     }
-    if (!mounted ||
-        _logoutInProgress ||
-        !identical(session, globalState.xboardSession)) {
-      return;
-    }
-    final sessionRevision = globalState.xboardSessionRevision;
+  }
+
+  void _startPostLoginProfileSync(
+    XboardLoginResult session,
+    int sessionRevision,
+  ) {
+    if (_postLoginProfileSyncRevision == sessionRevision) return;
+    _postLoginProfileSyncRevision = sessionRevision;
+    ref.read(loadingProvider(LoadingTag.subscriptionProfile).notifier).start();
+    runPostAuthenticationTask(
+      task: () async {
+        try {
+          await _finishPostLoginProfileSync(session, sessionRevision);
+        } finally {
+          if (mounted && _postLoginProfileSyncRevision == sessionRevision) {
+            await ref
+                .read(loadingProvider(LoadingTag.subscriptionProfile).notifier)
+                .stop();
+          }
+        }
+      },
+      onError: (error, stackTrace) {
+        commonPrint.event(
+          'auth.post_login.sync.failed',
+          fields: {
+            'error_type': error.runtimeType.toString(),
+            'error': '$error',
+          },
+        );
+        commonPrint.log(
+          'post-login profile sync failed: $error, $stackTrace',
+          logLevel: LogLevel.warning,
+        );
+      },
+    );
+  }
+
+  Future<void> _finishPostLoginProfileSync(
+    XboardLoginResult session,
+    int sessionRevision,
+  ) async {
     final profile = await _syncSubscriptionProfileForLogin(
       session,
       sessionRevision,
+      showFailureMessage: false,
     );
     if (!mounted ||
-        !globalState.isActiveXboardSession(session, sessionRevision)) {
+        !globalState.isActiveXboardSession(session, sessionRevision) ||
+        profile == null) {
       return;
     }
-    if (profile != null) {
-      _selectDefaultLoginNode(session, expectedProfile: profile);
-    }
-    globalState.requestXboardAnnouncementAutoPrompt();
+    _selectDefaultLoginNode(session, expectedProfile: profile);
   }
 
   Future<Profile?> _syncSubscriptionProfile(
@@ -595,8 +662,9 @@ class ApplicationState extends ConsumerState<Application> {
 
   Future<Profile?> _syncSubscriptionProfileForLogin(
     XboardLoginResult session,
-    int sessionRevision,
-  ) async {
+    int sessionRevision, {
+    bool showFailureMessage = true,
+  }) async {
     try {
       return await _syncSubscriptionProfile(session, sessionRevision);
     } on XboardAuthException catch (error) {
@@ -610,10 +678,12 @@ class ApplicationState extends ConsumerState<Application> {
         'auth.profile_sync.degraded',
         fields: {'failure': error.failure.name},
       );
-      _showStartupMessage(
-        currentAppLocalizations.subscriptionImportFailed,
-        isCurrent: isCurrent,
-      );
+      if (showFailureMessage) {
+        _showStartupMessage(
+          currentAppLocalizations.subscriptionImportFailed,
+          isCurrent: isCurrent,
+        );
+      }
       return null;
     }
   }
@@ -674,6 +744,8 @@ class ApplicationState extends ConsumerState<Application> {
               removeLegacyXboardProfiles: true,
               isCurrent: isCurrent,
               validationTimeout: _profileValidationTimeout,
+              diagnosticRecorder: (event, fields) =>
+                  commonPrint.event(event, fields: fields),
             );
         if (!isCurrent()) return null;
         await _xboardSessionStorage.setManagedProfileUrl(
@@ -777,6 +849,9 @@ class ApplicationState extends ConsumerState<Application> {
     _loginRouting.cancel();
     _loginRoutingAttempt = null;
     _loginRoutingSession = null;
+    _postLoginProfileSyncRevision = null;
+    ref.read(loadingProvider(LoadingTag.subscriptionProfile).notifier).value =
+        false;
     _deferredProfileSyncRevision = null;
     try {
       await _performLogoutXboard();
@@ -1288,6 +1363,10 @@ class ApplicationState extends ConsumerState<Application> {
           if (!mounted || _logoutInProgress) return session;
           globalState.activateXboardSession(session);
           _beginDefaultLoginRouting(session);
+          _startPostLoginProfileSync(
+            session,
+            globalState.xboardSessionRevision,
+          );
           await _loadXboardNodes(session, ignoreOfflineMode: true);
           commonPrint.event(
             'auth.login.succeeded',

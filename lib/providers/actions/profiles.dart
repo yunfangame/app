@@ -202,6 +202,7 @@ class ProfilesAction extends _$ProfilesAction {
     Future<void> Function(int profileId)? effectClearer,
     bool Function()? isCurrent,
     Duration? validationTimeout,
+    SubscriptionDiagnosticRecorder? diagnosticRecorder,
   }) {
     return _profileMutationScheduler.run(
       () => _syncSubscriptionProfileBytes(
@@ -214,6 +215,7 @@ class ProfilesAction extends _$ProfilesAction {
         effectClearer: effectClearer,
         isCurrent: isCurrent,
         validationTimeout: validationTimeout,
+        diagnosticRecorder: diagnosticRecorder,
       ),
     );
   }
@@ -228,6 +230,7 @@ class ProfilesAction extends _$ProfilesAction {
     Future<void> Function(int profileId)? effectClearer,
     bool Function()? isCurrent,
     Duration? validationTimeout,
+    SubscriptionDiagnosticRecorder? diagnosticRecorder,
   }) async {
     if (!isSubscriptionV2ProfileSource(sourceId)) {
       throw ArgumentError.value(sourceId, 'sourceId', 'Invalid V2 source');
@@ -262,13 +265,18 @@ class ProfilesAction extends _$ProfilesAction {
     var candidateApplied = false;
     try {
       ensureCurrent();
-      final updatedProfile =
-          await (loader ??
-              (profile, content) => profile.saveFile(
-                content,
-                isCurrent: isCurrent,
-                validationTimeout: validationTimeout,
-              ))(sourceProfile, bytes);
+      final updatedProfile = await runSubscriptionDiagnosticStage(
+        stage: 'profile_validation',
+        recorder: diagnosticRecorder,
+        contentBytes: (_) => bytes.length,
+        task: () =>
+            (loader ??
+            (profile, content) => profile.saveFile(
+              content,
+              isCurrent: isCurrent,
+              validationTimeout: validationTimeout,
+            ))(sourceProfile, bytes),
+      );
       ensureCurrent();
       if (updatedProfile.id != sourceProfile.id) {
         throw StateError('profile_sync_changed_profile_id');
@@ -278,20 +286,27 @@ class ProfilesAction extends _$ProfilesAction {
         sourceFileSnapshot: sourceFileSnapshot,
       );
       ensureCurrent();
-      await ref
-          .read(setupActionProvider.notifier)
-          .applyProfile(
-            force: true,
-            silence: true,
-            isCurrent: isCurrent,
-            propagateErrors: true,
-            profileOverride: updatedProfile,
-          );
-      candidateApplied = true;
-      ensureCurrent();
-      await ref.read(profilesProvider.notifier).putDurable(updatedProfile);
-      ensureCurrent();
-      ref.read(currentProfileIdProvider.notifier).value = updatedProfile.id;
+      await runSubscriptionDiagnosticStage(
+        stage: 'profile_write',
+        recorder: diagnosticRecorder,
+        contentBytes: (_) => bytes.length,
+        task: () async {
+          await ref
+              .read(setupActionProvider.notifier)
+              .applyProfile(
+                force: true,
+                silence: true,
+                isCurrent: isCurrent,
+                propagateErrors: true,
+                profileOverride: updatedProfile,
+              );
+          candidateApplied = true;
+          ensureCurrent();
+          await ref.read(profilesProvider.notifier).putDurable(updatedProfile);
+          ensureCurrent();
+          ref.read(currentProfileIdProvider.notifier).value = updatedProfile.id;
+        },
+      );
       ensureCurrent();
       if (replacingUrl != null && replacingUrl != sourceId) {
         await _removeSubscriptionProfile(

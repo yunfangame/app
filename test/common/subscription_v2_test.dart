@@ -76,7 +76,10 @@ void main() {
           ),
         );
         expect(legacyCalls, 0);
-        expect(events.single['http_status'], status);
+        final gatewayFailure = events.singleWhere(
+          (event) => event['event'] == 'api.secure_gateway.failed',
+        );
+        expect(gatewayFailure['http_status'], status);
         expect(jsonEncode(events), isNot(contains('private')));
         expect(jsonEncode(events), isNot(contains('secret')));
       },
@@ -216,6 +219,104 @@ void main() {
     ]);
     expect(server.redeemedTickets, hasLength(3));
   });
+
+  test(
+    'profile pipeline diagnostics contain only safe stage metadata',
+    () async {
+      final server = await _FakeSubscriptionV2Server.create();
+      final events = <Map<String, Object?>>[];
+      final client = SubscriptionV2Client(
+        apiHealthService: _healthService(server.config),
+        valueStore: _MemorySubscriptionV2ValueStore(),
+        requester: server.request,
+        now: () => DateTime.utc(2026, 8, 31, 12),
+        random: Random(43),
+        diagnosticRecorder: (event, fields) =>
+            events.add({'event': event, ...fields}),
+      );
+      final login = await client.secureLogin(
+        endpoint: Uri.parse('https://api.example.com'),
+        email: 'gray@example.com',
+        password: 'correct-password',
+        appVersion: '1.9.0',
+        platform: 'macos',
+      );
+      events.clear();
+
+      final profile = await client.fetchProfile(
+        endpoint: Uri.parse('https://api.example.com'),
+        userToken: login!.token,
+        appVersion: '1.9.0',
+        platform: 'macos',
+        allowTokenRegistration: false,
+      );
+
+      expect(profile, isNotNull);
+      expect(
+        events.map((event) => event['stage']),
+        containsAll([
+          'profile_config_read',
+          'profile_credential_read',
+          'issue_ticket',
+          'issue_ticket_decrypt',
+          'redeem_ticket',
+          'redeem_ticket_decrypt',
+        ]),
+      );
+      final redeemCompleted = events.singleWhere(
+        (event) =>
+            event['event'] == 'subscription.pipeline.completed' &&
+            event['stage'] == 'redeem_ticket',
+      );
+      expect(
+        redeemCompleted['content_bytes'],
+        utf8.encode(server.profile).length,
+      );
+      for (final event in events) {
+        expect(
+          event.keys.toSet().difference({
+            'event',
+            'stage',
+            'error_code',
+            'content_bytes',
+          }),
+          isEmpty,
+        );
+      }
+      final encoded = jsonEncode(events);
+      expect(encoded, isNot(contains('api.example.com')));
+      expect(encoded, isNot(contains(login.token)));
+      expect(encoded, isNot(contains(server.profile)));
+    },
+  );
+
+  test(
+    'profile pipeline diagnostics reject unsafe remote error text',
+    () async {
+      final events = <Map<String, Object?>>[];
+
+      await expectLater(
+        runSubscriptionDiagnosticStage<void>(
+          stage: 'issue_ticket',
+          recorder: (event, fields) => events.add({'event': event, ...fields}),
+          task: () async {
+            throw const SubscriptionV2Exception(
+              'token=private-token private-api.example.com',
+            );
+          },
+        ),
+        throwsA(isA<SubscriptionV2Exception>()),
+      );
+
+      final failed = events.singleWhere(
+        (event) => event['event'] == 'subscription.pipeline.failed',
+      );
+      expect(failed['error_code'], 'invalid_error_code');
+      final encoded = jsonEncode(events);
+      expect(encoded, isNot(contains('private-token')));
+      expect(encoded, isNot(contains('private-api.example.com')));
+    },
+  );
 
   test(
     'allows legacy fallback only for a signed gray-list rejection',

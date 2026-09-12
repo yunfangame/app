@@ -181,6 +181,62 @@ typedef SubscriptionV2Requester =
       Map<String, Object?> envelope,
     );
 
+typedef SubscriptionDiagnosticRecorder =
+    void Function(String event, Map<String, Object?> fields);
+
+Future<T> runSubscriptionDiagnosticStage<T>({
+  required String stage,
+  required Future<T> Function() task,
+  SubscriptionDiagnosticRecorder? recorder,
+  int? Function(T result)? contentBytes,
+}) async {
+  void record(String outcome, Map<String, Object?> fields) {
+    try {
+      recorder?.call('subscription.pipeline.$outcome', {
+        'stage': stage,
+        ...fields,
+      });
+    } catch (_) {}
+  }
+
+  record('started', const {});
+  try {
+    final result = await task();
+    final bytes = contentBytes?.call(result);
+    record('completed', {'content_bytes': ?bytes});
+    return result;
+  } catch (error) {
+    record('failed', {'error_code': _subscriptionDiagnosticErrorCode(error)});
+    rethrow;
+  }
+}
+
+String _subscriptionDiagnosticErrorCode(Object error) {
+  if (error is SubscriptionV2Exception) {
+    final normalized = error.code.trim().toLowerCase();
+    return RegExp(r'^[a-z0-9_]{1,64}$').hasMatch(normalized)
+        ? normalized
+        : 'invalid_error_code';
+  }
+  if (error is DioException) return 'dio_${error.type.name}';
+  if (error is FormatException) return 'invalid_format';
+  if (error is ArgumentError) return 'invalid_argument';
+  if (error is StateError) return 'state_error';
+  if (error is String) return 'validation_rejected';
+  return 'unexpected_error';
+}
+
+String _subscriptionDecryptionStage(Object? operation) => switch (operation) {
+  'login_device' => 'login_device_decrypt',
+  'register_device' => 'register_device_decrypt',
+  'issue_ticket' => 'issue_ticket_decrypt',
+  'redeem_ticket' => 'redeem_ticket_decrypt',
+  'get_summary' => 'get_summary_decrypt',
+  'reset_security' => 'reset_security_decrypt',
+  'revoke_device' => 'revoke_device_decrypt',
+  _ => 'unknown_response_decrypt',
+};
+
 class SubscriptionV2Client {
   SubscriptionV2Client({
     ApiHealthService? apiHealthService,
@@ -249,36 +305,60 @@ class SubscriptionV2Client {
     String? platform,
     bool allowTokenRegistration = true,
   }) async {
-    final config = parseSubscriptionV2RemoteConfig(
-      await _apiHealthService.loadConfig(),
+    final config = await runSubscriptionDiagnosticStage(
+      stage: 'profile_config_read',
+      recorder: _diagnosticRecorder,
+      task: () async {
+        final loaded = parseSubscriptionV2RemoteConfig(
+          await _apiHealthService.loadConfig(),
+        );
+        if (loaded == null) {
+          throw const SubscriptionV2Exception('secure_config_disabled');
+        }
+        return loaded;
+      },
     );
-    if (config == null) {
-      throw const SubscriptionV2Exception('secure_config_disabled');
-    }
     final gateway = _buildGatewayUri(endpoint, config.gatewayPath);
-    final identity = await _loadIdentity();
     final credentialKey = _credentialKey(userToken);
-    var credential = await _loadCredential(credentialKey, config, gateway);
+    final credentialState = await runSubscriptionDiagnosticStage(
+      stage: 'profile_credential_read',
+      recorder: _diagnosticRecorder,
+      task: () async {
+        final identity = await _loadIdentity();
+        final credential = await _loadCredential(
+          credentialKey,
+          config,
+          gateway,
+        );
+        return (identity: identity, credential: credential);
+      },
+    );
+    final identity = credentialState.identity;
+    var credential = credentialState.credential;
     try {
       if (credential == null) {
         if (!allowTokenRegistration) {
           throw const SubscriptionV2Exception('device_not_registered');
         }
-        credential = await _registerDevice(
-          config: config,
-          gateway: gateway,
-          identity: identity,
-          credentialKey: credentialKey,
-          userToken: userToken,
-          appVersion: appVersion,
-          platform: platform ?? Platform.operatingSystem,
+        credential = await runSubscriptionDiagnosticStage(
+          stage: 'device_registration',
+          recorder: _diagnosticRecorder,
+          task: () => _registerDevice(
+            config: config,
+            gateway: gateway,
+            identity: identity,
+            credentialKey: credentialKey,
+            userToken: userToken,
+            appVersion: appVersion,
+            platform: platform ?? Platform.operatingSystem,
+          ),
         );
       }
       return await _fetchWithCredential(
         config: config,
         gateway: gateway,
         identity: identity,
-        credential: credential,
+        credential: credential!,
         userToken: userToken,
       );
     } on SubscriptionV2Exception catch (error) {
@@ -286,14 +366,18 @@ class SubscriptionV2Client {
       if (error.code != 'device_not_registered') rethrow;
       await _valueStore.delete(credentialKey);
       if (!allowTokenRegistration) rethrow;
-      final registered = await _registerDevice(
-        config: config,
-        gateway: gateway,
-        identity: identity,
-        credentialKey: credentialKey,
-        userToken: userToken,
-        appVersion: appVersion,
-        platform: platform ?? Platform.operatingSystem,
+      final registered = await runSubscriptionDiagnosticStage(
+        stage: 'device_registration',
+        recorder: _diagnosticRecorder,
+        task: () => _registerDevice(
+          config: config,
+          gateway: gateway,
+          identity: identity,
+          credentialKey: credentialKey,
+          userToken: userToken,
+          appVersion: appVersion,
+          platform: platform ?? Platform.operatingSystem,
+        ),
       );
       return _fetchWithCredential(
         config: config,
@@ -312,27 +396,39 @@ class SubscriptionV2Client {
     required _SubscriptionV2Credential credential,
     required String userToken,
   }) async {
-    final issued = await _sendSigned(config, gateway, identity, {
-      'op': 'issue_ticket',
-      'timestamp': _timestamp,
-      'nonce': _randomBase64(18),
-      'device_id': credential.deviceId,
-    });
+    final issued = await runSubscriptionDiagnosticStage(
+      stage: 'issue_ticket',
+      recorder: _diagnosticRecorder,
+      task: () => _sendSigned(config, gateway, identity, {
+        'op': 'issue_ticket',
+        'timestamp': _timestamp,
+        'nonce': _randomBase64(18),
+        'device_id': credential.deviceId,
+      }),
+    );
     final ticket = _requiredString(issued, 'ticket');
-    final redeemed = await _sendSigned(config, gateway, identity, {
-      'op': 'redeem_ticket',
-      'timestamp': _timestamp,
-      'nonce': _randomBase64(18),
-      'device_id': credential.deviceId,
-      'ticket': ticket,
-    });
-    if (_requiredString(redeemed, 'content_encoding') != 'base64url') {
-      throw const SubscriptionV2Exception('unsupported_content_encoding');
-    }
-    final profileBytes = _decodeBase64Url(_requiredString(redeemed, 'profile'));
-    if (profileBytes.isEmpty) {
-      throw const SubscriptionV2Exception('empty_profile');
-    }
+    final profileBytes = await runSubscriptionDiagnosticStage(
+      stage: 'redeem_ticket',
+      recorder: _diagnosticRecorder,
+      contentBytes: (bytes) => bytes.length,
+      task: () async {
+        final redeemed = await _sendSigned(config, gateway, identity, {
+          'op': 'redeem_ticket',
+          'timestamp': _timestamp,
+          'nonce': _randomBase64(18),
+          'device_id': credential.deviceId,
+          'ticket': ticket,
+        });
+        if (_requiredString(redeemed, 'content_encoding') != 'base64url') {
+          throw const SubscriptionV2Exception('unsupported_content_encoding');
+        }
+        final bytes = _decodeBase64Url(_requiredString(redeemed, 'profile'));
+        if (bytes.isEmpty) {
+          throw const SubscriptionV2Exception('empty_profile');
+        }
+        return bytes;
+      },
+    );
     final tokenHash = dart_crypto.sha256
         .convert(utf8.encode(userToken))
         .toString()
@@ -350,14 +446,25 @@ class SubscriptionV2Client {
     required String appVersion,
     String? platform,
   }) async {
-    final config = parseSubscriptionV2RemoteConfig(
-      await _apiHealthService.loadConfig(),
+    final config = await runSubscriptionDiagnosticStage(
+      stage: 'login_config_read',
+      recorder: _diagnosticRecorder,
+      task: () async {
+        final loaded = parseSubscriptionV2RemoteConfig(
+          await _apiHealthService.loadConfig(),
+        );
+        if (loaded == null) {
+          throw const SubscriptionV2Exception('secure_config_disabled');
+        }
+        return loaded;
+      },
     );
-    if (config == null) {
-      throw const SubscriptionV2Exception('secure_config_disabled');
-    }
     final gateway = _buildGatewayUri(endpoint, config.gatewayPath);
-    final identity = await _loadIdentity();
+    final identity = await runSubscriptionDiagnosticStage(
+      stage: 'login_credential_read',
+      recorder: _diagnosticRecorder,
+      task: _loadIdentity,
+    );
     try {
       final data = await _sendSigned(config, gateway, identity, {
         'op': 'login_device',
@@ -554,20 +661,30 @@ class SubscriptionV2Client {
     } on SubscriptionV2Exception catch (error) {
       throw error.withRequestRef(requestRef);
     }
+    var decryptedBytes = 0;
     try {
-      return await _decryptResponse(
-        config: config,
-        requestId: requestId,
-        shared: shared,
-        response: response,
+      return await runSubscriptionDiagnosticStage(
+        stage: _subscriptionDecryptionStage(payload['op']),
+        recorder: _diagnosticRecorder,
+        contentBytes: (_) => decryptedBytes,
+        task: () async {
+          try {
+            return await _decryptResponse(
+              config: config,
+              requestId: requestId,
+              shared: shared,
+              response: response,
+              onContentBytes: (value) => decryptedBytes = value,
+            );
+          } on SubscriptionV2Exception {
+            rethrow;
+          } catch (_) {
+            throw const SubscriptionV2Exception('invalid_response_payload');
+          }
+        },
       );
     } on SubscriptionV2Exception catch (error) {
       throw error.withRequestRef(requestRef);
-    } catch (_) {
-      throw SubscriptionV2Exception(
-        'invalid_response_payload',
-        requestRef: requestRef,
-      );
     }
   }
 
@@ -576,6 +693,7 @@ class SubscriptionV2Client {
     required String requestId,
     required SecretKey shared,
     required Map<String, Object?> response,
+    void Function(int value)? onContentBytes,
   }) async {
     if (response['v'] != _subscriptionV2Version ||
         response['kid'] != config.keyId ||
@@ -620,6 +738,7 @@ class SubscriptionV2Client {
         }),
       ),
     );
+    onContentBytes?.call(plaintext.length);
     final decoded = jsonDecode(utf8.decode(plaintext));
     if (decoded is! Map) {
       throw const SubscriptionV2Exception('invalid_response_payload');

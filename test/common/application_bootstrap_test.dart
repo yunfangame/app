@@ -1,7 +1,33 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/application_bootstrap.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'post-authentication work does not block and reports failures',
+    () async {
+      final pending = Completer<void>();
+      var started = false;
+      Object? reportedError;
+
+      runPostAuthenticationTask(
+        task: () async {
+          started = true;
+          await pending.future;
+          throw StateError('profile_sync_failed');
+        },
+        onError: (error, _) => reportedError = error,
+      );
+
+      expect(started, isTrue);
+      expect(reportedError, isNull);
+      pending.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(reportedError, isA<StateError>());
+    },
+  );
+
   testWidgets('authentication timeout invalidates its late result', (
     tester,
   ) async {

@@ -123,9 +123,14 @@ class FengWoDesktopDashboard extends ConsumerWidget {
     final isStart = ref.watch(isStartProvider);
     final profiles = ref.watch(profilesProvider);
     final profile = ref.watch(currentProfileProvider);
+    final profileSyncing = ref.watch(
+      loadingProvider(LoadingTag.subscriptionProfile),
+    );
     final currentGroup = _currentDashboardGroup(ref, profile);
     final rawNodeName = _currentNode(currentGroup, profile);
-    final nodeName = rawNodeName.takeFirstValid([l10n.proxiesEmpty]);
+    final nodeName = rawNodeName.takeFirstValid([
+      profileSyncing ? l10n.loading : l10n.proxiesEmpty,
+    ]);
     final connectionDelay = rawNodeName.isEmpty
         ? null
         : ref.watch(
