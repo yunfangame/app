@@ -303,6 +303,7 @@ class _LoginPageState extends State<LoginPage> {
                     Expanded(
                       flex: 6,
                       child: _LoginFormPanel(
+                        appVersion: widget.appVersion,
                         formKey: _formKey,
                         emailController: _emailController,
                         passwordController: _passwordController,
@@ -651,6 +652,7 @@ class _BrandActionButton extends StatelessWidget {
 
 class _LoginFormPanel extends StatelessWidget {
   const _LoginFormPanel({
+    required this.appVersion,
     required this.formKey,
     required this.emailController,
     required this.passwordController,
@@ -679,6 +681,7 @@ class _LoginFormPanel extends StatelessWidget {
     required this.showCompactBrand,
   });
 
+  final String appVersion;
   final GlobalKey<FormState> formKey;
   final TextEditingController emailController;
   final TextEditingController passwordController;
@@ -710,6 +713,7 @@ class _LoginFormPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final appLocalizations = context.appLocalizations;
     final colorScheme = context.colorScheme;
+    final displayVersion = appVersion.replaceFirst(RegExp(r'^[vV]'), '');
     return ColoredBox(
       color: colorScheme.surface,
       child: LayoutBuilder(
@@ -752,7 +756,8 @@ class _LoginFormPanel extends StatelessWidget {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          appLocalizations.loginWelcome,
+                          'V$displayVersion',
+                          key: const Key('login-page-version'),
                           style: TextStyle(
                             color: colorScheme.onSurfaceVariant,
                             fontSize: 22,

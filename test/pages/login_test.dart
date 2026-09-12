@@ -631,6 +631,8 @@ void main() {
       find.byKey(const Key('login-page-title')),
     );
     expect(title.data, '蜂窝加速器');
+    expect(find.text('V0.8.96'), findsOneWidget);
+    expect(find.text('欢迎回来,请登录您的账号'), findsNothing);
 
     await tester.tap(find.byKey(const Key('login-submit-button')));
     await tester.pump();
@@ -667,6 +669,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('© 2026 蜂窝加速器 V2.2'), findsOneWidget);
+    expect(find.text('V2.2'), findsOneWidget);
   });
 }
 
