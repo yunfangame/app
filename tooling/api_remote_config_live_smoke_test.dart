@@ -22,7 +22,10 @@ void main() {
     expect(aesKey.isNotEmpty && signingPublicKey.isNotEmpty, isTrue);
   });
 
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    // ignore: invalid_use_of_visible_for_testing_member
+    SharedPreferences.setMockInitialValues({});
+  });
 
   for (final source in {
     'primary': apiHealthConfigUrl,
