@@ -326,6 +326,18 @@ void main() {
       expect(container.read(loadingProvider(LoadingTag.profiles)), false);
     });
 
+    testWidgets('disposing cancels a pending loading stop', (tester) async {
+      final isolated = ProviderContainer();
+      final notifier = isolated.read(
+        loadingProvider(LoadingTag.proxies).notifier,
+      );
+      notifier.start();
+      await notifier.stop();
+      isolated.dispose();
+      await tester.pump(const Duration(seconds: 2));
+      expect(tester.takeException(), isNull);
+    });
+
     test('stop keeps loading visible for minimum duration', () async {
       final notifier = container.read(
         loadingProvider(LoadingTag.profiles).notifier,
@@ -362,7 +374,8 @@ void main() {
     test(
       'ignores a canceled stale check after a newer check succeeds',
       () async {
-        request.dio.httpClientAdapter = _DelayedCancelIpAdapter();
+        final adapter = _DelayedCancelIpAdapter();
+        request.dio.httpClientAdapter = adapter;
         final container = ProviderContainer(
           overrides: [
             initProvider.overrideWithBuild((_, _) => true),
@@ -373,12 +386,18 @@ void main() {
 
         final notifier = container.read(networkDetectionProvider.notifier);
         notifier.startCheck();
-        await Future.delayed(commonDuration + const Duration(milliseconds: 50));
-
-        notifier.startCheck();
-        await Future.delayed(
-          commonDuration + const Duration(milliseconds: 120),
+        await adapter.firstBatchReady.future.timeout(
+          const Duration(seconds: 10),
         );
+
+        final succeeded = Completer<void>();
+        container.listen(networkDetectionProvider, (_, next) {
+          if (next.ipInfo?.ip == '2.2.2.2' && !succeeded.isCompleted) {
+            succeeded.complete();
+          }
+        });
+        notifier.startCheck();
+        await succeeded.future.timeout(const Duration(seconds: 10));
 
         expect(container.read(networkDetectionProvider).ipInfo?.ip, '2.2.2.2');
         expect(container.read(networkDetectionProvider).isLoading, false);
@@ -436,6 +455,7 @@ class _DelayedCancelIpAdapter implements HttpClientAdapter {
   static const _sourceCount = 7;
 
   int _requestCount = 0;
+  final firstBatchReady = Completer<void>();
 
   @override
   Future<ResponseBody> fetch(
@@ -444,6 +464,7 @@ class _DelayedCancelIpAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) {
     _requestCount++;
+    if (_requestCount == _sourceCount) firstBatchReady.complete();
     final batch = ((_requestCount - 1) ~/ _sourceCount) + 1;
     if (batch == 1) {
       final completer = Completer<ResponseBody>();

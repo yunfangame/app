@@ -18,8 +18,18 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 void main() {
+  setUpAll(() {
+    globalState.packageInfo = PackageInfo(
+      appName: 'FengWo',
+      packageName: 'com.fengwo.app',
+      version: '1.0.2',
+      buildNumber: '2026091201',
+    );
+  });
+
   setUp(() {
     globalState.setOfflineMode(false);
     globalState.enableOfflineMode = null;

@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/core/desktop/model.dart';
+import 'package:fl_clash/database/database.dart' show database;
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/action.dart';
@@ -42,6 +43,7 @@ void main() {
   });
 
   tearDownAll(() async {
+    await database.close();
     await testDirectory.delete(recursive: true);
   });
 
@@ -1317,6 +1319,7 @@ void main() {
           ],
         );
         addTearDown(container.dispose);
+        container.listen(patchClashConfigProvider, (_, _) {});
         container
             .read(patchClashConfigProvider.notifier)
             .update((state) => state.copyWith.tun(enable: true));

@@ -7,6 +7,7 @@ import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/access.dart';
 import 'package:fl_clash/views/dashboard/dashboard.dart';
+import 'package:fl_clash/views/dashboard/fengwo_desktop_dashboard.dart';
 import 'package:fl_clash/views/logs.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
@@ -251,9 +252,16 @@ void main() {
     expect(find.byType(TextField), findsNothing);
   });
 
-  testWidgets('inactive page scope exits dashboard edit layer', (tester) async {
+  testWidgets('inactive page scope preserves the desktop dashboard', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final container = ProviderContainer(
       overrides: [
+        viewSizeProvider.overrideWithBuild((_, _) => const Size(1200, 800)),
         dashboardStateProvider.overrideWithValue(
           const DashboardState(dashboardWidgets: []),
         ),
@@ -277,15 +285,15 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('edit-icon')));
-    await tester.pump(const Duration(milliseconds: 500));
-    expect(find.byKey(const ValueKey('save-icon')), findsOneWidget);
+    expect(find.byType(FengWoDesktopDashboard), findsOneWidget);
+    expect(find.byKey(const ValueKey('edit-icon')), findsNothing);
 
     isActive.value = false;
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.byKey(const ValueKey('edit-icon')), findsOneWidget);
+    expect(find.byType(FengWoDesktopDashboard), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('inactive page scope exits access search layer', (tester) async {
@@ -318,11 +326,16 @@ void main() {
     expect(find.byType(TextField), findsNothing);
   });
 
-  testWidgets('save and system back cannot re-enter dashboard edit mode', (
+  testWidgets('system back does not expose the retired dashboard editor', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final container = ProviderContainer(
       overrides: [
+        viewSizeProvider.overrideWithBuild((_, _) => const Size(1200, 800)),
         dashboardStateProvider.overrideWithValue(
           const DashboardState(dashboardWidgets: []),
         ),
@@ -339,22 +352,25 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('edit-icon')));
-    await tester.pump(const Duration(milliseconds: 500));
-    expect(find.byKey(const ValueKey('save-icon')), findsOneWidget);
-
-    tester.widget<IconButton>(find.byKey(const ValueKey(true))).onPressed!();
+    expect(find.byType(FengWoDesktopDashboard), findsOneWidget);
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 500));
-
-    expect(find.byKey(const ValueKey('edit-icon')), findsOneWidget);
+    expect(find.byType(FengWoDesktopDashboard), findsOneWidget);
+    expect(find.byKey(const ValueKey('edit-icon')), findsNothing);
+    expect(find.byKey(const ValueKey('save-icon')), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
-  testWidgets('system back preserves a pending dashboard deletion', (
+  testWidgets('system back preserves saved dashboard configuration', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final container = ProviderContainer(
       overrides: [
+        viewSizeProvider.overrideWithBuild((_, _) => const Size(1200, 800)),
         dashboardStateProvider.overrideWithValue(
           const DashboardState(
             dashboardWidgets: [
@@ -382,28 +398,14 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('edit-icon')));
-    await tester.pump(const Duration(milliseconds: 500));
-
-    final deleteButton = find.ancestor(
-      of: find.byIcon(Icons.close).first,
-      matching: find.byType(IconButton),
-    );
-    tester.widget<IconButton>(deleteButton).onPressed!();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 301));
-    await tester.pump();
-    expect(
-      tester.state<SuperGridState>(find.byType(SuperGrid)).snapshotChildren,
-      [DashboardWidget.outboundModeV2.widget],
-    );
+    final saved = container.read(appSettingProvider).dashboardWidgets;
+    expect(find.byType(FengWoDesktopDashboard), findsOneWidget);
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 500));
-
-    expect(find.byKey(const ValueKey('edit-icon')), findsOneWidget);
-    expect(container.read(appSettingProvider).dashboardWidgets, [
-      DashboardWidget.outboundModeV2,
-    ]);
+    expect(find.byType(FengWoDesktopDashboard), findsOneWidget);
+    expect(container.read(appSettingProvider).dashboardWidgets, saved);
+    expect(find.byKey(const ValueKey('edit-icon')), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }
 
