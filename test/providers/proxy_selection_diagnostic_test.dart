@@ -73,6 +73,9 @@ void main() {
   test(
     'successful selection respects explicit close-connections option',
     () async {
+      container
+          .read(appSettingProvider.notifier)
+          .update((value) => value.copyWith(closeConnections: true));
       when(() => core.changeProxy(params)).thenAnswer((_) async => '');
 
       await action.changeProxy(groupName: 'Primary', proxyName: 'Node');
@@ -86,10 +89,7 @@ void main() {
     },
   );
 
-  test('preserve-connections option does not close active streams', () async {
-    container
-        .read(appSettingProvider.notifier)
-        .update((value) => value.copyWith(closeConnections: false));
+  test('default selection preserves active streams', () async {
     when(() => core.changeProxy(params)).thenAnswer((_) async => '');
 
     await action.changeProxy(groupName: 'Primary', proxyName: 'Node');
@@ -99,6 +99,9 @@ void main() {
   });
 
   test('connection cleanup failure does not undo a selected node', () async {
+    container
+        .read(appSettingProvider.notifier)
+        .update((value) => value.copyWith(closeConnections: true));
     when(() => core.changeProxy(params)).thenAnswer((_) async => '');
     when(() => core.closeConnections()).thenThrow(StateError('cleanup failed'));
 

@@ -21,7 +21,7 @@ void main() {
       final value = container.read(appSettingProvider);
       expect(value.onlyStatisticsProxy, false);
       expect(value.autoLaunch, false);
-      expect(value.closeConnections, true);
+      expect(value.closeConnections, false);
       expect(value.isAnimateToPage, true);
     });
 

@@ -667,7 +667,7 @@ class SetupAction extends _$SetupAction {
       'network.recovery.skipped',
       fields: {
         'reason': 'physical_network_restored',
-        'strategy': 'diagnose_close_reset',
+        'strategy': 'repair_reset_diagnose',
         'skip_reason': reason,
       },
     );
@@ -743,11 +743,53 @@ class SetupAction extends _$SetupAction {
     }
 
     final watch = Stopwatch()..start();
+    var resolverResetStarted = false;
+    var resolverResetSucceeded = false;
+    await _listenerScheduler.run(() async {
+      final serializedSkipReason = _physicalNetworkRecoverySkipReason(
+        request: request,
+        revision: revision,
+        isConfigurationCurrent: configurationCurrent,
+      );
+      if (serializedSkipReason != null) {
+        _logPhysicalNetworkRecoverySkipped(serializedSkipReason);
+        return;
+      }
+      resolverResetStarted = true;
+      commonPrint.event(
+        'network.recovery.cleanup.started',
+        fields: {
+          'reason': 'physical_network_restored',
+          'strategy': 'resolver_reset_then_diagnose',
+        },
+      );
+      try {
+        await resetResolverConnections();
+        resolverResetSucceeded = true;
+      } catch (error) {
+        commonPrint.event(
+          'network.recovery.resolver_reset.failed',
+          fields: {'error_type': error.runtimeType.toString()},
+        );
+      }
+    });
+    if (!resolverResetStarted) return;
+
+    skipReason = _physicalNetworkRecoverySkipReason(
+      request: request,
+      revision: revision,
+      isConfigurationCurrent: configurationCurrent,
+    );
+    if (skipReason != null) {
+      _logPhysicalNetworkRecoverySkipped(skipReason);
+      return;
+    }
+
     commonPrint.event(
       'network.recovery.diagnostic.started',
       fields: {
         'reason': 'physical_network_restored',
-        'required_code': 'W-NET-OK',
+        'connection_failure_code': 'W-NODE-05',
       },
     );
     late final NetworkDiagnosticReport report;
@@ -775,61 +817,43 @@ class SetupAction extends _$SetupAction {
       _logPhysicalNetworkRecoverySkipped(skipReason);
       return;
     }
-    if (!report.success) {
-      _logPhysicalNetworkRecoverySkipped(
-        'diagnostic_${report.code.toLowerCase()}',
-      );
-      return;
+
+    final connectionInvalid = report.code == 'W-NODE-05';
+    var closeStarted = false;
+    var closeSucceeded = false;
+    if (connectionInvalid) {
+      await _listenerScheduler.run(() async {
+        final serializedSkipReason = _physicalNetworkRecoverySkipReason(
+          request: request,
+          revision: revision,
+          isConfigurationCurrent: configurationCurrent,
+        );
+        if (serializedSkipReason != null) {
+          _logPhysicalNetworkRecoverySkipped(serializedSkipReason);
+          return;
+        }
+        closeStarted = true;
+        try {
+          await closeTrackedConnectionsForNetworkRecovery();
+          closeSucceeded = true;
+        } catch (error) {
+          commonPrint.event(
+            'network.recovery.connection_close.failed',
+            fields: {'error_type': error.runtimeType.toString()},
+          );
+        }
+      });
+      if (!closeStarted) return;
     }
 
-    var cleanupStarted = false;
-    var closeSucceeded = false;
-    var resolverResetSucceeded = false;
-    await _listenerScheduler.run(() async {
-      final serializedSkipReason = _physicalNetworkRecoverySkipReason(
-        request: request,
-        revision: revision,
-        isConfigurationCurrent: configurationCurrent,
-      );
-      if (serializedSkipReason != null) {
-        _logPhysicalNetworkRecoverySkipped(serializedSkipReason);
-        return;
-      }
-      cleanupStarted = true;
-      commonPrint.event(
-        'network.recovery.cleanup.started',
-        fields: {
-          'reason': 'physical_network_restored',
-          'strategy': 'close_then_resolver_reset',
-          'diagnostic_code': report.code,
-        },
-      );
-      try {
-        await closeTrackedConnectionsForNetworkRecovery();
-        closeSucceeded = true;
-      } catch (error) {
-        commonPrint.event(
-          'network.recovery.connection_close.failed',
-          fields: {'error_type': error.runtimeType.toString()},
-        );
-      }
-      try {
-        await resetResolverConnections();
-        resolverResetSucceeded = true;
-      } catch (error) {
-        commonPrint.event(
-          'network.recovery.resolver_reset.failed',
-          fields: {'error_type': error.runtimeType.toString()},
-        );
-      }
-    });
-    if (!cleanupStarted) return;
     commonPrint.event(
       'network.recovery.cleanup.completed',
       fields: {
         'reason': 'physical_network_restored',
-        'strategy': 'close_then_resolver_reset',
+        'strategy': 'resolver_reset_then_diagnose',
         'diagnostic_code': report.code,
+        'connection_invalid': connectionInvalid,
+        'close_attempted': closeStarted,
         'close_succeeded': closeSucceeded,
         'resolver_reset_succeeded': resolverResetSucceeded,
         'elapsed_ms': watch.elapsedMilliseconds,

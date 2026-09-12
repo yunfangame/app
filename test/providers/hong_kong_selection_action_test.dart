@@ -534,7 +534,7 @@ void main() {
   );
 
   test(
-    'successful automatic selection closes existing streams once after commit',
+    'automatic selection resets the resolver when stream closing is enabled',
     () async {
       final harness = _Harness(groups: _nestedGroups);
       harness.container
@@ -547,11 +547,11 @@ void main() {
       );
 
       expect(harness.changes, hasLength(2));
-      verify(() => harness.core.closeConnections()).called(1);
-      verifyNever(() => harness.core.resetConnections());
+      verifyNever(() => harness.core.closeConnections());
+      verify(() => harness.core.resetConnections()).called(1);
       expect(
         harness.events.indexOf('mode:global'),
-        lessThan(harness.events.indexOf('close')),
+        lessThan(harness.events.indexOf('reset')),
       );
     },
   );
@@ -580,12 +580,12 @@ void main() {
   );
 
   test(
-    'connection cleanup failure keeps the committed automatic selection',
+    'resolver reset failure keeps the committed automatic selection',
     () async {
       final harness = _Harness(groups: _nestedGroups);
       when(
-        () => harness.core.closeConnections(),
-      ).thenThrow(StateError('cleanup failed'));
+        () => harness.core.resetConnections(),
+      ).thenThrow(StateError('resolver reset failed'));
 
       expect(
         await harness.action.selectHongKongForMode(Mode.global),
@@ -597,8 +597,8 @@ void main() {
       expect(harness.profile.selectedMap['GLOBAL'], 'Route');
       expect(harness.profile.selectedMap['Route'], '香港 01');
       expect(harness.coreSelections, harness.profile.selectedMap);
-      verify(() => harness.core.closeConnections()).called(1);
-      verifyNever(() => harness.core.resetConnections());
+      verifyNever(() => harness.core.closeConnections());
+      verify(() => harness.core.resetConnections()).called(1);
     },
   );
 
@@ -608,8 +608,8 @@ void main() {
       final harness = _Harness(groups: _nestedGroups);
       final entered = Completer<void>();
       final release = Completer<bool>();
-      when(() => harness.core.closeConnections()).thenAnswer((_) {
-        harness.events.add('close');
+      when(() => harness.core.resetConnections()).thenAnswer((_) {
+        harness.events.add('reset');
         entered.complete();
         return release.future;
       });
@@ -625,8 +625,8 @@ void main() {
       expect(harness.profile.selectedMap['GLOBAL'], 'Route');
       expect(harness.profile.selectedMap['Route'], '香港 01');
       expect(harness.coreSelections, harness.profile.selectedMap);
-      verify(() => harness.core.closeConnections()).called(1);
-      verifyNever(() => harness.core.resetConnections());
+      verifyNever(() => harness.core.closeConnections());
+      verify(() => harness.core.resetConnections()).called(1);
     },
   );
 

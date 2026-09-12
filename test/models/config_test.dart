@@ -102,7 +102,7 @@ void main() {
       expect(restored.silentLaunch, false);
       expect(restored.autoRun, false);
       expect(restored.openLogs, false);
-      expect(restored.closeConnections, true);
+      expect(restored.closeConnections, false);
       expect(restored.isAnimateToPage, true);
       expect(restored.autoCheckUpdate, true);
       expect(restored.showLabel, false);

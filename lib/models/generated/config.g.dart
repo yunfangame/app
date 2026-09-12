@@ -45,7 +45,7 @@ _AppSettingProps _$AppSettingPropsFromJson(
   silentLaunch: json['silentLaunch'] as bool? ?? false,
   autoRun: json['autoRun'] as bool? ?? false,
   openLogs: json['openLogs'] as bool? ?? false,
-  closeConnections: json['closeConnections'] as bool? ?? true,
+  closeConnections: json['closeConnections'] as bool? ?? false,
   testUrl: json['testUrl'] as String? ?? defaultTestUrl,
   isAnimateToPage: json['isAnimateToPage'] as bool? ?? true,
   autoCheckUpdate: json['autoCheckUpdate'] as bool? ?? true,

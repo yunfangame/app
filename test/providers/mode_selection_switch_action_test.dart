@@ -220,6 +220,9 @@ void main() {
         initialProfile: initialProfile,
         groups: groups,
       );
+      harness.container
+          .read(appSettingProvider.notifier)
+          .update((settings) => settings.copyWith(closeConnections: true));
 
       expect(
         await harness.setup.changeModeAndWait(Mode.global),
@@ -231,7 +234,8 @@ void main() {
       expect(harness.coreSelections, initialProfile.selectedMap);
       expect(harness.changes, isEmpty);
       expect(harness.modeUpdates.map((params) => params.mode), [Mode.global]);
-      verify(() => harness.core.closeConnections()).called(1);
+      verifyNever(() => harness.core.closeConnections());
+      verify(() => harness.core.resetConnections()).called(1);
     },
   );
 
@@ -377,7 +381,7 @@ void main() {
       initialMode: Mode.rule,
       initialProfile: initialProfile,
     );
-    when(() => harness.core.closeConnections()).thenAnswer((_) async => false);
+    when(() => harness.core.resetConnections()).thenAnswer((_) async => false);
 
     expect(
       await harness.setup.changeModeAndWait(Mode.global),

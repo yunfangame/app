@@ -350,7 +350,7 @@ class ProxiesAction extends _$ProxiesAction {
                 );
             succeeded = true;
             final connectionRefreshSucceeded =
-                await _applyNodeSwitchConnectionPolicy(selectionFields);
+                await _resetConnectionsAfterAutomaticSelection(selectionFields);
             commonPrint.event(
               'proxy.hong_kong_selection.succeeded',
               fields: {
@@ -842,14 +842,15 @@ class ProxiesAction extends _$ProxiesAction {
     ref.read(connectionDelayDataSourceProvider.notifier).setDelay(delay);
   }
 
-  Future<bool> _applyNodeSwitchConnectionPolicy(
-    Map<String, Object> fields,
-  ) async {
-    final closeConnections = ref.read(appSettingProvider).closeConnections;
+  Future<bool> _applyConnectionRefresh({
+    required Map<String, Object> fields,
+    required bool closeConnections,
+    required String reason,
+  }) async {
     final diagnosticFields = {
       ...fields,
       'close_connections': closeConnections,
-      'reason': 'node_switch',
+      'reason': reason,
     };
     final operation = closeConnections ? 'close_all' : 'reset';
     try {
@@ -879,8 +880,32 @@ class ProxiesAction extends _$ProxiesAction {
     }
   }
 
+  Future<bool> _resetConnectionsAfterAutomaticSelection(
+    Map<String, Object> fields,
+  ) {
+    return _applyConnectionRefresh(
+      fields: fields,
+      closeConnections: false,
+      reason: 'automatic_node_selection',
+    );
+  }
+
   Future<bool> applyModeSwitchConnectionPolicy(Map<String, Object> fields) {
-    return _applyNodeSwitchConnectionPolicy(fields);
+    return _applyConnectionRefresh(
+      fields: fields,
+      closeConnections: false,
+      reason: 'mode_switch',
+    );
+  }
+
+  Future<bool> _applyManualNodeSwitchConnectionPolicy(
+    Map<String, Object> fields,
+  ) {
+    return _applyConnectionRefresh(
+      fields: fields,
+      closeConnections: ref.read(appSettingProvider).closeConnections,
+      reason: 'manual_node_switch',
+    );
   }
 
   Future<void> changeProxy({
@@ -920,9 +945,8 @@ class ProxiesAction extends _$ProxiesAction {
         throw StateError('proxy_selection_rejected');
       }
       if (!ref.mounted) return;
-      final connectionRefreshSucceeded = await _applyNodeSwitchConnectionPolicy(
-        fields,
-      );
+      final connectionRefreshSucceeded =
+          await _applyManualNodeSwitchConnectionPolicy(fields);
       commonPrint.event(
         'proxy.selection.succeeded',
         fields: {

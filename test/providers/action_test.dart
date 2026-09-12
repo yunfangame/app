@@ -1162,7 +1162,38 @@ void main() {
     });
 
     group('physical network recovery', () {
-      test('recovers once after offline to W-NET-OK transition', () async {
+      test(
+        'healthy recovery resets resolver without closing streams',
+        () async {
+          final container = ProviderContainer(
+            overrides: [
+              initProvider.overrideWithBuild((_, _) => true),
+              commonActionProvider.overrideWith(_RaceCommonAction.new),
+              setupActionProvider.overrideWith(
+                _PhysicalRecoverySetupAction.new,
+              ),
+            ],
+          );
+          addTearDown(container.dispose);
+          final action =
+              container.read(setupActionProvider.notifier)
+                  as _PhysicalRecoverySetupAction;
+          container.read(coreStatusProvider.notifier).value =
+              CoreStatus.connected;
+
+          await action.setRunning(true);
+          await action.handlePhysicalNetworkAvailability(true);
+          expect(action.events, isEmpty);
+          await action.handlePhysicalNetworkAvailability(false);
+          await action.handlePhysicalNetworkAvailability(true);
+
+          expect(action.events, ['reset', 'diagnostic']);
+          expect(container.read(isStartProvider), isTrue);
+          await action.setRunning(false);
+        },
+      );
+
+      test('DNS diagnostic failure does not close existing streams', () async {
         final container = ProviderContainer(
           overrides: [
             initProvider.overrideWithBuild((_, _) => true),
@@ -1176,39 +1207,13 @@ void main() {
                 as _PhysicalRecoverySetupAction;
         container.read(coreStatusProvider.notifier).value =
             CoreStatus.connected;
-
-        await action.setRunning(true);
-        await action.handlePhysicalNetworkAvailability(true);
-        expect(action.events, isEmpty);
-        await action.handlePhysicalNetworkAvailability(false);
-        await action.handlePhysicalNetworkAvailability(true);
-
-        expect(action.events, ['diagnostic', 'close', 'reset']);
-        expect(container.read(isStartProvider), isTrue);
-        await action.setRunning(false);
-      });
-
-      test('does not clean connections without W-NET-OK', () async {
-        final container = ProviderContainer(
-          overrides: [
-            initProvider.overrideWithBuild((_, _) => true),
-            commonActionProvider.overrideWith(_RaceCommonAction.new),
-            setupActionProvider.overrideWith(_PhysicalRecoverySetupAction.new),
-          ],
-        );
-        addTearDown(container.dispose);
-        final action =
-            container.read(setupActionProvider.notifier)
-                as _PhysicalRecoverySetupAction;
-        container.read(coreStatusProvider.notifier).value =
-            CoreStatus.connected;
-        action.report = _networkRecoveryReport('W-NODE-05');
+        action.report = _networkRecoveryReport('W-DNS-01');
 
         await action.setRunning(true);
         await action.handlePhysicalNetworkAvailability(false);
         await action.handlePhysicalNetworkAvailability(true);
 
-        expect(action.events, ['diagnostic']);
+        expect(action.events, ['reset', 'diagnostic']);
         expect(container.read(isStartProvider), isTrue);
         await action.setRunning(false);
       });
@@ -1238,11 +1243,11 @@ void main() {
         diagnostic.complete(_networkRecoveryReport('W-NET-OK'));
         await recovery;
 
-        expect(action.events, ['diagnostic', 'close', 'reset']);
+        expect(action.events, ['reset', 'diagnostic']);
         await action.setRunning(false);
       });
 
-      test('stop during diagnostic prevents stale cleanup', () async {
+      test('stop during diagnostic prevents stale stream closing', () async {
         final container = ProviderContainer(
           overrides: [
             initProvider.overrideWithBuild((_, _) => true),
@@ -1267,12 +1272,12 @@ void main() {
         diagnostic.complete(_networkRecoveryReport('W-NET-OK'));
         await recovery;
 
-        expect(action.events, ['diagnostic']);
+        expect(action.events, ['reset', 'diagnostic']);
         expect(container.read(isStartProvider), isFalse);
       });
 
       test(
-        'close failure still resets resolver and keeps proxy running',
+        'confirmed node failure closes streams after resetting resolver',
         () async {
           final container = ProviderContainer(
             overrides: [
@@ -1289,13 +1294,14 @@ void main() {
                   as _PhysicalRecoverySetupAction;
           container.read(coreStatusProvider.notifier).value =
               CoreStatus.connected;
+          action.report = _networkRecoveryReport('W-NODE-05');
           action.closeFailure = StateError('tracker close unavailable');
 
           await action.setRunning(true);
           await action.handlePhysicalNetworkAvailability(false);
           await action.handlePhysicalNetworkAvailability(true);
 
-          expect(action.events, ['diagnostic', 'close', 'reset']);
+          expect(action.events, ['reset', 'diagnostic', 'close']);
           expect(container.read(isStartProvider), isTrue);
           await action.setRunning(false);
         },
