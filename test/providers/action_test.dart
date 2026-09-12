@@ -44,6 +44,7 @@ void main() {
 
   tearDownAll(() async {
     await database.close();
+    await commonPrint.flushDiagnosticEvents();
     await testDirectory.delete(recursive: true);
   });
 
