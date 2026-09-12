@@ -326,7 +326,7 @@
   "externalLink": "External link",
   "otherContributors": "Other contributors",
   "autoCloseConnections": "Auto close connections",
-  "autoCloseConnectionsDesc": "Auto close connections after change node",
+  "autoCloseConnectionsDesc": "Close existing connections after a manual node switch",
   "onlyStatisticsProxy": "Only statistics proxy",
   "onlyStatisticsProxyDesc": "When turned on, only statistics proxy traffic",
   "pureBlackMode": "Pure black mode",

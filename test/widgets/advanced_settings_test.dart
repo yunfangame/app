@@ -144,6 +144,14 @@ void main() {
     await tester.pump();
     expect(container.read(networkSettingProvider).systemProxy, isFalse);
 
+    final autoCloseConnections = find.byKey(
+      const ValueKey('advanced-auto-close-connections-switch'),
+    );
+    expect(container.read(appSettingProvider).closeConnections, isFalse);
+    await tester.tap(autoCloseConnections);
+    await tester.pump();
+    expect(container.read(appSettingProvider).closeConnections, isTrue);
+
     await tester.tap(find.byKey(const ValueKey('advanced-core-ipv6-switch')));
     await tester.pump();
     expect(container.read(patchClashConfigProvider).ipv6, isTrue);

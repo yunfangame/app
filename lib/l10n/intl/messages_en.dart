@@ -389,7 +389,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Auto close connections",
     ),
     "autoCloseConnectionsDesc": MessageLookupByLibrary.simpleMessage(
-      "Auto close connections after change node",
+      "Close existing connections after a manual node switch",
     ),
     "autoLaunch": MessageLookupByLibrary.simpleMessage("Auto launch"),
     "autoLaunchDesc": MessageLookupByLibrary.simpleMessage(

@@ -384,6 +384,9 @@ class _FengWoAdvancedSettingsViewState
     final systemProxy = ref.watch(
       networkSettingProvider.select((state) => state.systemProxy),
     );
+    final closeConnections = ref.watch(
+      appSettingProvider.select((state) => state.closeConnections),
+    );
     final address = '127.0.0.1:$mixedPort';
     return _AdvancedCard(
       key: const ValueKey('advanced-proxy-card'),
@@ -449,6 +452,23 @@ class _FengWoAdvancedSettingsViewState
               ),
             ),
           ],
+          Divider(height: 1, color: colors.outline),
+          _SettingsRow(
+            colors: colors,
+            icon: Icons.link_off_rounded,
+            iconColor: colors.orange,
+            title: l10n.autoCloseConnections,
+            subtitle: l10n.autoCloseConnectionsDesc,
+            trailing: Switch(
+              key: const ValueKey('advanced-auto-close-connections-switch'),
+              value: closeConnections,
+              onChanged: (value) {
+                ref
+                    .read(appSettingProvider.notifier)
+                    .update((state) => state.copyWith(closeConnections: value));
+              },
+            ),
+          ),
           if (defaultTargetPlatform == TargetPlatform.android) ...[
             Divider(height: 1, color: colors.outline),
             InkWell(

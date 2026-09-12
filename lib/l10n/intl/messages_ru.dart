@@ -389,7 +389,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Автоматическое закрытие соединений",
     ),
     "autoCloseConnectionsDesc": MessageLookupByLibrary.simpleMessage(
-      "Автоматически закрывать соединения после смены узла",
+      "Закрывать активные соединения после ручного переключения узла",
     ),
     "autoLaunch": MessageLookupByLibrary.simpleMessage("Автозапуск"),
     "autoLaunchDesc": MessageLookupByLibrary.simpleMessage(

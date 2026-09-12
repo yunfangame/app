@@ -326,7 +326,7 @@
   "externalLink": "外部リンク",
   "otherContributors": "その他の貢献者",
   "autoCloseConnections": "接続を自動閉じる",
-  "autoCloseConnectionsDesc": "ノード変更後に接続を自動閉じる",
+  "autoCloseConnectionsDesc": "ノードを手動で切り替えた後、既存の接続を自動的に閉じる",
   "onlyStatisticsProxy": "プロキシのみ統計",
   "onlyStatisticsProxyDesc": "有効化するとプロキシトラフィックのみ統計",
   "pureBlackMode": "純黒モード",

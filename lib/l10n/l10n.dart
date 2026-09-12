@@ -2673,10 +2673,10 @@ class AppLocalizations {
     );
   }
 
-  /// `Auto close connections after change node`
+  /// `Close existing connections after a manual node switch`
   String get autoCloseConnectionsDesc {
     return Intl.message(
-      'Auto close connections after change node',
+      'Close existing connections after a manual node switch',
       name: 'autoCloseConnectionsDesc',
       desc: '',
       args: [],
