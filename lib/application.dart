@@ -276,15 +276,11 @@ class ApplicationState extends ConsumerState<Application> {
         _beginDefaultLoginRouting(session);
         globalState.setOfflineMode(false);
         await _xboardSessionStorage.setOfflineMode(false);
-        await _loadXboardNodes(session, ignoreOfflineMode: true);
-        final profile = await _syncSubscriptionProfile(session);
         if (!mounted) return;
-        if (!identical(session, globalState.xboardSession)) return;
-        _selectDefaultLoginNode(session, expectedProfile: profile);
         setState(() {
           _authenticationBootstrap = _AuthenticationBootstrap.home;
         });
-        globalState.requestXboardAnnouncementAutoPrompt();
+        _startPostLoginSync(session);
       } on XboardAuthException catch (error) {
         final sessionExpired =
             error.failure == XboardAuthFailure.authenticationRejected;
@@ -343,7 +339,6 @@ class ApplicationState extends ConsumerState<Application> {
       if (!mounted || _logoutInProgress) return session;
       globalState.activateXboardSession(session);
       _beginDefaultLoginRouting(session);
-      await _loadXboardNodes(session, ignoreOfflineMode: true);
       commonPrint.event(
         'auth.remembered_login.succeeded',
         fields: {'account_ref': accountRef},
@@ -423,10 +418,44 @@ class ApplicationState extends ConsumerState<Application> {
         !identical(session, globalState.xboardSession)) {
       return;
     }
-    final profile = await _syncSubscriptionProfile(session);
-    if (!mounted || !identical(session, globalState.xboardSession)) return;
-    _selectDefaultLoginNode(session, expectedProfile: profile);
-    globalState.requestXboardAnnouncementAutoPrompt();
+    _startPostLoginSync(session);
+  }
+
+  void _startPostLoginSync(XboardLoginResult session) {
+    unawaited(_performPostLoginSync(session));
+  }
+
+  Future<void> _performPostLoginSync(XboardLoginResult session) async {
+    try {
+      await _loadXboardNodes(session, ignoreOfflineMode: true);
+      if (!mounted ||
+          _logoutInProgress ||
+          !identical(session, globalState.xboardSession)) {
+        return;
+      }
+      final profile = await _syncSubscriptionProfile(session);
+      if (!mounted ||
+          _logoutInProgress ||
+          !identical(session, globalState.xboardSession)) {
+        return;
+      }
+      _selectDefaultLoginNode(session, expectedProfile: profile);
+      globalState.requestXboardAnnouncementAutoPrompt();
+    } catch (error, stackTrace) {
+      commonPrint.event(
+        'auth.post_login.subscription_sync.failed',
+        fields: {
+          'error_type': error.runtimeType.toString(),
+          'error': '$error',
+          if (error is XboardAuthException)
+            ...?error.diagnostic?.toDiagnosticFields(),
+        },
+      );
+      commonPrint.log(
+        'post-login subscription sync failed: $error, $stackTrace',
+        logLevel: LogLevel.warning,
+      );
+    }
   }
 
   Future<Profile> _syncSubscriptionProfile(XboardLoginResult session) async {
@@ -448,18 +477,41 @@ class ApplicationState extends ConsumerState<Application> {
         allowTokenRegistration: !session.secureSubscription,
       );
       if (secureProfile != null) {
-        final profile = await ref
-            .read(profilesActionProvider.notifier)
-            .syncSubscriptionProfileBytes(
-              secureProfile.bytes,
-              sourceId: secureProfile.sourceId,
-              label: label,
-              replacingUrl: previousUrl,
-              removeLegacyXboardProfiles: true,
-            );
-        await _xboardSessionStorage.setManagedProfileUrl(
-          secureProfile.sourceId,
+        commonPrint.event(
+          'subscription_v2.stage',
+          fields: const {'stage': 'config_write'},
         );
+        late final Profile profile;
+        try {
+          profile = await ref
+              .read(profilesActionProvider.notifier)
+              .syncSubscriptionProfileBytes(
+                secureProfile.bytes,
+                sourceId: secureProfile.sourceId,
+                label: label,
+                replacingUrl: previousUrl,
+                removeLegacyXboardProfiles: true,
+              );
+          await _xboardSessionStorage.setManagedProfileUrl(
+            secureProfile.sourceId,
+          );
+          commonPrint.event(
+            'subscription_v2.stage',
+            fields: {
+              'stage': 'config_write_ok',
+              'content_bytes': secureProfile.bytes.length,
+            },
+          );
+        } catch (error) {
+          commonPrint.event(
+            'subscription_v2.stage',
+            fields: {
+              'stage': 'config_write_failed',
+              'error_code': subscriptionV2DiagnosticErrorCode(error),
+            },
+          );
+          rethrow;
+        }
         commonPrint.event(
           'subscription.profile.sync.succeeded',
           fields: {
@@ -491,12 +543,18 @@ class ApplicationState extends ConsumerState<Application> {
       );
       return profile;
     } catch (error, stackTrace) {
+      final failureDiagnostic = error is SubscriptionV2Exception
+          ? error.diagnostic
+          : null;
       commonPrint.event(
         'subscription.profile.sync.failed',
         fields: {
           'error_type': error.runtimeType.toString(),
           'error': '$error',
           'secure_subscription': session.secureSubscription,
+          if (error is SubscriptionV2Exception) 'error_code': error.code,
+          if (failureDiagnostic != null)
+            ...failureDiagnostic.toDiagnosticFields(),
         },
       );
       commonPrint.log(
@@ -1002,13 +1060,11 @@ class ApplicationState extends ConsumerState<Application> {
           if (!mounted || _logoutInProgress) return session;
           globalState.activateXboardSession(session);
           _beginDefaultLoginRouting(session);
-          await _loadXboardNodes(session, ignoreOfflineMode: true);
           commonPrint.event(
             'auth.login.succeeded',
             fields: {
               'account_ref': accountRef,
               'secure_subscription': session.secureSubscription,
-              'node_count': globalState.xboardNodes.length,
             },
           );
           return session;

@@ -181,6 +181,21 @@ typedef SubscriptionV2Requester =
       Map<String, Object?> envelope,
     );
 
+String subscriptionV2DiagnosticErrorCode(Object error) {
+  if (error is SubscriptionV2Exception) {
+    final normalized = error.code.trim().toLowerCase();
+    return RegExp(r'^[a-z0-9_]{1,64}$').hasMatch(normalized)
+        ? normalized
+        : 'invalid_error_code';
+  }
+  if (error is DioException) return 'dio_${error.type.name}';
+  if (error is FormatException) return 'invalid_format';
+  if (error is ArgumentError) return 'invalid_argument';
+  if (error is StateError) return 'state_error';
+  if (error is SocketException) return 'socket_error';
+  return 'unexpected_error';
+}
+
 class SubscriptionV2Client {
   SubscriptionV2Client({
     ApiHealthService? apiHealthService,
@@ -249,12 +264,7 @@ class SubscriptionV2Client {
     String? platform,
     bool allowTokenRegistration = true,
   }) async {
-    final config = parseSubscriptionV2RemoteConfig(
-      await _apiHealthService.loadConfig(),
-    );
-    if (config == null) {
-      throw const SubscriptionV2Exception('secure_config_disabled');
-    }
+    final config = await _loadSubscriptionV2Config('config_read');
     final gateway = _buildGatewayUri(endpoint, config.gatewayPath);
     final identity = await _loadIdentity();
     final credentialKey = _credentialKey(userToken);
@@ -312,20 +322,32 @@ class SubscriptionV2Client {
     required _SubscriptionV2Credential credential,
     required String userToken,
   }) async {
-    final issued = await _sendSigned(config, gateway, identity, {
-      'op': 'issue_ticket',
-      'timestamp': _timestamp,
-      'nonce': _randomBase64(18),
-      'device_id': credential.deviceId,
-    });
+    final issued = await _sendSignedAndTrack(
+      stage: 'ticket_issue',
+      operation: {
+        'op': 'issue_ticket',
+        'timestamp': _timestamp,
+        'nonce': _randomBase64(18),
+        'device_id': credential.deviceId,
+      },
+      config: config,
+      gateway: gateway,
+      identity: identity,
+    );
     final ticket = _requiredString(issued, 'ticket');
-    final redeemed = await _sendSigned(config, gateway, identity, {
-      'op': 'redeem_ticket',
-      'timestamp': _timestamp,
-      'nonce': _randomBase64(18),
-      'device_id': credential.deviceId,
-      'ticket': ticket,
-    });
+    final redeemed = await _sendSignedAndTrack(
+      stage: 'ticket_redeem',
+      operation: {
+        'op': 'redeem_ticket',
+        'timestamp': _timestamp,
+        'nonce': _randomBase64(18),
+        'device_id': credential.deviceId,
+        'ticket': ticket,
+      },
+      config: config,
+      gateway: gateway,
+      identity: identity,
+    );
     if (_requiredString(redeemed, 'content_encoding') != 'base64url') {
       throw const SubscriptionV2Exception('unsupported_content_encoding');
     }
@@ -350,12 +372,7 @@ class SubscriptionV2Client {
     required String appVersion,
     String? platform,
   }) async {
-    final config = parseSubscriptionV2RemoteConfig(
-      await _apiHealthService.loadConfig(),
-    );
-    if (config == null) {
-      throw const SubscriptionV2Exception('secure_config_disabled');
-    }
+    final config = await _loadSubscriptionV2Config('config_read');
     final gateway = _buildGatewayUri(endpoint, config.gatewayPath);
     final identity = await _loadIdentity();
     try {
@@ -383,10 +400,8 @@ class SubscriptionV2Client {
         keyId: config.keyId,
         gateway: gateway.toString(),
       );
-      await _valueStore.write(
-        _credentialKey(token),
-        jsonEncode(credential.toJson()),
-      );
+      final credentialData = jsonEncode(credential.toJson());
+      await _writeCredentialData(_credentialKey(token), credentialData);
       return SubscriptionV2Login(
         endpoint: endpoint,
         token: token,
@@ -577,64 +592,111 @@ class SubscriptionV2Client {
     required SecretKey shared,
     required Map<String, Object?> response,
   }) async {
-    if (response['v'] != _subscriptionV2Version ||
-        response['kid'] != config.keyId ||
-        response['request_id'] != requestId) {
-      throw const SubscriptionV2Exception('invalid_response_envelope');
-    }
-    final signatureBytes = _decodeBase64Url(
-      _requiredString(response, 'signature'),
-    );
-    final signed = Map<String, Object?>.from(response)..remove('signature');
-    final verified = await Ed25519().verify(
-      utf8.encode(canonicalSubscriptionV2Json(signed)),
-      signature: Signature(
-        signatureBytes,
-        publicKey: SimplePublicKey(
-          config.serverSigningPublicKey,
-          type: KeyPairType.ed25519,
+    const String stage = 'config_decrypt';
+    _recordSubscriptionV2Stage(stage);
+    try {
+      if (response['v'] != _subscriptionV2Version ||
+          response['kid'] != config.keyId ||
+          response['request_id'] != requestId) {
+        _recordSubscriptionV2Stage(
+          '${stage}_failed',
+          errorCode: 'invalid_response_envelope',
+        );
+        throw const SubscriptionV2Exception('invalid_response_envelope');
+      }
+      final signatureBytes = _decodeBase64Url(
+        _requiredString(response, 'signature'),
+      );
+      final signed = Map<String, Object?>.from(response)..remove('signature');
+      final verified = await Ed25519().verify(
+        utf8.encode(canonicalSubscriptionV2Json(signed)),
+        signature: Signature(
+          signatureBytes,
+          publicKey: SimplePublicKey(
+            config.serverSigningPublicKey,
+            type: KeyPairType.ed25519,
+          ),
         ),
-      ),
-    );
-    if (!verified) {
-      throw const SubscriptionV2Exception('invalid_server_signature');
-    }
-    final responseKey = await _deriveKey(
-      shared,
-      config.keyId,
-      'response',
-      requestId,
-    );
-    final plaintext = await AesGcm.with256bits().decrypt(
-      SecretBox(
-        _decodeBase64Url(_requiredString(response, 'ciphertext')),
-        nonce: _decodeBase64Url(_requiredString(response, 'nonce')),
-        mac: Mac(_decodeBase64Url(_requiredString(response, 'tag'))),
-      ),
-      secretKey: responseKey,
-      aad: utf8.encode(
-        canonicalSubscriptionV2Json({
-          'kid': config.keyId,
-          'request_id': requestId,
-          'v': _subscriptionV2Version,
-        }),
-      ),
-    );
-    final decoded = jsonDecode(utf8.decode(plaintext));
-    if (decoded is! Map) {
-      throw const SubscriptionV2Exception('invalid_response_payload');
-    }
-    final body = decoded.map((key, value) => MapEntry(key.toString(), value));
-    if (body['status'] != 1) {
+      );
+      if (!verified) {
+        _recordSubscriptionV2Stage(
+          '${stage}_failed',
+          errorCode: 'invalid_server_signature',
+        );
+        throw const SubscriptionV2Exception('invalid_server_signature');
+      }
+      final responseKey = await _deriveKey(
+        shared,
+        config.keyId,
+        'response',
+        requestId,
+      );
+      final plaintext = await AesGcm.with256bits().decrypt(
+        SecretBox(
+          _decodeBase64Url(_requiredString(response, 'ciphertext')),
+          nonce: _decodeBase64Url(_requiredString(response, 'nonce')),
+          mac: Mac(_decodeBase64Url(_requiredString(response, 'tag'))),
+        ),
+        secretKey: responseKey,
+        aad: utf8.encode(
+          canonicalSubscriptionV2Json({
+            'kid': config.keyId,
+            'request_id': requestId,
+            'v': _subscriptionV2Version,
+          }),
+        ),
+      );
+      _recordSubscriptionV2Stage('${stage}_ok', contentBytes: plaintext.length);
+
+      final decoded = jsonDecode(utf8.decode(plaintext));
+      if (decoded is! Map) {
+        _recordSubscriptionV2Stage(
+          'config_validation_failed',
+          errorCode: 'invalid_response_payload',
+        );
+        throw const SubscriptionV2Exception('invalid_response_payload');
+      }
+      _recordSubscriptionV2Stage('config_validation');
+      final body = decoded.map((key, value) => MapEntry(key.toString(), value));
+      if (body['status'] != 1) {
+        final error = body['error']?.toString() ?? 'subscription_v2_rejected';
+        _recordSubscriptionV2Stage(
+          'config_validation_failed',
+          errorCode: error,
+        );
+        throw SubscriptionV2Exception(error);
+      }
+      final data = body['data'];
+      if (data is! Map) {
+        _recordSubscriptionV2Stage(
+          'config_validation_failed',
+          errorCode: 'invalid_response_data',
+        );
+        throw const SubscriptionV2Exception('invalid_response_data');
+      }
+      _recordSubscriptionV2Stage(
+        'config_validation_ok',
+        contentBytes: _estimatedByteLength(data),
+      );
+      return data.map((key, value) => MapEntry(key.toString(), value));
+    } on SubscriptionV2Exception catch (error) {
+      if (!error.code.startsWith('invalid_') &&
+          error.code != 'subscription_v2_rejected' &&
+          error.code != 'invalid_response_envelope' &&
+          error.code != 'invalid_server_signature') {
+        _recordSubscriptionV2Stage('${stage}_failed', errorCode: error.code);
+      }
+      rethrow;
+    } catch (error) {
+      _recordSubscriptionV2Stage(
+        '${stage}_failed',
+        errorCode: _errorCode(error),
+      );
       throw SubscriptionV2Exception(
-        body['error']?.toString() ?? 'subscription_v2_rejected',
+        _errorCode(error),
+        diagnostic: classifyApiNetworkFailure(error, stage: stage),
       );
     }
-    final data = body['data'];
-    if (data is! Map) {
-      throw const SubscriptionV2Exception('invalid_response_data');
-    }
-    return data.map((key, value) => MapEntry(key.toString(), value));
   }
 
   Future<Map<String, Object?>> _request(
@@ -734,22 +796,162 @@ class SubscriptionV2Client {
     SubscriptionV2RemoteConfig config,
     Uri gateway,
   ) async {
-    final stored = await _valueStore.read(key);
-    if (stored == null) return null;
+    const operationRef = 'device_credential_read';
+    _recordSubscriptionV2Stage(operationRef);
     try {
+      final stored = await _valueStore.read(key);
+      if (stored == null) {
+        _recordSubscriptionV2Stage('${operationRef}_missing');
+        return null;
+      }
       final decoded = jsonDecode(stored);
-      if (decoded is! Map) return null;
+      if (decoded is! Map) {
+        _recordSubscriptionV2Stage(
+          '${operationRef}_failed',
+          errorCode: 'invalid_credential_payload',
+        );
+        return null;
+      }
       final credential = _SubscriptionV2Credential.fromJson(decoded);
       if (credential.keyId != config.keyId ||
           credential.gateway != gateway.toString() ||
           credential.expiresAt <= _timestamp + 30) {
+        _recordSubscriptionV2Stage(
+          '${operationRef}_failed',
+          errorCode: 'credential_not_match',
+        );
         return null;
       }
+      _recordSubscriptionV2Stage(
+        '${operationRef}_ok',
+        contentBytes: stored.length,
+      );
       return credential;
-    } catch (_) {
+    } catch (error) {
+      _recordSubscriptionV2Stage(
+        '${operationRef}_failed',
+        errorCode: _errorCode(error),
+      );
       return null;
     }
   }
+
+  Future<SubscriptionV2RemoteConfig> _loadSubscriptionV2Config(
+    String stage,
+  ) async {
+    final operation = stage;
+    _recordSubscriptionV2Stage(operation);
+    try {
+      final configSource = await _apiHealthService.loadConfig();
+      final config = parseSubscriptionV2RemoteConfig(configSource);
+      if (config == null) {
+        throw const SubscriptionV2Exception('secure_config_disabled');
+      }
+      _recordSubscriptionV2Stage(
+        '${operation}_ok',
+        contentBytes: _estimatedByteLength(configSource),
+      );
+      return config;
+    } on SubscriptionV2Exception catch (error) {
+      _recordSubscriptionV2Stage('${operation}_failed', errorCode: error.code);
+      rethrow;
+    } catch (error) {
+      final errorCode = _errorCode(error);
+      _recordSubscriptionV2Stage('${operation}_failed', errorCode: errorCode);
+      if (error is Error) {
+        throw SubscriptionV2Exception(
+          errorCode,
+          diagnostic: classifyApiNetworkFailure(
+            error,
+            stage: 'subscription_config',
+          ),
+        );
+      }
+      if (error is Exception) {
+        throw SubscriptionV2Exception(errorCode);
+      }
+      throw const SubscriptionV2Exception('subscription_v2_unknown_error');
+    }
+  }
+
+  Future<void> _writeCredentialData(String key, String credentialData) async {
+    const operation = 'device_credential_write';
+    _recordSubscriptionV2Stage(operation);
+    try {
+      await _valueStore.write(key, credentialData);
+      _recordSubscriptionV2Stage(
+        '${operation}_ok',
+        contentBytes: _estimatedByteLength(credentialData),
+      );
+    } catch (error) {
+      _recordSubscriptionV2Stage(
+        '${operation}_failed',
+        errorCode: _errorCode(error),
+      );
+      rethrow;
+    }
+  }
+
+  Future<Map<String, Object?>> _sendSignedAndTrack({
+    required String stage,
+    required Map<String, Object?> operation,
+    required SubscriptionV2RemoteConfig config,
+    required Uri gateway,
+    required _SubscriptionV2Identity identity,
+  }) async {
+    _recordSubscriptionV2Stage(stage);
+    try {
+      final response = await _sendSigned(config, gateway, identity, operation);
+      _recordSubscriptionV2Stage(
+        '${stage}_ok',
+        contentBytes: _estimatedByteLength(response),
+      );
+      return response;
+    } on SubscriptionV2Exception catch (error) {
+      _recordSubscriptionV2Stage('${stage}_failed', errorCode: error.code);
+      rethrow;
+    } catch (error) {
+      _recordSubscriptionV2Stage(
+        '${stage}_failed',
+        errorCode: _errorCode(error),
+      );
+      throw SubscriptionV2Exception(
+        _errorCode(error),
+        diagnostic: classifyApiNetworkFailure(error, stage: stage),
+      );
+    }
+  }
+
+  void _recordSubscriptionV2Stage(
+    String stage, {
+    String? errorCode,
+    int? contentBytes,
+  }) {
+    _diagnosticRecorder('subscription_v2.stage', {
+      'stage': stage,
+      if (errorCode != null)
+        'error_code': subscriptionV2DiagnosticErrorCode(
+          SubscriptionV2Exception(errorCode),
+        ),
+      'content_bytes': ?contentBytes,
+    });
+  }
+
+  int? _estimatedByteLength(Object? value) {
+    if (value == null) return null;
+    if (value is String) return value.length;
+    if (value is List<int>) return value.length;
+    if (value is Map || value is List) {
+      try {
+        return utf8.encode(jsonEncode(value)).length;
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  String _errorCode(Object error) => subscriptionV2DiagnosticErrorCode(error);
 
   Future<SecretKey> _deriveKey(
     SecretKey shared,

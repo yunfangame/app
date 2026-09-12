@@ -76,7 +76,10 @@ void main() {
           ),
         );
         expect(legacyCalls, 0);
-        expect(events.single['http_status'], status);
+        final gatewayFailure = events.singleWhere(
+          (event) => event['event'] == 'api.secure_gateway.failed',
+        );
+        expect(gatewayFailure['http_status'], status);
         expect(jsonEncode(events), isNot(contains('private')));
         expect(jsonEncode(events), isNot(contains('secret')));
       },
@@ -215,6 +218,77 @@ void main() {
       'redeem_ticket',
     ]);
     expect(server.redeemedTickets, hasLength(3));
+  });
+
+  test('subscription stages contain only redacted metadata', () async {
+    final server = await _FakeSubscriptionV2Server.create();
+    final events = <Map<String, Object?>>[];
+    final client = SubscriptionV2Client(
+      apiHealthService: _healthService(server.config),
+      valueStore: _MemorySubscriptionV2ValueStore(),
+      requester: server.request,
+      now: () => DateTime.utc(2026, 8, 31, 12),
+      random: Random(43),
+      diagnosticRecorder: (event, fields) =>
+          events.add({'event': event, ...fields}),
+    );
+
+    final login = await client.secureLogin(
+      endpoint: Uri.parse('https://api.example.com'),
+      email: 'private@example.com',
+      password: 'correct-password',
+      appVersion: '1.9.0',
+      platform: 'android',
+    );
+    final profile = await client.fetchProfile(
+      endpoint: Uri.parse('https://api.example.com'),
+      userToken: login!.token,
+      appVersion: '1.9.0',
+      platform: 'android',
+      allowTokenRegistration: false,
+    );
+
+    expect(profile, isNotNull);
+    expect(
+      events.map((event) => event['stage']),
+      containsAll([
+        'config_read',
+        'device_credential_read',
+        'ticket_issue',
+        'ticket_redeem',
+        'config_decrypt',
+        'config_validation',
+        'device_credential_write',
+      ]),
+    );
+    for (final event in events) {
+      expect(event['event'], 'subscription_v2.stage');
+      expect(
+        event.keys.toSet().difference({
+          'event',
+          'stage',
+          'error_code',
+          'content_bytes',
+        }),
+        isEmpty,
+      );
+    }
+    final encoded = jsonEncode(events);
+    expect(encoded, isNot(contains('api.example.com')));
+    expect(encoded, isNot(contains(login.token)));
+    expect(encoded, isNot(contains('correct-password')));
+    expect(encoded, isNot(contains(server.profile)));
+  });
+
+  test('subscription diagnostic error codes reject sensitive text', () {
+    expect(
+      subscriptionV2DiagnosticErrorCode(
+        const SubscriptionV2Exception(
+          'token=private-token https://private-api.example.com',
+        ),
+      ),
+      'invalid_error_code',
+    );
   });
 
   test(
