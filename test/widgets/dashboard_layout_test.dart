@@ -545,111 +545,106 @@ void main() {
     expect(tester.takeException(), null);
   });
 
-  testWidgets(
-    'desktop global mode confirms before preserving the rule node',
-    (tester) async {
-      tester.view.physicalSize = const Size(1440, 900);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets('desktop global mode confirms before preserving the rule node', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
 
-      const profile = Profile(
-        id: 1,
-        autoUpdateDuration: Duration.zero,
-        currentGroupName: '规则节点组',
-        selectedMap: {'GLOBAL': '旧节点', '规则节点组': '规则节点'},
-      );
-      final container = ProviderContainer(
-        overrides: [
-          dashboardStateProvider.overrideWithValue(
-            const DashboardState(dashboardWidgets: []),
-          ),
-          viewSizeProvider.overrideWithBuild((_, _) => const Size(1440, 900)),
-          initProvider.overrideWithBuild((_, _) => true),
-          profilesProvider.overrideWith(() => _TestProfiles([profile])),
-          currentProfileIdProvider.overrideWithBuild((_, _) => profile.id),
-          patchClashConfigProvider.overrideWithBuild(
-            (_, _) => const PatchClashConfig(mode: Mode.rule),
-          ),
-          setupActionProvider.overrideWith(_RecordingSetupAction.new),
-        ],
-      );
-      addTearDown(container.dispose);
-      globalState.container = container;
-
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: const _TestApp(child: DashboardView()),
+    const profile = Profile(
+      id: 1,
+      autoUpdateDuration: Duration.zero,
+      currentGroupName: '规则节点组',
+      selectedMap: {'GLOBAL': '旧节点', '规则节点组': '规则节点'},
+    );
+    final container = ProviderContainer(
+      overrides: [
+        dashboardStateProvider.overrideWithValue(
+          const DashboardState(dashboardWidgets: []),
         ),
-      );
-      await tester.pump();
+        viewSizeProvider.overrideWithBuild((_, _) => const Size(1440, 900)),
+        initProvider.overrideWithBuild((_, _) => true),
+        profilesProvider.overrideWith(() => _TestProfiles([profile])),
+        currentProfileIdProvider.overrideWithBuild((_, _) => profile.id),
+        patchClashConfigProvider.overrideWithBuild(
+          (_, _) => const PatchClashConfig(mode: Mode.rule),
+        ),
+        setupActionProvider.overrideWith(_RecordingSetupAction.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    globalState.container = container;
 
-      final globalMode = find.byKey(
-        const ValueKey('fengwo-desktop-global-mode'),
-      );
-      await tester.tap(globalMode);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(
-        find.byKey(const ValueKey('global-mode-confirmation-dialog')),
-        findsOneWidget,
-      );
-      expect(container.read(patchClashConfigProvider).mode, Mode.rule);
-      expect(
-        (container.read(setupActionProvider.notifier)
-                as _RecordingSetupAction)
-            .modeRequests,
-        isEmpty,
-      );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _TestApp(child: DashboardView()),
+      ),
+    );
+    await tester.pump();
 
-      await tester.tap(
-        find.byKey(const ValueKey('global-mode-dont-show-checkbox')),
-      );
-      await tester.pump();
-      expect(
-        tester
-            .widget<Checkbox>(
-              find.byKey(const ValueKey('global-mode-dont-show-checkbox')),
-            )
-            .value,
-        isTrue,
-      );
-      await tester.tap(find.byKey(const ValueKey('global-mode-confirm')));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
+    final globalMode = find.byKey(const ValueKey('fengwo-desktop-global-mode'));
+    await tester.tap(globalMode);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      find.byKey(const ValueKey('global-mode-confirmation-dialog')),
+      findsOneWidget,
+    );
+    expect(container.read(patchClashConfigProvider).mode, Mode.rule);
+    expect(
+      (container.read(setupActionProvider.notifier) as _RecordingSetupAction)
+          .modeRequests,
+      isEmpty,
+    );
 
-      expect(container.read(patchClashConfigProvider).mode, Mode.global);
-      expect(
-        container.read(appSettingProvider).skipGlobalModeConfirmation,
-        isTrue,
-      );
-      expect(
-        container.read(profilesProvider).single.selectedMap['GLOBAL'],
-        '规则节点',
-      );
+    await tester.tap(
+      find.byKey(const ValueKey('global-mode-dont-show-checkbox')),
+    );
+    await tester.pump();
+    expect(
+      tester
+          .widget<Checkbox>(
+            find.byKey(const ValueKey('global-mode-dont-show-checkbox')),
+          )
+          .value,
+      isTrue,
+    );
+    await tester.tap(find.byKey(const ValueKey('global-mode-confirm')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
-      container
-          .read(patchClashConfigProvider.notifier)
-          .update((state) => state.copyWith(mode: Mode.rule));
-      await tester.pump();
-      await tester.tap(globalMode);
-      await tester.pump();
+    expect(container.read(patchClashConfigProvider).mode, Mode.global);
+    expect(
+      container.read(appSettingProvider).skipGlobalModeConfirmation,
+      isTrue,
+    );
+    expect(
+      container.read(profilesProvider).single.selectedMap['GLOBAL'],
+      '规则节点',
+    );
 
-      expect(
-        find.byKey(const ValueKey('global-mode-confirmation-dialog')),
-        findsNothing,
-      );
-      expect(container.read(patchClashConfigProvider).mode, Mode.global);
-      expect(
-        (container.read(setupActionProvider.notifier)
-                as _RecordingSetupAction)
-            .modeRequests,
-        [Mode.global, Mode.global],
-      );
-      expect(tester.takeException(), null);
-    },
-  );
+    container
+        .read(patchClashConfigProvider.notifier)
+        .update((state) => state.copyWith(mode: Mode.rule));
+    await tester.pump();
+    await tester.tap(globalMode);
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('global-mode-confirmation-dialog')),
+      findsNothing,
+    );
+    expect(container.read(patchClashConfigProvider).mode, Mode.global);
+    expect(
+      (container.read(setupActionProvider.notifier) as _RecordingSetupAction)
+          .modeRequests,
+      [Mode.global, Mode.global],
+    );
+    expect(tester.takeException(), null);
+  });
 
   testWidgets('mobile global mode dialog adapts to a narrow dark viewport', (
     tester,
@@ -2074,6 +2069,45 @@ void main() {
     expect(find.text('新加坡 AWS 2x'), findsOneWidget);
     expect(find.text('日本大阪 1x'), findsOneWidget);
     expect(tester.takeException(), null);
+  });
+
+  testWidgets('node selector shows subscription loading before groups arrive', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final container = ProviderContainer(
+      overrides: [groupsProvider.overrideWithValue(const [])],
+    );
+    addTearDown(container.dispose);
+    globalState.container = container;
+    container
+        .read(loadingProvider(LoadingTag.subscriptionBootstrap).notifier)
+        .start();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _TestApp(child: FengWoNodeSelectorView()),
+      ),
+    );
+    await tester.pump();
+
+    final selector = find.byType(FengWoNodeSelectorView);
+    final localizations = tester.element(selector).appLocalizations;
+    expect(
+      find.byKey(const ValueKey('fengwo-selector-subscription-loading')),
+      findsOneWidget,
+    );
+    expect(find.text(localizations.loading), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('fengwo-selector-empty-refresh')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('node selector refreshes latest nodes once per request', (

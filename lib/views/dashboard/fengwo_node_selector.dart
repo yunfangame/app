@@ -128,6 +128,9 @@ class _FengWoNodeSelectorViewState
   Widget build(BuildContext context) {
     final rawGroups = ref.watch(groupsProvider);
     final visibleGroups = ref.watch(currentGroupsStateProvider).value;
+    final initializing = ref.watch(
+      loadingProvider(LoadingTag.subscriptionBootstrap),
+    );
     final groups = visibleGroups.map((group) {
       final rawGroup = rawGroups.getGroup(group.name) ?? group;
       return rawGroup.copyWith(
@@ -138,6 +141,7 @@ class _FengWoNodeSelectorViewState
     }).toList();
     final colors = _SelectorColors.of(context);
     final canRefresh =
+        !initializing &&
         !_refreshingNodes &&
         (widget.onRefresh != null ||
             (!globalState.isOfflineMode &&
@@ -150,6 +154,7 @@ class _FengWoNodeSelectorViewState
         child: groups.isEmpty
             ? _EmptyNodes(
                 colors: colors,
+                initializing: initializing,
                 refreshing: _refreshingNodes,
                 onRefresh: canRefresh ? _refreshNodes : null,
               )
@@ -799,11 +804,13 @@ class _NodeRow extends StatelessWidget {
 
 class _EmptyNodes extends StatelessWidget {
   final _SelectorColors colors;
+  final bool initializing;
   final bool refreshing;
   final VoidCallback? onRefresh;
 
   const _EmptyNodes({
     required this.colors,
+    required this.initializing,
     required this.refreshing,
     required this.onRefresh,
   });
@@ -814,24 +821,35 @@ class _EmptyNodes extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.cloud_off_rounded, size: 52, color: colors.muted),
+          if (initializing)
+            const SizedBox.square(
+              key: ValueKey('fengwo-selector-subscription-loading'),
+              dimension: 42,
+              child: CircularProgressIndicator(strokeWidth: 3),
+            )
+          else
+            Icon(Icons.cloud_off_rounded, size: 52, color: colors.muted),
           const SizedBox(height: 12),
           Text(
-            context.appLocalizations.proxyGroupEmpty,
+            initializing
+                ? context.appLocalizations.loading
+                : context.appLocalizations.proxyGroupEmpty,
             style: TextStyle(color: colors.muted),
           ),
-          const SizedBox(height: 14),
-          FilledButton.tonalIcon(
-            key: const ValueKey('fengwo-selector-empty-refresh'),
-            onPressed: refreshing ? null : onRefresh,
-            icon: refreshing
-                ? const SizedBox.square(
-                    dimension: 17,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.refresh_rounded),
-            label: Text(context.appLocalizations.update),
-          ),
+          if (!initializing) ...[
+            const SizedBox(height: 14),
+            FilledButton.tonalIcon(
+              key: const ValueKey('fengwo-selector-empty-refresh'),
+              onPressed: refreshing ? null : onRefresh,
+              icon: refreshing
+                  ? const SizedBox.square(
+                      dimension: 17,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh_rounded),
+              label: Text(context.appLocalizations.update),
+            ),
+          ],
         ],
       ),
     );

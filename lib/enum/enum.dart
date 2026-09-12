@@ -467,6 +467,7 @@ enum LoadingTag {
   backup_restore,
   access,
   proxies,
+  subscriptionBootstrap,
   batteryOptimization,
 }
 

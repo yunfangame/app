@@ -46,7 +46,12 @@ class FengWoMobileDashboard extends ConsumerWidget {
     final profile = ref.watch(currentProfileProvider);
     final currentGroup = _currentGroup(ref, profile);
     final rawNodeName = _currentNode(currentGroup, profile);
-    final nodeName = rawNodeName.takeFirstValid([l10n.proxiesEmpty]);
+    final subscriptionLoading = ref.watch(
+      loadingProvider(LoadingTag.subscriptionBootstrap),
+    );
+    final nodeName = rawNodeName.takeFirstValid([
+      subscriptionLoading ? l10n.loading : l10n.proxiesEmpty,
+    ]);
     final connectionDelay = rawNodeName.isEmpty
         ? null
         : ref.watch(

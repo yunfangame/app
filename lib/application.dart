@@ -59,6 +59,7 @@ class ApplicationState extends ConsumerState<Application> {
   late final LoginRoutingCoordinator _loginRouting;
   LoginRoutingAttempt? _loginRoutingAttempt;
   XboardLoginResult? _loginRoutingSession;
+  int _postLoginSyncRevision = 0;
 
   void _beginDefaultLoginRouting(XboardLoginResult session) {
     final revision = globalState.xboardSessionRevision;
@@ -422,10 +423,17 @@ class ApplicationState extends ConsumerState<Application> {
   }
 
   void _startPostLoginSync(XboardLoginResult session) {
-    unawaited(_performPostLoginSync(session));
+    final revision = ++_postLoginSyncRevision;
+    ref
+        .read(loadingProvider(LoadingTag.subscriptionBootstrap).notifier)
+        .start();
+    unawaited(_performPostLoginSync(session, revision));
   }
 
-  Future<void> _performPostLoginSync(XboardLoginResult session) async {
+  Future<void> _performPostLoginSync(
+    XboardLoginResult session,
+    int revision,
+  ) async {
     try {
       await _loadXboardNodes(session, ignoreOfflineMode: true);
       if (!mounted ||
@@ -433,12 +441,13 @@ class ApplicationState extends ConsumerState<Application> {
           !identical(session, globalState.xboardSession)) {
         return;
       }
-      final profile = await _syncSubscriptionProfile(session);
+      await _syncSubscriptionProfile(session);
       if (!mounted ||
           _logoutInProgress ||
           !identical(session, globalState.xboardSession)) {
         return;
       }
+      final profile = ref.read(currentProfileProvider);
       _selectDefaultLoginNode(session, expectedProfile: profile);
       globalState.requestXboardAnnouncementAutoPrompt();
     } catch (error, stackTrace) {
@@ -455,6 +464,14 @@ class ApplicationState extends ConsumerState<Application> {
         'post-login subscription sync failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
+    } finally {
+      if (mounted && revision == _postLoginSyncRevision) {
+        unawaited(
+          ref
+              .read(loadingProvider(LoadingTag.subscriptionBootstrap).notifier)
+              .stop(),
+        );
+      }
     }
   }
 
