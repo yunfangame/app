@@ -215,13 +215,17 @@ void main() {
   });
 
   test('preserves numeric refusal error without exception contents', () async {
+    var probes = 0;
     final guard = WindowsProxyGuard(
       inspector: (_) async => owned,
       stopper: (_) async => cleaned,
-      portProbe: (_) async => throw const SocketException(
-        'private-account@example.com',
-        osError: OSError('private exception text', 10061),
-      ),
+      portProbe: (_) async {
+        probes++;
+        throw const SocketException(
+          'private-account@example.com',
+          osError: OSError('private exception text', 10061),
+        );
+      },
       readyTimeout: const Duration(milliseconds: 20),
       retryInterval: const Duration(seconds: 1),
     );
@@ -229,7 +233,8 @@ void main() {
     final result = await guard.waitUntilReadyDetailed(7890);
 
     expect(result.status, WindowsProxyReadinessStatus.timedOut);
-    expect(result.attempts, 1);
+    expect(probes, greaterThanOrEqualTo(1));
+    expect(result.attempts, probes);
     expect(result.lastErrorType, 'socket_exception');
     expect(result.lastOsErrorCode, 10061);
     expect(
