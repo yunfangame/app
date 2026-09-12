@@ -420,6 +420,7 @@ class Loading extends _$Loading with AutoDisposeNotifierMixin {
 
   @override
   bool build(LoadingTag tag) {
+    ref.onDispose(() => _timer?.cancel());
     return false;
   }
 
@@ -443,7 +444,7 @@ class Loading extends _$Loading with AutoDisposeNotifierMixin {
       return;
     }
     _timer = Timer(Duration(milliseconds: minDuration - elapsed), () {
-      if (_start != startedAt) {
+      if (!ref.mounted || _start != startedAt) {
         return;
       }
       value = false;

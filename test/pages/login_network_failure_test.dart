@@ -53,7 +53,14 @@ void main() {
       await tester.tap(find.byKey(const Key('login-api-diagnostics')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('api-health-dialog')), findsOneWidget);
-      expect(find.textContaining('仅检测配置与 API 能否连通'), findsOneWidget);
+      expect(
+        find.text(
+          AppLocalizations.of(
+            tester.element(find.byKey(const Key('api-health-dialog'))),
+          ).apiReachabilityHint,
+        ),
+        findsOneWidget,
+      );
       await tester.tap(find.byKey(const Key('api-health-dialog-close')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('login-submit-button')));

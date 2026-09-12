@@ -332,49 +332,52 @@ class _PracticalToolCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 58,
-                    height: 58,
-                    decoration: BoxDecoration(
-                      color: tool.color.withValues(alpha: .1),
-                      borderRadius: BorderRadius.circular(18),
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 58,
+                      height: 58,
+                      decoration: BoxDecoration(
+                        color: tool.color.withValues(alpha: .1),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Icon(tool.icon, color: tool.color, size: 32),
                     ),
-                    child: Icon(tool.icon, color: tool.color, size: 32),
-                  ),
-                  const SizedBox(width: 18),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          tool.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: context.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: const Color(0xFF10244A),
+                    const SizedBox(width: 18),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            tool.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: context.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: const Color(0xFF10244A),
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 7),
-                        Text(
-                          tool.description,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: context.textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFF5D719A),
-                            fontWeight: FontWeight.w500,
-                            height: 1.45,
+                          const SizedBox(height: 7),
+                          Flexible(
+                            child: Text(
+                              tool.description,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: context.textTheme.bodyMedium?.copyWith(
+                                color: const Color(0xFF5D719A),
+                                fontWeight: FontWeight.w500,
+                                height: 1.45,
+                              ),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-              const Spacer(),
               Align(
                 alignment: Alignment.centerRight,
                 child: FilledButton.tonalIcon(
