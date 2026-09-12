@@ -435,13 +435,10 @@ class ApplicationState extends ConsumerState<Application> {
     int revision,
   ) async {
     try {
-      await _loadXboardNodes(session, ignoreOfflineMode: true);
-      if (!mounted ||
-          _logoutInProgress ||
-          !identical(session, globalState.xboardSession)) {
-        return;
-      }
-      await _syncSubscriptionProfile(session);
+      await Future.wait<void>([
+        _loadXboardNodes(session, ignoreOfflineMode: true),
+        _syncSubscriptionProfile(session).then<void>((_) {}),
+      ]);
       if (!mounted ||
           _logoutInProgress ||
           !identical(session, globalState.xboardSession)) {
