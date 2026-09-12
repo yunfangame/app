@@ -17,6 +17,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'common/common.dart';
 import 'common/migration.dart';
+import 'common/xboard_tickets.dart';
 import 'database/database.dart';
 import 'enum/enum.dart';
 import 'l10n/l10n.dart';
@@ -51,6 +52,7 @@ class GlobalState {
   final offlineModeNotifier = ValueNotifier(false);
   final xboardSessionRevisionNotifier = ValueNotifier<int>(0);
   final xboardMarqueeController = XboardMarqueeController();
+  final xboardTicketController = XboardTicketController();
 
   XboardSubscriptionData? get xboardSubscription => xboardSession?.subscription;
 

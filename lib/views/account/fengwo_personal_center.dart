@@ -4,6 +4,8 @@ import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/common/xboard_tickets.dart';
+import 'fengwo_tickets.dart';
 import 'package:fl_clash/widgets/fengwo_account_avatar.dart';
 import 'package:fl_clash/widgets/fengwo_logout_button.dart';
 import 'package:fl_clash/widgets/inherited.dart';
@@ -14,8 +16,13 @@ import 'package:intl/intl.dart';
 
 class FengWoPersonalCenterView extends ConsumerStatefulWidget {
   final XboardAuthService? authService;
+  final XboardTicketController? ticketController;
 
-  const FengWoPersonalCenterView({super.key, this.authService});
+  const FengWoPersonalCenterView({
+    super.key,
+    this.authService,
+    this.ticketController,
+  });
 
   @override
   ConsumerState<FengWoPersonalCenterView> createState() =>
@@ -37,6 +44,17 @@ class _FengWoPersonalCenterViewState
   final _confirmPasswordController = TextEditingController();
   final _loginIpScrollController = ScrollController();
   late final XboardAuthService _authService;
+  late final XboardTicketController _tickets;
+  Timer? _ticketTimer;
+
+  Future<void> _loadTickets() async {
+    if (!mounted) return;
+    _tickets.updateSession(
+      globalState.xboardSession,
+      offline: globalState.isOfflineMode,
+    );
+    await _tickets.refresh();
+  }
 
   XboardUserInfo? _userInfo;
   XboardLoginIpList? _loginIpList;
@@ -56,9 +74,18 @@ class _FengWoPersonalCenterViewState
   void initState() {
     super.initState();
     _authService = widget.authService ?? XboardAuthService();
+    _tickets = widget.ticketController ?? globalState.xboardTicketController;
+    _ticketTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted &&
+          PageActivityScope.isActiveOf(context) &&
+          !_tickets.loading) {
+        unawaited(_loadTickets());
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadUserInfo();
       _loadLoginIps();
+      unawaited(_loadTickets());
     });
   }
 
@@ -70,12 +97,16 @@ class _FengWoPersonalCenterViewState
     _wasPageActive = isPageActive;
     if (!becameActive) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_loadUserInfo());
+      if (mounted) {
+        unawaited(_loadUserInfo());
+        unawaited(_loadTickets());
+      }
     });
   }
 
   @override
   void dispose() {
+    _ticketTimer?.cancel();
     _oldPasswordController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
@@ -174,7 +205,7 @@ class _FengWoPersonalCenterViewState
   }
 
   Future<void> _refreshPage() async {
-    await Future.wait([_loadUserInfo(), _loadLoginIps()]);
+    await Future.wait([_loadUserInfo(), _loadLoginIps(), _loadTickets()]);
   }
 
   Future<void> _blockLoginIp(XboardLoginIpRecord record) async {
@@ -399,7 +430,17 @@ class _FengWoPersonalCenterViewState
                                 const SizedBox(height: 16),
                                 _buildWalletCard(colors),
                                 const SizedBox(height: 16),
-                                _buildPasswordCard(colors),
+                                if (!mobileLayout &&
+                                    constraints.maxWidth >= 760)
+                                  _buildSupportRow(colors)
+                                else ...[
+                                  _buildPasswordCard(colors),
+                                  const SizedBox(height: 16),
+                                  SizedBox(
+                                    height: 440,
+                                    child: _buildTicketCard(colors),
+                                  ),
+                                ],
                                 const SizedBox(height: 16),
                                 _buildLoginIpCard(colors),
                                 if (mobileLayout) ...[
@@ -420,7 +461,7 @@ class _FengWoPersonalCenterViewState
                                 ],
                               ),
                               const SizedBox(height: 18),
-                              _buildPasswordCard(colors),
+                              _buildSupportRow(colors),
                               const SizedBox(height: 18),
                               _buildLoginIpCard(colors),
                             ],
@@ -932,113 +973,138 @@ class _FengWoPersonalCenterViewState
     );
   }
 
+  Widget _buildTicketCard(_AccountColors colors) => _AccountCard(
+    key: const ValueKey('account-ticket-card'),
+    colors: colors,
+    child: Material(
+      color: Colors.transparent,
+      child: FengWoTicketPanel(controller: _tickets),
+    ),
+  );
+
+  Widget _buildSupportRow(_AccountColors colors) => SizedBox(
+    height: 460 * MediaQuery.textScalerOf(context).scale(14) / 14,
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(child: _buildPasswordCard(colors)),
+        const SizedBox(width: 18),
+        Expanded(child: _buildTicketCard(colors)),
+      ],
+    ),
+  );
+
   Widget _buildPasswordCard(_AccountColors colors) {
     return _AccountCard(
       key: const ValueKey('account-password-card'),
       colors: colors,
-      child: Form(
-        key: _passwordFormKey,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final horizontalFields = constraints.maxWidth >= 900;
-            final oldPasswordField = _PasswordField(
-              key: const ValueKey('old-password-field'),
-              controller: _oldPasswordController,
-              label: context.appLocalizations.oldPassword,
-              hint: context.appLocalizations.enterOldPassword,
-              obscureText: _obscureOldPassword,
-              labelAbove: horizontalFields,
-              onToggleVisibility: () {
-                setState(() => _obscureOldPassword = !_obscureOldPassword);
-              },
-              validator: (value) => value == null || value.isEmpty
-                  ? context.appLocalizations.enterOldPassword
-                  : null,
-            );
-            final newPasswordField = _PasswordField(
-              key: const ValueKey('new-password-field'),
-              controller: _newPasswordController,
-              label: context.appLocalizations.newPassword,
-              hint: context.appLocalizations.enterNewPassword,
-              obscureText: _obscureNewPassword,
-              labelAbove: horizontalFields,
-              onToggleVisibility: () {
-                setState(() => _obscureNewPassword = !_obscureNewPassword);
-              },
-              validator: (value) => value == null || value.length < 8
-                  ? context.appLocalizations.passwordTooShort
-                  : null,
-            );
-            final confirmPasswordField = _PasswordField(
-              key: const ValueKey('confirm-password-field'),
-              controller: _confirmPasswordController,
-              label: context.appLocalizations.confirmNewPassword,
-              hint: context.appLocalizations.enterNewPassword,
-              obscureText: _obscureConfirmPassword,
-              labelAbove: horizontalFields,
-              onToggleVisibility: () {
-                setState(
-                  () => _obscureConfirmPassword = !_obscureConfirmPassword,
-                );
-              },
-              validator: (value) => value != _newPasswordController.text
-                  ? context.appLocalizations.passwordsDoNotMatch
-                  : null,
-            );
-            final fields = horizontalFields
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(child: oldPasswordField),
-                      const SizedBox(width: 14),
-                      Expanded(child: newPasswordField),
-                      const SizedBox(width: 14),
-                      Expanded(child: confirmPasswordField),
-                    ],
-                  )
-                : Column(
-                    children: [
-                      oldPasswordField,
-                      const SizedBox(height: 10),
-                      newPasswordField,
-                      const SizedBox(height: 10),
-                      confirmPasswordField,
-                    ],
+      child: SingleChildScrollView(
+        child: Form(
+          key: _passwordFormKey,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final horizontalFields = constraints.maxWidth >= 900;
+              final oldPasswordField = _PasswordField(
+                key: const ValueKey('old-password-field'),
+                controller: _oldPasswordController,
+                label: context.appLocalizations.oldPassword,
+                hint: context.appLocalizations.enterOldPassword,
+                obscureText: _obscureOldPassword,
+                labelAbove: horizontalFields,
+                onToggleVisibility: () {
+                  setState(() => _obscureOldPassword = !_obscureOldPassword);
+                },
+                validator: (value) => value == null || value.isEmpty
+                    ? context.appLocalizations.enterOldPassword
+                    : null,
+              );
+              final newPasswordField = _PasswordField(
+                key: const ValueKey('new-password-field'),
+                controller: _newPasswordController,
+                label: context.appLocalizations.newPassword,
+                hint: context.appLocalizations.enterNewPassword,
+                obscureText: _obscureNewPassword,
+                labelAbove: horizontalFields,
+                onToggleVisibility: () {
+                  setState(() => _obscureNewPassword = !_obscureNewPassword);
+                },
+                validator: (value) => value == null || value.length < 8
+                    ? context.appLocalizations.passwordTooShort
+                    : null,
+              );
+              final confirmPasswordField = _PasswordField(
+                key: const ValueKey('confirm-password-field'),
+                controller: _confirmPasswordController,
+                label: context.appLocalizations.confirmNewPassword,
+                hint: context.appLocalizations.enterNewPassword,
+                obscureText: _obscureConfirmPassword,
+                labelAbove: horizontalFields,
+                onToggleVisibility: () {
+                  setState(
+                    () => _obscureConfirmPassword = !_obscureConfirmPassword,
                   );
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _AccountSectionTitle(
-                  colors: colors,
-                  icon: Icons.lock_outline_rounded,
-                  title: context.appLocalizations.changePasswordTitle,
-                ),
-                const SizedBox(height: 16),
-                fields,
-                const SizedBox(height: 18),
-                Align(
-                  alignment: AlignmentDirectional.centerEnd,
-                  child: SizedBox(
-                    width: constraints.maxWidth >= 520
-                        ? 240
-                        : constraints.maxWidth,
-                    child: _GradientAccountButton(
-                      key: const ValueKey('save-password-button'),
-                      onPressed: _changingPassword ? null : _changePassword,
-                      icon: _changingPassword
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.lock_reset_rounded),
-                      label: Text(context.appLocalizations.saveChanges),
+                },
+                validator: (value) => value != _newPasswordController.text
+                    ? context.appLocalizations.passwordsDoNotMatch
+                    : null,
+              );
+              final fields = horizontalFields
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: oldPasswordField),
+                        const SizedBox(width: 14),
+                        Expanded(child: newPasswordField),
+                        const SizedBox(width: 14),
+                        Expanded(child: confirmPasswordField),
+                      ],
+                    )
+                  : Column(
+                      children: [
+                        oldPasswordField,
+                        const SizedBox(height: 10),
+                        newPasswordField,
+                        const SizedBox(height: 10),
+                        confirmPasswordField,
+                      ],
+                    );
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _AccountSectionTitle(
+                    colors: colors,
+                    icon: Icons.lock_outline_rounded,
+                    title: context.appLocalizations.changePasswordTitle,
+                  ),
+                  const SizedBox(height: 16),
+                  fields,
+                  const SizedBox(height: 18),
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: SizedBox(
+                      width: constraints.maxWidth >= 520
+                          ? 240
+                          : constraints.maxWidth,
+                      child: _GradientAccountButton(
+                        key: const ValueKey('save-password-button'),
+                        onPressed: _changingPassword ? null : _changePassword,
+                        icon: _changingPassword
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.lock_reset_rounded),
+                        label: Text(context.appLocalizations.saveChanges),
+                      ),
                     ),
                   ),
-                ),
-              ],
-            );
-          },
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
