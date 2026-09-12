@@ -125,8 +125,10 @@ jobs:
       - name: Test live API fallback and encryption
         shell: pwsh
         run: |
-          flutter test tooling/api_remote_config_live_smoke_test.dart --reporter expanded --name 'redundant|backup|bundled'
-          if ($LASTEXITCODE -ne 0) { throw 'Live API encryption checks failed' }
+          foreach ($case in @('redundant', 'backup', 'bundled')) {
+            flutter test tooling/api_remote_config_live_smoke_test.dart --no-pub --reporter expanded --plain-name $case
+            if ($LASTEXITCODE -ne 0) { throw "Live API encryption check failed: $case" }
+          }
 
       - name: Test native Windows listeners
         shell: pwsh
