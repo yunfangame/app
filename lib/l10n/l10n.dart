@@ -10252,6 +10252,216 @@ class AppLocalizations {
       args: [],
     );
   }
+
+  /// `Support tickets`
+  String get ticketList {
+    return Intl.message(
+      'Support tickets',
+      name: 'ticketList',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Open`
+  String get ticketOpen {
+    return Intl.message('Open', name: 'ticketOpen', desc: '', args: []);
+  }
+
+  /// `Closed`
+  String get ticketClosed {
+    return Intl.message('Closed', name: 'ticketClosed', desc: '', args: []);
+  }
+
+  /// `Replied`
+  String get ticketReplied {
+    return Intl.message('Replied', name: 'ticketReplied', desc: '', args: []);
+  }
+
+  /// `Awaiting support`
+  String get ticketWaiting {
+    return Intl.message(
+      'Awaiting support',
+      name: 'ticketWaiting',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `New ticket`
+  String get ticketNew {
+    return Intl.message('New ticket', name: 'ticketNew', desc: '', args: []);
+  }
+
+  /// `No tickets here yet`
+  String get ticketEmpty {
+    return Intl.message(
+      'No tickets here yet',
+      name: 'ticketEmpty',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unable to load tickets. Please retry.`
+  String get ticketLoadFailed {
+    return Intl.message(
+      'Unable to load tickets. Please retry.',
+      name: 'ticketLoadFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Subject`
+  String get ticketSubject {
+    return Intl.message('Subject', name: 'ticketSubject', desc: '', args: []);
+  }
+
+  /// `Describe your issue`
+  String get ticketContent {
+    return Intl.message(
+      'Describe your issue',
+      name: 'ticketContent',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Priority`
+  String get ticketPriority {
+    return Intl.message('Priority', name: 'ticketPriority', desc: '', args: []);
+  }
+
+  /// `Low`
+  String get ticketLow {
+    return Intl.message('Low', name: 'ticketLow', desc: '', args: []);
+  }
+
+  /// `Normal`
+  String get ticketNormal {
+    return Intl.message('Normal', name: 'ticketNormal', desc: '', args: []);
+  }
+
+  /// `High`
+  String get ticketHigh {
+    return Intl.message('High', name: 'ticketHigh', desc: '', args: []);
+  }
+
+  /// `Submit ticket`
+  String get ticketSubmit {
+    return Intl.message(
+      'Submit ticket',
+      name: 'ticketSubmit',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reply`
+  String get ticketReply {
+    return Intl.message('Reply', name: 'ticketReply', desc: '', args: []);
+  }
+
+  /// `Write a reply`
+  String get ticketReplyHint {
+    return Intl.message(
+      'Write a reply',
+      name: 'ticketReplyHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Close ticket`
+  String get ticketClose {
+    return Intl.message(
+      'Close ticket',
+      name: 'ticketClose',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Close this ticket? You will no longer be able to reply.`
+  String get ticketCloseConfirm {
+    return Intl.message(
+      'Close this ticket? You will no longer be able to reply.',
+      name: 'ticketCloseConfirm',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Support`
+  String get ticketSupport {
+    return Intl.message('Support', name: 'ticketSupport', desc: '', args: []);
+  }
+
+  /// `You`
+  String get ticketYou {
+    return Intl.message('You', name: 'ticketYou', desc: '', args: []);
+  }
+
+  /// `Please complete this field`
+  String get ticketRequired {
+    return Intl.message(
+      'Please complete this field',
+      name: 'ticketRequired',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Request failed. Your text has been kept; please retry.`
+  String get ticketActionFailed {
+    return Intl.message(
+      'Request failed. Your text has been kept; please retry.',
+      name: 'ticketActionFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Read status could not be synced. Retry to clear the notification.`
+  String get ticketReadFailed {
+    return Intl.message(
+      'Read status could not be synced. Retry to clear the notification.',
+      name: 'ticketReadFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Load more`
+  String get ticketMore {
+    return Intl.message('Load more', name: 'ticketMore', desc: '', args: []);
+  }
+
+  /// `Ticket submitted`
+  String get ticketCreated {
+    return Intl.message(
+      'Ticket submitted',
+      name: 'ticketCreated',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unread reply`
+  String get ticketUnread {
+    return Intl.message(
+      'Unread reply',
+      name: 'ticketUnread',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Refresh`
+  String get ticketRefresh {
+    return Intl.message('Refresh', name: 'ticketRefresh', desc: '', args: []);
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<AppLocalizations> {

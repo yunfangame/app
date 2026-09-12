@@ -4,6 +4,7 @@ import 'package:fl_clash/manager/app_manager.dart';
 import 'package:fl_clash/models/common.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/views/account/fengwo_tickets.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -403,13 +404,26 @@ class _FengWoMobileNavigationBarState
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(
-                                  entry.icon,
-                                  size: 28,
-                                  color: selected
-                                      ? colors.onSecondaryContainer
-                                      : colors.onSurfaceVariant,
-                                ),
+                                if (entry.pageLabel == PageLabel.tools)
+                                  TicketUnreadBadge(
+                                    controller:
+                                        globalState.xboardTicketController,
+                                    child: Icon(
+                                      entry.icon,
+                                      size: 28,
+                                      color: selected
+                                          ? colors.onSecondaryContainer
+                                          : colors.onSurfaceVariant,
+                                    ),
+                                  )
+                                else
+                                  Icon(
+                                    entry.icon,
+                                    size: 28,
+                                    color: selected
+                                        ? colors.onSecondaryContainer
+                                        : colors.onSurfaceVariant,
+                                  ),
                                 const SizedBox(height: 8),
                                 Text(
                                   entry.label,
@@ -489,8 +503,14 @@ class _FengWoMobileNavigationBarState
                   label: l10n.acceleratorHome,
                 ),
                 NavigationDestination(
-                  icon: const Icon(Icons.grid_view_rounded),
-                  selectedIcon: const Icon(Icons.grid_view_rounded),
+                  icon: TicketUnreadBadge(
+                    controller: globalState.xboardTicketController,
+                    child: const Icon(Icons.grid_view_rounded),
+                  ),
+                  selectedIcon: TicketUnreadBadge(
+                    controller: globalState.xboardTicketController,
+                    child: const Icon(Icons.grid_view_rounded),
+                  ),
                   label: l10n.mine,
                 ),
               ],

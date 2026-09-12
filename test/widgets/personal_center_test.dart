@@ -1,4 +1,5 @@
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_tickets.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
@@ -9,6 +10,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../support/ticket_fixtures.dart';
 
 void main() {
   testWidgets(
@@ -26,6 +29,7 @@ void main() {
       await tester.pumpWidget(
         _TestApp(
           child: FengWoPersonalCenterView(
+            ticketController: _ticketController(),
             authService: _testService(
               onPasswordChanged: () => passwordChanged = true,
               loginIpState: loginIpState,
@@ -94,11 +98,22 @@ void main() {
       final confirmPasswordPosition = tester.getTopLeft(
         find.byKey(const ValueKey('confirm-password-field')),
       );
-      expect(oldPasswordPosition.dx, lessThan(newPasswordPosition.dx));
-      expect(newPasswordPosition.dx, lessThan(confirmPasswordPosition.dx));
+      expect(oldPasswordPosition.dy, lessThan(newPasswordPosition.dy));
+      expect(newPasswordPosition.dy, lessThan(confirmPasswordPosition.dy));
+      final ticketCard = find.byKey(const ValueKey('account-ticket-card'));
       expect(
-        (oldPasswordPosition.dy - newPasswordPosition.dy).abs(),
+        tester.getTopLeft(ticketCard).dx,
+        greaterThan(passwordPosition.dx),
+      );
+      expect(
+        (tester.getTopLeft(ticketCard).dy - passwordPosition.dy).abs(),
         lessThan(1),
+      );
+      expect(
+        tester.getSize(ticketCard).height,
+        tester
+            .getSize(find.byKey(const ValueKey('account-password-card')))
+            .height,
       );
 
       final autoRenewSwitch = find.descendant(
@@ -178,7 +193,10 @@ void main() {
       _TestApp(
         themeMode: ThemeMode.dark,
         mobileLayout: true,
-        child: FengWoPersonalCenterView(authService: _testService()),
+        child: FengWoPersonalCenterView(
+          ticketController: _ticketController(),
+          authService: _testService(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -231,6 +249,7 @@ void main() {
       _TestApp(
         mobileLayout: true,
         child: FengWoPersonalCenterView(
+          ticketController: _ticketController(),
           authService: _testService(loginIpState: loginIpState),
         ),
       ),
@@ -268,6 +287,7 @@ void main() {
     await tester.pumpWidget(
       _TestApp(
         child: FengWoPersonalCenterView(
+          ticketController: _ticketController(),
           authService: _testService(loginIpState: loginIpState),
         ),
       ),
@@ -292,6 +312,7 @@ void main() {
       _TestApp(
         mobileLayout: true,
         child: FengWoPersonalCenterView(
+          ticketController: _ticketController(),
           authService: _testService(loginIpState: loginIpState),
         ),
       ),
@@ -313,7 +334,12 @@ void main() {
     globalState.xboardSession = _testSession();
 
     await tester.pumpWidget(
-      _TestApp(child: FengWoPersonalCenterView(authService: _testService())),
+      _TestApp(
+        child: FengWoPersonalCenterView(
+          ticketController: _ticketController(),
+          authService: _testService(),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -350,6 +376,7 @@ void main() {
     await tester.pumpWidget(
       _TestApp(
         child: FengWoPersonalCenterView(
+          ticketController: _ticketController(),
           authService: _testService(loginIpState: loginIpState),
         ),
       ),
@@ -395,6 +422,7 @@ void main() {
             child: ValueListenableBuilder<bool>(
               valueListenable: pageActive,
               child: FengWoPersonalCenterView(
+                ticketController: _ticketController(),
                 authService: _testService(
                   userBalance: () => userInfoRequests == 0 ? 1250 : 8800,
                   onUserInfoFetched: () => userInfoRequests++,
@@ -627,4 +655,10 @@ class _TestApp extends StatelessWidget {
       ),
     );
   }
+}
+
+XboardTicketController _ticketController() {
+  final controller = TicketFixture().controller();
+  addTearDown(controller.dispose);
+  return controller;
 }

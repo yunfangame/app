@@ -6,6 +6,7 @@ import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/views/account/fengwo_tickets.dart';
 import 'package:fl_clash/widgets/animated_visibility.dart';
 import 'package:fl_clash/widgets/fengwo_logout_button.dart';
 import 'package:flutter/foundation.dart';
@@ -40,10 +41,30 @@ class AppStateManager extends ConsumerStatefulWidget {
 
 class _AppStateManagerState extends ConsumerState<AppStateManager>
     with WidgetsBindingObserver {
+  Timer? _ticketTimer;
+
+  void _syncTickets() {
+    final controller = globalState.xboardTicketController;
+    controller.updateSession(
+      globalState.xboardSession,
+      offline: globalState.isOfflineMode,
+    );
+    unawaited(controller.refreshSummary());
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    globalState.xboardSessionRevisionNotifier.addListener(_syncTickets);
+    globalState.offlineModeNotifier.addListener(_syncTickets);
+    _ticketTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _syncTickets(),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _syncTickets();
+    });
     ref.listenManual(checkIpProvider, (prev, next) {
       if (prev != next && next.a && next.c) {
         ref.read(networkDetectionProvider.notifier).startCheck();
@@ -90,6 +111,9 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
 
   @override
   void dispose() {
+    _ticketTimer?.cancel();
+    globalState.xboardSessionRevisionNotifier.removeListener(_syncTickets);
+    globalState.offlineModeNotifier.removeListener(_syncTickets);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -98,6 +122,7 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
   Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
     commonPrint.log('$state');
     if (state == AppLifecycleState.resumed) {
+      _syncTickets();
       unawaited(systemDnsCoordinator?.resync() ?? Future.value());
       permissions.check();
       render?.resume();
@@ -363,7 +388,13 @@ class AppSidebarContainer extends ConsumerWidget {
                                   destinations: navigationItems
                                       .map(
                                         (e) => NavigationRailDestination(
-                                          icon: e.icon,
+                                          icon: e.label == PageLabel.tools
+                                              ? TicketUnreadBadge(
+                                                  controller: globalState
+                                                      .xboardTicketController,
+                                                  child: e.icon,
+                                                )
+                                              : e.icon,
                                           label: Text(
                                             fengWoNavigationLabel(e.label),
                                             maxLines: 1,
