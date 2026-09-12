@@ -55,6 +55,7 @@ abstract class Profile with _$Profile {
     @Default({}) Set<String> unfoldSet,
     @Default(OverwriteType.standard) OverwriteType overwriteType,
     int? scriptId,
+    String? matchTarget,
     int? order,
   }) = _Profile;
 
