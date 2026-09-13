@@ -1160,6 +1160,12 @@ class ApplicationState extends ConsumerState<Application> {
       final config = await _xboardAuthService.loadGuestConfig();
       globalState.xboardGuestConfig = config;
       if (!mounted) return;
+      if (config.isRegistrationClosed) {
+        throw XboardAuthException(
+          failure: XboardAuthFailure.registrationRejected,
+          message: context.appLocalizations.registrationClosed,
+        );
+      }
       final registration = await globalState.navigatorKey.currentState?.push(
         MaterialPageRoute<RegisterFormData>(
           builder: (_) => RegisterPage(
@@ -1167,10 +1173,29 @@ class ApplicationState extends ConsumerState<Application> {
             onSendVerificationCode: (email) =>
                 _xboardAuthService.sendEmailVerification(email: email),
             onRegister: (data) async {
+              final latestConfig = await _xboardAuthService.loadGuestConfig();
+              if (!mounted) {
+                throw StateError('Registration flow is no longer active');
+              }
+              globalState.xboardGuestConfig = latestConfig;
+              if (latestConfig.isRegistrationClosed) {
+                throw XboardAuthException(
+                  failure: XboardAuthFailure.registrationRejected,
+                  message: context.appLocalizations.registrationClosed,
+                );
+              }
+              if (latestConfig.isInviteForce &&
+                  (data.invitationCode?.trim().isEmpty ?? true)) {
+                throw XboardAuthException(
+                  failure: XboardAuthFailure.registrationRejected,
+                  message: context.appLocalizations.invitationCodeRequired,
+                );
+              }
               await _xboardAuthService.register(
                 email: data.email,
                 password: data.password,
                 emailCode: data.emailCode ?? '',
+                invitationCode: data.invitationCode,
               );
             },
           ),

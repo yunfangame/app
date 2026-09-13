@@ -60,7 +60,7 @@ class _RegisterPageState extends State<RegisterPage> {
   void initState() {
     super.initState();
     _emailDomains = widget.config.emailDomains;
-    _emailDomain = _emailDomains.first;
+    _emailDomain = _emailDomains.isEmpty ? '' : _emailDomains.first;
   }
 
   @override
@@ -90,6 +90,10 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   Future<void> _sendVerificationCode() async {
+    if (widget.config.isRegistrationClosed) {
+      _showMessage(context.appLocalizations.registrationClosed);
+      return;
+    }
     if (_isSendingCode ||
         _secondsRemaining > 0 ||
         _emailFieldKey.currentState?.validate() != true) {
@@ -131,6 +135,10 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   Future<void> _submit() async {
+    if (widget.config.isRegistrationClosed) {
+      _showMessage(context.appLocalizations.registrationClosed);
+      return;
+    }
     if (_isRegistering) return;
     setState(() => _submitted = true);
     if (_formKey.currentState?.validate() != true) return;
@@ -173,6 +181,20 @@ class _RegisterPageState extends State<RegisterPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.config.isRegistrationClosed) {
+      return Scaffold(
+        appBar: AppBar(leading: BackButton(onPressed: _goBack)),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              context.appLocalizations.registrationClosed,
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: context.colorScheme.surface,
       body: LayoutBuilder(

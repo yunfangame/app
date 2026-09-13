@@ -10462,6 +10462,16 @@ class AppLocalizations {
   String get ticketRefresh {
     return Intl.message('Refresh', name: 'ticketRefresh', desc: '', args: []);
   }
+
+  /// `New account registration is currently closed.`
+  String get registrationClosed {
+    return Intl.message(
+      'New account registration is currently closed.',
+      name: 'registrationClosed',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<AppLocalizations> {

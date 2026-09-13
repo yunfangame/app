@@ -614,6 +614,7 @@ class XboardGuestConfig {
     required this.endpoint,
     required this.isEmailVerify,
     required this.isInviteForce,
+    this.isRegistrationClosed = false,
     required this.emailWhitelistSuffix,
     required this.rawData,
   });
@@ -621,6 +622,7 @@ class XboardGuestConfig {
   final Uri endpoint;
   final bool isEmailVerify;
   final bool isInviteForce;
+  final bool isRegistrationClosed;
   final List<String> emailWhitelistSuffix;
   final Map<String, Object?> rawData;
 
@@ -761,6 +763,7 @@ typedef XboardRegistrationRequester =
       String email,
       String password,
       String emailCode,
+      String? invitationCode,
     );
 typedef XboardPasswordResetRequester =
     Future<XboardLoginResponse> Function(
@@ -1565,6 +1568,7 @@ class XboardAuthService {
     required String email,
     required String password,
     required String emailCode,
+    String? invitationCode,
   }) async {
     final availableEndpoints =
         await (_endpointLoader ?? _loadAvailableEndpoints)();
@@ -1593,6 +1597,7 @@ class XboardAuthService {
           email.trim(),
           password,
           emailCode.trim(),
+          invitationCode?.trim(),
         );
         final statusCode = response.statusCode;
         late final Map<String, Object?> body;
@@ -3021,6 +3026,7 @@ class XboardAuthService {
     String email,
     String password,
     String emailCode,
+    String? invitationCode,
   ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
@@ -3028,6 +3034,8 @@ class XboardAuthService {
         'email': email,
         'password': password,
         'email_code': emailCode,
+        if (invitationCode != null && invitationCode.isNotEmpty)
+          'invite_code': invitationCode,
       }),
       options: Options(
         responseType: ResponseType.json,
@@ -3851,7 +3859,8 @@ XboardGuestConfig _parseGuestConfigSuccess(
   }
   final data = rawData.map((key, value) => MapEntry(key.toString(), value));
   final suffixes = _normalizeEmailSuffixes(data['email_whitelist_suffix']);
-  if (suffixes.isEmpty) {
+  final registrationClosed = _asBool(data['stop_register']);
+  if (suffixes.isEmpty && !registrationClosed) {
     throw XboardAuthException(
       failure: XboardAuthFailure.invalidResponse,
       message: '注册配置未返回可用的邮箱后缀',
@@ -3862,6 +3871,7 @@ XboardGuestConfig _parseGuestConfigSuccess(
     endpoint: endpoint,
     isEmailVerify: _asBool(data['is_email_verify']),
     isInviteForce: _asBool(data['is_invite_force']),
+    isRegistrationClosed: registrationClosed,
     emailWhitelistSuffix: List.unmodifiable(suffixes),
     rawData: Map.unmodifiable(data),
   );

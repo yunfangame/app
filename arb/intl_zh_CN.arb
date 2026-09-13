@@ -1229,5 +1229,6 @@
   "ticketMore": "加载更多",
   "ticketCreated": "工单已提交",
   "ticketUnread": "有未读回复",
-  "ticketRefresh": "刷新"
+  "ticketRefresh": "刷新",
+  "registrationClosed": "当前已停止新用户注册"
 }
