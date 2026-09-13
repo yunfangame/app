@@ -1509,6 +1509,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "registrationApiPending": MessageLookupByLibrary.simpleMessage(
       "登録APIはまだ接続されていません",
     ),
+    "registrationClosed": MessageLookupByLibrary.simpleMessage(
+      "現在、新規ユーザー登録は停止されています。",
+    ),
     "registrationFailed": MessageLookupByLibrary.simpleMessage(
       "登録に失敗しました。しばらくしてから再試行してください",
     ),

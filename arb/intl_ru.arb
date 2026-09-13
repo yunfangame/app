@@ -1229,5 +1229,6 @@
   "ticketMore": "Загрузить ещё",
   "ticketCreated": "Обращение отправлено",
   "ticketUnread": "Непрочитанный ответ",
-  "ticketRefresh": "Обновить"
+  "ticketRefresh": "Обновить",
+  "registrationClosed": "Регистрация новых пользователей сейчас закрыта."
 }

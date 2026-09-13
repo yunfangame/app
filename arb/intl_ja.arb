@@ -1229,5 +1229,6 @@
   "ticketMore": "さらに読み込む",
   "ticketCreated": "送信しました",
   "ticketUnread": "未読の返信",
-  "ticketRefresh": "更新"
+  "ticketRefresh": "更新",
+  "registrationClosed": "現在、新規ユーザー登録は停止されています。"
 }

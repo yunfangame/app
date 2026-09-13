@@ -1229,5 +1229,6 @@
   "ticketMore": "Load more",
   "ticketCreated": "Ticket submitted",
   "ticketUnread": "Unread reply",
-  "ticketRefresh": "Refresh"
+  "ticketRefresh": "Refresh",
+  "registrationClosed": "New account registration is currently closed."
 }

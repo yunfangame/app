@@ -6,6 +6,66 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final mobile in [false, true]) {
+    testWidgets(
+      'closed registration blocks the form and code sending on mobile=$mobile',
+      (tester) async {
+        if (mobile) {
+          _useMobileSize(tester);
+        } else {
+          _useDesktopSize(tester);
+        }
+        var registerCalls = 0;
+        var codeCalls = 0;
+        await tester.pumpWidget(
+          _testApp(
+            config: _guestConfig(isRegistrationClosed: true),
+            onRegister: (_) async {
+              registerCalls++;
+            },
+            onSendVerificationCode: (_) async {
+              codeCalls++;
+            },
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('当前已停止新用户注册'), findsOneWidget);
+        expect(find.byKey(const Key('register-submit-button')), findsNothing);
+        expect(find.byType(TextFormField), findsNothing);
+        expect(registerCalls, 0);
+        expect(codeCalls, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('required invitation code is included in submitted form data', (
+    tester,
+  ) async {
+    _useDesktopSize(tester);
+    RegisterFormData? submitted;
+    await tester.pumpWidget(
+      _testApp(
+        config: _guestConfig(isEmailVerify: false, isInviteForce: true),
+        onRegister: (data) async {
+          submitted = data;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    final fields = find.byType(TextFormField);
+    await tester.enterText(fields.at(0), 'newuser');
+    await tester.enterText(fields.at(1), 'secret123');
+    await tester.enterText(fields.at(2), 'secret123');
+    await tester.enterText(
+      find.byKey(const Key('register-invitation-field')),
+      '  INVITE123  ',
+    );
+    await tester.tap(find.byKey(const Key('register-submit-button')));
+    await tester.pumpAndSettle();
+    expect(submitted?.invitationCode, 'INVITE123');
+  });
+
   testWidgets('desktop registration page follows the two-panel design', (
     tester,
   ) async {
@@ -247,11 +307,13 @@ Widget _testApp({
 XboardGuestConfig _guestConfig({
   bool isEmailVerify = true,
   bool isInviteForce = false,
+  bool isRegistrationClosed = false,
 }) {
   return XboardGuestConfig(
     endpoint: Uri.parse('https://api.example.com/api/v1/guest/comm/config'),
     isEmailVerify: isEmailVerify,
     isInviteForce: isInviteForce,
+    isRegistrationClosed: isRegistrationClosed,
     emailWhitelistSuffix: const ['qq.com', 'gmail.com'],
     rawData: const {},
   );

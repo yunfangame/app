@@ -1869,6 +1869,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "registrationApiPending": MessageLookupByLibrary.simpleMessage(
       "API регистрации еще не подключен",
     ),
+    "registrationClosed": MessageLookupByLibrary.simpleMessage(
+      "Регистрация новых пользователей сейчас закрыта.",
+    ),
     "registrationFailed": MessageLookupByLibrary.simpleMessage(
       "Не удалось зарегистрироваться. Повторите попытку позже",
     ),

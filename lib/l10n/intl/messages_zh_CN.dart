@@ -1321,6 +1321,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "registerAction": MessageLookupByLibrary.simpleMessage("注册"),
     "registeredUsers": MessageLookupByLibrary.simpleMessage("已注册用户数"),
     "registrationApiPending": MessageLookupByLibrary.simpleMessage("注册接口待接入"),
+    "registrationClosed": MessageLookupByLibrary.simpleMessage("当前已停止新用户注册"),
     "registrationFailed": MessageLookupByLibrary.simpleMessage("注册失败，请稍后重试"),
     "registrationSuccess": MessageLookupByLibrary.simpleMessage("注册成功"),
     "reject": MessageLookupByLibrary.simpleMessage("拦截"),

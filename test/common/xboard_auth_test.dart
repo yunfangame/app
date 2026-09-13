@@ -870,6 +870,96 @@ void main() {
     expect(service.currentGuestConfig, same(config));
   });
 
+  test(
+    'register sends the trimmed invitation code in the actual request',
+    () async {
+      final adapter = _RecordingAdapter();
+      final service = XboardAuthService(
+        dio: Dio()..httpClientAdapter = adapter,
+        endpointLoader: () async => [Uri.parse('https://api.example.com')],
+      );
+      await service.register(
+        email: 'new@qq.com',
+        password: 'secret123',
+        emailCode: '123456',
+        invitationCode: '  INVITE123  ',
+      );
+      final fields = Map.fromEntries(
+        (adapter.requests.single.data as FormData).fields,
+      );
+      expect(fields['invite_code'], 'INVITE123');
+    },
+  );
+
+  for (final flag in [1, '1', true, 0, '0', false, null]) {
+    test(
+      'registration config parses stop_register=$flag without changing legacy defaults',
+      () async {
+        final closed = flag == 1 || flag == '1' || flag == true;
+        final service = XboardAuthService(
+          endpointLoader: () async => [Uri.parse('https://api.example.com')],
+          guestConfigRequester: (_) async => XboardLoginResponse(
+            statusCode: 200,
+            data: {
+              'data': {
+                'stop_register': ?flag,
+                'is_invite_force': 1,
+                'email_whitelist_suffix': closed ? [] : ['qq.com'],
+              },
+            },
+          ),
+        );
+        final config = await service.loadGuestConfig();
+        expect(config.isRegistrationClosed, closed);
+        expect(config.isInviteForce, isTrue);
+      },
+    );
+  }
+
+  for (final message in [
+    'Registration has closed',
+    'Invalid invitation code',
+  ]) {
+    test(
+      'registration business rejection is preserved without retry: $message',
+      () async {
+        var calls = 0;
+        final service = XboardAuthService(
+          endpointLoader: () async => [
+            Uri.parse('https://one.example.com'),
+            Uri.parse('https://two.example.com'),
+          ],
+          registrationRequester:
+              (endpoint, email, password, code, invite) async {
+                calls++;
+                return XboardLoginResponse(
+                  statusCode: 400,
+                  data: {'message': message},
+                );
+              },
+        );
+        await expectLater(
+          service.register(
+            email: 'new@qq.com',
+            password: 'secret123',
+            emailCode: '123456',
+            invitationCode: 'INVITE123',
+          ),
+          throwsA(
+            isA<XboardAuthException>()
+                .having(
+                  (error) => error.failure,
+                  'failure',
+                  XboardAuthFailure.registrationRejected,
+                )
+                .having((error) => error.message, 'message', message),
+          ),
+        );
+        expect(calls, 1);
+      },
+    );
+  }
+
   test('requires email suffixes to come from the XBoard array', () async {
     final service = XboardAuthService(
       endpointLoader: () async => [Uri.parse('https://api.example.com')],
