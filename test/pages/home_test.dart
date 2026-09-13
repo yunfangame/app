@@ -864,14 +864,20 @@ void main() {
       expect(viewportSize.width, closeTo(328, .01));
       expect(menuSize.width, closeTo(viewportSize.width, .01));
       expect(destinations, hasLength(3));
-      expect(
-        destinations.map((destination) => (destination.icon as Icon).icon),
-        [
-          Icons.shopping_cart_outlined,
-          Icons.home_outlined,
-          Icons.grid_view_rounded,
-        ],
-      );
+      const destinationIcons = [
+        Icons.shopping_cart_outlined,
+        Icons.home_rounded,
+        Icons.grid_view_rounded,
+      ];
+      for (var index = 0; index < destinations.length; index++) {
+        expect(
+          find.descendant(
+            of: find.byWidget(destinations[index]),
+            matching: find.byIcon(destinationIcons[index]),
+          ),
+          findsWidgets,
+        );
+      }
       expect(destinations.map((destination) => destination.label), [
         l10n.purchasePlan,
         l10n.acceleratorHome,
