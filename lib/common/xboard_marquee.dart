@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'print.dart';
 import 'xboard_auth.dart';
 
 const xboardMarqueeUnreadPath = '/api/v1/app/site-message/unread';
@@ -314,7 +315,7 @@ class XboardMarqueeController extends ChangeNotifier {
       _replaceMessages(unread);
       await _store.save(accountKey, unread);
     } catch (error, stackTrace) {
-      debugPrint('[APP] refresh marquee messages failed: $error, $stackTrace');
+      commonPrint.log('refresh marquee messages failed: $error, $stackTrace');
     } finally {
       if (generation == _generation) {
         _loading = false;

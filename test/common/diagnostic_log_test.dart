@@ -25,6 +25,11 @@ void main() {
         'ip': '203.0.113.20',
         'message':
             'Authorization: Bearer raw-token\nserver: edge.example.com password=two words',
+        'nested_error':
+            '{"password":"fake-nested-password","username":"fake-account",'
+            '"stage":"authentication"}',
+        'deep_link':
+            'flclash://install-config?url=https%3A%2F%2Fexample.com%2Ffake-subscription',
       },
     );
     await log.record('connection.requested', fields: {'running': true});
@@ -47,6 +52,10 @@ void main() {
     expect(exported, isNot(contains('raw-token')));
     expect(exported, isNot(contains('edge.example.com')));
     expect(exported, isNot(contains('two words')));
+    expect(exported, isNot(contains('fake-nested-password')));
+    expect(exported, isNot(contains('fake-account')));
+    expect(exported, isNot(contains('fake-subscription')));
+    expect(exported, contains('authentication'));
   });
 
   test('rotates diagnostic files and retains recent events', () async {
@@ -86,5 +95,24 @@ void main() {
     expect(first, second);
     expect(first, hasLength(12));
     expect(first, isNot(contains('person')));
+  });
+
+  test('redacts quoted and encoded credential assignments', () {
+    final sanitized = sanitizeDiagnosticText(
+      r'''{"password":"fake-\"quoted-password", "refreshToken":"fake-refresh", "stage":"login"}'''
+      '\nusername=fake-name; token%3Dfake-encoded; code=auth_failed',
+    );
+
+    expect(sanitized, isNot(contains('fake-')));
+    expect(sanitized, contains('login'));
+    expect(sanitized, contains('code=auth_failed'));
+  });
+
+  test('retains safe operation fields and fingerprint references', () {
+    const message =
+        'stage=core_setup; owner=helper; code=listener_not_ready; '
+        'account_ref=deadbeef1234; node_ref=1234deadbeef; elapsed_ms=430';
+
+    expect(sanitizeDiagnosticText(message), message);
   });
 }

@@ -19,7 +19,7 @@ class CommonPrint {
   }
 
   void log(String? text, {LogLevel logLevel = LogLevel.info}) {
-    final payload = '[APP] $text';
+    final payload = '[APP] ${sanitizeDiagnosticText('$text', maxLength: null)}';
     debugPrint(payload);
     if (!globalState.isAttach) {
       return;

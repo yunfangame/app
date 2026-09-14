@@ -113,7 +113,10 @@ String sanitizeDiagnosticText(String value, {int? maxLength = 2048}) {
   }
   sanitized = sanitized
       .replaceAll(
-        RegExp(r'''https?://[^\s\]\[\)\("'<>]+''', caseSensitive: false),
+        RegExp(
+          r'''[a-z][a-z0-9+.-]*(?::|%(?:25)*3a)(?://|%(?:25)*2f%(?:25)*2f)[^\s\]\[\)\("'<>]+''',
+          caseSensitive: false,
+        ),
         '<redacted-url>',
       )
       .replaceAll(
@@ -145,20 +148,16 @@ String sanitizeDiagnosticText(String value, {int? maxLength = 2048}) {
         RegExp(r'C:\\Users\\[^\\\s]+', caseSensitive: false),
         r'C:\Users\<user>',
       )
-      .replaceAll(
-        RegExp(r'\bauthorization\s*[:=]\s*[^\r\n,;]+', caseSensitive: false),
-        'authorization=<redacted>',
+      .replaceAllMapped(
+        RegExp(
+          r'''(?<![a-z0-9_])["']?([a-z0-9_-]*(?:token|password|passwd|secret)|authorization|auth[_-]?data|subscribe[_-]?url|subscription[_-]?url|account|username|email)["']?\s*(?::|=|%(?:25)*(?:3a|3d))\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\r\n,;]+)''',
+          caseSensitive: false,
+        ),
+        (match) => '${match[1]}=<redacted>',
       )
       .replaceAll(
         RegExp(r'\bbearer\s+[^\s,;]+', caseSensitive: false),
         'bearer <redacted>',
-      )
-      .replaceAll(
-        RegExp(
-          r'\b(token|password|passwd|secret|auth_data|subscribe_url)\s*[:=]\s*[^\r\n,;]+',
-          caseSensitive: false,
-        ),
-        r'$1=<redacted>',
       )
       .replaceAll(
         RegExp(
