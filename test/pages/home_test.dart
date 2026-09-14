@@ -10,6 +10,7 @@ import 'package:fl_clash/pages/home.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/account/fengwo_personal_center.dart';
+import 'package:fl_clash/views/account/fengwo_tickets.dart';
 import 'package:fl_clash/views/settings/fengwo_advanced_settings.dart';
 import 'package:fl_clash/views/tools.dart';
 import 'package:fl_clash/widgets/widgets.dart';
@@ -855,7 +856,12 @@ void main() {
       expect(menuSize.width, closeTo(viewportSize.width, .01));
       expect(destinations, hasLength(3));
       expect(
-        destinations.map((destination) => (destination.icon as Icon).icon),
+        destinations.map((destination) {
+          final icon = destination.icon;
+          return icon is TicketUnreadBadge
+              ? (icon.child as Icon).icon
+              : (icon as Icon).icon;
+        }),
         [
           Icons.shopping_cart_outlined,
           Icons.home_outlined,

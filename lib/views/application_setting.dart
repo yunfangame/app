@@ -263,7 +263,7 @@ class ApplicationSettingView extends StatelessWidget {
       const OpenLogsItem(),
       const CloseConnectionsItem(),
       const UsageItem(),
-      if (system.isAndroid) const CrashlyticsItem(),
+      if (system.isAndroid && androidCrashlyticsEnabled) const CrashlyticsItem(),
       const AutoCheckUpdateItem(),
     ];
     return BaseScaffold(

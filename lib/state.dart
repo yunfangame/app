@@ -458,7 +458,7 @@ class GlobalState {
   }
 
   Future<void> _showCrashlyticsTip() async {
-    if (!system.isAndroid) return;
+    if (!system.isAndroid || !androidCrashlyticsEnabled) return;
     if (container.read(
       appSettingProvider.select((state) => state.crashlyticsTip),
     )) {
