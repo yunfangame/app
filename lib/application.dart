@@ -352,11 +352,10 @@ class ApplicationState extends ConsumerState<Application> {
             'timeout_ms': _authenticationBootstrapTimeout.inMilliseconds,
           },
         );
-        await WidgetsBinding.instance.endOfFrame;
       }
       if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
       final storedSession = credentials.value;
-      _applyRememberedLogin(storedSession);
+      _applyRememberedLogin(storedSession, preserveUserInput: true);
       final offlineCache = await _xboardSessionStorage.loadOfflineCache();
       if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
       final offlineRequested = await _xboardSessionStorage.loadOfflineMode();
@@ -893,11 +892,16 @@ class ApplicationState extends ConsumerState<Application> {
     }
   }
 
-  void _applyRememberedLogin(XboardStoredSession stored) {
-    _loginPrefill = stored.rememberMe && stored.email != null
+  void _applyRememberedLogin(
+    XboardStoredSession stored, {
+    bool preserveUserInput = false,
+  }) {
+    final hasRememberedAccount = stored.rememberMe && stored.email != null;
+    _loginPrefill = hasRememberedAccount || preserveUserInput
         ? LoginFormPrefill(
-            email: stored.email!,
-            password: stored.password ?? '',
+            email: hasRememberedAccount ? stored.email! : '',
+            password: hasRememberedAccount ? stored.password ?? '' : '',
+            preserveUserInput: preserveUserInput,
           )
         : null;
     _initialRememberMe = stored.rememberMe;

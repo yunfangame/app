@@ -189,8 +189,10 @@ may expose the login form while the first credential-store read remains pending.
 timeout, once, with a fresh bounded authentication deadline; it must not reread the keyring or grant late network results
 the same permission. Login-page interaction and explicit login/logout/offline actions cancel the pending revision before
 changing state. Late results must pass the revision check before even prefilling the form, not only before navigation.
-Resumed startup must commit the loading frame and recheck the revision before publishing remembered form values, so an
-interaction with the old login form in the same frame can still cancel recovery without being overwritten.
+Background bootstrap prefill, including an empty result, must preserve user input. The login form independently rejects
+background prefill and option resets after user interaction, including an event in the same frame after bootstrap has
+completed. Explicit registration/recovery prefill retains its existing behavior. Authentication must not wait for a
+rendered frame, because silent desktop startup can keep the window hidden and suspend frame delivery.
 Programmatic prefill must not be reported as user interaction. Failed secret reads retain the existing storage-error
 degradation and never enable automatic login.
 

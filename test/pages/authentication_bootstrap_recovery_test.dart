@@ -177,7 +177,12 @@ void main() {
       (tester) async {
         final secrets = await _seed();
         final locked = secrets.lockNextRead();
-        final flow = await _mount(tester, secrets);
+        final beforeRestore = Completer<void>();
+        final flow = await _mount(
+          tester,
+          secrets,
+          beforeRestore: () => beforeRestore.future,
+        );
         try {
           await tester.pump(const Duration(seconds: 60));
           final loginState = tester.state(find.byType(LoginPage));
@@ -191,7 +196,8 @@ void main() {
           await tester.idle();
           expect(flow.currentState!.resumed, isTrue);
           expect(flow.currentState!.loading, isTrue);
-          expect(flow.currentState!.prefill, isNull);
+          expect(flow.currentState!.prefill?.email, 'user@example.com');
+          expect(flow.currentState!.prefill?.preserveUserInput, isTrue);
           expect(flow.currentState!.restoreCalls, 0);
           expect(find.byType(LoginPage), findsOneWidget);
           expect(
@@ -215,6 +221,7 @@ void main() {
           expect(flow.currentState!.userInteractions, greaterThan(0));
           expect(flow.currentState!.controller.hasPendingWork, isFalse);
           expect(flow.currentState!.loading, isFalse);
+          beforeRestore.complete();
           await tester.pumpAndSettle();
 
           expect(
@@ -227,7 +234,8 @@ void main() {
             password: '',
           );
           expect(flow.currentState!.discarded, isTrue);
-          expect(flow.currentState!.prefill, isNull);
+          expect(_checkbox(tester, '记住我').value, isFalse);
+          expect(_checkbox(tester, '自动登录').value, isFalse);
           expect(flow.currentState!.restoreCalls, 0);
           _expectOneCredentialRead(secrets);
           expect(tester.takeException(), isNull);
@@ -237,6 +245,103 @@ void main() {
       },
     );
   }
+
+  for (final clearInput in [false, true]) {
+    testWidgets(
+      'completed non-automatic recovery preserves same-frame input, clear=$clearInput',
+      (tester) async {
+        final secrets = await _seed(autoLogin: false);
+        final locked = secrets.lockNextRead();
+        final flow = await _mount(tester, secrets);
+        try {
+          await tester.pump(const Duration(seconds: 60));
+          final loginState = tester.state(find.byType(LoginPage));
+          final input = tester.state<EditableTextState>(
+            find.descendant(
+              of: find.byKey(const Key('login-email-field')),
+              matching: find.byType(EditableText),
+            ),
+          );
+          locked.complete();
+          await tester.idle();
+          expect(flow.currentState!.resumed, isTrue);
+          expect(flow.currentState!.loading, isFalse);
+          expect(flow.currentState!.controller.hasPendingWork, isFalse);
+          expect(flow.currentState!.accepted.rememberMe, isTrue);
+          expect(flow.currentState!.prefill?.preserveUserInput, isTrue);
+          _expectFields(tester, email: '', password: '');
+
+          input.updateEditingValue(
+            const TextEditingValue(
+              text: 'other@example.com',
+              selection: TextSelection.collapsed(offset: 17),
+            ),
+          );
+          if (clearInput) {
+            input.updateEditingValue(
+              const TextEditingValue(
+                selection: TextSelection.collapsed(offset: 0),
+              ),
+            );
+          }
+          await tester.pumpAndSettle();
+
+          expect(
+            identical(tester.state(find.byType(LoginPage)), loginState),
+            isTrue,
+          );
+          _expectFields(
+            tester,
+            email: clearInput ? '' : 'other@example.com',
+            password: '',
+          );
+          expect(_checkbox(tester, '记住我').value, isFalse);
+          expect(_checkbox(tester, '自动登录').value, isFalse);
+          expect(flow.currentState!.userInteractions, greaterThan(0));
+          expect(flow.currentState!.restoreCalls, 0);
+          expect(flow.currentState!.home, isFalse);
+          _expectOneCredentialRead(secrets);
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox());
+        }
+      },
+    );
+  }
+
+  testWidgets('resumed authentication progresses without another UI frame', (
+    tester,
+  ) async {
+    final secrets = await _seed();
+    final locked = secrets.lockNextRead();
+    final restored = Completer<void>();
+    final flow = await _mount(tester, secrets, restore: () => restored.future);
+    try {
+      await tester.pump(const Duration(seconds: 60));
+      locked.complete();
+      await tester.idle();
+
+      expect(find.byType(LoginPage), findsOneWidget);
+      expect(flow.currentState!.resumed, isTrue);
+      expect(flow.currentState!.restoreCalls, 1);
+      expect(flow.currentState!.loading, isTrue);
+      expect(flow.currentState!.controller.hasPendingWork, isTrue);
+      restored.complete();
+      await tester.idle();
+
+      expect(find.byType(LoginPage), findsOneWidget);
+      expect(flow.currentState!.home, isTrue);
+      expect(flow.currentState!.loading, isFalse);
+      expect(flow.currentState!.controller.hasPendingWork, isFalse);
+      expect(flow.currentState!.userInteractions, 0);
+      _expectOneCredentialRead(secrets);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('bootstrap-home')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    } finally {
+      await tester.pumpWidget(const SizedBox());
+    }
+  });
 
   testWidgets('unmounted recovery ignores the pending keyring result', (
     tester,
@@ -324,9 +429,15 @@ enum _UserIntent {
 enum _PersistenceIntent { forget, newAccount, logout }
 
 class _BootstrapFlow extends StatefulWidget {
-  const _BootstrapFlow({super.key, required this.persistence, this.restore});
+  const _BootstrapFlow({
+    super.key,
+    required this.persistence,
+    this.beforeRestore,
+    this.restore,
+  });
 
   final XboardLoginPersistence persistence;
+  final Future<void> Function()? beforeRestore;
   final Future<void> Function()? restore;
 
   @override
@@ -378,7 +489,6 @@ class _BootstrapFlowState extends State<_BootstrapFlow> {
     resumed = loaded.resumed;
     if (resumed) {
       setState(() => loading = true);
-      await WidgetsBinding.instance.endOfFrame;
     }
     if (!mounted || !controller.isCurrent(loaded.revision)) {
       discarded = true;
@@ -388,7 +498,13 @@ class _BootstrapFlowState extends State<_BootstrapFlow> {
     prefill = LoginFormPrefill(
       email: accepted.email ?? '',
       password: accepted.password ?? '',
+      preserveUserInput: true,
     );
+    await widget.beforeRestore?.call();
+    if (!mounted || !controller.isCurrent(loaded.revision)) {
+      discarded = true;
+      return;
+    }
     if (accepted.canAutoLogin) {
       setState(() => loading = true);
       restoreCalls++;
@@ -427,6 +543,7 @@ class _BootstrapFlowState extends State<_BootstrapFlow> {
       initialAutoLogin: accepted.autoLogin,
       onUserInteraction: () {
         userInteractions++;
+        if (!controller.hasPendingWork) return;
         controller.cancel();
         if (loading) setState(() => loading = false);
       },
@@ -444,6 +561,7 @@ class _BootstrapFlowState extends State<_BootstrapFlow> {
 Future<GlobalKey<_BootstrapFlowState>> _mount(
   WidgetTester tester,
   _SecretBoundary secrets, {
+  Future<void> Function()? beforeRestore,
   Future<void> Function()? restore,
 }) async {
   tester.view.physicalSize = const Size(1200, 900);
@@ -464,6 +582,7 @@ Future<GlobalKey<_BootstrapFlowState>> _mount(
       home: _BootstrapFlow(
         key: key,
         persistence: _persistence(secrets),
+        beforeRestore: beforeRestore,
         restore: restore,
       ),
     ),

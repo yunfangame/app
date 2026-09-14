@@ -6,10 +6,15 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 class LoginFormPrefill {
-  const LoginFormPrefill({required this.email, required this.password});
+  const LoginFormPrefill({
+    required this.email,
+    required this.password,
+    this.preserveUserInput = false,
+  });
 
   final String email;
   final String password;
+  final bool preserveUserInput;
 }
 
 typedef LoginAuthenticatedCallback =
@@ -92,6 +97,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _isOpeningOffline = false;
   bool _rememberedLoginRejected = false;
   bool _applyingPrefill = false;
+  bool _hasUserInteraction = false;
   String? _prefilledAccount;
   String? _prefilledPassword;
   ApiNetworkDiagnostic? _networkFailure;
@@ -133,6 +139,9 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void didUpdateWidget(covariant LoginPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (_hasUserInteraction && widget.prefill?.preserveUserInput == true) {
+      return;
+    }
     if (!identical(oldWidget.prefill, widget.prefill)) {
       _applyPrefill(widget.prefill);
       _autoLogin = widget.initialAutoLogin;
@@ -283,6 +292,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void _notifyUserInteraction() {
+    _hasUserInteraction = true;
     widget.onUserInteraction?.call();
   }
 
