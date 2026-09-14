@@ -11,6 +11,8 @@ essential: false
 icon: ./assets/images/icon.png
 
 dependencies:
+  - policykit-1
+  - systemd
   - ca-certificates
   - dbus-user-session
   - fonts-noto-cjk
@@ -22,6 +24,17 @@ dependencies:
   - libglib2.0-bin
   - libkeybinder-3.0-0
   - libsecret-1-0
+
+postuninstall_scripts:
+  - 'case "${1:-}" in remove|purge) ;; *) exit 0 ;; esac'
+  - 'systemctl disable --now flclash-helper.service >/dev/null 2>&1 || true'
+  - 'rm -f /etc/systemd/system/flclash-helper.service'
+  - 'systemctl daemon-reload >/dev/null 2>&1 || true'
+
+supported_mime_type:
+  - x-scheme-handler/clash
+  - x-scheme-handler/clashmeta
+  - x-scheme-handler/flclash
 
 keywords:
   - FlClash

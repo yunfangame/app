@@ -194,6 +194,8 @@ if [[ $package_family == 'debian' ]]; then
     libglib2.0-bin \
     libkeybinder-3.0-0 \
     libsecret-1-0 \
+    policykit-1 \
+    systemd \
     xdg-utils
 elif [[ $package_family == 'rpm' ]]; then
   ensure_rpm_packages \
@@ -436,6 +438,16 @@ if [[ -n $app_binary ]]; then
     pass '代理内核文件存在且可执行。'
   else
     fail '代理内核文件缺失或不可执行。'
+  fi
+  helper_binary="$(dirname "$app_binary")/FlClashHelperService"
+  manifest_path="$(dirname "$app_binary")/manifest.json"
+  if [[ -x $helper_binary && -f $manifest_path ]]; then
+    pass 'Linux Helper 和内核校验清单存在。'
+  else
+    fail 'Linux Helper 或内核校验清单缺失，请重新安装完整的客户端。'
+  fi
+  if [[ ! -d /run/systemd/system ]]; then
+    warn '当前会话未运行 systemd，无法启用 Linux Helper 服务。'
   fi
 else
   warn '尚未发现已安装的蜂窝加速器客户端。'

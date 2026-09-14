@@ -25,6 +25,13 @@ class RustBuilder {
     required this.notice,
   });
 
+  static List<String> buildArguments(Target target) => [
+    'build',
+    '--locked',
+    if (target.goos == 'windows') ...['--features', 'windows-service'],
+    '--release',
+  ];
+
   String get _helperPath => p.join(rootDir, config.helperDir);
   String get _outputPath => p.join(rootDir, config.outputDir);
 
@@ -34,7 +41,7 @@ class RustBuilder {
     bool force = false,
     Future<void> Function()? beforeBuild,
   }) async {
-    final args = ['build', '--features', 'windows-service', '--release'];
+    final args = buildArguments(target);
     final env = {
       'CORE_SHA256': coreSha256,
       'CORE_NAME': '${config.coreName}${target.executableExtension}',
@@ -90,27 +97,20 @@ class RustBuilder {
   }) async {
     final builder = FingerprintBuilder(rootDir: rootDir)
       ..addValue('cache_schema', BuildCache.schemaVersion)
-      ..addValue('kind', 'windows-helper')
-      ..addValue('target', {
-        'goos': target.goos,
-        'goarch': target.goarch,
-      })
+      ..addValue('kind', '${target.goos}-helper')
+      ..addValue('target', {'goos': target.goos, 'goarch': target.goarch})
       ..addValue('arguments', args)
       ..addValue('core_sha256', coreSha256)
       ..addValue('environment', _rustEnvironment())
       ..addValue('config', config.toFingerprintMap());
 
-    final cargoVersion = runCommand(
-      'cargo',
-      ['--version'],
-      workingDirectory: _helperPath,
-    );
+    final cargoVersion = runCommand('cargo', [
+      '--version',
+    ], workingDirectory: _helperPath);
     builder.addValue('cargo_version', (cargoVersion.stdout as String).trim());
-    final rustVersion = runCommand(
-      'rustc',
-      ['-Vv'],
-      workingDirectory: _helperPath,
-    );
+    final rustVersion = runCommand('rustc', [
+      '-Vv',
+    ], workingDirectory: _helperPath);
     builder.addValue('rustc_version', (rustVersion.stdout as String).trim());
 
     final inputs = collectFiles(

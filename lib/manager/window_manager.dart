@@ -59,6 +59,12 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   }
 
   @override
+  void onWindowActivate() {
+    super.onWindowActivate();
+    if (system.isLinux) unawaited(window?.show());
+  }
+
+  @override
   Future<void> onShouldTerminate() async {
     await ref.read(systemActionProvider.notifier).handleExit();
     super.onShouldTerminate();

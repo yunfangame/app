@@ -7,6 +7,7 @@ import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tray_manager/tray_manager.dart';
+import 'package:tray/tray.dart' as native_tray;
 
 class TrayManager extends ConsumerStatefulWidget {
   final Widget child;
@@ -18,6 +19,8 @@ class TrayManager extends ConsumerStatefulWidget {
 }
 
 class _TrayContainerState extends ConsumerState<TrayManager> with TrayListener {
+  StreamSubscription<native_tray.TrayEvent>? _linuxEvents;
+
   void _syncAuthenticationTray() {
     unawaited(ref.read(systemActionProvider.notifier).updateTray());
   }
@@ -25,7 +28,13 @@ class _TrayContainerState extends ConsumerState<TrayManager> with TrayListener {
   @override
   void initState() {
     super.initState();
-    trayManager.addListener(this);
+    if (system.isLinux) {
+      _linuxEvents = native_tray.Tray.instance.events.listen((event) {
+        if (event is native_tray.TrayMenuItemSelected) render?.active();
+      });
+    } else {
+      trayManager.addListener(this);
+    }
     globalState.xboardSessionRevisionNotifier.addListener(
       _syncAuthenticationTray,
     );
@@ -76,7 +85,8 @@ class _TrayContainerState extends ConsumerState<TrayManager> with TrayListener {
     globalState.xboardSessionRevisionNotifier.removeListener(
       _syncAuthenticationTray,
     );
-    trayManager.removeListener(this);
+    unawaited(_linuxEvents?.cancel());
+    if (!system.isLinux) trayManager.removeListener(this);
     super.dispose();
   }
 }

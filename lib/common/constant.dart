@@ -19,6 +19,7 @@ const packageName = 'com.follow.clash';
 final unixSocketPath = '/tmp/FlClashSocket_${Random().nextInt(10000)}.sock';
 final windowsPipeName = '\\\\.\\pipe\\FlClashCore_${_randomPipeId()}';
 const helperPort = 47890;
+const helperSocketPath = '/run/flclash/helper.sock';
 const helperProtocolVersionHeader = 'x-flclash-helper-protocol';
 const helperProtocolVersion = '6';
 const maxTextScale = 1.4;

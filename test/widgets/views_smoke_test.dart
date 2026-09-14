@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/theme.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -23,14 +26,101 @@ import 'package:fl_clash/views/proxies/tab.dart';
 import 'package:fl_clash/views/theme.dart';
 import 'package:fl_clash/views/views.dart';
 import 'package:fl_clash/widgets/inherited.dart';
+import 'package:fl_clash/widgets/list.dart';
 import 'package:fl_clash/widgets/sheet.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smooth_sheets/smooth_sheets.dart';
 
 void main() {
+  testWidgets('Geo file size refreshes only after Core finishes its update', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 2200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final directory = Directory.systemTemp.createTempSync('fw-geo-refresh-');
+    const pathChannel = MethodChannel('plugins.flutter.io/path_provider');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(pathChannel, (_) async => directory.path);
+    final previousDataDir = appPath.dataDir;
+    appPath.dataDir = Completer<Directory>()..complete(directory);
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(pathChannel, null);
+      appPath.dataDir = previousDataDir;
+      directory.deleteSync(recursive: true);
+    });
+    final file = File('${directory.path}/$MMDB');
+    await tester.runAsync(() => file.writeAsBytes(List.filled(1024, 0)));
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    globalState.container = container;
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _TestApp(child: ResourcesView()),
+      ),
+    );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pump();
+    final mmdb = find
+        .ancestor(
+          of: find.text(GeoResource.MMDB.name),
+          matching: find.byType(ListItem),
+        )
+        .first;
+    Iterable<String> descriptions() => tester
+        .widgetList<Text>(
+          find.descendant(of: mmdb, matching: find.byType(Text)),
+        )
+        .map((text) => text.data ?? '')
+        .where((text) => text.contains(' · '));
+    Future<void> waitForSize(int size) async {
+      for (var attempt = 0; attempt < 30; attempt++) {
+        if (descriptions().any((text) => text.startsWith(size.traffic.show))) {
+          return;
+        }
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      expect(descriptions(), contains(startsWith(size.traffic.show)));
+    }
+
+    String description() => descriptions().single;
+    await waitForSize(1024);
+    final before = description();
+    await tester.runAsync(() => file.writeAsBytes(List.filled(4096, 0)));
+    container
+            .read(isUpdatingProvider(GeoResource.MMDB.updatingKey).notifier)
+            .value =
+        true;
+    await tester.pump();
+    expect(description(), before);
+    container
+            .read(isUpdatingProvider(GeoResource.MMDB.updatingKey).notifier)
+            .value =
+        false;
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pump();
+    await waitForSize(4096);
+    expect(description(), isNot(before));
+    expect(description(), startsWith(4096.traffic.show));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   final cases = <String, Widget>{
     'dashboard': const DashboardView(),
     'proxies': const ProxiesView(),

@@ -9,7 +9,6 @@ import 'package:fl_clash/core/desktop/helper_client.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/plugins/app.dart';
 import 'package:fl_clash/state.dart';
-import 'package:fl_clash/widgets/input.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:path/path.dart';
@@ -83,10 +82,27 @@ class System {
     return trimmed.startsWith(ownerPrefix) && trimmed.contains('rws');
   }
 
+  bool get isAppImage =>
+      isLinux && Platform.environment.containsKey('APPIMAGE');
+
+  bool get hasHelperService => helperServiceAvailable(
+    isWindows: isWindows,
+    isLinux: isLinux,
+    isAppImage: isAppImage,
+    hasSystemd: isLinux && Directory('/run/systemd/system').existsSync(),
+  );
+
+  @visibleForTesting
+  static bool helperServiceAvailable({
+    required bool isWindows,
+    required bool isLinux,
+    required bool isAppImage,
+    required bool hasSystemd,
+  }) => isWindows || (isLinux && !isAppImage && hasSystemd);
+
   Future<bool> checkIsAdmin() async {
-    if (system.isWindows) {
-      return await windowsHelperClient.readiness() ==
-          WindowsHelperReadiness.ready;
+    if (hasHelperService) {
+      return await helperClient.readiness() == HelperReadiness.ready;
     } else if (system.isMacOS) {
       final result = await runProcess(
         'stat',
@@ -158,6 +174,10 @@ class System {
     if (system.isWindows) {
       return await windows?.registerService() ?? AuthorizeCode.error;
     }
+    if (hasHelperService) {
+      return await linux?.registerService() ?? AuthorizeCode.error;
+    }
+    if (isAppImage) return AuthorizeCode.error;
     final isAdmin = await checkIsAdmin();
     if (isAdmin) {
       return AuthorizeCode.none;
@@ -176,26 +196,16 @@ class System {
       }
       return AuthorizeCode.success;
     } else if (Platform.isLinux) {
-      final shell = Platform.environment['SHELL'] ?? 'bash';
-      final password = await globalState.showCommonDialog<String>(
-        child: InputDialog(
-          obscureText: true,
-          title: currentAppLocalizations.pleaseInputAdminPassword,
-          value: '',
-          inputFormatters: TextInputLimits.limit(TextInputLimits.password),
-        ),
-      );
-      if (password == null || password.isEmpty) {
-        return AuthorizeCode.error;
-      }
-      final escapedPassword = _shellEscape(password);
       final escapedCorePath = _shellEscape(appPath.corePath);
-      final arguments = [
-        '-c',
-        'echo $escapedPassword | sudo -S chown root:root $escapedCorePath && echo $escapedPassword | sudo -S chmod +sx $escapedCorePath',
-      ];
-      final result = await Process.run(shell, arguments);
-      if (result.exitCode != 0) {
+      try {
+        final result = await runProcess('pkexec', [
+          '/bin/sh',
+          '-c',
+          'chown root:root $escapedCorePath && chmod +sx $escapedCorePath',
+        ]);
+        if (result.exitCode != 0) return AuthorizeCode.error;
+      } on ProcessException catch (error) {
+        commonPrint.log('pkexec failed: $error', logLevel: LogLevel.error);
         return AuthorizeCode.error;
       }
       return AuthorizeCode.success;
@@ -280,67 +290,8 @@ class Windows {
     return true;
   }
 
-  Future<AuthorizeCode> registerService() async {
-    final readiness = await windowsHelperClient.readiness();
-    switch (readiness) {
-      case WindowsHelperReadiness.ready:
-        commonPrint.log('helper service is ready');
-        return AuthorizeCode.none;
-      case WindowsHelperReadiness.manifestMissing:
-        commonPrint.log(
-          'Core manifest is missing or invalid; Helper service unavailable, '
-          'falling back to direct Core',
-          logLevel: LogLevel.warning,
-        );
-        globalState.showNotifier(currentAppLocalizations.helperCorruptTip);
-        return AuthorizeCode.error;
-      case WindowsHelperReadiness.notReady:
-        break;
-    }
-
-    commonPrint.log(
-      'helper service is unavailable, requesting elevated installation',
-      logLevel: LogLevel.warning,
-    );
-    if (!runas(appPath.helperPath, 'install')) {
-      commonPrint.log(
-        'failed to launch elevated helper installation',
-        logLevel: LogLevel.error,
-      );
-      return AuthorizeCode.error;
-    }
-
-    final isRunning = await _waitForHelperService();
-    commonPrint.log(
-      isRunning
-          ? 'helper service installation completed'
-          : 'helper service did not become ready after installation',
-      logLevel: isRunning ? LogLevel.info : LogLevel.error,
-    );
-    return isRunning ? AuthorizeCode.success : AuthorizeCode.error;
-  }
-
-  Future<bool> _waitForHelperService() async {
-    const timeout = Duration(seconds: 6);
-    const interval = Duration(seconds: 1);
-    const maxAttempts = 6;
-    final stopwatch = Stopwatch()..start();
-    for (var attempt = 0; attempt < maxAttempts; attempt++) {
-      final remaining = timeout - stopwatch.elapsed;
-      if (remaining <= Duration.zero) return false;
-      final isRunning =
-          await windowsHelperClient.readiness(
-            timeout: remaining,
-            logFailure: false,
-          ) ==
-          WindowsHelperReadiness.ready;
-      if (isRunning) return true;
-      final delay = timeout - stopwatch.elapsed;
-      if (delay <= Duration.zero || attempt == maxAttempts - 1) return false;
-      await Future.delayed(delay < interval ? delay : interval);
-    }
-    return false;
-  }
+  Future<AuthorizeCode> registerService() =>
+      registerHelperService(() async => runas(appPath.helperPath, 'install'));
 
   Future<bool> registerTask(String appName) async {
     final taskXml =
@@ -398,7 +349,99 @@ class Windows {
   }
 }
 
+Future<AuthorizeCode> registerHelperService(
+  Future<bool> Function() install, {
+  Future<HelperReadiness> Function()? readiness,
+}) async {
+  final probe = readiness ?? () => helperClient.readiness();
+  final status = await probe();
+  switch (status) {
+    case HelperReadiness.ready:
+      commonPrint.log('helper service is ready');
+      return AuthorizeCode.none;
+    case HelperReadiness.manifestMissing:
+      commonPrint.log(
+        'Core manifest is missing or invalid; Helper service unavailable, '
+        'falling back to direct Core',
+        logLevel: LogLevel.warning,
+      );
+      globalState.showNotifier(currentAppLocalizations.helperCorruptTip);
+      return AuthorizeCode.error;
+    case HelperReadiness.notReady:
+      break;
+  }
+
+  commonPrint.log(
+    'helper service is unavailable, requesting elevated installation',
+    logLevel: LogLevel.warning,
+  );
+  if (!await install()) {
+    commonPrint.log(
+      'failed to launch elevated helper installation',
+      logLevel: LogLevel.error,
+    );
+    return AuthorizeCode.error;
+  }
+
+  final isRunning = await _waitForHelperService(readiness: readiness);
+  commonPrint.log(
+    isRunning
+        ? 'helper service installation completed'
+        : 'helper service did not become ready after installation',
+    logLevel: isRunning ? LogLevel.info : LogLevel.error,
+  );
+  return isRunning ? AuthorizeCode.success : AuthorizeCode.error;
+}
+
+Future<bool> _waitForHelperService({
+  Future<HelperReadiness> Function()? readiness,
+}) async {
+  const timeout = Duration(seconds: 6);
+  const interval = Duration(seconds: 1);
+  const maxAttempts = 6;
+  final stopwatch = Stopwatch()..start();
+  for (var attempt = 0; attempt < maxAttempts; attempt++) {
+    final remaining = timeout - stopwatch.elapsed;
+    if (remaining <= Duration.zero) return false;
+    final isRunning =
+        await (readiness?.call() ??
+                helperClient.readiness(timeout: remaining, logFailure: false))
+            .timeout(remaining, onTimeout: () => HelperReadiness.notReady) ==
+        HelperReadiness.ready;
+    if (isRunning) return true;
+    final delay = timeout - stopwatch.elapsed;
+    if (delay <= Duration.zero || attempt == maxAttempts - 1) return false;
+    await Future.delayed(delay < interval ? delay : interval);
+  }
+  return false;
+}
+
 final windows = system.isWindows ? Windows() : null;
+
+class Linux {
+  Linux({ProcessRunner? runProcess}) : runProcess = runProcess ?? Process.run;
+
+  final ProcessRunner runProcess;
+
+  Future<AuthorizeCode> registerService() =>
+      registerHelperService(() => installService(appPath.helperPath));
+
+  Future<bool> installService(String helperPath) async {
+    try {
+      final result = await runProcess('pkexec', [helperPath, 'install']);
+      if (result.exitCode == 0) return true;
+      commonPrint.log(
+        'pkexec helper install failed: ${result.exitCode}',
+        logLevel: LogLevel.error,
+      );
+    } on ProcessException catch (error) {
+      commonPrint.log('pkexec failed: $error', logLevel: LogLevel.error);
+    }
+    return false;
+  }
+}
+
+final linux = system.isLinux && system.hasHelperService ? Linux() : null;
 
 class MacOS implements SystemDnsPort {
   static MacOS? _instance;

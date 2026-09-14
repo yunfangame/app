@@ -27,7 +27,11 @@ function(apply_buildkit)
     )
     set(_platform_args "windows")
   else()
-    set(_outputs "${PROJECT_ROOT}/libclash/linux/FlClashCore")
+    set(_outputs
+      "${PROJECT_ROOT}/libclash/linux/FlClashCore"
+      "${PROJECT_ROOT}/libclash/linux/FlClashHelperService"
+      "${PROJECT_ROOT}/libclash/linux/manifest.json"
+    )
     set(_platform_args "linux")
   endif()
   set(_phony "${CMAKE_CURRENT_BINARY_DIR}/buildkit_phony")

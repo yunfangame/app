@@ -110,6 +110,22 @@ class _GeoResourceListItem extends ConsumerStatefulWidget {
 }
 
 class _GeoResourceListItemState extends ConsumerState<_GeoResourceListItem> {
+  late Future<FileInfo?> _fileInfoFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _fileInfoFuture = _getGeoFileInfo(fileName);
+  }
+
+  @override
+  void didUpdateWidget(covariant _GeoResourceListItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.type != widget.type) {
+      _fileInfoFuture = _getGeoFileInfo(fileName);
+    }
+  }
+
   String get fileName {
     return switch (widget.type) {
       GeoResource.MMDB => MMDB,
@@ -158,6 +174,13 @@ class _GeoResourceListItemState extends ConsumerState<_GeoResourceListItem> {
   @override
   Widget build(BuildContext context) {
     final appLocalizations = context.appLocalizations;
+    ref.listen(isUpdatingProvider(widget.type.updatingKey), (previous, next) {
+      if (previous == true && !next) {
+        setState(() {
+          _fileInfoFuture = _getGeoFileInfo(fileName);
+        });
+      }
+    });
     final isUpdating = ref.watch(isUpdatingProvider(widget.type.updatingKey));
     final url = ref.watch(
       patchClashConfigProvider.select((state) => state.geoXUrl[widget.type]),
@@ -172,7 +195,7 @@ class _GeoResourceListItemState extends ConsumerState<_GeoResourceListItem> {
               children: [
                 const SizedBox(height: 6),
                 FutureBuilder<FileInfo?>(
-                  future: _getGeoFileInfo(fileName),
+                  future: _fileInfoFuture,
                   builder: (_, snapshot) {
                     final height = globalState.measure.bodyMediumHeight;
                     return SizedBox(

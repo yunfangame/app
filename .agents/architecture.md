@@ -26,8 +26,8 @@ Desktop core mode:
   applies a three-minute default method timeout, unwraps `CoreMethodResponse`, and fails all pending calls when transport
   disconnects or closes.
 - `lib/core/desktop/lifecycle.dart` serializes process intents and owns the authoritative desktop state machine.
-- `lib/core/desktop/launcher.dart` abstracts direct child-process and Windows Helper ownership through idempotent process
-  leases. `lib/core/desktop/helper_client.dart` is the typed loopback HTTP client for the privileged Helper.
+- `lib/core/desktop/launcher.dart` abstracts direct child-process and Windows/Linux Helper ownership through idempotent
+  process leases. `lib/core/desktop/helper_client.dart` carries typed HTTP over Windows loopback or a Linux Unix socket.
 
 `lib/core/controller.dart` (`CoreController`) selects the implementation based on platform. `lib/core/interface.dart` defines the shared `CoreHandlerInterface`.
 
@@ -101,8 +101,9 @@ caller, and uses a three-second watchdog as an emergency application-exit path. 
 - An unexpected disconnect or transport failure while running is converted to `DesktopCoreFailure`, the owned process is
   cleaned up, and `CoreService` emits a Core crash event for the normal UI recovery path.
 
-Direct launch is used on macOS/Linux and as the Windows fallback when the privileged Helper is not ready. When the Helper
-is ready on Windows, the Helper owns the Core child and Dart owns it through a session-scoped lease.
+Direct launch is used on macOS and as the Windows/Linux fallback when the privileged Helper is not ready. When the Helper
+is ready, it owns the Core child and Dart owns it through a session-scoped lease. Linux enables Helper discovery only for
+non-AppImage installations with running systemd; requesting TUN authorization installs it through the system polkit UI.
 
 ### Android Service Lifecycle
 
@@ -288,23 +289,25 @@ Responsibilities are deliberately split:
 - `core/` and `services/helper/` remain source owners; `libclash/` and Android `jniLibs`/header directories are generated
   output locations.
 - `setup.dart` remains the release/package orchestrator and does not pre-build
-  platform artifacts or use `dart-define` for Core integrity data. The Windows
+  platform artifacts or use `dart-define` for Core integrity data. The Windows/Linux
   build tool writes the runtime `manifest.json` beside the Core output, and the
-  Windows bundle copies it beside the application executable.
+  corresponding bundle copies it beside the application executable.
 
 Platform outputs remain explicit:
 
 - Android builds the Go core as `c-shared`, then copies `libclash.so` and generated headers into the `:core` Android module.
-- macOS and Linux build a standalone `FlClashCore` process used by the desktop socket integration.
+- macOS builds a standalone `FlClashCore` process used by the desktop socket integration.
+- Linux builds `FlClashCore`, release-mode `FlClashHelperService`, and `manifest.json` on a native matching-architecture
+  Linux host. CMake installs both executables and the manifest together; the existing buildkit remains the build owner.
 - Windows builds `FlClashCore.exe`, the Rust `FlClashHelperService.exe` privileged helper, and a
   `manifest.json` containing only `coreSha256`.
 
 The hooks follow rust_api/Cargokit's phony-output scheduling pattern, but setup uses its own cache because it builds both a
-Go core and, on Windows, a separate Rust helper. Per-target records live under `.dart_tool/setup_build_cache/v1/`:
+Go core and, on Windows/Linux, a separate Rust helper. Per-target records live under `.dart_tool/setup_build_cache/v1/`:
 
 - Go fingerprints cover the target-specific `go list -deps` inputs inside `core/` and `Clash.Meta`, module files, effective
   build configuration, build-tool sources, target flags, Go environment/toolchain, and Android NDK compiler details.
-- Windows helper fingerprints cover its Rust sources and manifests, Cargo/Rust
+- Windows/Linux helper fingerprints cover its Rust sources and manifests, Cargo/Rust
   toolchains and flags, and the expected Core SHA256.
 - A cache hit requires the fingerprint and every recorded output's path, size, and modification state to match. It exits
   silently without Go/Cargo compilation, output copying, or Windows `taskkill`.
@@ -350,24 +353,29 @@ Architecture detection is automatic. macOS release builds produce one Universal 
 
 ## Local Plugins
 
-- `setup`: build-time harness for Go core artifacts and the Windows Rust helper; no runtime Dart API.
+- `setup`: build-time harness for Go core artifacts and the Windows/Linux Rust helper; no runtime Dart API.
 - `proxy`: system proxy configuration.
 - `rust_api`: runtime Flutter Rust Bridge FFI plugin built through Cargokit.
-- `tray_manager`: system tray fork/customization.
+- `tray_manager`: existing Windows/macOS system tray fork/customization.
+- `tray`: upstream declarative tray API with only its Linux native backend vendored. `lib/common/linux_tray.dart` adapts
+  existing business menus; native reconciliation avoids destroying the Linux tray on every state update.
 - `wifi_ssid`: Wi-Fi SSID detection.
 - `window_ext`: window extensions.
 - `flutter_distributor`: app packaging/distribution.
 
 ## Rust Helper Service
 
-`services/helper/` is a Windows-only privileged helper for starting the core as admin and managing TUN. It is built with:
+`services/helper/` is a Windows/Linux privileged helper for starting the core and managing TUN. Build on the target host:
 
 ```bash
 make core-windows
+make core-linux
 ```
 
 The build tool always compiles the Helper in Rust release mode after calculating
 the SHA256 of the Core produced for the active Flutter configuration.
+
+### Windows Service
 
 The helper owns its Windows Service Control Manager lifecycle through two elevated commands:
 
@@ -392,6 +400,22 @@ it never hashes the Core. Protocol version 6 uses 32-character lowercase-hex ses
 - `POST /stop` validates `{sessionId}` and only stops the matching managed Core. A session mismatch is HTTP 409.
 - `GET /logs` exposes the bounded recent Helper/Core stderr buffer with `no-store` caching.
 
-All endpoints bind only to `127.0.0.1:47890` and do not use request-token authentication. Lifecycle safety comes from the
+On Windows all endpoints bind only to `127.0.0.1:47890` and do not use request-token authentication. Lifecycle safety comes from the
 fixed executable/hash, strict pipe namespace, session-scoped stop contract, and Dart-side peer-PID verification. When the
 Helper service itself shuts down, it unconditionally stops the Core process it owns.
+
+### Linux Service
+
+Linux uses the same session/hash protocol over `/run/flclash/helper.sock`, not a TCP listener. Installation runs
+`pkexec FlClashHelperService install`; the application does not collect an administrator password. The installer requires
+a root-owned, non-group/other-writable executable and containing directory, and binds the systemd unit to the invoking
+non-root UID/GID. Socket peer credentials must match that owner. Core connects only to an owner-owned Unix socket.
+
+The Core hash is embedded at build time and checked before execution. Linux gives Core the invoking user's real UID/GID
+while retaining effective root credentials for TUN; service shutdown releases its managed child. The unit is single-owner, so a second
+Linux login must not silently take over another user's service. Package removal/purge disables and removes the unit;
+package upgrades preserve it and the explicit authorization path refreshes a stale Helper.
+
+AppImage and systemd-less environments do not use this service. The existing direct launch remains available; the
+systemd-less authorization fallback uses polkit. Actual systemd lifecycle, polkit UI, TUN, desktop-shell tray behavior,
+and repeated-launch activation require native Linux validation; portable tests and cross-target checks cannot prove them.

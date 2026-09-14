@@ -125,7 +125,7 @@ class BuildLinuxCommand extends BuildCommand {
   final name = 'linux';
 
   @override
-  final description = 'Build Linux Go core (executable)';
+  final description = 'Build Linux Core and privileged Helper';
 
   @override
   Future<void> runBuildCommand() async {
@@ -133,8 +133,12 @@ class BuildLinuxCommand extends BuildCommand {
     final config = BuildConfig.load(rootDir: _rootDir);
 
     final arch = archName ?? await _hostGoArch();
-    final targets =
-        Target.forPlatform('linux').where((t) => t.goarch == arch).toList();
+    if (!Platform.isLinux || arch != await _hostGoArch()) {
+      throw BuildException('Linux Helper requires a native Linux $arch host');
+    }
+    final targets = Target.forPlatform(
+      'linux',
+    ).where((t) => t.goarch == arch).toList();
 
     if (targets.isEmpty) {
       throw BuildException('Invalid arch: $arch');
@@ -150,7 +154,19 @@ class BuildLinuxCommand extends BuildCommand {
     );
     final results = await builder.buildAll(targets, force: force);
 
-    if (results.any((result) => result.rebuilt)) {
+    final coreSha256 = await calcSha256(results.single.primaryOutput);
+    final helper = await RustBuilder(
+      rootDir: _rootDir,
+      config: config,
+      cache: cache,
+      notice: notice,
+    ).build(targets.single, coreSha256, force: force);
+    writeCoreManifest(
+      path: p.join(_rootDir, config.outputDir, 'linux', coreManifestName),
+      coreSha256: coreSha256,
+    );
+
+    if (helper.rebuilt || results.any((result) => result.rebuilt)) {
       _log.info(
         'Build complete: ${results.map((result) => result.primaryOutput)}',
       );
@@ -180,8 +196,9 @@ class BuildWindowsCommand extends BuildCommand {
     final config = BuildConfig.load(rootDir: _rootDir);
 
     final arch = archName ?? await _hostGoArch();
-    final targets =
-        Target.forPlatform('windows').where((t) => t.goarch == arch).toList();
+    final targets = Target.forPlatform(
+      'windows',
+    ).where((t) => t.goarch == arch).toList();
 
     if (targets.isEmpty) {
       throw BuildException('Invalid arch: $arch');
@@ -196,8 +213,9 @@ class BuildWindowsCommand extends BuildCommand {
       notice: notice,
     );
     final coreResults = await goBuilder.buildAll(targets, force: force);
-    final corePaths =
-        coreResults.map((result) => result.primaryOutput).toList();
+    final corePaths = coreResults
+        .map((result) => result.primaryOutput)
+        .toList();
     final rustBuilder = RustBuilder(
       rootDir: _rootDir,
       config: config,
@@ -311,16 +329,15 @@ class BuildMacosCommand extends BuildCommand {
       temporaryOutput,
     ]);
     temporaryFile.renameSync(output);
-    final architectures = (runCommand('lipo', [
-      '-archs',
-      output,
-    ]).stdout as String)
-        .trim()
-        .split(RegExp(r'\s+'))
-        .toSet();
+    final architectures =
+        (runCommand('lipo', ['-archs', output]).stdout as String)
+            .trim()
+            .split(RegExp(r'\s+'))
+            .toSet();
     if (!architectures.containsAll({'arm64', 'x86_64'})) {
       throw BuildException(
-          'Universal macOS core is incomplete: $architectures');
+        'Universal macOS core is incomplete: $architectures',
+      );
     }
     if (results.any((result) => result.rebuilt)) {
       _log.info('Build complete: $output');

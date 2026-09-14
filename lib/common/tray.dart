@@ -7,6 +7,8 @@ import 'package:fl_clash/state.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:tray_manager/tray_manager.dart';
+import 'package:tray/tray.dart' as native_tray;
+import 'linux_tray.dart';
 
 import 'app_localizations.dart';
 import 'constant.dart';
@@ -28,7 +30,11 @@ class Tray {
   }
 
   Future<void> destroy() async {
-    await trayManager.destroy();
+    if (system.isLinux) {
+      await native_tray.Tray.instance.hide();
+    } else {
+      await trayManager.destroy();
+    }
   }
 
   String getTryIcon({required bool isStart, required bool tunEnable}) {
@@ -45,9 +51,6 @@ class Tray {
     required bool isStart,
     required bool tunEnable,
   }) async {
-    if (Platform.isLinux) {
-      await trayManager.destroy();
-    }
     await trayManager.setIcon(
       getTryIcon(isStart: isStart, tunEnable: tunEnable),
       isTemplate: system.isMacOS,
@@ -189,15 +192,26 @@ class Tray {
       },
     );
     menuItems.add(exitMenuItem);
-    final menu = Menu(items: menuItems);
-    await trayManager.setContextMenu(menu);
     if (system.isLinux) {
-      await _updateSystemTray(
-        isStart: trayState.isStart,
-        tunEnable: trayState.tunEnable,
+      await native_tray.Tray.instance.show(
+        native_tray.TraySpec(
+          icon: native_tray.TrayIcon.asset(
+            getTryIcon(
+              isStart: trayState.isStart,
+              tunEnable: trayState.tunEnable,
+            ),
+          ),
+          toolTip: appName,
+          menu: toLinuxTrayMenu(menuItems),
+        ),
       );
+    } else {
+      await trayManager.setContextMenu(Menu(items: menuItems));
     }
-    updateTrayTitle(showTrayTitle: trayState.showTrayTitle, traffic: traffic);
+    await updateTrayTitle(
+      showTrayTitle: trayState.showTrayTitle,
+      traffic: traffic,
+    );
   }
 
   Future<void> updateTrayTitle({

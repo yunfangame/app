@@ -6,6 +6,7 @@ Update submodules first. The ClashMeta Go core lives in `core/Clash.Meta/`.
 
 ```bash
 git submodule update --init --recursive
+(cd plugins/setup/buildkit/build_tool && dart pub get)
 dart tooling/apply_core_patches.dart
 ```
 
@@ -134,16 +135,31 @@ CGO_ENABLED=0 go test .
 CGO_ENABLED=0 go vet .
 ```
 
-The Windows Helper's loopback/session protocol tests are host-independent by default. Windows CI additionally enables its
-service implementation:
+The Helper's shared session protocol tests run on the host. Linux includes its Unix-socket/systemd unit tests automatically;
+Windows requires the service feature:
 
 ```bash
 cargo fmt --manifest-path services/helper/Cargo.toml -- --check
-cargo test --manifest-path services/helper/Cargo.toml
-cargo test --manifest-path services/helper/Cargo.toml --features windows-service
+cargo test --manifest-path services/helper/Cargo.toml --locked
+cargo test --manifest-path services/helper/Cargo.toml --locked --features windows-service
 ```
 
-The last command requires Windows for meaningful service coverage. Native Android lifecycle edits should at minimum
+The last command requires Windows for meaningful service coverage. Cross-target `cargo check --tests --target
+x86_64-unknown-linux-gnu` can check Linux code from another host with that Rust target installed, but does not run it.
+
+Linux integration checks also include:
+
+```bash
+flutter test --no-pub test/common/linux_system_test.dart test/common/linux_tray_test.dart test/core/desktop/ test/widgets/views_smoke_test.dart
+(cd plugins/tray && flutter pub get && flutter analyze --no-fatal-infos && flutter test --no-pub)
+(cd plugins/setup/buildkit/build_tool && dart pub get && dart analyze && dart test)
+bash -n tooling/linux/fengwo-linux-preflight.sh
+```
+
+Run dependency resolution before concurrent `--no-pub` checks to avoid Flutter metadata races. Linux native build/GUI,
+systemd, polkit, TUN, package install/upgrade/removal and Windows SCM still require their actual platform.
+
+Native Android lifecycle edits should at minimum
 compile the modules they touch; use JDK 17 in this checkout:
 
 ```bash

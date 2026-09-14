@@ -74,7 +74,25 @@ jobs:
         run: flutter pub get
 
       - name: Apply pinned Core patches
-        run: dart tooling/apply_core_patches.dart
+        run: |
+          (cd plugins/setup/buildkit/build_tool && dart pub get)
+          dart tooling/apply_core_patches.dart
+
+      - name: Validate Linux Helper and tray
+        run: |
+          cargo fmt --manifest-path services/helper/Cargo.toml -- --check
+          cargo test --manifest-path services/helper/Cargo.toml --locked
+          (
+            cd plugins/tray
+            flutter pub get
+            flutter analyze --no-fatal-infos
+            flutter test --no-pub --reporter expanded
+          )
+          (
+            cd plugins/setup/buildkit/build_tool
+            dart analyze
+            dart test
+          )
 
       - name: Install Linux webview build dependency
         env:
@@ -103,6 +121,8 @@ jobs:
           flutter test \
             test/setup_test.dart \
             test/common/local_secret_store_test.dart \
+            test/common/linux_system_test.dart \
+            test/common/linux_tray_test.dart \
             test/common/network_test.dart \
             test/common/subscription_v2_test.dart \
             test/common/xboard_auth_test.dart \
@@ -110,6 +130,9 @@ jobs:
             test/providers/action_test.dart \
             test/providers/system_action_test.dart \
             test/core/protocol_contract_test.dart \
+            test/core/desktop/ \
+            test/core/service_test.dart \
+            test/widgets/views_smoke_test.dart \
             --reporter expanded
           (
             cd core
@@ -133,8 +156,14 @@ jobs:
           dpkg-deb -x "$package" verify-linux
           app="$(find verify-linux -type f -name FlClash -print -quit)"
           core="$(find verify-linux -type f -name FlClashCore -print -quit)"
+          helper="$(find verify-linux -type f -name FlClashHelperService -print -quit)"
           test -n "$app"
           test -n "$core"
+          test -n "$helper"
+          test -x "$helper"
+          manifest="$(dirname "$core")/manifest.json"
+          test "$(jq -r .coreSha256 "$manifest")" = "$(sha256sum "$core" | cut -d ' ' -f 1)"
+          test "$(readelf -h "$helper" | awk -F: '/Machine:/ {sub(/^[[:space:]]+/, "", $2); print $2}')" = "$EXPECTED_ELF_MACHINE"
           test "$(readelf -h "$app" | awk -F: '/Machine:/ {sub(/^[[:space:]]+/, "", $2); print $2}')" = "$EXPECTED_ELF_MACHINE"
           test "$(readelf -h "$core" | awk -F: '/Machine:/ {sub(/^[[:space:]]+/, "", $2); print $2}')" = "$EXPECTED_ELF_MACHINE"
           dpkg-deb --info "$package" >/dev/null
