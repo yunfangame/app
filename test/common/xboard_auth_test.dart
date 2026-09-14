@@ -1280,6 +1280,10 @@ void main() {
       result.subscribeUrl,
       Uri.parse('https://subscribe.example.com/client/token'),
     );
+    expect(
+      result.legacySubscribeUrl,
+      Uri.parse('https://two.example.com:15699/client/token'),
+    );
     expect(result.subscription.plan?.name, '蜂窝标准套餐');
     expect(result.subscription.uploadGb, 1);
     expect(result.subscription.downloadGb, 2);
@@ -1371,6 +1375,10 @@ void main() {
       Uri.parse('https://backup.example.com/api/v1/user/getSubscribe'),
     ]);
     expect(result.endpoint.host, 'backup.example.com');
+    expect(
+      result.legacySubscribeUrl,
+      Uri.parse('https://backup.example.com/client/token'),
+    );
   });
 
   test('accepts a subscription response without a legacy URL for V2', () async {

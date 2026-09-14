@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/application_bootstrap.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/login_routing_coordinator.dart';
@@ -764,12 +765,16 @@ class ApplicationState extends ConsumerState<Application> {
       if (session.secureSubscription) {
         throw const SubscriptionV2Exception('secure_profile_unavailable');
       }
-      final legacyUrl = session.subscribeUrl;
+      final legacyUrl = session.legacySubscribeUrl;
       if (legacyUrl == null) {
         throw const SubscriptionV2Exception('legacy_subscription_unavailable');
       }
       final subscriptionUrl = legacyUrl.toString();
       if (!isCurrent()) return null;
+      commonPrint.event(
+        'subscription.profile.v1.download.started',
+        fields: {'endpoint_ref': apiDiagnosticEndpointRef(legacyUrl)},
+      );
       _managedProfileSources.add(subscriptionUrl);
       final profile = await ref
           .read(profilesActionProvider.notifier)
@@ -781,7 +786,10 @@ class ApplicationState extends ConsumerState<Application> {
             validationTimeout: _profileValidationTimeout,
           );
       if (!isCurrent()) return null;
-      await _xboardSessionStorage.setManagedProfileUrl(subscriptionUrl);
+      await _xboardSessionStorage.setManagedProfileUrl(
+        subscriptionUrl,
+        isCurrent: isCurrent,
+      );
       if (!isCurrent()) return null;
       commonPrint.event(
         'subscription.profile.sync.succeeded',

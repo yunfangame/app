@@ -536,7 +536,7 @@ class ProfilesAction extends _$ProfilesAction {
       ref.read(profilesProvider.notifier).put(profile);
       final newProfile = isSubscriptionV2ProfileSource(profile.url)
           ? await _updateSubscriptionV2Profile(profile)
-          : await profile.update();
+          : await _updateLegacySubscriptionProfile(profile);
       ref.read(profilesProvider.notifier).put(newProfile);
       if (profile.id == ref.read(currentProfileIdProvider)) {
         ref
@@ -545,6 +545,69 @@ class ProfilesAction extends _$ProfilesAction {
       }
     } finally {
       ref.read(isUpdatingProvider(profile.updatingKey).notifier).value = false;
+    }
+  }
+
+  Future<Profile> loadProfileUpdate(
+    Profile profile, {
+    bool Function()? isCurrent,
+  }) => profile.update(isCurrent: isCurrent);
+
+  Future<Profile> _updateLegacySubscriptionProfile(Profile profile) async {
+    final session = globalState.xboardSession;
+    if (session == null) return loadProfileUpdate(profile);
+    final revision = globalState.xboardSessionRevision;
+    final source = session.subscribeUrl;
+    final profileUri = Uri.tryParse(profile.url);
+    final matchesCurrentSource =
+        source != null &&
+        profileUri != null &&
+        profileUri.path == source.path &&
+        profileUri.query == source.query;
+    if (!session.secureSubscription &&
+        source != null &&
+        !matchesCurrentSource) {
+      return loadProfileUpdate(profile);
+    }
+    final storage = XboardSessionStorage();
+    final managedUrl = await storage.loadManagedProfileUrl();
+    bool isCurrent() =>
+        globalState.isActiveXboardSession(session, revision) &&
+        !globalState.isOfflineMode;
+    if (!globalState.isActiveXboardSession(session, revision)) {
+      throw StateError('profile_sync_superseded');
+    }
+    final isManaged =
+        profile.url == source?.toString() ||
+        (matchesCurrentSource &&
+            (profile.url == managedUrl ||
+                isSameApiEndpoint(profileUri, session.endpoint))) ||
+        (profile.url == managedUrl &&
+            (session.secureSubscription || source == null));
+    if (!isManaged) return loadProfileUpdate(profile);
+    if (globalState.isOfflineMode) return profile;
+    final target = session.legacySubscribeUrl;
+    if (target == null) {
+      throw const SubscriptionV2Exception('legacy_subscription_unavailable');
+    }
+    final sourceSnapshot = await _captureProfileFile(profile.id);
+    try {
+      if (!isCurrent()) throw StateError('profile_sync_superseded');
+      commonPrint.event(
+        'subscription.profile.v1.download.started',
+        fields: {'endpoint_ref': apiDiagnosticEndpointRef(target)},
+      );
+      final updated = await loadProfileUpdate(
+        profile.copyWith(url: target.toString()),
+        isCurrent: isCurrent,
+      );
+      if (!isCurrent()) throw StateError('profile_sync_superseded');
+      await storage.setManagedProfileUrl(updated.url, isCurrent: isCurrent);
+      if (!isCurrent()) throw StateError('profile_sync_superseded');
+      return updated;
+    } catch (error, stackTrace) {
+      await _restoreProfileFile(sourceSnapshot);
+      Error.throwWithStackTrace(error, stackTrace);
     }
   }
 

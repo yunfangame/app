@@ -17,6 +17,7 @@ import 'package:fl_clash/state.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:riverpod/riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakePathProvider extends PathProviderPlatform {
   _FakePathProvider(this.root);
@@ -76,6 +77,231 @@ void main() {
       final profile = container.read(profilesProvider).getProfile(original.id);
       expect(profile?.label, edited.label);
       expect(profile?.url, edited.url);
+    });
+
+    group('managed V1 profile updates', () {
+      setUp(() {
+        SharedPreferences.setMockInitialValues({});
+        globalState.clearXboardSession();
+        globalState.setOfflineMode(false);
+      });
+
+      tearDown(() {
+        globalState.clearXboardSession();
+        globalState.setOfflineMode(false);
+      });
+
+      ProviderContainer createContainer(
+        Profile profile,
+        _TestProfileUpdateAction action,
+      ) {
+        final container = ProviderContainer(
+          overrides: [
+            currentProfileIdProvider.overrideWithBuild((_, _) => null),
+            profilesProvider.overrideWith(() => _TestProfiles([profile])),
+            profilesActionProvider.overrideWith(() => action),
+          ],
+        );
+        addTearDown(container.dispose);
+        return container;
+      }
+
+      test(
+        'manual update saves the successful API source after loading',
+        () async {
+          final session = _profileUpdateSession();
+          globalState.activateXboardSession(session);
+          final profile = Profile.normal(url: session.subscribeUrl.toString());
+          final storage = XboardSessionStorage();
+          await storage.setManagedProfileUrl(profile.url);
+          final action = _TestProfileUpdateAction();
+          final container = createContainer(profile, action);
+
+          await container
+              .read(profilesActionProvider.notifier)
+              .updateProfile(profile);
+
+          expect(
+            action.loaded.single.url,
+            session.legacySubscribeUrl.toString(),
+          );
+          expect(container.read(profilesProvider).single.id, profile.id);
+          expect(
+            container.read(profilesProvider).single.url,
+            session.legacySubscribeUrl.toString(),
+          );
+          expect(
+            await storage.loadManagedProfileUrl(),
+            session.legacySubscribeUrl.toString(),
+          );
+        },
+      );
+
+      test(
+        'automatic update migrates a saved API source for the same account',
+        () async {
+          final session = _profileUpdateSession();
+          globalState.activateXboardSession(session);
+          final profile = Profile.normal(
+            url: 'https://previous-api.example/s/current-token?flag=clash',
+          );
+          final storage = XboardSessionStorage();
+          await storage.setManagedProfileUrl(profile.url);
+          final action = _TestProfileUpdateAction();
+          final container = createContainer(profile, action);
+
+          await container
+              .read(profilesActionProvider.notifier)
+              .autoUpdateProfiles();
+
+          expect(
+            action.loaded.single.url,
+            session.legacySubscribeUrl.toString(),
+          );
+          expect(
+            container.read(profilesProvider).single.url,
+            session.legacySubscribeUrl.toString(),
+          );
+          expect(
+            await storage.loadManagedProfileUrl(),
+            session.legacySubscribeUrl.toString(),
+          );
+        },
+      );
+
+      test(
+        'keeps unrelated imports and another account source unchanged',
+        () async {
+          globalState.activateXboardSession(_profileUpdateSession());
+          final profile = Profile.normal(
+            url: 'https://other.example/s/another-account-token?flag=clash',
+          );
+          final storage = XboardSessionStorage();
+          await storage.setManagedProfileUrl(profile.url);
+          final action = _TestProfileUpdateAction();
+          final container = createContainer(profile, action);
+
+          await container
+              .read(profilesActionProvider.notifier)
+              .updateProfile(profile);
+
+          expect(action.loaded.single.url, profile.url);
+          expect(container.read(profilesProvider).single.url, profile.url);
+          expect(await storage.loadManagedProfileUrl(), profile.url);
+        },
+      );
+
+      test('does not download a managed profile in offline mode', () async {
+        final session = _profileUpdateSession();
+        globalState.activateXboardSession(session);
+        globalState.setOfflineMode(true);
+        final profile = Profile.normal(url: session.subscribeUrl.toString());
+        final action = _TestProfileUpdateAction();
+        final container = createContainer(profile, action);
+
+        await container
+            .read(profilesActionProvider.notifier)
+            .autoUpdateProfiles();
+
+        expect(action.loaded, isEmpty);
+        expect(container.read(profilesProvider).single, profile);
+      });
+
+      for (final secureSubscription in [false, true]) {
+        test(
+          'does not revive V1 when its URL is missing or V2 owns the session ($secureSubscription)',
+          () async {
+            globalState.activateXboardSession(
+              _profileUpdateSession(
+                secureSubscription: secureSubscription,
+                subscribeUrl: null,
+              ),
+            );
+            final profile = Profile.normal(
+              url: 'https://old.example/s/current-token?flag=clash',
+            );
+            await XboardSessionStorage().setManagedProfileUrl(profile.url);
+            final action = _TestProfileUpdateAction();
+            final container = createContainer(profile, action);
+
+            await expectLater(
+              container
+                  .read(profilesActionProvider.notifier)
+                  .updateProfile(profile),
+              throwsA(isA<SubscriptionV2Exception>()),
+            );
+
+            expect(action.loaded, isEmpty);
+            expect(container.read(profilesProvider).single, profile);
+          },
+        );
+      }
+
+      test(
+        'keeps the saved URL and file when a migrated update fails',
+        () async {
+          final session = _profileUpdateSession();
+          globalState.activateXboardSession(session);
+          final profile = Profile.normal(url: session.subscribeUrl.toString());
+          final file = File(
+            await appPath.getProfilePath(profile.id.toString()),
+          );
+          await file.safeWriteAsBytes(utf8.encode('previous configuration'));
+          final storage = XboardSessionStorage();
+          await storage.setManagedProfileUrl(profile.url);
+          final action = _TestProfileUpdateAction()
+            ..loader = (candidate) async {
+              await file.safeWriteAsBytes(utf8.encode('failed replacement'));
+              throw StateError('download failed');
+            };
+          final container = createContainer(profile, action);
+
+          await expectLater(
+            container
+                .read(profilesActionProvider.notifier)
+                .updateProfile(profile),
+            throwsStateError,
+          );
+
+          expect(await file.readAsString(), 'previous configuration');
+          expect(await storage.loadManagedProfileUrl(), profile.url);
+          expect(container.read(profilesProvider).single, profile);
+        },
+      );
+
+      test(
+        'discards a migrated update when the account changes during loading',
+        () async {
+          final session = _profileUpdateSession();
+          globalState.activateXboardSession(session);
+          final profile = Profile.normal(url: session.subscribeUrl.toString());
+          final storage = XboardSessionStorage();
+          await storage.setManagedProfileUrl(profile.url);
+          final entered = Completer<Profile>();
+          final pending = Completer<Profile>();
+          final action = _TestProfileUpdateAction()
+            ..loader = (candidate) {
+              entered.complete(candidate);
+              return pending.future;
+            };
+          final container = createContainer(profile, action);
+          final result = container
+              .read(profilesActionProvider.notifier)
+              .updateProfile(profile);
+          final candidate = await entered.future;
+          final assertion = expectLater(result, throwsStateError);
+          globalState.activateXboardSession(
+            _profileUpdateSession(
+              subscribeUrl: 'https://subscribe.example/s/new-account',
+            ),
+          );
+          pending.complete(candidate);
+          await assertion;
+
+          expect(await storage.loadManagedProfileUrl(), profile.url);
+          expect(container.read(profilesProvider).single, profile);
+        },
+      );
     });
 
     test('updates selection, inserts first profile, and reorders profiles', () {
@@ -1602,6 +1828,46 @@ void main() {
       );
     });
   });
+}
+
+XboardLoginResult _profileUpdateSession({
+  String? subscribeUrl = 'https://subscribe.example/s/current-token?flag=clash',
+  bool secureSubscription = false,
+}) {
+  final endpoint = Uri.parse(
+    'https://working-api.example:8443/api/v1/passport/auth/login',
+  );
+  return XboardLoginResult(
+    endpoint: endpoint,
+    token: 'current-token',
+    authData: 'test-auth',
+    isAdmin: false,
+    secureSubscription: secureSubscription,
+    subscription: XboardSubscriptionData(
+      endpoint: endpoint,
+      subscribeUrl: subscribeUrl == null ? null : Uri.parse(subscribeUrl),
+      uploadBytes: 0,
+      downloadBytes: 0,
+      transferEnableBytes: 100,
+      rawData: const {},
+    ),
+  );
+}
+
+class _TestProfileUpdateAction extends ProfilesAction {
+  final loaded = <Profile>[];
+  Future<Profile> Function(Profile)? loader;
+
+  @override
+  Future<Profile> loadProfileUpdate(
+    Profile profile, {
+    bool Function()? isCurrent,
+  }) async {
+    loaded.add(profile);
+    return loader != null
+        ? await loader!(profile)
+        : profile.copyWith(lastUpdateDate: DateTime.now());
+  }
 }
 
 class _TestProfiles extends Profiles {
