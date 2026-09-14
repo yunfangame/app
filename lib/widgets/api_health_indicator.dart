@@ -27,6 +27,7 @@ class ApiHealthControl extends StatefulWidget {
     this.buttonBackgroundColor,
     this.buttonBorderColor,
     this.onExportLogs,
+    this.onOpen,
   });
 
   final ApiHealthService? service;
@@ -35,6 +36,7 @@ class ApiHealthControl extends StatefulWidget {
   final Color? buttonBackgroundColor;
   final Color? buttonBorderColor;
   final Future<bool> Function()? onExportLogs;
+  final VoidCallback? onOpen;
 
   @override
   State<ApiHealthControl> createState() => _ApiHealthControlState();
@@ -95,6 +97,7 @@ class _ApiHealthControlState extends State<ApiHealthControl> {
   }
 
   Future<void> _showDetails() async {
+    widget.onOpen?.call();
     final result = await showDialog<_ApiHealthDialogResult>(
       context: context,
       builder: (_) => _ApiHealthDialog(

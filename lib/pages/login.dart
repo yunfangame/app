@@ -45,6 +45,7 @@ class LoginPage extends StatefulWidget {
     this.offlineAvailable = false,
     this.onOfflinePressed,
     this.onExportLogs,
+    this.onUserInteraction,
   });
 
   final VoidCallback onLogin;
@@ -69,6 +70,7 @@ class LoginPage extends StatefulWidget {
   final bool offlineAvailable;
   final Future<void> Function()? onOfflinePressed;
   final Future<bool> Function()? onExportLogs;
+  final VoidCallback? onUserInteraction;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -105,6 +107,7 @@ class _LoginPageState extends State<LoginPage> {
 
   void _credentialsChanged() {
     if (_applyingPrefill) return;
+    _notifyUserInteraction();
     if (_prefilledPassword != null) {
       if (_passwordController.text != _prefilledPassword) {
         _prefilledPassword = null;
@@ -177,6 +180,7 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _submit() async {
     if (_isSubmitting || _isOpeningOffline) return;
+    _notifyUserInteraction();
     final useRemembered = _canRestoreRemembered;
     final email = _emailController.text.trim();
     final password = _passwordController.text;
@@ -255,6 +259,7 @@ class _LoginPageState extends State<LoginPage> {
     if (_isSubmitting || _isOpeningOffline || !widget.offlineAvailable) return;
     final callback = widget.onOfflinePressed;
     if (callback == null) return;
+    _notifyUserInteraction();
     setState(() => _isOpeningOffline = true);
     try {
       await callback();
@@ -277,6 +282,30 @@ class _LoginPageState extends State<LoginPage> {
       );
   }
 
+  void _notifyUserInteraction() {
+    widget.onUserInteraction?.call();
+  }
+
+  void _openLanguage(BuildContext context) {
+    _notifyUserInteraction();
+    widget.onLanguagePressed(context);
+  }
+
+  void _openTheme(BuildContext context) {
+    _notifyUserInteraction();
+    widget.onThemePressed(context);
+  }
+
+  void _openSupport(BuildContext context) {
+    _notifyUserInteraction();
+    widget.onSupportPressed(context);
+  }
+
+  Future<bool> _exportLogs() {
+    _notifyUserInteraction();
+    return widget.onExportLogs!();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -293,9 +322,9 @@ class _LoginPageState extends State<LoginPage> {
                       Expanded(
                         flex: 4,
                         child: _BrandPanel(
-                          onLanguagePressed: widget.onLanguagePressed,
-                          onThemePressed: widget.onThemePressed,
-                          onSupportPressed: widget.onSupportPressed,
+                          onLanguagePressed: _openLanguage,
+                          onThemePressed: _openTheme,
+                          onSupportPressed: _openSupport,
                           appVersion: widget.appVersion,
                           configuredLocale: widget.configuredLocale,
                         ),
@@ -318,17 +347,26 @@ class _LoginPageState extends State<LoginPage> {
                         offlineAvailable: widget.offlineAvailable,
                         networkFailure: _networkFailure,
                         networkFailureKey: _networkFailureKey,
-                        onApiDiagnostics: () => showApiHealthDiagnostics(
-                          context,
-                          service: widget.apiHealthService,
-                          onExportLogs: widget.onExportLogs,
-                        ),
-                        onExportLogs: widget.onExportLogs,
+                        onApiDiagnostics: () {
+                          _notifyUserInteraction();
+                          showApiHealthDiagnostics(
+                            context,
+                            service: widget.apiHealthService,
+                            onExportLogs: widget.onExportLogs == null
+                                ? null
+                                : _exportLogs,
+                          );
+                        },
+                        onExportLogs: widget.onExportLogs == null
+                            ? null
+                            : _exportLogs,
                         onTogglePassword: () {
+                          _notifyUserInteraction();
                           setState(() => _obscurePassword = !_obscurePassword);
                         },
                         onRememberChanged: (value) {
                           if (_isSubmitting) return;
+                          _notifyUserInteraction();
                           setState(() {
                             _rememberMe = value;
                             if (!value) {
@@ -340,6 +378,7 @@ class _LoginPageState extends State<LoginPage> {
                         },
                         onAutoLoginChanged: (value) {
                           if (_isSubmitting) return;
+                          _notifyUserInteraction();
                           setState(() {
                             _autoLogin = value;
                             if (value) _rememberMe = true;
@@ -350,11 +389,15 @@ class _LoginPageState extends State<LoginPage> {
                         },
                         onSubmit: _submit,
                         onOffline: _openOffline,
-                        onRegister:
-                            widget.onRegisterPressed ?? _showPendingMessage,
-                        onForgotPassword:
-                            widget.onForgotPasswordPressed ??
-                            _showPendingMessage,
+                        onRegister: () {
+                          _notifyUserInteraction();
+                          (widget.onRegisterPressed ?? _showPendingMessage)();
+                        },
+                        onForgotPassword: () {
+                          _notifyUserInteraction();
+                          (widget.onForgotPasswordPressed ??
+                              _showPendingMessage)();
+                        },
                         topPadding: showBrandPanel ? 28 : 104,
                         showCompactBrand: !showBrandPanel,
                       ),
@@ -370,7 +413,10 @@ class _LoginPageState extends State<LoginPage> {
                       alignment: Alignment.topRight,
                       child: ApiHealthControl(
                         service: widget.apiHealthService,
-                        onExportLogs: widget.onExportLogs,
+                        onOpen: _notifyUserInteraction,
+                        onExportLogs: widget.onExportLogs == null
+                            ? null
+                            : _exportLogs,
                         foregroundColor: context.colorScheme.onSurfaceVariant,
                         buttonBackgroundColor:
                             context.colorScheme.surfaceContainerHighest,
@@ -386,12 +432,15 @@ class _LoginPageState extends State<LoginPage> {
                     child: Align(
                       alignment: Alignment.topCenter,
                       child: _MobileLoginToolbar(
-                        onLanguagePressed: widget.onLanguagePressed,
-                        onThemePressed: widget.onThemePressed,
-                        onSupportPressed: widget.onSupportPressed,
+                        onLanguagePressed: _openLanguage,
+                        onThemePressed: _openTheme,
+                        onSupportPressed: _openSupport,
                         configuredLocale: widget.configuredLocale,
                         apiHealthService: widget.apiHealthService,
-                        onExportLogs: widget.onExportLogs,
+                        onApiDiagnosticsOpened: _notifyUserInteraction,
+                        onExportLogs: widget.onExportLogs == null
+                            ? null
+                            : _exportLogs,
                       ),
                     ),
                   ),
@@ -501,6 +550,7 @@ class _MobileLoginToolbar extends StatelessWidget {
     required this.onSupportPressed,
     required this.configuredLocale,
     required this.apiHealthService,
+    required this.onApiDiagnosticsOpened,
     required this.onExportLogs,
   });
 
@@ -509,6 +559,7 @@ class _MobileLoginToolbar extends StatelessWidget {
   final ValueChanged<BuildContext> onSupportPressed;
   final String? configuredLocale;
   final ApiHealthService? apiHealthService;
+  final VoidCallback onApiDiagnosticsOpened;
   final Future<bool> Function()? onExportLogs;
 
   @override
@@ -554,6 +605,7 @@ class _MobileLoginToolbar extends StatelessWidget {
         const SizedBox(width: 8),
         ApiHealthControl(
           service: apiHealthService,
+          onOpen: onApiDiagnosticsOpened,
           onExportLogs: onExportLogs,
           foregroundColor: foregroundColor,
           buttonBackgroundColor: backgroundColor,

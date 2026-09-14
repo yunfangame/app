@@ -299,6 +299,12 @@ class _FengWoAdvancedSettingsViewState
   @override
   Widget build(BuildContext context) {
     final colors = _AdvancedColors.of(context);
+    final desktopPlatform = switch (defaultTargetPlatform) {
+      TargetPlatform.linux ||
+      TargetPlatform.macOS ||
+      TargetPlatform.windows => true,
+      _ => false,
+    };
     return Material(
       color: colors.background,
       child: CustomScrollView(
@@ -325,6 +331,10 @@ class _FengWoAdvancedSettingsViewState
                             const SizedBox(height: 16),
                             _buildDnsCard(colors),
                             const SizedBox(height: 16),
+                            if (desktopPlatform) ...[
+                              _buildStartupCard(colors),
+                              const SizedBox(height: 16),
+                            ],
                             _buildDiagnosticCard(colors),
                             const SizedBox(height: 16),
                             _buildGeoCard(colors),
@@ -357,6 +367,10 @@ class _FengWoAdvancedSettingsViewState
                             ),
                           ),
                           const SizedBox(height: 18),
+                          if (desktopPlatform) ...[
+                            _buildStartupCard(colors),
+                            const SizedBox(height: 18),
+                          ],
                           _buildDiagnosticCard(colors),
                           const SizedBox(height: 18),
                           _buildGeoCard(colors),
@@ -792,6 +806,98 @@ class _FengWoAdvancedSettingsViewState
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStartupCard(_AdvancedColors colors) {
+    final l10n = context.appLocalizations;
+    final startupSettings = ref.watch(
+      appSettingProvider.select(
+        (state) => (
+          autoLaunch: state.autoLaunch,
+          autoRun: state.autoRun,
+          silentLaunch: state.silentLaunch,
+        ),
+      ),
+    );
+    return _AdvancedCard(
+      key: const ValueKey('advanced-startup-card'),
+      colors: colors,
+      child: Column(
+        children: [
+          _CardHeading(
+            colors: colors,
+            icon: Icons.power_settings_new_rounded,
+            title: l10n.application,
+            subtitle:
+                '${l10n.autoLaunch} · ${l10n.autoRun} · ${l10n.silentLaunch}',
+            accent: colors.purple,
+          ),
+          const SizedBox(height: 10),
+          _SettingsRow(
+            colors: colors,
+            icon: Icons.login_rounded,
+            iconColor: colors.blue,
+            title: l10n.autoLaunch,
+            subtitle: l10n.autoLaunchDesc,
+            trailing: Switch(
+              key: const ValueKey('advanced-auto-launch-switch'),
+              value: startupSettings.autoLaunch,
+              onChanged: (value) {
+                ref
+                    .read(appSettingProvider.notifier)
+                    .update((state) => state.copyWith(autoLaunch: value));
+                commonPrint.event(
+                  'settings.startup.changed',
+                  fields: {'setting': 'auto_launch', 'enabled': value},
+                );
+              },
+            ),
+          ),
+          Divider(height: 1, color: colors.outline),
+          _SettingsRow(
+            colors: colors,
+            icon: Icons.play_circle_outline_rounded,
+            iconColor: colors.green,
+            title: l10n.autoRun,
+            subtitle: l10n.autoRunDesc,
+            trailing: Switch(
+              key: const ValueKey('advanced-auto-run-switch'),
+              value: startupSettings.autoRun,
+              onChanged: (value) {
+                ref
+                    .read(appSettingProvider.notifier)
+                    .update((state) => state.copyWith(autoRun: value));
+                commonPrint.event(
+                  'settings.startup.changed',
+                  fields: {'setting': 'auto_run', 'enabled': value},
+                );
+              },
+            ),
+          ),
+          Divider(height: 1, color: colors.outline),
+          _SettingsRow(
+            colors: colors,
+            icon: Icons.visibility_off_outlined,
+            iconColor: colors.purple,
+            title: l10n.silentLaunch,
+            subtitle: l10n.silentLaunchDesc,
+            trailing: Switch(
+              key: const ValueKey('advanced-silent-launch-switch'),
+              value: startupSettings.silentLaunch,
+              onChanged: (value) {
+                ref
+                    .read(appSettingProvider.notifier)
+                    .update((state) => state.copyWith(silentLaunch: value));
+                commonPrint.event(
+                  'settings.startup.changed',
+                  fields: {'setting': 'silent_launch', 'enabled': value},
+                );
+              },
             ),
           ),
         ],

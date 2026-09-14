@@ -247,8 +247,48 @@ class ApplicationState extends ConsumerState<Application> {
 
   bool _isAuthenticationBootstrapCurrent(int revision) {
     return mounted &&
+        !_logoutInProgress &&
         _authenticationBootstrap == _AuthenticationBootstrap.loading &&
         _authenticationBootstrapController.isCurrent(revision);
+  }
+
+  void _handleAuthenticationBootstrapTimeout(int revision) {
+    if (!mounted) return;
+    final credentialsPending = _authenticationBootstrapController
+        .deferForCredentials(revision);
+    if (credentialsPending) {
+      setState(() {
+        _authenticationBootstrap = _AuthenticationBootstrap.login;
+      });
+    } else if (!_completeAuthenticationBootstrap(
+      revision,
+      _AuthenticationBootstrap.login,
+    )) {
+      return;
+    }
+    commonPrint.event(
+      'auth.bootstrap.timed_out',
+      fields: {
+        'timeout_ms': _authenticationBootstrapTimeout.inMilliseconds,
+        'credentials_pending': credentialsPending,
+      },
+    );
+  }
+
+  void _cancelAuthenticationBootstrap() {
+    if (!_authenticationBootstrapController.hasPendingWork) return;
+    _authenticationBootstrapController.cancel();
+    _clearAuthenticationBootstrapSession();
+    if (mounted &&
+        _authenticationBootstrap == _AuthenticationBootstrap.loading) {
+      setState(() {
+        _authenticationBootstrap = _AuthenticationBootstrap.login;
+      });
+    }
+    commonPrint.event(
+      'auth.bootstrap.cancelled',
+      fields: {'reason': 'user_interaction'},
+    );
   }
 
   bool _completeAuthenticationBootstrap(
@@ -258,16 +298,10 @@ class ApplicationState extends ConsumerState<Application> {
     if (!mounted || !_authenticationBootstrapController.complete(revision)) {
       return false;
     }
-    final bootstrapSessionRevision = _authenticationBootstrapSessionRevision;
-    _authenticationBootstrapSessionRevision = null;
-    if (destination == _AuthenticationBootstrap.login &&
-        bootstrapSessionRevision != null &&
-        globalState.xboardSessionRevision == bootstrapSessionRevision) {
-      _loginRouting.cancel();
-      _loginRoutingAttempt = null;
-      _loginRoutingSession = null;
-      _deferredProfileSyncRevision = null;
-      globalState.clearXboardSession();
+    if (destination == _AuthenticationBootstrap.login) {
+      _clearAuthenticationBootstrapSession();
+    } else {
+      _authenticationBootstrapSessionRevision = null;
     }
     setState(() {
       _authenticationBootstrap = destination;
@@ -275,10 +309,53 @@ class ApplicationState extends ConsumerState<Application> {
     return true;
   }
 
+  void _clearAuthenticationBootstrapSession() {
+    final bootstrapSessionRevision = _authenticationBootstrapSessionRevision;
+    _authenticationBootstrapSessionRevision = null;
+    if (bootstrapSessionRevision != null &&
+        globalState.xboardSessionRevision == bootstrapSessionRevision) {
+      _loginRouting.cancel();
+      _loginRoutingAttempt = null;
+      _loginRoutingSession = null;
+      _deferredProfileSyncRevision = null;
+      globalState.clearXboardSession();
+    }
+  }
+
   Future<void> _restoreRememberedSession(int bootstrapRevision) async {
     try {
-      final storedSession = await _loginPersistence.load();
+      final credentials = await _authenticationBootstrapController
+          .loadCredentials(
+            bootstrapRevision,
+            load: _loginPersistence.load,
+            timeout: _authenticationBootstrapTimeout,
+            onTimeout: _handleAuthenticationBootstrapTimeout,
+          );
+      if (credentials == null || !mounted) {
+        commonPrint.event(
+          'auth.bootstrap.credentials.discarded',
+          fields: {'reason': 'superseded'},
+        );
+        return;
+      }
+      bootstrapRevision = credentials.revision;
+      if (!_authenticationBootstrapController.isCurrent(bootstrapRevision)) {
+        return;
+      }
+      if (credentials.resumed) {
+        setState(() {
+          _authenticationBootstrap = _AuthenticationBootstrap.loading;
+        });
+        commonPrint.event(
+          'auth.bootstrap.credentials.resumed',
+          fields: {
+            'timeout_ms': _authenticationBootstrapTimeout.inMilliseconds,
+          },
+        );
+        await WidgetsBinding.instance.endOfFrame;
+      }
       if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
+      final storedSession = credentials.value;
       _applyRememberedLogin(storedSession);
       final offlineCache = await _xboardSessionStorage.loadOfflineCache();
       if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
@@ -423,6 +500,7 @@ class ApplicationState extends ConsumerState<Application> {
   }
 
   Future<XboardLoginResult> _loginWithRememberedSession(String email) async {
+    _cancelAuthenticationBootstrap();
     final accountRef = diagnosticFingerprint(email);
     commonPrint.event(
       'auth.remembered_login.started',
@@ -828,6 +906,7 @@ class ApplicationState extends ConsumerState<Application> {
   }
 
   Future<void> _clearRememberedSession() async {
+    _cancelAuthenticationBootstrap();
     final clearing = _loginPersistence.forget();
     _applyRememberedLogin(_loginPersistence.state);
     if (!await clearing) {
@@ -836,6 +915,7 @@ class ApplicationState extends ConsumerState<Application> {
   }
 
   Future<void> _disableAutomaticLogin() async {
+    _cancelAuthenticationBootstrap();
     final disabling = _loginPersistence.disableAutoLogin();
     _initialAutoLogin = false;
     if (!await disabling) {
@@ -844,6 +924,7 @@ class ApplicationState extends ConsumerState<Application> {
   }
 
   Future<void> _logoutXboard() async {
+    _cancelAuthenticationBootstrap();
     if (_logoutInProgress) return;
     _logoutInProgress = true;
     _loginRouting.cancel();
@@ -959,6 +1040,7 @@ class ApplicationState extends ConsumerState<Application> {
   }
 
   Future<bool> _enableOfflineMode() async {
+    _cancelAuthenticationBootstrap();
     if (ref.read(profilesProvider).isEmpty) return false;
     final session = globalState.xboardSession;
     if (session != null && session.authData.isNotEmpty) {
@@ -990,6 +1072,7 @@ class ApplicationState extends ConsumerState<Application> {
   }
 
   Future<bool> _restoreOnlineMode() async {
+    _cancelAuthenticationBootstrap();
     final storedSession = await _loginPersistence.load();
     if (!storedSession.canRestore) {
       await _openLoginForOnlineRestore();
@@ -1154,6 +1237,7 @@ class ApplicationState extends ConsumerState<Application> {
   }
 
   Future<void> _openRegister() async {
+    _cancelAuthenticationBootstrap();
     if (_isOpeningRegister) return;
     _isOpeningRegister = true;
     try {
@@ -1230,6 +1314,7 @@ class ApplicationState extends ConsumerState<Application> {
   }
 
   Future<void> _openForgotPassword() async {
+    _cancelAuthenticationBootstrap();
     if (_isOpeningForgotPassword) return;
     _isOpeningForgotPassword = true;
     try {
@@ -1308,20 +1393,7 @@ class ApplicationState extends ConsumerState<Application> {
     final authenticationBootstrapRevision = _authenticationBootstrapController
         .begin(
           timeout: _authenticationBootstrapTimeout,
-          onTimeout: (revision) {
-            if (!_completeAuthenticationBootstrap(
-              revision,
-              _AuthenticationBootstrap.login,
-            )) {
-              return;
-            }
-            commonPrint.event(
-              'auth.bootstrap.timed_out',
-              fields: {
-                'timeout_ms': _authenticationBootstrapTimeout.inMilliseconds,
-              },
-            );
-          },
+          onTimeout: _handleAuthenticationBootstrapTimeout,
         );
     unawaited(_xboardAuthService.prepareApiConfiguration());
     unawaited(_restoreRememberedSession(authenticationBootstrapRevision));
@@ -1371,9 +1443,11 @@ class ApplicationState extends ConsumerState<Application> {
   Widget _buildLoginPage(String? locale) {
     return LoginPage(
       onLogin: _openHome,
+      onUserInteraction: _cancelAuthenticationBootstrap,
       rememberedEmail: _rememberedLoginEmail,
       restoreRemembered: _loginWithRememberedSession,
       authenticate: (email, password) async {
+        _cancelAuthenticationBootstrap();
         final accountRef = diagnosticFingerprint(email);
         commonPrint.event(
           'auth.login.started',

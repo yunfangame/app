@@ -15,11 +15,27 @@ void runPostAuthenticationTask({
   }());
 }
 
+class AuthenticationBootstrapCredentials<T> {
+  const AuthenticationBootstrapCredentials({
+    required this.revision,
+    required this.value,
+    required this.resumed,
+  });
+
+  final int revision;
+  final T value;
+  final bool resumed;
+}
+
 class AuthenticationBootstrapController {
   Timer? _timer;
   int _revision = 0;
   bool _active = false;
   bool _disposed = false;
+  int? _credentialsRevision;
+  int? _deferredCredentialsRevision;
+
+  bool get hasPendingWork => _active || _deferredCredentialsRevision != null;
 
   int begin({
     required Duration timeout,
@@ -27,6 +43,8 @@ class AuthenticationBootstrapController {
   }) {
     if (_disposed) throw StateError('authentication_bootstrap_disposed');
     _timer?.cancel();
+    _credentialsRevision = null;
+    _deferredCredentialsRevision = null;
     final revision = ++_revision;
     _active = true;
     _timer = Timer(timeout, () {
@@ -40,9 +58,57 @@ class AuthenticationBootstrapController {
     return !_disposed && _active && revision == _revision;
   }
 
+  Future<AuthenticationBootstrapCredentials<T>?> loadCredentials<T>(
+    int revision, {
+    required Future<T> Function() load,
+    required Duration timeout,
+    required void Function(int revision) onTimeout,
+  }) async {
+    if (!isCurrent(revision) || _credentialsRevision != null) return null;
+    _credentialsRevision = revision;
+    try {
+      final value = await load();
+      if (_credentialsRevision != revision) return null;
+      _credentialsRevision = null;
+      final resumed = _deferredCredentialsRevision == revision;
+      if (resumed) {
+        final nextRevision = begin(timeout: timeout, onTimeout: onTimeout);
+        return AuthenticationBootstrapCredentials(
+          revision: nextRevision,
+          value: value,
+          resumed: true,
+        );
+      }
+      if (!isCurrent(revision)) return null;
+      return AuthenticationBootstrapCredentials(
+        revision: revision,
+        value: value,
+        resumed: false,
+      );
+    } catch (_) {
+      if (_deferredCredentialsRevision == revision) cancel();
+      rethrow;
+    } finally {
+      if (_credentialsRevision == revision) _credentialsRevision = null;
+    }
+  }
+
+  bool deferForCredentials(int revision) {
+    if (!isCurrent(revision) || _credentialsRevision != revision) {
+      return false;
+    }
+    _active = false;
+    _deferredCredentialsRevision = revision;
+    _timer?.cancel();
+    _timer = null;
+    return true;
+  }
+
   bool complete(int revision) {
     if (!isCurrent(revision)) return false;
     _active = false;
+    _credentialsRevision = null;
+    _deferredCredentialsRevision = null;
     _timer?.cancel();
     _timer = null;
     return true;
@@ -51,6 +117,8 @@ class AuthenticationBootstrapController {
   void cancel() {
     _revision++;
     _active = false;
+    _credentialsRevision = null;
+    _deferredCredentialsRevision = null;
     _timer?.cancel();
     _timer = null;
   }

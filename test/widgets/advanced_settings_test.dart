@@ -14,6 +14,136 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   for (final platform in [
+    TargetPlatform.linux,
+    TargetPlatform.macOS,
+    TargetPlatform.windows,
+  ]) {
+    for (final initialEnabled in [false, true]) {
+      testWidgets(
+        'startup settings remain independent on $platform from $initialEnabled',
+        (tester) async {
+          final size = initialEnabled
+              ? const Size(390, 844)
+              : const Size(1280, 1000);
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          final initialSettings = AppSettingProps(
+            autoLaunch: initialEnabled,
+            autoRun: initialEnabled,
+            silentLaunch: initialEnabled,
+            closeConnections: true,
+          );
+          final container = ProviderContainer(
+            overrides: [currentProfileProvider.overrideWithValue(null)],
+          );
+          addTearDown(container.dispose);
+          globalState.container = container;
+          container.read(viewSizeProvider.notifier).value = size;
+          container.read(appSettingProvider.notifier).value = initialSettings;
+          final initialCoreStatus = container.read(coreStatusProvider);
+          final initialRunTime = container.read(runTimeProvider);
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: _TestApp(
+                themeMode: initialEnabled ? ThemeMode.dark : ThemeMode.light,
+                child: const FengWoAdvancedSettingsView(),
+              ),
+            ),
+          );
+          try {
+            await tester.pumpAndSettle();
+            expect(
+              find.byKey(const ValueKey('advanced-startup-card')),
+              findsOneWidget,
+            );
+            final l10n = tester
+                .element(find.byType(FengWoAdvancedSettingsView))
+                .appLocalizations;
+            for (final label in [
+              l10n.autoLaunch,
+              l10n.autoRun,
+              l10n.silentLaunch,
+            ]) {
+              expect(find.text(label), findsOneWidget);
+            }
+            for (final setting in [
+              (
+                key: 'advanced-auto-launch-switch',
+                expected: initialSettings.copyWith(autoLaunch: !initialEnabled),
+              ),
+              (
+                key: 'advanced-auto-run-switch',
+                expected: initialSettings.copyWith(autoRun: !initialEnabled),
+              ),
+              (
+                key: 'advanced-silent-launch-switch',
+                expected: initialSettings.copyWith(
+                  silentLaunch: !initialEnabled,
+                ),
+              ),
+            ]) {
+              final toggle = find.byKey(ValueKey(setting.key));
+              await tester.ensureVisible(toggle);
+              await tester.pumpAndSettle();
+              expect(tester.widget<Switch>(toggle).value, initialEnabled);
+              await tester.tap(toggle);
+              await tester.pumpAndSettle();
+              expect(container.read(appSettingProvider), setting.expected);
+              expect(tester.widget<Switch>(toggle).value, !initialEnabled);
+              await tester.tap(toggle);
+              await tester.pumpAndSettle();
+              expect(container.read(appSettingProvider), initialSettings);
+              expect(tester.widget<Switch>(toggle).value, initialEnabled);
+            }
+            expect(container.read(coreStatusProvider), initialCoreStatus);
+            expect(container.read(runTimeProvider), initialRunTime);
+            expect(tester.takeException(), isNull);
+          } finally {
+            await tester.pumpWidget(const SizedBox());
+          }
+        },
+        variant: TargetPlatformVariant({platform}),
+      );
+    }
+  }
+
+  for (final platform in [
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+    TargetPlatform.fuchsia,
+  ]) {
+    testWidgets(
+      'desktop startup settings are hidden on $platform',
+      (tester) async {
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [currentProfileProvider.overrideWithValue(null)],
+            child: const _TestApp(child: FengWoAdvancedSettingsView()),
+          ),
+        );
+        try {
+          await tester.pumpAndSettle();
+          for (final key in [
+            'advanced-startup-card',
+            'advanced-auto-launch-switch',
+            'advanced-auto-run-switch',
+            'advanced-silent-launch-switch',
+          ]) {
+            expect(find.byKey(ValueKey(key)), findsNothing);
+          }
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox());
+        }
+      },
+      variant: TargetPlatformVariant({platform}),
+    );
+  }
+
+  for (final platform in [
     TargetPlatform.android,
     TargetPlatform.iOS,
     TargetPlatform.macOS,

@@ -184,6 +184,20 @@ Provider files in `lib/providers/`:
 
 `globalState` in `lib/state.dart` is a singleton holding app lifecycle, timers, theme, and start/stop state. Providers are generated into `lib/providers/generated/`.
 
+Authentication startup uses `AuthenticationBootstrapController` independently of Core readiness. A 60-second timeout
+may expose the login form while the first credential-store read remains pending. Only that read may resume startup after
+timeout, once, with a fresh bounded authentication deadline; it must not reread the keyring or grant late network results
+the same permission. Login-page interaction and explicit login/logout/offline actions cancel the pending revision before
+changing state. Late results must pass the revision check before even prefilling the form, not only before navigation.
+Resumed startup must commit the loading frame and recheck the revision before publishing remembered form values, so an
+interaction with the old login form in the same frame can still cancel recovery without being overwritten.
+Programmatic prefill must not be reported as user interaction. Failed secret reads retain the existing storage-error
+degradation and never enable automatic login.
+
+The advanced settings page exposes desktop `autoLaunch`, `autoRun`, and `silentLaunch` through the existing app-settings
+provider. These are independent preferences: XDG/login-session launch, proxy startup, and window visibility. Changing a
+switch does not directly start Core; existing platform managers and startup orchestration remain their consumers.
+
 ## Database
 
 The app uses Drift/SQLite in `lib/database/`. Current schema version is 2.
