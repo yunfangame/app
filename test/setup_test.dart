@@ -7,6 +7,14 @@ import '../setup.dart' as setup;
 
 void main() {
   group('setup.dart', () {
+    test('Linux defaults to DEB without changing other platform targets', () {
+      expect(setup.resolvePackageTargets('linux', null), 'deb');
+      expect(setup.resolvePackageTargets('linux', 'rpm'), 'rpm');
+      expect(setup.resolvePackageTargets('windows', null), 'exe,zip');
+      expect(setup.resolvePackageTargets('macos', null), 'pkg');
+      expect(setup.resolvePackageTargets('android', null), 'apk');
+    });
+
     test('Windows Wi-Fi support loads wlanapi only when available', () {
       final source = File(
         'plugins/wifi_ssid/windows/wifi_ssid_plugin.cpp',

@@ -54,7 +54,7 @@ Future<void> main(List<String> args) async {
   final env = results['env'] as String;
   final rootDir = Directory.current.path;
   final arch = _detectArch();
-  final targets = _getTargets(platform, arch, results['targets']);
+  final targets = resolvePackageTargets(platform, results['targets']);
   final androidArch = results['arch'] as String?;
   final verbose = results['verbose'] as bool;
   final macOsFileSecretStorage = results['macos-file-secret-storage'] as bool;
@@ -185,9 +185,8 @@ Future<File> writeBuildEnvironmentFile(
   return file;
 }
 
-String _getTargets(String platform, String arch, String? customTargets) {
+String resolvePackageTargets(String platform, String? customTargets) {
   if (customTargets != null) return customTargets;
-  if (platform == 'linux' && arch == 'amd64') return 'deb,appimage,rpm';
   return _allTargets[platform]!;
 }
 
