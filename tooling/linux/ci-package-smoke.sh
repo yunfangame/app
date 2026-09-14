@@ -8,7 +8,7 @@ package=$(realpath "${packages[0]}")
 package_name=$(dpkg-deb -f "$package" Package)
 mkdir -p smoke-evidence
 sudo apt-get install -y xvfb xauth openbox xdotool scrot "$package"
-app=$(dpkg-query -L "$package_name" | awk '/\/FlClash$/ {print; exit}')
+app=$(dpkg-query -L "$package_name" | awk '/\/FlClash\/FlClash$/ {print; exit}')
 [[ -x $app ]]
 helper="$(dirname "$app")/FlClashHelperService"
 [[ -x $helper ]]

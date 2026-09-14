@@ -7,7 +7,7 @@ apt-get update
 apt-get install -y ca-certificates dbus-x11 xvfb xauth openbox xdotool scrot /work/dist/*.deb
 package=$(find /work/dist -maxdepth 1 -name '*.deb' -print -quit)
 package_name=$(dpkg-deb -f "$package" Package)
-app=$(dpkg-query -L "$package_name" | awk '/\/FlClash$/ {print; exit}')
+app=$(dpkg-query -L "$package_name" | awk '/\/FlClash\/FlClash$/ {print; exit}')
 [[ -x $app ]]
 ldd "$app" | tee /evidence/linked-libraries.txt
 if grep -q 'not found' /evidence/linked-libraries.txt; then

@@ -52,7 +52,15 @@ def main():
     assert os.getuid() != 0
     bundle = Path(sys.argv[1]).resolve()
     digest = json.loads((bundle / 'manifest.json').read_text())['coreSha256']
-    assert request('GET', f'/ping?coreSha256={digest}').strip() == str(bundle / 'FlClashHelperService')
+    for attempt in range(50):
+        try:
+            ready_path = request('GET', f'/ping?coreSha256={digest}').strip()
+            break
+        except (FileNotFoundError, ConnectionRefusedError):
+            if attempt == 49:
+                raise
+            time.sleep(0.1)
+    assert ready_path == str(bundle / 'FlClashHelperService')
     request('GET', '/ping?coreSha256=' + '0' * 64, expected=409)
     address = f'/tmp/FlClashSocket_{os.getpid()}.sock'
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
