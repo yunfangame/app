@@ -48,6 +48,14 @@
       "sha256": "",
       "releaseNotesHtml": "<h3>蜂窝加速器 0.8.96</h3><ul><li>优化节点测速与在线状态显示</li><li>优化全球节点地图与链路动画</li></ul><p>适用于 Apple M 系列芯片。</p>"
     },
+    "linux-x64": {
+      "enabled": false,
+      "version": "1.0.2",
+      "title": "蜂窝加速器 Linux x64 更新",
+      "downloadUrl": "",
+      "sha256": "",
+      "releaseNotesHtml": "<h3>蜂窝加速器 Linux 1.0.2</h3><ul><li>补齐 Linux x64 更新识别</li><li>修复启动设置和账号恢复问题</li></ul><p>适用于 Ubuntu 22.04 / Debian 12 x64。请从托盘退出旧版本后覆盖安装。</p>"
+    },
     "macos-x64": {
       "enabled": true,
       "version": "0.8.96",

@@ -225,6 +225,7 @@ String? appUpdatePackageKeyForAbi(Abi abi) => switch (abi) {
   Abi.androidArm64 => 'android-arm64-v8a',
   Abi.androidIA32 => 'android-x86',
   Abi.androidX64 => 'android-x86_64',
+  Abi.linuxX64 => 'linux-x64',
   Abi.macosArm64 => 'macos-arm64',
   Abi.macosX64 => 'macos-x64',
   Abi.windowsArm64 => 'windows-arm64',

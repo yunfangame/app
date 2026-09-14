@@ -14,10 +14,21 @@ void main() {
   test('maps runtime ABIs to independent package keys', () {
     expect(appUpdatePackageKeyForAbi(Abi.androidArm64), 'android-arm64-v8a');
     expect(appUpdatePackageKeyForAbi(Abi.androidArm), 'android-armeabi-v7a');
+    expect(appUpdatePackageKeyForAbi(Abi.androidIA32), 'android-x86');
     expect(appUpdatePackageKeyForAbi(Abi.androidX64), 'android-x86_64');
+    expect(appUpdatePackageKeyForAbi(Abi.linuxX64), 'linux-x64');
+    expect(appUpdatePackageKeyForAbi(Abi.windowsArm64), 'windows-arm64');
+    expect(appUpdatePackageKeyForAbi(Abi.windowsIA32), 'windows-x86');
     expect(appUpdatePackageKeyForAbi(Abi.windowsX64), 'windows-x64');
     expect(appUpdatePackageKeyForAbi(Abi.macosArm64), 'macos-arm64');
     expect(appUpdatePackageKeyForAbi(Abi.macosX64), 'macos-x64');
+  });
+
+  test('resolves the current runtime through the ABI mapping', () {
+    expect(
+      currentAppUpdatePackageKey(),
+      appUpdatePackageKeyForAbi(Abi.current()),
+    );
   });
 
   test('compares semantic versions and build numbers', () {
