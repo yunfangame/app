@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/linux_connectivity.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/state.dart';
@@ -36,22 +37,39 @@ class _ConnectivityManagerState extends State<ConnectivityManager> {
   @override
   void initState() {
     super.initState();
-    subscription = Connectivity().onConnectivityChanged.listen((results) {
-      if (!mounted) return;
-      final revision = ++_connectivityRevision;
-      if (results.contains(ConnectivityResult.wifi)) {
-        WifiSsidManager.instance.getSsid().then((ssid) {
-          if (!mounted || revision != _connectivityRevision) return;
-          globalState.container.read(currentSSIDProvider.notifier).value = ssid;
-          commonPrint.log('Wi-fi SSID: $ssid ', logLevel: LogLevel.info);
-        });
-      } else {
-        globalState.container.read(currentSSIDProvider.notifier).value = null;
-      }
-      if (widget.onConnectivityChanged != null) {
-        widget.onConnectivityChanged!(results);
-      }
-    });
+    final changes = system.isLinux
+        ? LinuxConnectivityMonitor(
+            onError: (error, _) => commonPrint.log(
+              'Linux network monitoring unavailable: $error',
+              logLevel: LogLevel.warning,
+            ),
+          ).changes
+        : Connectivity().onConnectivityChanged;
+    subscription = changes.listen(
+      (results) {
+        if (!mounted) return;
+        final revision = ++_connectivityRevision;
+        if (results.contains(ConnectivityResult.wifi)) {
+          WifiSsidManager.instance.getSsid().then((ssid) {
+            if (!mounted || revision != _connectivityRevision) return;
+            globalState.container.read(currentSSIDProvider.notifier).value =
+                ssid;
+            commonPrint.log('Wi-fi SSID: $ssid ', logLevel: LogLevel.info);
+          });
+        } else {
+          globalState.container.read(currentSSIDProvider.notifier).value = null;
+        }
+        if (widget.onConnectivityChanged != null) {
+          widget.onConnectivityChanged!(results);
+        }
+      },
+      onError: (Object error, StackTrace stack) {
+        commonPrint.log(
+          'Network monitoring failed: $error',
+          logLevel: LogLevel.warning,
+        );
+      },
+    );
   }
 
   @override

@@ -4,6 +4,7 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/manager/core_manager.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/app.dart';
+import 'package:fl_clash/providers/config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +13,52 @@ import 'package:mocktail/mocktail.dart';
 class _MockCoreHandlerInterface extends Mock implements CoreHandlerInterface {}
 
 void main() {
+  testWidgets('log commands wait for Core and resync after reconnection', (
+    tester,
+  ) async {
+    final coreInterface = _MockCoreHandlerInterface();
+    when(() => coreInterface.startLog()).thenAnswer((_) {});
+    when(() => coreInterface.stopLog()).thenAnswer((_) {});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: CoreManager(
+            controller: CoreController.test(coreInterface),
+            child: const SizedBox(),
+          ),
+        ),
+      ),
+    );
+    container
+        .read(appSettingProvider.notifier)
+        .update((state) => state.copyWith(openLogs: true));
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connecting;
+    await tester.pump();
+    verifyNever(() => coreInterface.startLog());
+    verifyNever(() => coreInterface.stopLog());
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    await tester.pump();
+    verify(() => coreInterface.startLog()).called(1);
+    container
+        .read(appSettingProvider.notifier)
+        .update((state) => state.copyWith(openLogs: false));
+    await tester.pump();
+    verify(() => coreInterface.stopLog()).called(1);
+    container.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
+    container
+        .read(appSettingProvider.notifier)
+        .update((state) => state.copyWith(openLogs: true));
+    await tester.pump();
+    verifyNever(() => coreInterface.startLog());
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    await tester.pump();
+    verify(() => coreInterface.startLog()).called(1);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   test('raw native delay diagnostics stay in logs without user toast', () {
     expect(
       shouldNotifyCoreError(

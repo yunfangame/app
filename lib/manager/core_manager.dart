@@ -54,12 +54,20 @@ class _CoreContainerState extends ConsumerState<CoreManager>
       prev,
       next,
     ) {
-      if (next) {
-        widget.controller.startLog();
-      } else {
-        widget.controller.stopLog();
-      }
+      _syncLogSubscription();
+    });
+    ref.listenManual(coreStatusProvider, (prev, next) {
+      if (next == CoreStatus.connected) _syncLogSubscription();
     }, fireImmediately: true);
+  }
+
+  void _syncLogSubscription() {
+    if (ref.read(coreStatusProvider) != CoreStatus.connected) return;
+    if (ref.read(appSettingProvider).openLogs) {
+      widget.controller.startLog();
+    } else {
+      widget.controller.stopLog();
+    }
   }
 
   @override
