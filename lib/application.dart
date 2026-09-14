@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/login_routing_coordinator.dart';
 import 'package:fl_clash/common/xboard_login_persistence.dart';
@@ -473,6 +474,11 @@ class ApplicationState extends ConsumerState<Application> {
   }
 
   Future<Profile> _syncSubscriptionProfile(XboardLoginResult session) async {
+    final revision = globalState.xboardSessionRevision;
+    bool isCurrent() =>
+        mounted &&
+        !_logoutInProgress &&
+        globalState.isActiveXboardSession(session, revision);
     commonPrint.event(
       'subscription.profile.sync.started',
       fields: {'secure_subscription': session.secureSubscription},
@@ -538,19 +544,27 @@ class ApplicationState extends ConsumerState<Application> {
       if (session.secureSubscription) {
         throw const SubscriptionV2Exception('secure_profile_unavailable');
       }
-      final legacyUrl = session.subscribeUrl;
+      final legacyUrl = session.legacySubscribeUrl;
       if (legacyUrl == null) {
         throw const SubscriptionV2Exception('legacy_subscription_unavailable');
       }
       final subscriptionUrl = legacyUrl.toString();
+      commonPrint.event(
+        'subscription.profile.v1.download.started',
+        fields: {'endpoint_ref': apiDiagnosticEndpointRef(legacyUrl)},
+      );
       final profile = await ref
           .read(profilesActionProvider.notifier)
           .syncSubscriptionProfile(
             subscriptionUrl,
             label: label,
             replacingUrl: previousUrl,
+            isCurrent: isCurrent,
           );
-      await _xboardSessionStorage.setManagedProfileUrl(subscriptionUrl);
+      await _xboardSessionStorage.setManagedProfileUrl(
+        subscriptionUrl,
+        isCurrent: isCurrent,
+      );
       commonPrint.event(
         'subscription.profile.sync.succeeded',
         fields: {'protocol': 'v1'},

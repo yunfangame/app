@@ -94,6 +94,27 @@ class XboardLoginResult {
   final Map<String, Object?> rawData;
 
   Uri? get subscribeUrl => subscription.subscribeUrl;
+
+  Uri? get legacySubscribeUrl {
+    final source = subscribeUrl;
+    if (secureSubscription || source == null) return null;
+    if (!{'http', 'https'}.contains(source.scheme) ||
+        source.host.isEmpty ||
+        source.userInfo.isNotEmpty ||
+        !{'http', 'https'}.contains(endpoint.scheme) ||
+        endpoint.host.isEmpty ||
+        endpoint.userInfo.isNotEmpty) {
+      throw const FormatException('Invalid V1 subscription endpoint');
+    }
+    if (source.scheme == 'https' && endpoint.scheme != 'https') {
+      throw const FormatException('V1 subscription requires HTTPS');
+    }
+    return source.replace(
+      scheme: endpoint.scheme,
+      host: endpoint.host,
+      port: endpoint.port,
+    );
+  }
 }
 
 class XboardSubscriptionData {

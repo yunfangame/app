@@ -127,6 +127,7 @@ class XboardSessionStorage {
   static const _offlineModeKey = 'xboard.offline_mode';
   static const _offlineCacheKey = 'xboard.offline_cache';
   static const _managedProfileUrlKey = 'xboard.managed_profile_url';
+  static Future<void> _managedProfileQueue = Future<void>.value();
 
   final FlutterSecureStorage _secureStorage;
   final SecretStringStore? _secretStore;
@@ -545,19 +546,49 @@ class XboardSessionStorage {
     await _checkPreference(preferences.remove(_offlineCacheKey));
   }
 
-  Future<String?> loadManagedProfileUrl() async {
+  Future<String?> loadManagedProfileUrl() => _serializeManagedProfile(() async {
     final preferences = await _preferencesLoader();
     return _nonEmpty(preferences.getString(_managedProfileUrlKey));
-  }
+  });
 
-  Future<void> setManagedProfileUrl(String url) async {
-    final preferences = await _preferencesLoader();
-    await _checkPreference(preferences.setString(_managedProfileUrlKey, url));
-  }
+  Future<void> setManagedProfileUrl(String url, {bool Function()? isCurrent}) =>
+      _serializeManagedProfile(() async {
+        final preferences = await _preferencesLoader();
+        void ensureCurrent() {
+          if (isCurrent?.call() == false) {
+            throw StateError('profile_sync_superseded');
+          }
+        }
 
-  Future<void> clearManagedProfileUrl() async {
+        ensureCurrent();
+        final previous = preferences.getString(_managedProfileUrlKey);
+        try {
+          await _checkPreference(
+            preferences.setString(_managedProfileUrlKey, url),
+          );
+          ensureCurrent();
+        } catch (error, stackTrace) {
+          await _checkPreference(
+            previous == null
+                ? preferences.remove(_managedProfileUrlKey)
+                : preferences.setString(_managedProfileUrlKey, previous),
+          );
+          Error.throwWithStackTrace(error, stackTrace);
+        }
+      });
+
+  Future<void> clearManagedProfileUrl() => _serializeManagedProfile(() async {
     final preferences = await _preferencesLoader();
     await _checkPreference(preferences.remove(_managedProfileUrlKey));
+  });
+
+  static Future<T> _serializeManagedProfile<T>(Future<T> Function() operation) {
+    final result = _managedProfileQueue.then((_) => operation());
+    _managedProfileQueue = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
   }
 
   Future<void> clear() {

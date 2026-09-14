@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/xboard_session_storage.dart';
 import 'package:fl_clash/common/xboard_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -271,6 +273,146 @@ void main() {
     expect(await storage.loadManagedProfileUrl(), isNull);
   });
 
+  group('managed profile storage transactions', () {
+    const previousUrl = 'https://previous.example/s/current-account';
+    const attemptedUrl = 'https://old-api.example/s/current-account';
+    const latestUrl = 'https://new-api.example/s/new-account';
+    const preferenceKey = 'xboard.managed_profile_url';
+
+    test('rejects a stale session after waiting for preferences', () async {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(preferenceKey, previousUrl);
+      final entered = Completer<void>();
+      final release = Completer<SharedPreferences>();
+      var current = true;
+      final storage = XboardSessionStorage(
+        preferencesLoader: () {
+          entered.complete();
+          return release.future;
+        },
+      );
+      final update = storage.setManagedProfileUrl(
+        attemptedUrl,
+        isCurrent: () => current,
+      );
+      final assertion = expectLater(update, throwsStateError);
+      await entered.future;
+      current = false;
+      release.complete(preferences);
+      await assertion;
+
+      expect(preferences.getString(preferenceKey), previousUrl);
+      expect(await XboardSessionStorage().loadManagedProfileUrl(), previousUrl);
+    });
+
+    for (final hasPrevious in [false, true]) {
+      test(
+        'rolls back a stale write before another instance can read ($hasPrevious)',
+        () async {
+          final preferences = await SharedPreferences.getInstance();
+          if (hasPrevious) {
+            await preferences.setString(preferenceKey, previousUrl);
+          }
+          final controlled = _ManagedProfilePreferences(preferences)
+            ..pausedValue = attemptedUrl;
+          var current = true;
+          final storage = XboardSessionStorage(
+            preferencesLoader: () async => controlled,
+          );
+          final update = storage.setManagedProfileUrl(
+            attemptedUrl,
+            isCurrent: () => current,
+          );
+          final assertion = expectLater(update, throwsStateError);
+          await controlled.writeStarted.future;
+          expect(preferences.getString(preferenceKey), attemptedUrl);
+          final read = XboardSessionStorage().loadManagedProfileUrl();
+          current = false;
+          controlled.writeRelease.complete();
+          await assertion;
+
+          expect(await read, hasPrevious ? previousUrl : null);
+          expect(
+            preferences.getString(preferenceKey),
+            hasPrevious ? previousUrl : null,
+          );
+        },
+      );
+    }
+
+    test('an old instance rolls back before a new session commits', () async {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(preferenceKey, previousUrl);
+      final controlled = _ManagedProfilePreferences(preferences)
+        ..pausedValue = attemptedUrl;
+      var current = true;
+      final oldStorage = XboardSessionStorage(
+        preferencesLoader: () async => controlled,
+      );
+      final oldUpdate = oldStorage.setManagedProfileUrl(
+        attemptedUrl,
+        isCurrent: () => current,
+      );
+      final assertion = expectLater(oldUpdate, throwsStateError);
+      await controlled.writeStarted.future;
+      current = false;
+      final newUpdate = XboardSessionStorage().setManagedProfileUrl(latestUrl);
+      controlled.writeRelease.complete();
+      await assertion;
+      await newUpdate;
+
+      expect(await XboardSessionStorage().loadManagedProfileUrl(), latestUrl);
+    });
+
+    test(
+      'a queued clear runs after an invalidated write is rolled back',
+      () async {
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.setString(preferenceKey, previousUrl);
+        final controlled = _ManagedProfilePreferences(preferences)
+          ..pausedValue = attemptedUrl;
+        var current = true;
+        final storage = XboardSessionStorage(
+          preferencesLoader: () async => controlled,
+        );
+        final update = storage.setManagedProfileUrl(
+          attemptedUrl,
+          isCurrent: () => current,
+        );
+        final assertion = expectLater(update, throwsStateError);
+        await controlled.writeStarted.future;
+        current = false;
+        final cleared = XboardSessionStorage().clearManagedProfileUrl();
+        controlled.writeRelease.complete();
+        await assertion;
+        await cleared;
+
+        expect(await storage.loadManagedProfileUrl(), isNull);
+      },
+    );
+
+    test(
+      'a rejected write restores the old value and does not poison the queue',
+      () async {
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.setString(preferenceKey, previousUrl);
+        final controlled = _ManagedProfilePreferences(preferences)
+          ..rejectedValue = attemptedUrl;
+        final storage = XboardSessionStorage(
+          preferencesLoader: () async => controlled,
+        );
+
+        await expectLater(
+          storage.setManagedProfileUrl(attemptedUrl),
+          throwsA(isA<XboardStorageException>()),
+        );
+        expect(await storage.loadManagedProfileUrl(), previousUrl);
+        await XboardSessionStorage().setManagedProfileUrl(latestUrl);
+        expect(await storage.loadManagedProfileUrl(), latestUrl);
+      },
+    );
+  });
+
   test('offline cache preserves subscription and node metadata', () async {
     final storage = XboardSessionStorage();
     final endpoint = Uri.parse('https://api.example.com');
@@ -331,4 +473,30 @@ void main() {
     expect(await storage.loadOfflineMode(), isFalse);
     expect(await storage.loadOfflineCache(), isNull);
   });
+}
+
+class _ManagedProfilePreferences extends Fake implements SharedPreferences {
+  _ManagedProfilePreferences(this.inner);
+
+  final SharedPreferences inner;
+  final writeStarted = Completer<void>();
+  final writeRelease = Completer<void>();
+  String? pausedValue;
+  String? rejectedValue;
+
+  @override
+  String? getString(String key) => inner.getString(key);
+
+  @override
+  Future<bool> setString(String key, String value) async {
+    final result = await inner.setString(key, value);
+    if (value == pausedValue) {
+      writeStarted.complete();
+      await writeRelease.future;
+    }
+    return value == rejectedValue ? false : result;
+  }
+
+  @override
+  Future<bool> remove(String key) => inner.remove(key);
 }
