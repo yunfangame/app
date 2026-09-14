@@ -225,6 +225,13 @@ Polling stops when the manager cancels its subscription.
 `CoreManager` synchronizes the desired log subscription only while `coreStatusProvider` is connected, and reapplies it on
 reconnection. Mounting the login UI must not enqueue Core log RPCs before Core exists.
 
+Operational diagnostics use `CommonPrint.event` for UTC/session/sequence-tagged events stored in the application support
+directory under `diagnostics/events.jsonl` with bounded rotation. `CommonPrint.log` sanitizes messages before both console
+output and the UI log; business exception handlers must use it instead of raw `debugPrint(error)`. The shared sanitizer
+also covers custom-scheme/encoded subscription links and quoted credential fields, while retaining operation codes,
+timings, and fingerprint references. Core bulk messages and the Helper's raw log buffer are separate paths: collect them
+privately and sanitize before sharing. Never export raw account, subscription, or node configuration as deployment proof.
+
 ## Core Controller and Actions
 
 `lib/core/controller.dart` (`CoreController`) is a singleton facade over `CoreHandlerInterface`. Public methods delegate to the platform-specific interface, either Android FFI or desktop socket. It has an `@visibleForTesting` constructor and `resetInstance()` for test injection.
