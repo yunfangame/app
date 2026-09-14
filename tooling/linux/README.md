@@ -20,6 +20,7 @@ sudo apt install ./FlClash-*-linux-amd64.deb
 
 GNOME 桌面需要支持 AppIndicator 的托盘扩展才能显示托盘图标。缺少托盘时仍可从应用菜单重新打开窗口。
 Linux 的系统代理作用范围取决于桌面和应用，部分程序不会读取桌面代理设置；TUN 需单独验证。
+未运行 NetworkManager 时，客户端会降级为定时检测网卡状态，不会强制安装或启动 NetworkManager。
 
 ## 检查与卸载
 

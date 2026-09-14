@@ -1,5 +1,7 @@
 # 2026-09-14 Linux 上游升级集成
 
+本文记录升级集成结束时的状态；后续用户授权推送、原生验证与 DEB 测试包工作见 [Linux x64 DEB 记录](2026-09-14-linux-x64-deb.md)。
+
 ## 基线与范围
 
 - 工作分支：`codex/linux-upstream-0897-port`。

@@ -189,3 +189,9 @@ plugin packages, so CI also validates local Flutter packages, the setup build
 tool, the Go wrapper, and Rust components from their own package directories. A
 separate Windows runner compiles and tests the helper's `windows-service`
 feature before release builds can start.
+
+The separate `package-linux.yml` workflow also runs on pushes to `codex/linux-upstream-0897-port`. It builds only the
+x64 DEB with stable configuration after native regression checks, then checks Ubuntu installation/Helper/desktop behavior
+and Debian 12 container installation/desktop behavior. Its output is an Actions artifact, not a GitHub Release.
+The scripts named `tooling/linux/ci-*-smoke.*` install/remove packages and are guarded for disposable CI environments;
+do not run them on a user's desktop. Linux packaging defaults to DEB; other formats require explicit `--targets`.

@@ -214,6 +214,17 @@ AppEnvManager > StatusManager > ThemeManager
 
 Each manager in `lib/manager/` handles a specific platform concern. Desktop-only managers are conditionally inserted.
 
+`ConnectivityManager` uses the existing platform connectivity plugin outside Linux. Linux uses
+`lib/common/linux_connectivity.dart` to own and close its NetworkManager client and system bus. The system bus must
+complete a method call before NetworkManager signal subscription; otherwise dbus 0.7.14 can emit detached initialization
+errors outside `connect()` on a missing socket. A missing/timed-out D-Bus service or
+failed event stream falls back to five-second interface polling; failures are diagnostic, not unhandled futures or
+invented offline events. Loopback/container bridges and known VPN interfaces must not be treated as physical connectivity.
+Polling stops when the manager cancels its subscription.
+
+`CoreManager` synchronizes the desired log subscription only while `coreStatusProvider` is connected, and reapplies it on
+reconnection. Mounting the login UI must not enqueue Core log RPCs before Core exists.
+
 ## Core Controller and Actions
 
 `lib/core/controller.dart` (`CoreController`) is a singleton facade over `CoreHandlerInterface`. Public methods delegate to the platform-specific interface, either Android FFI or desktop socket. It has an `@visibleForTesting` constructor and `resetInstance()` for test injection.
