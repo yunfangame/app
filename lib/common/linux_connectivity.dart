@@ -3,7 +3,32 @@ import 'dart:io';
 
 import 'package:collection/collection.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dbus/dbus.dart';
 import 'package:nm/nm.dart';
+
+class LinuxNetworkManagerClient extends NetworkManagerClient {
+  factory LinuxNetworkManagerClient({DBusClient? bus}) =>
+      LinuxNetworkManagerClient._(bus ?? DBusClient.system());
+
+  LinuxNetworkManagerClient._(this._bus) : super(bus: _bus);
+
+  final DBusClient _bus;
+
+  @override
+  Future<void> connect() async {
+    await _bus.getId();
+    await super.connect();
+  }
+
+  @override
+  Future<void> close() async {
+    try {
+      await super.close();
+    } finally {
+      await _bus.close();
+    }
+  }
+}
 
 List<ConnectivityResult> linuxInterfaceConnectivity(
   Iterable<String> names, {
@@ -54,7 +79,7 @@ class LinuxConnectivityMonitor {
     this.pollInterval = const Duration(seconds: 5),
     this.connectTimeout = const Duration(seconds: 3),
     this.onError,
-  }) : createClient = createClient ?? NetworkManagerClient.new,
+  }) : createClient = createClient ?? LinuxNetworkManagerClient.new,
        probeInterfaces = probeInterfaces ?? probeLinuxInterfaces;
 
   final NetworkManagerClient Function() createClient;

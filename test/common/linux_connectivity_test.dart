@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dbus/dbus.dart';
 import 'package:fl_clash/common/linux_connectivity.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -9,6 +11,23 @@ import 'package:nm/nm.dart';
 class _Client extends Mock implements NetworkManagerClient {}
 
 void main() {
+  test('missing real system bus falls back without detached errors', () async {
+    final directory = await Directory.systemTemp.createTemp('linux-bus-test-');
+    addTearDown(directory.delete);
+    final errors = <Object>[];
+    final monitor = LinuxConnectivityMonitor(
+      createClient: () => LinuxNetworkManagerClient(
+        bus: DBusClient(
+          DBusAddress('unix:path=${directory.path}/missing.sock'),
+        ),
+      ),
+      probeInterfaces: () async => [ConnectivityResult.ethernet],
+      onError: (error, _) => errors.add(error),
+    );
+    expect(await monitor.changes.first, [ConnectivityResult.ethernet]);
+    expect(errors, [isA<SocketException>()]);
+  });
+
   test('cancelling fallback does not wait for the next poll', () async {
     final client = _Client();
     when(client.connect).thenThrow(StateError('missing'));
