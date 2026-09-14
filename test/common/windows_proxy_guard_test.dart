@@ -264,22 +264,39 @@ void main() {
   });
 
   test('a hanging probe cannot exceed the total readiness budget', () async {
+    var probes = 0;
+    final timerDurations = <Duration>[];
     final neverCompletes = Completer<bool>();
+    const readyTimeout = Duration(milliseconds: 20);
     final guard = WindowsProxyGuard(
       inspector: (_) async => owned,
       stopper: (_) async => cleaned,
-      portProbe: (_) => neverCompletes.future,
-      readyTimeout: const Duration(milliseconds: 20),
+      portProbe: (_) {
+        probes++;
+        return neverCompletes.future;
+      },
+      readyTimeout: readyTimeout,
       probeTimeout: const Duration(seconds: 1),
       retryInterval: const Duration(seconds: 1),
     );
 
-    final result = await guard
-        .waitUntilReadyDetailed(7890)
-        .timeout(const Duration(seconds: 1));
+    final readiness = runZoned(
+      () => guard.waitUntilReadyDetailed(7890),
+      zoneSpecification: ZoneSpecification(
+        createTimer: (self, parent, zone, duration, callback) {
+          timerDurations.add(duration);
+          return parent.createTimer(zone, duration, callback);
+        },
+      ),
+    );
+    final result = await readiness.timeout(const Duration(seconds: 1));
 
     expect(result.status, WindowsProxyReadinessStatus.timedOut);
-    expect(result.attempts, 1);
+    expect(probes, greaterThanOrEqualTo(1));
+    expect(result.attempts, probes);
+    expect(result.elapsed, greaterThanOrEqualTo(readyTimeout));
+    expect(timerDurations, isNotEmpty);
+    expect(timerDurations, everyElement(lessThanOrEqualTo(readyTimeout)));
     expect(result.lastErrorType, 'timeout');
     expect(result.lastOsErrorCode, isNull);
   });
