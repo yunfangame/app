@@ -2,6 +2,8 @@ name: fengwo-linux-package
 
 on:
   push:
+    branches:
+      - 'codex/linux-upstream-0897-port'
     tags:
       - 'fengwo-package-linux-*'
 
@@ -12,6 +14,7 @@ jobs:
   package:
     name: Linux ${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -22,12 +25,6 @@ jobs:
             elf_machine: 'Advanced Micro Devices X86-64'
             webkit_build_package: libwebkit2gtk-4.0-dev
             webkit_runtime_package: libwebkit2gtk-4.0-37
-          - arch: arm64
-            os: ubuntu-24.04-arm
-            deb_arch: arm64
-            elf_machine: AArch64
-            webkit_build_package: libwebkit2gtk-4.1-dev
-            webkit_runtime_package: libwebkit2gtk-4.1-0
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,14 +44,6 @@ jobs:
           channel: stable
           flutter-version: '3.44.4'
           cache: true
-
-      - name: Setup Flutter (arm64)
-        if: matrix.arch == 'arm64'
-        run: |
-          git clone --branch 3.44.4 --depth 1 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
-          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/flutter/bin/flutter" config --enable-linux-desktop
-          "$RUNNER_TEMP/flutter/bin/flutter" --version
 
       - name: Prepare build keys
         env:
@@ -116,27 +105,14 @@ jobs:
           sed -i "/  - libsecret-1-0/a\\  - $WEBKIT_RUNTIME_PACKAGE" linux/packaging/deb/make_config.yaml
           grep -q "$WEBKIT_RUNTIME_PACKAGE" linux/packaging/deb/make_config.yaml
 
-      - name: Test V2 and Linux packaging contracts
+      - name: Test full application and Linux packaging contracts
         run: |
-          flutter test \
-            test/setup_test.dart \
-            test/common/local_secret_store_test.dart \
-            test/common/linux_system_test.dart \
-            test/common/linux_tray_test.dart \
-            test/common/network_test.dart \
-            test/common/subscription_v2_test.dart \
-            test/common/xboard_auth_test.dart \
-            test/common/xboard_session_storage_test.dart \
-            test/providers/action_test.dart \
-            test/providers/system_action_test.dart \
-            test/core/protocol_contract_test.dart \
-            test/core/desktop/ \
-            test/core/service_test.dart \
-            test/widgets/views_smoke_test.dart \
-            --reporter expanded
+          flutter analyze --no-pub --fatal-infos
+          flutter test --no-pub --reporter expanded
           (
             cd core
             CGO_ENABLED=0 go test .
+            CGO_ENABLED=0 go vet .
           )
 
       - name: Package stable Linux release
@@ -178,3 +154,14 @@ jobs:
             dist/*.deb
             dist/fengwo-linux-preflight.sh
           if-no-files-found: error
+
+      - name: Install and smoke test on Ubuntu
+        run: bash tooling/linux/ci-package-smoke.sh
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fengwo-linux-amd64-smoke
+          path: smoke-evidence/
+          if-no-files-found: ignore
