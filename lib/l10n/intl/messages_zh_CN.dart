@@ -506,7 +506,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "controlGlobalAddedRules": MessageLookupByLibrary.simpleMessage("控制全局附加规则"),
     "copy": MessageLookupByLibrary.simpleMessage("复制"),
     "copyEnvVar": MessageLookupByLibrary.simpleMessage("复制环境变量"),
-    "copyInviteCode": MessageLookupByLibrary.simpleMessage("复制邀请码"),
+    "copyInviteLink": MessageLookupByLibrary.simpleMessage("复制邀请链接"),
     "copyLink": MessageLookupByLibrary.simpleMessage("复制链接"),
     "copySuccess": MessageLookupByLibrary.simpleMessage("复制成功"),
     "core": MessageLookupByLibrary.simpleMessage("内核"),
@@ -786,7 +786,6 @@ class MessageLookup extends MessageLookupByLibrary {
     "invitationCodeOptional": MessageLookupByLibrary.simpleMessage("邀请码（选填）"),
     "invitationCodeRequired": MessageLookupByLibrary.simpleMessage("请输入邀请码"),
     "inviteCode": MessageLookupByLibrary.simpleMessage("邀请码"),
-    "inviteCodeCopied": MessageLookupByLibrary.simpleMessage("邀请码已复制"),
     "inviteCodeDescription": MessageLookupByLibrary.simpleMessage(
       "分享专属邀请码，好友注册并购买套餐后，您即可获得佣金奖励。",
     ),
@@ -796,6 +795,10 @@ class MessageLookup extends MessageLookupByLibrary {
       "邀请越多，奖励越多，上不封顶！",
     ),
     "inviteHeroTitle": MessageLookupByLibrary.simpleMessage("邀请好友，畅享奖励"),
+    "inviteLinkCopied": MessageLookupByLibrary.simpleMessage("邀请链接已复制"),
+    "inviteLinkUnavailable": MessageLookupByLibrary.simpleMessage(
+      "邀请链接暂不可用，请稍后重试",
+    ),
     "inviteLoadFailed": MessageLookupByLibrary.simpleMessage("邀请数据加载失败"),
     "invitePromotion": MessageLookupByLibrary.simpleMessage("邀请推广"),
     "ipAddress": MessageLookupByLibrary.simpleMessage("IP 地址"),

@@ -3,6 +3,7 @@ import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/invite/fengwo_invite_promotion.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -165,6 +166,60 @@ void main() {
       find.byKey(const ValueKey('invite-commission-records-scroll')),
       findsNothing,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('copies the configured invite link with the invite code', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(840, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(globalState.clearXboardSession);
+    globalState.xboardSession = _testSession();
+    String? clipboardText;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          clipboardText = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await tester.pumpWidget(
+      _TestApp(
+        child: FengWoInvitePromotionView(
+          authService: _testService(),
+          remoteConfigLoader: () async => const {
+            'Authentication': 'FengWo',
+            'InviteLink': 'https://share.fengwo.live#/register?code=',
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final l10n = tester
+        .element(find.byType(FengWoInvitePromotionView))
+        .appLocalizations;
+    expect(find.text(l10n.copyInviteLink), findsOneWidget);
+    final copyButton = find.byKey(const ValueKey('copy-invite-SIQU5wev'));
+    await tester.ensureVisible(copyButton);
+    await tester.pumpAndSettle();
+    await tester.tap(copyButton);
+    await tester.pumpAndSettle();
+
+    expect(clipboardText, 'https://share.fengwo.live#/register?code=SIQU5wev');
+    expect(find.text(l10n.inviteLinkCopied), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

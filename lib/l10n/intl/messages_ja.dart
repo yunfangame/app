@@ -568,7 +568,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "copy": MessageLookupByLibrary.simpleMessage("コピー"),
     "copyEnvVar": MessageLookupByLibrary.simpleMessage("環境変数をコピー"),
-    "copyInviteCode": MessageLookupByLibrary.simpleMessage("招待コードをコピー"),
+    "copyInviteLink": MessageLookupByLibrary.simpleMessage("招待リンクをコピー"),
     "copyLink": MessageLookupByLibrary.simpleMessage("リンクをコピー"),
     "copySuccess": MessageLookupByLibrary.simpleMessage("コピー成功"),
     "core": MessageLookupByLibrary.simpleMessage("コア"),
@@ -896,7 +896,6 @@ class MessageLookup extends MessageLookupByLibrary {
       "招待コードを入力してください",
     ),
     "inviteCode": MessageLookupByLibrary.simpleMessage("招待コード"),
-    "inviteCodeCopied": MessageLookupByLibrary.simpleMessage("招待コードをコピーしました"),
     "inviteCodeDescription": MessageLookupByLibrary.simpleMessage(
       "専用コードを共有し、友達が登録してプランを購入すると報酬を獲得できます。",
     ),
@@ -906,6 +905,10 @@ class MessageLookup extends MessageLookupByLibrary {
       "招待するほど報酬アップ。上限はありません！",
     ),
     "inviteHeroTitle": MessageLookupByLibrary.simpleMessage("友達を招待して報酬を獲得"),
+    "inviteLinkCopied": MessageLookupByLibrary.simpleMessage("招待リンクをコピーしました"),
+    "inviteLinkUnavailable": MessageLookupByLibrary.simpleMessage(
+      "招待リンクを利用できません。しばらくしてからもう一度お試しください",
+    ),
     "inviteLoadFailed": MessageLookupByLibrary.simpleMessage(
       "招待データを読み込めませんでした",
     ),

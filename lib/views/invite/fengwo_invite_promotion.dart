@@ -8,8 +8,13 @@ import 'package:intl/intl.dart';
 
 class FengWoInvitePromotionView extends StatefulWidget {
   final XboardAuthService? authService;
+  final Future<Object?> Function()? remoteConfigLoader;
 
-  const FengWoInvitePromotionView({super.key, this.authService});
+  const FengWoInvitePromotionView({
+    super.key,
+    this.authService,
+    this.remoteConfigLoader,
+  });
 
   @override
   State<FengWoInvitePromotionView> createState() =>
@@ -20,6 +25,7 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView> {
   final _inviteCodesMeasureKey = GlobalKey();
   final _commissionScrollController = ScrollController();
   late final XboardAuthService _authService;
+  late final Future<Object?> Function() _remoteConfigLoader;
   XboardInviteSummary? _summary;
   List<XboardCommissionRecord> _records = const [];
   double? _desktopPanelsHeight;
@@ -39,6 +45,8 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView> {
   void initState() {
     super.initState();
     _authService = widget.authService ?? XboardAuthService();
+    _remoteConfigLoader =
+        widget.remoteConfigLoader ?? ApiHealthService().loadConfig;
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
   }
 
@@ -156,9 +164,24 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView> {
     }
   }
 
-  Future<void> _copyInviteCode(String code) async {
-    await Clipboard.setData(ClipboardData(text: code));
-    if (mounted) _showMessage(context.appLocalizations.inviteCodeCopied);
+  Future<void> _copyInviteLink(String code) async {
+    try {
+      final config = await _remoteConfigLoader();
+      final inviteLink = buildInviteLinkFromConfig(config, code);
+      await Clipboard.setData(ClipboardData(text: inviteLink));
+      if (mounted) _showMessage(context.appLocalizations.inviteLinkCopied);
+    } catch (error, stackTrace) {
+      commonPrint.log(
+        'copy invite link failed: $error, $stackTrace',
+        logLevel: LogLevel.warning,
+      );
+      if (mounted) {
+        _showMessage(
+          context.appLocalizations.inviteLinkUnavailable,
+          isError: true,
+        );
+      }
+    }
   }
 
   Future<void> _openWithdrawalDialog() async {
@@ -638,7 +661,7 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView> {
               _InviteCodeRow(
                 code: code,
                 colors: colors,
-                onCopy: () => _copyInviteCode(code.code),
+                onCopy: () => _copyInviteLink(code.code),
               ),
         ],
       ),
@@ -967,7 +990,7 @@ class _InviteCodeRow extends StatelessWidget {
                 key: ValueKey('copy-invite-${code.code}'),
                 onPressed: onCopy,
                 icon: const Icon(Icons.copy_rounded, size: 18),
-                label: Text(context.appLocalizations.copyInviteCode),
+                label: Text(context.appLocalizations.copyInviteLink),
               ),
             ),
           ),

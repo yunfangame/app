@@ -693,7 +693,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "copyEnvVar": MessageLookupByLibrary.simpleMessage(
       "Копирование переменных окружения",
     ),
-    "copyInviteCode": MessageLookupByLibrary.simpleMessage("Копировать код"),
+    "copyInviteLink": MessageLookupByLibrary.simpleMessage("Копировать ссылку"),
     "copyLink": MessageLookupByLibrary.simpleMessage("Копировать ссылку"),
     "copySuccess": MessageLookupByLibrary.simpleMessage("Копирование успешно"),
     "core": MessageLookupByLibrary.simpleMessage("Ядро"),
@@ -1119,9 +1119,6 @@ class MessageLookup extends MessageLookupByLibrary {
       "Введите код приглашения",
     ),
     "inviteCode": MessageLookupByLibrary.simpleMessage("Код приглашения"),
-    "inviteCodeCopied": MessageLookupByLibrary.simpleMessage(
-      "Код приглашения скопирован",
-    ),
     "inviteCodeDescription": MessageLookupByLibrary.simpleMessage(
       "Поделитесь кодом: после регистрации друга и покупки тарифа вы получите комиссию.",
     ),
@@ -1136,6 +1133,12 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "inviteHeroTitle": MessageLookupByLibrary.simpleMessage(
       "Приглашайте друзей — получайте награды",
+    ),
+    "inviteLinkCopied": MessageLookupByLibrary.simpleMessage(
+      "Ссылка-приглашение скопирована",
+    ),
+    "inviteLinkUnavailable": MessageLookupByLibrary.simpleMessage(
+      "Ссылка-приглашение недоступна. Повторите попытку позже",
     ),
     "inviteLoadFailed": MessageLookupByLibrary.simpleMessage(
       "Не удалось загрузить данные приглашений",

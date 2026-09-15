@@ -8223,11 +8223,11 @@ class AppLocalizations {
     return Intl.message('Action', name: 'actions', desc: '', args: []);
   }
 
-  /// `Copy invite code`
-  String get copyInviteCode {
+  /// `Copy invite link`
+  String get copyInviteLink {
     return Intl.message(
-      'Copy invite code',
-      name: 'copyInviteCode',
+      'Copy invite link',
+      name: 'copyInviteLink',
       desc: '',
       args: [],
     );
@@ -8293,11 +8293,21 @@ class AppLocalizations {
     );
   }
 
-  /// `Invite code copied`
-  String get inviteCodeCopied {
+  /// `Invite link copied`
+  String get inviteLinkCopied {
     return Intl.message(
-      'Invite code copied',
-      name: 'inviteCodeCopied',
+      'Invite link copied',
+      name: 'inviteLinkCopied',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The invite link is unavailable. Please try again later`
+  String get inviteLinkUnavailable {
+    return Intl.message(
+      'The invite link is unavailable. Please try again later',
+      name: 'inviteLinkUnavailable',
       desc: '',
       args: [],
     );
