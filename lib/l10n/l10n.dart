@@ -8188,10 +8188,10 @@ class AppLocalizations {
     );
   }
 
-  /// `Share your invite code. You earn commission after a friend signs up and purchases a plan.`
+  /// `Share your invite link. You earn commission after a friend signs up and purchases a plan.`
   String get inviteCodeDescription {
     return Intl.message(
-      'Share your invite code. You earn commission after a friend signs up and purchases a plan.',
+      'Share your invite link. You earn commission after a friend signs up and purchases a plan.',
       name: 'inviteCodeDescription',
       desc: '',
       args: [],
@@ -8223,11 +8223,11 @@ class AppLocalizations {
     return Intl.message('Action', name: 'actions', desc: '', args: []);
   }
 
-  /// `Copy invite code`
-  String get copyInviteCode {
+  /// `Copy invite link`
+  String get copyInviteLink {
     return Intl.message(
-      'Copy invite code',
-      name: 'copyInviteCode',
+      'Copy invite link',
+      name: 'copyInviteLink',
       desc: '',
       args: [],
     );
@@ -8293,11 +8293,21 @@ class AppLocalizations {
     );
   }
 
-  /// `Invite code copied`
-  String get inviteCodeCopied {
+  /// `Invite link copied`
+  String get inviteLinkCopied {
     return Intl.message(
-      'Invite code copied',
-      name: 'inviteCodeCopied',
+      'Invite link copied',
+      name: 'inviteLinkCopied',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unable to copy the invite link. Please try again later.`
+  String get inviteLinkCopyFailed {
+    return Intl.message(
+      'Unable to copy the invite link. Please try again later.',
+      name: 'inviteLinkCopyFailed',
       desc: '',
       args: [],
     );

@@ -675,7 +675,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "copyEnvVar": MessageLookupByLibrary.simpleMessage(
       "Copying environment variables",
     ),
-    "copyInviteCode": MessageLookupByLibrary.simpleMessage("Copy invite code"),
+    "copyInviteLink": MessageLookupByLibrary.simpleMessage("Copy invite link"),
     "copyLink": MessageLookupByLibrary.simpleMessage("Copy link"),
     "copySuccess": MessageLookupByLibrary.simpleMessage("Copy success"),
     "core": MessageLookupByLibrary.simpleMessage("Core"),
@@ -1083,11 +1083,8 @@ class MessageLookup extends MessageLookupByLibrary {
       "Enter your invitation code",
     ),
     "inviteCode": MessageLookupByLibrary.simpleMessage("Invite code"),
-    "inviteCodeCopied": MessageLookupByLibrary.simpleMessage(
-      "Invite code copied",
-    ),
     "inviteCodeDescription": MessageLookupByLibrary.simpleMessage(
-      "Share your invite code. You earn commission after a friend signs up and purchases a plan.",
+      "Share your invite link. You earn commission after a friend signs up and purchases a plan.",
     ),
     "inviteCodeGenerated": MessageLookupByLibrary.simpleMessage(
       "Invite code generated",
@@ -1100,6 +1097,12 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "inviteHeroTitle": MessageLookupByLibrary.simpleMessage(
       "Invite friends, earn rewards",
+    ),
+    "inviteLinkCopied": MessageLookupByLibrary.simpleMessage(
+      "Invite link copied",
+    ),
+    "inviteLinkCopyFailed": MessageLookupByLibrary.simpleMessage(
+      "Unable to copy the invite link. Please try again later.",
     ),
     "inviteLoadFailed": MessageLookupByLibrary.simpleMessage(
       "Unable to load invite data",

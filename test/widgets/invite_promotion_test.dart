@@ -1,12 +1,114 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/invite/fengwo_invite_promotion.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('copies the configured invite link and reloads it on each tap', (
+    tester,
+  ) async {
+    final copied = <String>[];
+    _recordClipboard(tester, copied);
+    final config = Completer<Object?>();
+    var loads = 0;
+    await _pumpInvitePage(tester, () {
+      loads++;
+      return loads == 1
+          ? config.future
+          : Future.value({
+              'InviteLink': 'https://new.example.com#/register?code=',
+            });
+    });
+    final button = find.byKey(const ValueKey('copy-invite-SIQU5wev'));
+    final l10n = tester.element(button).appLocalizations;
+    expect(find.text(l10n.copyInviteLink), findsOneWidget);
+    final tap = tester.widget<TextButton>(button).onPressed!;
+    tap();
+    tap();
+    await tester.pump();
+    expect(loads, 1);
+    expect(tester.widget<TextButton>(button).onPressed, isNull);
+    expect(copied, isEmpty);
+
+    config.complete({
+      'InviteLink': 'https://share.fengwo.live#/register?code=',
+    });
+    await tester.pumpAndSettle();
+    expect(copied, ['https://share.fengwo.live#/register?code=SIQU5wev']);
+    expect(find.text(l10n.inviteLinkCopied), findsOneWidget);
+    expect(tester.widget<TextButton>(button).onPressed, isNotNull);
+
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(loads, 2);
+    expect(copied.last, 'https://new.example.com#/register?code=SIQU5wev');
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final failure in [
+    'missing config',
+    'load failure',
+    'clipboard failure',
+  ]) {
+    testWidgets('invite link reports $failure and allows retry', (
+      tester,
+    ) async {
+      final copied = <String>[];
+      var fail = true;
+      _recordClipboard(
+        tester,
+        copied,
+        shouldFail: () => fail && failure == 'clipboard failure',
+      );
+      await _pumpInvitePage(tester, () async {
+        if (fail && failure == 'load failure') {
+          throw StateError('Configuration unavailable');
+        }
+        if (fail && failure == 'missing config') return {};
+        return {'InviteLink': 'https://share.example.com#/register?code='};
+      });
+      final button = find.byKey(const ValueKey('copy-invite-SIQU5wev'));
+      final l10n = tester.element(button).appLocalizations;
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+      expect(copied, isEmpty);
+      expect(find.text(l10n.inviteLinkCopyFailed), findsOneWidget);
+      expect(find.text(l10n.inviteLinkCopied), findsNothing);
+      expect(tester.widget<TextButton>(button).onPressed, isNotNull);
+
+      fail = false;
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+      expect(copied, ['https://share.example.com#/register?code=SIQU5wev']);
+      expect(find.text(l10n.inviteLinkCopied), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('leaving the page during loading does not copy or update UI', (
+    tester,
+  ) async {
+    final copied = <String>[];
+    _recordClipboard(tester, copied);
+    final config = Completer<Object?>();
+    await _pumpInvitePage(tester, () => config.future);
+    await tester.tap(find.byKey(const ValueKey('copy-invite-SIQU5wev')));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    config.complete({
+      'InviteLink': 'https://share.example.com#/register?code=',
+    });
+    await tester.pumpAndSettle();
+    expect(copied, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'invite page renders desktop layout and submits withdrawal ticket',
     (tester) async {
@@ -167,6 +269,56 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+}
+
+Future<void> _pumpInvitePage(
+  WidgetTester tester,
+  Future<Object?> Function() configLoader,
+) async {
+  tester.view.physicalSize = const Size(1000, 1200);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  addTearDown(globalState.clearXboardSession);
+  globalState.xboardSession = _testSession();
+  await tester.pumpWidget(
+    _TestApp(
+      child: FengWoInvitePromotionView(
+        authService: _testService(),
+        inviteConfigLoader: configLoader,
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  await tester.ensureVisible(
+    find.byKey(const ValueKey('copy-invite-SIQU5wev')),
+  );
+  await tester.pumpAndSettle();
+}
+
+void _recordClipboard(
+  WidgetTester tester,
+  List<String> copied, {
+  bool Function()? shouldFail,
+}) {
+  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+    SystemChannels.platform,
+    (call) async {
+      if (call.method == 'Clipboard.setData') {
+        if (shouldFail?.call() == true) {
+          throw PlatformException(code: 'clipboard_unavailable');
+        }
+        copied.add((call.arguments as Map)['text'] as String);
+      }
+      return null;
+    },
+  );
+  addTearDown(
+    () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      null,
+    ),
+  );
 }
 
 XboardAuthService _testService({
