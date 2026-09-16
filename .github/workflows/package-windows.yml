@@ -108,6 +108,7 @@ jobs:
             'test/pages/home_test.dart',
             'test/pages/login_network_failure_test.dart',
             'test/widgets/scaffold_back_test.dart',
+            'test/widgets/tv_search_back_test.dart',
             'test/providers/windows_connection_test.dart',
             'test/widgets/windows_connection_status_test.dart',
             'test/pages/login_test.dart',

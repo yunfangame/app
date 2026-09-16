@@ -19,7 +19,7 @@ void main() {
     globalState.packageInfo = PackageInfo(
       appName: 'FengWo',
       packageName: 'com.fengwo.app',
-      version: '0.8.97',
+      version: '1.0.3',
       buildNumber: '20260912',
     );
   });
@@ -149,7 +149,8 @@ void main() {
     );
     await tester.pump();
     expect(find.byType(NavigationRail), findsOneWidget);
-    expect(find.text('v0.8.97+20260912'), findsOneWidget);
+    expect(find.text('v1.0.3'), findsOneWidget);
+    expect(find.text('v1.0.3+20260912'), findsNothing);
 
     await tester.tap(find.byIcon(Icons.search));
     await tester.pumpAndSettle();
