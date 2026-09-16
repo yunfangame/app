@@ -1904,6 +1904,16 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionWarningTooltip": MessageLookupByLibrary.simpleMessage(
       "プランに警告があります。クリックして詳細を表示",
     ),
+    "supportLoadFailed": MessageLookupByLibrary.simpleMessage(
+      "サポートを読み込めませんでした。再試行するか、ブラウザーで開いてください。",
+    ),
+    "supportLoadingSlow": MessageLookupByLibrary.simpleMessage(
+      "サポートの読み込みに時間がかかっています。そのまま待つか、再試行するか、ブラウザーで開いてください。",
+    ),
+    "supportOpenBrowser": MessageLookupByLibrary.simpleMessage("ブラウザーで開く"),
+    "supportOpenBrowserFailed": MessageLookupByLibrary.simpleMessage(
+      "ブラウザーを開けませんでした。もう一度お試しください。",
+    ),
     "suspended": MessageLookupByLibrary.simpleMessage("一時停止中..."),
     "switchAndKeepCurrentNode": MessageLookupByLibrary.simpleMessage(
       "現在のノードを引き継いで切り替え",

@@ -3,23 +3,20 @@ import 'dart:math';
 import 'dart:ui';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/crisp_support.dart';
+import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/widgets.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_all/webview_all.dart';
 
-const saleSmartlyServiceUrl = String.fromEnvironment(
-  'SALESMARTLY_SERVICE_URL',
-  defaultValue: 'https://kefu.wxbaohe.com',
-);
+import 'customer_service_session.dart';
+
+export 'package:fl_clash/common/crisp_support.dart';
+
+export 'customer_service_session.dart';
 
 const _compactCustomerServiceBreakpoint = 700.0;
-
-const saleSmartlyDesktopUserAgent =
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
-    'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 '
-    'Mobile/15E148 Safari/604.1';
 
 @visibleForTesting
 Size customerServicePanelSize(Size viewport) {
@@ -36,55 +33,29 @@ Size customerServicePanelSize(Size viewport) {
   return Size(min(width, viewport.width), availableHeight);
 }
 
-const saleSmartlyLayoutFixScript = '''
-(() => {
-  const styleId = 'flclash-salesmartly-layout-fix';
-  let style = document.getElementById(styleId);
-  if (!style) {
-    style = document.createElement('style');
-    style.id = styleId;
-    style.textContent = `
-      html, body {
-        width: 100% !important;
-        max-width: 100% !important;
-        overflow-x: hidden !important;
-        overscroll-behavior-x: none !important;
-      }
-      .container {
-        width: 100% !important;
-        min-width: 0 !important;
-        max-width: 100% !important;
-        overflow-x: hidden !important;
-      }
-      salesmartly-chat-widget {
-        max-width: 100vw !important;
-      }
-      a, p, pre {
-        overflow-wrap: anywhere !important;
-        word-break: break-word !important;
-      }
-      img, video, iframe {
-        max-width: 100% !important;
-      }
-    `;
-    document.head.appendChild(style);
-  }
-  document.documentElement.scrollLeft = 0;
-  document.body.scrollLeft = 0;
-  window.scrollTo(0, window.scrollY);
-})();
-''';
-
 class CustomerServiceSheet {
+  static final _sessions = CustomerServiceSessionCache();
+  static Future<void>? _visibleSheet;
   static Future<void> show(
     BuildContext context, {
-    String serviceUrl = saleSmartlyServiceUrl,
+    String serviceUrl = crispServiceUrl,
     WidgetBuilder? contentBuilder,
   }) {
+    final visible = _visibleSheet;
+    if (visible != null) return visible;
+    final user = _currentSupportUser();
+    final uri = Uri.tryParse(serviceUrl.trim());
+    final session =
+        contentBuilder == null &&
+            uri != null &&
+            uri.scheme == 'https' &&
+            uri.host.isNotEmpty
+        ? _sessions.acquire(uri, user: user)
+        : null;
     final viewport = MediaQuery.sizeOf(context);
     final panelSize = customerServicePanelSize(viewport);
     final isCompact = viewport.width < _compactCustomerServiceBreakpoint;
-    return showModalSideSheet<void>(
+    final result = showModalSideSheet<void>(
       context: context,
       useRootNavigator: true,
       useSafeArea: false,
@@ -111,12 +82,39 @@ class CustomerServiceSheet {
             child: CustomerServiceView(
               serviceUrl: serviceUrl,
               contentBuilder: contentBuilder,
+              session: session,
+              syncCurrentAccount: true,
+              onReleased: (released) {
+                if (_currentSupportUser().accountKey != user.accountKey) {
+                  _sessions.clear();
+                } else {
+                  _sessions.release(released);
+                }
+                _visibleSheet = null;
+              },
             ),
           ),
         ),
       ),
     );
+    if (session != null && !globalState.isOfflineMode) {
+      unawaited(_refreshSubscription());
+    }
+    return _visibleSheet = result.whenComplete(() {
+      if (session == null) _visibleSheet = null;
+    });
   }
+}
+
+CrispSupportUser _currentSupportUser() => CrispSupportUser.fromSession(
+  globalState.xboardSession,
+  offline: globalState.isOfflineMode,
+);
+
+Future<void> _refreshSubscription() async {
+  try {
+    await globalState.refreshXboardSubscription?.call();
+  } catch (_) {}
 }
 
 class CustomerServiceView extends StatefulWidget {
@@ -124,19 +122,25 @@ class CustomerServiceView extends StatefulWidget {
     super.key,
     required this.serviceUrl,
     this.contentBuilder,
+    this.session,
+    this.onReleased,
+    this.syncCurrentAccount = false,
   });
 
   final String serviceUrl;
+  final bool syncCurrentAccount;
   final WidgetBuilder? contentBuilder;
+  final CustomerServiceSession? session;
+  final void Function(CustomerServiceSession)? onReleased;
 
   @override
   State<CustomerServiceView> createState() => _CustomerServiceViewState();
 }
 
 class _CustomerServiceViewState extends State<CustomerServiceView> {
-  WebViewController? _controller;
-  int _progress = 0;
-  String? _error;
+  CustomerServiceSession? _session;
+  String? _accountKey;
+  bool _accountChanged = false;
 
   Uri? get _serviceUri {
     final uri = Uri.tryParse(widget.serviceUrl.trim());
@@ -148,101 +152,65 @@ class _CustomerServiceViewState extends State<CustomerServiceView> {
   void initState() {
     super.initState();
     if (widget.contentBuilder == null && _serviceUri != null) {
-      _initializeWebView(_serviceUri!);
-    }
-  }
-
-  void _initializeWebView(Uri uri) {
-    final controller = WebViewController();
-    if (!kIsWeb) {
-      controller
-        ..setJavaScriptMode(JavaScriptMode.unrestricted)
-        ..setNavigationDelegate(
-          NavigationDelegate(
-            onProgress: (progress) {
-              if (!mounted) return;
-              setState(() => _progress = progress);
-            },
-            onPageStarted: (_) {
-              if (!mounted) return;
-              setState(() {
-                _progress = 0;
-                _error = null;
-              });
-            },
-            onPageFinished: (_) {
-              if (!mounted) return;
-              setState(() => _progress = 100);
-              _applySaleSmartlyLayoutFix();
-            },
-            onWebResourceError: (error) {
-              if (error.isForMainFrame == false) return;
-              if (!mounted) return;
-              setState(() => _error = error.description);
-            },
-            onNavigationRequest: (request) async {
-              final target = Uri.tryParse(request.url);
-              if (target == null) return NavigationDecision.prevent;
-              if (!request.isMainFrame ||
-                  target.scheme == 'about' ||
-                  target.scheme == 'data' ||
-                  target.scheme == 'blob' ||
-                  (target.scheme == 'https' &&
-                      (target.host == uri.host ||
-                          target.host.endsWith('.salesmartly.com')))) {
-                return NavigationDecision.navigate;
-              }
-              if (target.scheme == 'https' ||
-                  target.scheme == 'mailto' ||
-                  target.scheme == 'tel' ||
-                  target.scheme == 'sms') {
-                await launchUrl(target, mode: LaunchMode.externalApplication);
-              }
-              return NavigationDecision.prevent;
-            },
-          ),
-        );
-    }
-    _controller = controller;
-    unawaited(_loadWebView(controller, uri));
-  }
-
-  Future<void> _loadWebView(WebViewController controller, Uri uri) async {
-    final useCompactComposer =
-        !kIsWeb &&
-        {
-          TargetPlatform.macOS,
-          TargetPlatform.windows,
-          TargetPlatform.linux,
-        }.contains(defaultTargetPlatform);
-    if (useCompactComposer) {
-      try {
-        await controller.setUserAgent(saleSmartlyDesktopUserAgent);
-      } catch (_) {
-        // The page still works with the platform user agent on older engines.
+      final user = _currentSupportUser();
+      _accountKey = user.accountKey;
+      _session =
+          widget.session ??
+          CustomerServiceSession(
+            _serviceUri!,
+            sessionToken: createCrispSessionToken(),
+            user: user,
+          );
+      _session!.addListener(_update);
+      if (widget.syncCurrentAccount) {
+        globalState.xboardSessionRevisionNotifier.addListener(_syncAccount);
       }
     }
-    await controller.loadRequest(uri);
   }
 
-  void _applySaleSmartlyLayoutFix() {
-    final controller = _controller;
-    if (controller == null) return;
-    controller.runJavaScript(saleSmartlyLayoutFixScript);
-    for (final delay in const [
-      Duration(milliseconds: 500),
-      Duration(milliseconds: 1500),
-    ]) {
-      Future<void>.delayed(delay, () async {
-        if (!mounted || _controller != controller) return;
-        await controller.runJavaScript(saleSmartlyLayoutFixScript);
+  void _syncAccount() {
+    final user = _currentSupportUser();
+    if (user.accountKey != _accountKey) {
+      setState(() => _accountChanged = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop();
       });
+    } else {
+      unawaited(_session?.updateUser(user));
     }
   }
 
-  void _reload() {
-    setState(() => _error = null);
-    _controller?.reload();
+  void _update() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    globalState.xboardSessionRevisionNotifier.removeListener(_syncAccount);
+    final session = _session;
+    if (session != null) {
+      session.removeListener(_update);
+      if (widget.session == null) {
+        unawaited(session.close());
+      } else {
+        widget.onReleased?.call(session);
+      }
+    }
+    super.dispose();
+  }
+
+  Future<void> _openInBrowser() async {
+    final uri = _serviceUri;
+    if (uri == null) return;
+    try {
+      if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
+    } catch (_) {}
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(context.appLocalizations.supportOpenBrowserFailed),
+      ),
+    );
   }
 
   @override
@@ -260,29 +228,65 @@ class _CustomerServiceViewState extends State<CustomerServiceView> {
 
   Widget _buildContent(BuildContext context) {
     if (widget.contentBuilder case final builder?) return builder(context);
+    if (_accountChanged) return const SizedBox.shrink();
     if (_serviceUri == null) {
       return _CustomerServiceMessage(
         icon: Icons.support_agent_rounded,
         message: context.appLocalizations.featureComingSoon,
       );
     }
-    if (_error case final error?) {
+    final session = _session!;
+    if (session.failed) {
       return _CustomerServiceMessage(
         icon: Icons.cloud_off_rounded,
-        message: error,
-        onRetry: _reload,
+        message: context.appLocalizations.supportLoadFailed,
+        onRetry: session.reload,
+        onOpenBrowser: _openInBrowser,
       );
     }
-    return Stack(
+    return Column(
       children: [
-        Positioned.fill(child: WebViewWidget(controller: _controller!)),
-        if (_progress < 100)
-          Align(
-            alignment: Alignment.topCenter,
-            child: LinearProgressIndicator(
-              value: _progress <= 0 ? null : _progress / 100,
-            ),
+        if (session.slow)
+          MaterialBanner(
+            content: Text(context.appLocalizations.supportLoadingSlow),
+            actions: [
+              TextButton(
+                key: const Key('customer-service-retry'),
+                onPressed: session.reload,
+                child: Text(context.appLocalizations.retry),
+              ),
+              TextButton(
+                key: const Key('customer-service-open-browser'),
+                onPressed: _openInBrowser,
+                child: Text(context.appLocalizations.supportOpenBrowser),
+              ),
+            ],
           ),
+        Expanded(
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: IgnorePointer(
+                  ignoring: !session.ready,
+                  child: WebViewWidget(controller: session.controller),
+                ),
+              ),
+              if (!session.ready)
+                Positioned.fill(
+                  child: ColoredBox(color: context.colorScheme.surface),
+                ),
+              if (!session.ready)
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: LinearProgressIndicator(
+                    value: session.progress <= 0 || session.progress >= 100
+                        ? null
+                        : session.progress / 100,
+                  ),
+                ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -330,11 +334,13 @@ class _CustomerServiceMessage extends StatelessWidget {
     required this.icon,
     required this.message,
     this.onRetry,
+    this.onOpenBrowser,
   });
 
   final IconData icon;
   final String message;
   final VoidCallback? onRetry;
+  final VoidCallback? onOpenBrowser;
 
   @override
   Widget build(BuildContext context) {
@@ -351,6 +357,11 @@ class _CustomerServiceMessage extends StatelessWidget {
               textAlign: TextAlign.center,
               style: context.textTheme.titleMedium,
             ),
+            if (onOpenBrowser != null)
+              TextButton(
+                onPressed: onOpenBrowser,
+                child: Text(context.appLocalizations.supportOpenBrowser),
+              ),
             if (onRetry != null) ...[
               const SizedBox(height: 20),
               IconButton.filled(

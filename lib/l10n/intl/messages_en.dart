@@ -2275,6 +2275,18 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionWarningTooltip": MessageLookupByLibrary.simpleMessage(
       "Plan warning. Click to view details",
     ),
+    "supportLoadFailed": MessageLookupByLibrary.simpleMessage(
+      "Unable to load support. Please retry or open it in your browser.",
+    ),
+    "supportLoadingSlow": MessageLookupByLibrary.simpleMessage(
+      "Support is taking longer to load. You can keep waiting, retry, or open it in your browser.",
+    ),
+    "supportOpenBrowser": MessageLookupByLibrary.simpleMessage(
+      "Open in browser",
+    ),
+    "supportOpenBrowserFailed": MessageLookupByLibrary.simpleMessage(
+      "Unable to open the browser. Please try again.",
+    ),
     "suspended": MessageLookupByLibrary.simpleMessage("Suspended..."),
     "switchAndKeepCurrentNode": MessageLookupByLibrary.simpleMessage(
       "Keep current node and switch",

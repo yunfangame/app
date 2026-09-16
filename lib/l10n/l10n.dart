@@ -949,6 +949,46 @@ class AppLocalizations {
     return Intl.message('Support', name: 'onlineSupport', desc: '', args: []);
   }
 
+  /// `Support is taking longer to load. You can keep waiting, retry, or open it in your browser.`
+  String get supportLoadingSlow {
+    return Intl.message(
+      'Support is taking longer to load. You can keep waiting, retry, or open it in your browser.',
+      name: 'supportLoadingSlow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unable to load support. Please retry or open it in your browser.`
+  String get supportLoadFailed {
+    return Intl.message(
+      'Unable to load support. Please retry or open it in your browser.',
+      name: 'supportLoadFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Open in browser`
+  String get supportOpenBrowser {
+    return Intl.message(
+      'Open in browser',
+      name: 'supportOpenBrowser',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unable to open the browser. Please try again.`
+  String get supportOpenBrowserFailed {
+    return Intl.message(
+      'Unable to open the browser. Please try again.',
+      name: 'supportOpenBrowserFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Show password`
   String get showPassword {
     return Intl.message(
