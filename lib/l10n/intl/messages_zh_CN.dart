@@ -1648,6 +1648,16 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionWarningTooltip": MessageLookupByLibrary.simpleMessage(
       "套餐存在预警，点击查看详情",
     ),
+    "supportLoadFailed": MessageLookupByLibrary.simpleMessage(
+      "客服页面加载失败，请重试或在浏览器中打开。",
+    ),
+    "supportLoadingSlow": MessageLookupByLibrary.simpleMessage(
+      "客服页面加载较慢，可以继续等待、重试或在浏览器中打开。",
+    ),
+    "supportOpenBrowser": MessageLookupByLibrary.simpleMessage("浏览器打开"),
+    "supportOpenBrowserFailed": MessageLookupByLibrary.simpleMessage(
+      "无法打开浏览器，请重试。",
+    ),
     "suspended": MessageLookupByLibrary.simpleMessage("挂起中..."),
     "switchAndKeepCurrentNode": MessageLookupByLibrary.simpleMessage(
       "沿用当前节点并切换",

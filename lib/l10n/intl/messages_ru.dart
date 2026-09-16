@@ -2363,6 +2363,18 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionWarningTooltip": MessageLookupByLibrary.simpleMessage(
       "Предупреждение о тарифе. Нажмите, чтобы узнать подробности",
     ),
+    "supportLoadFailed": MessageLookupByLibrary.simpleMessage(
+      "Не удалось загрузить страницу поддержки. Повторите попытку или откройте её в браузере.",
+    ),
+    "supportLoadingSlow": MessageLookupByLibrary.simpleMessage(
+      "Страница поддержки загружается дольше обычного. Подождите, повторите попытку или откройте её в браузере.",
+    ),
+    "supportOpenBrowser": MessageLookupByLibrary.simpleMessage(
+      "Открыть в браузере",
+    ),
+    "supportOpenBrowserFailed": MessageLookupByLibrary.simpleMessage(
+      "Не удалось открыть браузер. Повторите попытку.",
+    ),
     "suspended": MessageLookupByLibrary.simpleMessage("Приостановлено..."),
     "switchAndKeepCurrentNode": MessageLookupByLibrary.simpleMessage(
       "Сохранить текущий узел и переключить",

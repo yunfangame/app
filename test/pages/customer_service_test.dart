@@ -5,8 +5,17 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('uses the configured SaleSmartly service link', () {
-    expect(saleSmartlyServiceUrl, 'https://kefu.wxbaohe.com');
+  test('uses the configured Crisp workspace without exposing user data', () {
+    expect(crispServiceUri.host, 'go.crisp.chat');
+    expect(
+      crispServiceUri.queryParameters['website_id'],
+      'f8b04adc-c060-4ae6-94e0-e0e378ed7fda',
+    );
+    expect(crispServiceUri.queryParameters['session_merge'], 'false');
+    expect(
+      crispServiceUri.queryParameters.keys,
+      unorderedEquals(['website_id', 'session_merge']),
+    );
   });
 
   test('uses responsive customer-service panel dimensions', () {
@@ -30,17 +39,6 @@ void main() {
       customerServicePanelSize(const Size(1800, 1200)),
       const Size(1224, 1168),
     );
-  });
-
-  test('uses the compact SaleSmartly composer on desktop WebViews', () {
-    expect(saleSmartlyDesktopUserAgent, contains('Mobile'));
-    expect(saleSmartlyDesktopUserAgent, contains('iPhone'));
-  });
-
-  test('prevents the SaleSmartly document from overflowing horizontally', () {
-    expect(saleSmartlyLayoutFixScript, contains('overflow-x: hidden'));
-    expect(saleSmartlyLayoutFixScript, contains('overflow-wrap: anywhere'));
-    expect(saleSmartlyLayoutFixScript, contains('scrollLeft = 0'));
   });
 
   testWidgets('customer service opens as a masked right side sheet', (
@@ -89,12 +87,12 @@ void main() {
       _testApp(
         home: CustomerServiceView(
           serviceUrl: 'https://chat.example.com/service/example-id',
-          contentBuilder: (_) => const Text('SaleSmartly chat'),
+          contentBuilder: (_) => const Text('Crisp chat'),
         ),
       ),
     );
 
-    expect(find.text('SaleSmartly chat'), findsOneWidget);
+    expect(find.text('Crisp chat'), findsOneWidget);
   });
 }
 
