@@ -327,8 +327,7 @@ class AppSidebarContainer extends ConsumerWidget {
                                   if (!isMobileView) ...[
                                     const SizedBox(height: 4),
                                     Text(
-                                      'v${globalState.packageInfo.version}'
-                                      '${globalState.packageInfo.buildNumber.trim().isEmpty ? '' : '+${globalState.packageInfo.buildNumber}'}',
+                                      'v${globalState.packageInfo.version}',
                                       key: const Key('desktop-package-version'),
                                       style: context.textTheme.labelSmall
                                           ?.copyWith(

@@ -118,6 +118,9 @@ jobs:
             'test/common/xboard_login_persistence_test.dart',
             'test/common/xboard_credential_diagnostics_test.dart',
             'test/common/xboard_auth_test.dart',
+            'test/common/crisp_support_test.dart',
+            'test/pages/customer_service_test.dart',
+            'test/pages/customer_service_session_test.dart',
             'test/pages/register_test.dart',
             'test/common/xboard_tickets_test.dart',
             'test/widgets/fengwo_tickets_test.dart',
@@ -125,6 +128,8 @@ jobs:
           )
           flutter test @tests --reporter expanded
           if ($LASTEXITCODE -ne 0) { throw 'Flutter tests failed' }
+          node --test tooling/tests/crisp_support_bridge_test.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Crisp message bridge tests failed' }
 
       - name: Test live API fallback and encryption
         shell: pwsh
@@ -181,8 +186,11 @@ jobs:
           ./tooling/windows/verify_vc_runtime_bundle.ps1 -Architecture x64 -BundleDirectory $app.DirectoryName
           if ($null -eq $core) { throw 'FlClashCore.exe not found' }
           if ($null -eq $wifiPlugin) { throw 'wifi_ssid_plugin.dll not found' }
-          if ($app.VersionInfo.ProductVersion -ne '1.0.2') { throw "Unexpected product version: $($app.VersionInfo.ProductVersion)" }
-          if ($app.VersionInfo.FileVersion -ne '1.0.2') { throw "Unexpected file version: $($app.VersionInfo.FileVersion)" }
+          $versionLine = Select-String -Path pubspec.yaml -Pattern '^version:\s*(\d+\.\d+\.\d+)\s*$'
+          if ($null -eq $versionLine) { throw 'A stable version without build metadata is required' }
+          $expectedVersion = $versionLine.Matches[0].Groups[1].Value
+          if ($app.VersionInfo.ProductVersion -ne $expectedVersion) { throw "Unexpected product version: $($app.VersionInfo.ProductVersion)" }
+          if ($app.VersionInfo.FileVersion -ne $expectedVersion) { throw "Unexpected file version: $($app.VersionInfo.FileVersion)" }
           if ($app.VersionInfo.ProductName -ne '蜂窝加速器') { throw "Unexpected product name: $($app.VersionInfo.ProductName)" }
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vsInstall = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
