@@ -5,6 +5,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/login_routing_coordinator.dart';
+import 'package:fl_clash/common/xboard_account_rules.dart';
 import 'package:fl_clash/common/xboard_login_persistence.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
@@ -515,6 +516,7 @@ class ApplicationState extends ConsumerState<Application> {
           await _xboardSessionStorage.setManagedProfileUrl(
             secureProfile.sourceId,
           );
+          await _restoreLocalAccountRules(session, profile, isCurrent);
           commonPrint.event(
             'subscription_v2.stage',
             fields: {
@@ -565,6 +567,7 @@ class ApplicationState extends ConsumerState<Application> {
         subscriptionUrl,
         isCurrent: isCurrent,
       );
+      await _restoreLocalAccountRules(session, profile, isCurrent);
       commonPrint.event(
         'subscription.profile.sync.succeeded',
         fields: {'protocol': 'v1'},
@@ -592,6 +595,36 @@ class ApplicationState extends ConsumerState<Application> {
         failure: XboardAuthFailure.subscriptionUnavailable,
         message: currentAppLocalizations.subscriptionImportFailed,
         endpoint: session.endpoint,
+      );
+    }
+  }
+
+  Future<void> _restoreLocalAccountRules(
+    XboardLoginResult session,
+    Profile profile,
+    bool Function() isCurrent,
+  ) async {
+    try {
+      final restored = await xboardAccountRules.restoreOrMigrate(
+        session,
+        profile.id,
+        isCurrent: isCurrent,
+      );
+      if (!restored || !isCurrent()) return;
+      ref.invalidate(profileAddedRulesProvider(profile.id));
+      ref.invalidate(profileDisabledRuleIdsProvider(profile.id));
+      ref.invalidate(setupStateProvider(profile.id));
+      await ref
+          .read(setupActionProvider.notifier)
+          .applyProfile(force: true, silence: true);
+      commonPrint.event(
+        'account_rules.restored',
+        fields: {'profile_id': profile.id},
+      );
+    } catch (error, stackTrace) {
+      commonPrint.log(
+        'restore local account rules failed: $error, $stackTrace',
+        logLevel: LogLevel.warning,
       );
     }
   }
@@ -656,6 +689,28 @@ class ApplicationState extends ConsumerState<Application> {
       ?activeSubscriptionUrl,
       ?managedProfileUrl,
     };
+    if (activeSession != null) {
+      final profiles = ref.read(profilesProvider);
+      final currentProfile = ref.read(currentProfileProvider);
+      final managedProfile =
+          currentProfile != null &&
+              subscriptionUrls.contains(currentProfile.url)
+          ? currentProfile
+          : profiles
+                .where((profile) => subscriptionUrls.contains(profile.url))
+                .firstOrNull;
+      if (managedProfile != null) {
+        try {
+          await xboardAccountRules.save(activeSession, managedProfile.id);
+        } catch (error, stackTrace) {
+          commonPrint.log(
+            'save local account rules before logout failed: '
+            '$error, $stackTrace',
+            logLevel: LogLevel.warning,
+          );
+        }
+      }
+    }
     try {
       await ref.read(systemActionProvider.notifier).handleLogout();
     } catch (error, stackTrace) {

@@ -149,6 +149,81 @@ class RulesDao extends DatabaseAccessor<Database> with _$RulesDaoMixin {
     return _put(rule, profileId: profileId, scene: RuleScene.added);
   }
 
+  Future<void> replaceProfileAddedRules(
+    int profileId,
+    Iterable<Rule> newRules,
+    Iterable<int> disabledRuleIds,
+  ) async {
+    final rulesList = newRules.toList(growable: false);
+    final disabledIds = disabledRuleIds.toSet();
+    await transaction(() async {
+      final oldLinks =
+          await (profileRuleLinks.select()..where(
+                (link) =>
+                    link.profileId.equals(profileId) &
+                    link.scene.isInValues(const [
+                      RuleScene.added,
+                      RuleScene.disabled,
+                    ]),
+              ))
+              .get();
+      final oldRuleIds = oldLinks.map((link) => link.ruleId).toSet();
+      await profileRuleLinks.deleteWhere(
+        (link) =>
+            link.profileId.equals(profileId) &
+            link.scene.isInValues(const [RuleScene.added, RuleScene.disabled]),
+      );
+
+      String? previousOrder;
+      for (final sourceRule in rulesList) {
+        final order = sourceRule.order?.isNotEmpty == true
+            ? sourceRule.order
+            : indexing.generateKeyBetween(previousOrder, null);
+        final rule = sourceRule.copyWith(order: order);
+        await rules.insertOnConflictUpdate(rule.toCompanion());
+        await profileRuleLinks.insertOnConflictUpdate(
+          ProfileRuleLink(
+            profileId: profileId,
+            ruleId: rule.id,
+            scene: RuleScene.added,
+            order: order,
+          ).toCompanion(),
+        );
+        if (disabledIds.contains(rule.id)) {
+          await profileRuleLinks.insertOnConflictUpdate(
+            ProfileRuleLink(
+              profileId: profileId,
+              ruleId: rule.id,
+              scene: RuleScene.disabled,
+            ).toCompanion(),
+          );
+        }
+        previousOrder = order;
+      }
+
+      if (oldRuleIds.isNotEmpty) {
+        final linkedRuleIds = selectOnly(profileRuleLinks)
+          ..addColumns([profileRuleLinks.ruleId]);
+        await rules.deleteWhere(
+          (rule) =>
+              rule.id.isIn(oldRuleIds) & rule.id.isNotInQuery(linkedRuleIds),
+        );
+      }
+    });
+  }
+
+  Future<void> removeLocalAccountRulesForBackup() async {
+    await transaction(() async {
+      await profileRuleLinks.deleteWhere(
+        (link) =>
+            link.scene.isInValues(const [RuleScene.added, RuleScene.disabled]),
+      );
+      final linkedRuleIds = selectOnly(profileRuleLinks)
+        ..addColumns([profileRuleLinks.ruleId]);
+      await rules.deleteWhere((rule) => rule.id.isNotInQuery(linkedRuleIds));
+    });
+  }
+
   void setCustomRulesWithBatch(int profileId, Batch b, Iterable<Rule> rules) {
     _setWithBatch(b, rules, profileId: profileId, scene: RuleScene.custom);
   }

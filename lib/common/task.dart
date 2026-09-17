@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:archive/archive_io.dart';
 import 'package:drift/drift.dart';
+import 'package:drift/native.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/database/database.dart';
@@ -526,6 +527,9 @@ Future<String> _backupTask<T>(
   final dbFile = File(dbPath);
   if (await dbFile.exists()) {
     await dbFile.copy(tempDBFile.path);
+    final backupDatabase = Database(NativeDatabase(tempDBFile));
+    await backupDatabase.rulesDao.removeLocalAccountRulesForBackup();
+    await backupDatabase.close();
   }
   final encoder = ZipFileEncoder();
   encoder.create(tempZipFilePath);

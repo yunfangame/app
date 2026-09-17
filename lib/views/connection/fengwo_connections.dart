@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_account_rules.dart';
 import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/core/method.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -399,6 +400,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     if (result == null || !mounted) return;
     final savedRule = result.copyWith(order: rule?.order);
     await _runSavedRuleMutation(
+      profileId: profile.id,
       mutation: () => ref
           .read(profileAddedRulesProvider(profile.id).notifier)
           .putAndWait(savedRule),
@@ -419,6 +421,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     );
     if (confirmed != true || !mounted) return;
     await _runSavedRuleMutation(
+      profileId: profile.id,
       mutation: () => ref
           .read(profileAddedRulesProvider(profile.id).notifier)
           .delAllAndWait([rule.id]),
@@ -433,6 +436,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
       profileDisabledRuleIdsProvider(profile.id).notifier,
     );
     await _runSavedRuleMutation(
+      profileId: profile.id,
       mutation: enabled
           ? () => notifier.delAndWait(rule.id)
           : () => notifier.putAndWait(rule.id),
@@ -446,6 +450,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     final profile = ref.read(currentProfileProvider);
     if (profile == null || _savingRules || oldIndex == newIndex) return;
     await _runSavedRuleMutation(
+      profileId: profile.id,
       mutation: () => ref
           .read(profileAddedRulesProvider(profile.id).notifier)
           .orderAndWait(oldIndex, newIndex),
@@ -454,6 +459,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
   }
 
   Future<void> _runSavedRuleMutation({
+    required int profileId,
     required Future<void> Function() mutation,
     required String successMessage,
   }) async {
@@ -464,12 +470,19 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
       await ref
           .read(setupActionProvider.notifier)
           .applyProfile(force: true, silence: true);
+      await _saveLocalAccountRules(profileId);
       if (mounted) context.showNotifier(successMessage);
     } catch (error) {
       if (mounted) context.showNotifier(error.toString());
     } finally {
       if (mounted) setState(() => _savingRules = false);
     }
+  }
+
+  Future<void> _saveLocalAccountRules(int profileId) async {
+    final session = globalState.xboardSession;
+    if (session == null) return;
+    await xboardAccountRules.save(session, profileId);
   }
 
   void _retrySavedRules() {
@@ -527,6 +540,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     await ref
         .read(setupActionProvider.notifier)
         .applyProfile(force: true, silence: true);
+    await _saveLocalAccountRules(profile.id);
     await _closeConnection(connection);
     return changed;
   }
