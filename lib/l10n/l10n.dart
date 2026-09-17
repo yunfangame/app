@@ -8973,6 +8973,26 @@ class AppLocalizations {
     );
   }
 
+  /// `Local rules for the current account`
+  String get savedRulesAccountScope {
+    return Intl.message(
+      'Local rules for the current account',
+      name: 'savedRulesAccountScope',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Rules are stored only on this device, remain after sign-out, and are restored when you sign in to the same account.`
+  String get savedRulesAccountHint {
+    return Intl.message(
+      'Rules are stored only on this device, remain after sign-out, and are restored when you sign in to the same account.',
+      name: 'savedRulesAccountHint',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Select a subscription before adding or managing rules`
   String get savedRulesRequireProfile {
     return Intl.message(

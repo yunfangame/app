@@ -1657,6 +1657,17 @@ class $ProfileRuleLinksTable extends ProfileRuleLinks
       'REFERENCES rules (id) ON DELETE CASCADE',
     ),
   );
+  static const VerificationMeta _accountKeyMeta = const VerificationMeta(
+    'accountKey',
+  );
+  @override
+  late final GeneratedColumn<String> accountKey = GeneratedColumn<String>(
+    'account_key',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   late final GeneratedColumnWithTypeConverter<RuleScene?, String> scene =
       GeneratedColumn<String>(
@@ -1676,7 +1687,14 @@ class $ProfileRuleLinksTable extends ProfileRuleLinks
     requiredDuringInsert: false,
   );
   @override
-  List<GeneratedColumn> get $columns => [id, profileId, ruleId, scene, order];
+  List<GeneratedColumn> get $columns => [
+    id,
+    profileId,
+    ruleId,
+    accountKey,
+    scene,
+    order,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1708,6 +1726,12 @@ class $ProfileRuleLinksTable extends ProfileRuleLinks
     } else if (isInserting) {
       context.missing(_ruleIdMeta);
     }
+    if (data.containsKey('account_key')) {
+      context.handle(
+        _accountKeyMeta,
+        accountKey.isAcceptableOrUnknown(data['account_key']!, _accountKeyMeta),
+      );
+    }
     if (data.containsKey('order')) {
       context.handle(
         _orderMeta,
@@ -1735,6 +1759,10 @@ class $ProfileRuleLinksTable extends ProfileRuleLinks
         DriftSqlType.int,
         data['${effectivePrefix}rule_id'],
       )!,
+      accountKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}account_key'],
+      ),
       scene: $ProfileRuleLinksTable.$converterscenen.fromSql(
         attachedDatabase.typeMapping.read(
           DriftSqlType.string,
@@ -1764,12 +1792,14 @@ class RawProfileRuleLink extends DataClass
   final String id;
   final int? profileId;
   final int ruleId;
+  final String? accountKey;
   final RuleScene? scene;
   final String? order;
   const RawProfileRuleLink({
     required this.id,
     this.profileId,
     required this.ruleId,
+    this.accountKey,
     this.scene,
     this.order,
   });
@@ -1781,6 +1811,9 @@ class RawProfileRuleLink extends DataClass
       map['profile_id'] = Variable<int>(profileId);
     }
     map['rule_id'] = Variable<int>(ruleId);
+    if (!nullToAbsent || accountKey != null) {
+      map['account_key'] = Variable<String>(accountKey);
+    }
     if (!nullToAbsent || scene != null) {
       map['scene'] = Variable<String>(
         $ProfileRuleLinksTable.$converterscenen.toSql(scene),
@@ -1799,6 +1832,9 @@ class RawProfileRuleLink extends DataClass
           ? const Value.absent()
           : Value(profileId),
       ruleId: Value(ruleId),
+      accountKey: accountKey == null && nullToAbsent
+          ? const Value.absent()
+          : Value(accountKey),
       scene: scene == null && nullToAbsent
           ? const Value.absent()
           : Value(scene),
@@ -1817,6 +1853,7 @@ class RawProfileRuleLink extends DataClass
       id: serializer.fromJson<String>(json['id']),
       profileId: serializer.fromJson<int?>(json['profileId']),
       ruleId: serializer.fromJson<int>(json['ruleId']),
+      accountKey: serializer.fromJson<String?>(json['accountKey']),
       scene: $ProfileRuleLinksTable.$converterscenen.fromJson(
         serializer.fromJson<String?>(json['scene']),
       ),
@@ -1830,6 +1867,7 @@ class RawProfileRuleLink extends DataClass
       'id': serializer.toJson<String>(id),
       'profileId': serializer.toJson<int?>(profileId),
       'ruleId': serializer.toJson<int>(ruleId),
+      'accountKey': serializer.toJson<String?>(accountKey),
       'scene': serializer.toJson<String?>(
         $ProfileRuleLinksTable.$converterscenen.toJson(scene),
       ),
@@ -1841,12 +1879,14 @@ class RawProfileRuleLink extends DataClass
     String? id,
     Value<int?> profileId = const Value.absent(),
     int? ruleId,
+    Value<String?> accountKey = const Value.absent(),
     Value<RuleScene?> scene = const Value.absent(),
     Value<String?> order = const Value.absent(),
   }) => RawProfileRuleLink(
     id: id ?? this.id,
     profileId: profileId.present ? profileId.value : this.profileId,
     ruleId: ruleId ?? this.ruleId,
+    accountKey: accountKey.present ? accountKey.value : this.accountKey,
     scene: scene.present ? scene.value : this.scene,
     order: order.present ? order.value : this.order,
   );
@@ -1855,6 +1895,9 @@ class RawProfileRuleLink extends DataClass
       id: data.id.present ? data.id.value : this.id,
       profileId: data.profileId.present ? data.profileId.value : this.profileId,
       ruleId: data.ruleId.present ? data.ruleId.value : this.ruleId,
+      accountKey: data.accountKey.present
+          ? data.accountKey.value
+          : this.accountKey,
       scene: data.scene.present ? data.scene.value : this.scene,
       order: data.order.present ? data.order.value : this.order,
     );
@@ -1866,6 +1909,7 @@ class RawProfileRuleLink extends DataClass
           ..write('id: $id, ')
           ..write('profileId: $profileId, ')
           ..write('ruleId: $ruleId, ')
+          ..write('accountKey: $accountKey, ')
           ..write('scene: $scene, ')
           ..write('order: $order')
           ..write(')'))
@@ -1873,7 +1917,8 @@ class RawProfileRuleLink extends DataClass
   }
 
   @override
-  int get hashCode => Object.hash(id, profileId, ruleId, scene, order);
+  int get hashCode =>
+      Object.hash(id, profileId, ruleId, accountKey, scene, order);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1881,6 +1926,7 @@ class RawProfileRuleLink extends DataClass
           other.id == this.id &&
           other.profileId == this.profileId &&
           other.ruleId == this.ruleId &&
+          other.accountKey == this.accountKey &&
           other.scene == this.scene &&
           other.order == this.order);
 }
@@ -1889,6 +1935,7 @@ class ProfileRuleLinksCompanion extends UpdateCompanion<RawProfileRuleLink> {
   final Value<String> id;
   final Value<int?> profileId;
   final Value<int> ruleId;
+  final Value<String?> accountKey;
   final Value<RuleScene?> scene;
   final Value<String?> order;
   final Value<int> rowid;
@@ -1896,6 +1943,7 @@ class ProfileRuleLinksCompanion extends UpdateCompanion<RawProfileRuleLink> {
     this.id = const Value.absent(),
     this.profileId = const Value.absent(),
     this.ruleId = const Value.absent(),
+    this.accountKey = const Value.absent(),
     this.scene = const Value.absent(),
     this.order = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -1904,6 +1952,7 @@ class ProfileRuleLinksCompanion extends UpdateCompanion<RawProfileRuleLink> {
     required String id,
     this.profileId = const Value.absent(),
     required int ruleId,
+    this.accountKey = const Value.absent(),
     this.scene = const Value.absent(),
     this.order = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -1913,6 +1962,7 @@ class ProfileRuleLinksCompanion extends UpdateCompanion<RawProfileRuleLink> {
     Expression<String>? id,
     Expression<int>? profileId,
     Expression<int>? ruleId,
+    Expression<String>? accountKey,
     Expression<String>? scene,
     Expression<String>? order,
     Expression<int>? rowid,
@@ -1921,6 +1971,7 @@ class ProfileRuleLinksCompanion extends UpdateCompanion<RawProfileRuleLink> {
       if (id != null) 'id': id,
       if (profileId != null) 'profile_id': profileId,
       if (ruleId != null) 'rule_id': ruleId,
+      if (accountKey != null) 'account_key': accountKey,
       if (scene != null) 'scene': scene,
       if (order != null) 'order': order,
       if (rowid != null) 'rowid': rowid,
@@ -1931,6 +1982,7 @@ class ProfileRuleLinksCompanion extends UpdateCompanion<RawProfileRuleLink> {
     Value<String>? id,
     Value<int?>? profileId,
     Value<int>? ruleId,
+    Value<String?>? accountKey,
     Value<RuleScene?>? scene,
     Value<String?>? order,
     Value<int>? rowid,
@@ -1939,6 +1991,7 @@ class ProfileRuleLinksCompanion extends UpdateCompanion<RawProfileRuleLink> {
       id: id ?? this.id,
       profileId: profileId ?? this.profileId,
       ruleId: ruleId ?? this.ruleId,
+      accountKey: accountKey ?? this.accountKey,
       scene: scene ?? this.scene,
       order: order ?? this.order,
       rowid: rowid ?? this.rowid,
@@ -1956,6 +2009,9 @@ class ProfileRuleLinksCompanion extends UpdateCompanion<RawProfileRuleLink> {
     }
     if (ruleId.present) {
       map['rule_id'] = Variable<int>(ruleId.value);
+    }
+    if (accountKey.present) {
+      map['account_key'] = Variable<String>(accountKey.value);
     }
     if (scene.present) {
       map['scene'] = Variable<String>(
@@ -1977,9 +2033,221 @@ class ProfileRuleLinksCompanion extends UpdateCompanion<RawProfileRuleLink> {
           ..write('id: $id, ')
           ..write('profileId: $profileId, ')
           ..write('ruleId: $ruleId, ')
+          ..write('accountKey: $accountKey, ')
           ..write('scene: $scene, ')
           ..write('order: $order, ')
           ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ProfileRuleAccountsTable extends ProfileRuleAccounts
+    with TableInfo<$ProfileRuleAccountsTable, RawProfileRuleAccount> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ProfileRuleAccountsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _profileIdMeta = const VerificationMeta(
+    'profileId',
+  );
+  @override
+  late final GeneratedColumn<int> profileId = GeneratedColumn<int>(
+    'profile_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _accountKeyMeta = const VerificationMeta(
+    'accountKey',
+  );
+  @override
+  late final GeneratedColumn<String> accountKey = GeneratedColumn<String>(
+    'account_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [profileId, accountKey];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'profile_rule_accounts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<RawProfileRuleAccount> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('profile_id')) {
+      context.handle(
+        _profileIdMeta,
+        profileId.isAcceptableOrUnknown(data['profile_id']!, _profileIdMeta),
+      );
+    }
+    if (data.containsKey('account_key')) {
+      context.handle(
+        _accountKeyMeta,
+        accountKey.isAcceptableOrUnknown(data['account_key']!, _accountKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_accountKeyMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {profileId};
+  @override
+  RawProfileRuleAccount map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RawProfileRuleAccount(
+      profileId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}profile_id'],
+      )!,
+      accountKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}account_key'],
+      )!,
+    );
+  }
+
+  @override
+  $ProfileRuleAccountsTable createAlias(String alias) {
+    return $ProfileRuleAccountsTable(attachedDatabase, alias);
+  }
+}
+
+class RawProfileRuleAccount extends DataClass
+    implements Insertable<RawProfileRuleAccount> {
+  final int profileId;
+  final String accountKey;
+  const RawProfileRuleAccount({
+    required this.profileId,
+    required this.accountKey,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['profile_id'] = Variable<int>(profileId);
+    map['account_key'] = Variable<String>(accountKey);
+    return map;
+  }
+
+  ProfileRuleAccountsCompanion toCompanion(bool nullToAbsent) {
+    return ProfileRuleAccountsCompanion(
+      profileId: Value(profileId),
+      accountKey: Value(accountKey),
+    );
+  }
+
+  factory RawProfileRuleAccount.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RawProfileRuleAccount(
+      profileId: serializer.fromJson<int>(json['profileId']),
+      accountKey: serializer.fromJson<String>(json['accountKey']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'profileId': serializer.toJson<int>(profileId),
+      'accountKey': serializer.toJson<String>(accountKey),
+    };
+  }
+
+  RawProfileRuleAccount copyWith({int? profileId, String? accountKey}) =>
+      RawProfileRuleAccount(
+        profileId: profileId ?? this.profileId,
+        accountKey: accountKey ?? this.accountKey,
+      );
+  RawProfileRuleAccount copyWithCompanion(ProfileRuleAccountsCompanion data) {
+    return RawProfileRuleAccount(
+      profileId: data.profileId.present ? data.profileId.value : this.profileId,
+      accountKey: data.accountKey.present
+          ? data.accountKey.value
+          : this.accountKey,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RawProfileRuleAccount(')
+          ..write('profileId: $profileId, ')
+          ..write('accountKey: $accountKey')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(profileId, accountKey);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RawProfileRuleAccount &&
+          other.profileId == this.profileId &&
+          other.accountKey == this.accountKey);
+}
+
+class ProfileRuleAccountsCompanion
+    extends UpdateCompanion<RawProfileRuleAccount> {
+  final Value<int> profileId;
+  final Value<String> accountKey;
+  const ProfileRuleAccountsCompanion({
+    this.profileId = const Value.absent(),
+    this.accountKey = const Value.absent(),
+  });
+  ProfileRuleAccountsCompanion.insert({
+    this.profileId = const Value.absent(),
+    required String accountKey,
+  }) : accountKey = Value(accountKey);
+  static Insertable<RawProfileRuleAccount> custom({
+    Expression<int>? profileId,
+    Expression<String>? accountKey,
+  }) {
+    return RawValuesInsertable({
+      if (profileId != null) 'profile_id': profileId,
+      if (accountKey != null) 'account_key': accountKey,
+    });
+  }
+
+  ProfileRuleAccountsCompanion copyWith({
+    Value<int>? profileId,
+    Value<String>? accountKey,
+  }) {
+    return ProfileRuleAccountsCompanion(
+      profileId: profileId ?? this.profileId,
+      accountKey: accountKey ?? this.accountKey,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (profileId.present) {
+      map['profile_id'] = Variable<int>(profileId.value);
+    }
+    if (accountKey.present) {
+      map['account_key'] = Variable<String>(accountKey.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ProfileRuleAccountsCompanion(')
+          ..write('profileId: $profileId, ')
+          ..write('accountKey: $accountKey')
           ..write(')'))
         .toString();
   }
@@ -3454,6 +3722,8 @@ abstract class _$Database extends GeneratedDatabase {
   late final $ProfileRuleLinksTable profileRuleLinks = $ProfileRuleLinksTable(
     this,
   );
+  late final $ProfileRuleAccountsTable profileRuleAccounts =
+      $ProfileRuleAccountsTable(this);
   late final $ProxyGroupsTable proxyGroups = $ProxyGroupsTable(this);
   late final $IconRecordsTable iconRecords = $IconRecordsTable(this);
   late final Index idxRuleTarget = Index(
@@ -3486,6 +3756,7 @@ abstract class _$Database extends GeneratedDatabase {
     scripts,
     rules,
     profileRuleLinks,
+    profileRuleAccounts,
     proxyGroups,
     iconRecords,
     idxRuleTarget,
@@ -4628,6 +4899,7 @@ typedef $$ProfileRuleLinksTableCreateCompanionBuilder =
       required String id,
       Value<int?> profileId,
       required int ruleId,
+      Value<String?> accountKey,
       Value<RuleScene?> scene,
       Value<String?> order,
       Value<int> rowid,
@@ -4637,6 +4909,7 @@ typedef $$ProfileRuleLinksTableUpdateCompanionBuilder =
       Value<String> id,
       Value<int?> profileId,
       Value<int> ruleId,
+      Value<String?> accountKey,
       Value<RuleScene?> scene,
       Value<String?> order,
       Value<int> rowid,
@@ -4697,6 +4970,11 @@ class $$ProfileRuleLinksTableFilterComposer
   });
   ColumnFilters<String> get id => $composableBuilder(
     column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get accountKey => $composableBuilder(
+    column: $table.accountKey,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -4772,6 +5050,11 @@ class $$ProfileRuleLinksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get accountKey => $composableBuilder(
+    column: $table.accountKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get scene => $composableBuilder(
     column: $table.scene,
     builder: (column) => ColumnOrderings(column),
@@ -4840,6 +5123,11 @@ class $$ProfileRuleLinksTableAnnotationComposer
   });
   GeneratedColumn<String> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get accountKey => $composableBuilder(
+    column: $table.accountKey,
+    builder: (column) => column,
+  );
 
   GeneratedColumnWithTypeConverter<RuleScene?, String> get scene =>
       $composableBuilder(column: $table.scene, builder: (column) => column);
@@ -4927,6 +5215,7 @@ class $$ProfileRuleLinksTableTableManager
                 Value<String> id = const Value.absent(),
                 Value<int?> profileId = const Value.absent(),
                 Value<int> ruleId = const Value.absent(),
+                Value<String?> accountKey = const Value.absent(),
                 Value<RuleScene?> scene = const Value.absent(),
                 Value<String?> order = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -4934,6 +5223,7 @@ class $$ProfileRuleLinksTableTableManager
                 id: id,
                 profileId: profileId,
                 ruleId: ruleId,
+                accountKey: accountKey,
                 scene: scene,
                 order: order,
                 rowid: rowid,
@@ -4943,6 +5233,7 @@ class $$ProfileRuleLinksTableTableManager
                 required String id,
                 Value<int?> profileId = const Value.absent(),
                 required int ruleId,
+                Value<String?> accountKey = const Value.absent(),
                 Value<RuleScene?> scene = const Value.absent(),
                 Value<String?> order = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -4950,6 +5241,7 @@ class $$ProfileRuleLinksTableTableManager
                 id: id,
                 profileId: profileId,
                 ruleId: ruleId,
+                accountKey: accountKey,
                 scene: scene,
                 order: order,
                 rowid: rowid,
@@ -5037,6 +5329,161 @@ typedef $$ProfileRuleLinksTableProcessedTableManager =
       (RawProfileRuleLink, $$ProfileRuleLinksTableReferences),
       RawProfileRuleLink,
       PrefetchHooks Function({bool profileId, bool ruleId})
+    >;
+typedef $$ProfileRuleAccountsTableCreateCompanionBuilder =
+    ProfileRuleAccountsCompanion Function({
+      Value<int> profileId,
+      required String accountKey,
+    });
+typedef $$ProfileRuleAccountsTableUpdateCompanionBuilder =
+    ProfileRuleAccountsCompanion Function({
+      Value<int> profileId,
+      Value<String> accountKey,
+    });
+
+class $$ProfileRuleAccountsTableFilterComposer
+    extends Composer<_$Database, $ProfileRuleAccountsTable> {
+  $$ProfileRuleAccountsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get profileId => $composableBuilder(
+    column: $table.profileId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get accountKey => $composableBuilder(
+    column: $table.accountKey,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ProfileRuleAccountsTableOrderingComposer
+    extends Composer<_$Database, $ProfileRuleAccountsTable> {
+  $$ProfileRuleAccountsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get profileId => $composableBuilder(
+    column: $table.profileId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get accountKey => $composableBuilder(
+    column: $table.accountKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ProfileRuleAccountsTableAnnotationComposer
+    extends Composer<_$Database, $ProfileRuleAccountsTable> {
+  $$ProfileRuleAccountsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get profileId =>
+      $composableBuilder(column: $table.profileId, builder: (column) => column);
+
+  GeneratedColumn<String> get accountKey => $composableBuilder(
+    column: $table.accountKey,
+    builder: (column) => column,
+  );
+}
+
+class $$ProfileRuleAccountsTableTableManager
+    extends
+        RootTableManager<
+          _$Database,
+          $ProfileRuleAccountsTable,
+          RawProfileRuleAccount,
+          $$ProfileRuleAccountsTableFilterComposer,
+          $$ProfileRuleAccountsTableOrderingComposer,
+          $$ProfileRuleAccountsTableAnnotationComposer,
+          $$ProfileRuleAccountsTableCreateCompanionBuilder,
+          $$ProfileRuleAccountsTableUpdateCompanionBuilder,
+          (
+            RawProfileRuleAccount,
+            BaseReferences<
+              _$Database,
+              $ProfileRuleAccountsTable,
+              RawProfileRuleAccount
+            >,
+          ),
+          RawProfileRuleAccount,
+          PrefetchHooks Function()
+        > {
+  $$ProfileRuleAccountsTableTableManager(
+    _$Database db,
+    $ProfileRuleAccountsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ProfileRuleAccountsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ProfileRuleAccountsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$ProfileRuleAccountsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<int> profileId = const Value.absent(),
+                Value<String> accountKey = const Value.absent(),
+              }) => ProfileRuleAccountsCompanion(
+                profileId: profileId,
+                accountKey: accountKey,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> profileId = const Value.absent(),
+                required String accountKey,
+              }) => ProfileRuleAccountsCompanion.insert(
+                profileId: profileId,
+                accountKey: accountKey,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ProfileRuleAccountsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$Database,
+      $ProfileRuleAccountsTable,
+      RawProfileRuleAccount,
+      $$ProfileRuleAccountsTableFilterComposer,
+      $$ProfileRuleAccountsTableOrderingComposer,
+      $$ProfileRuleAccountsTableAnnotationComposer,
+      $$ProfileRuleAccountsTableCreateCompanionBuilder,
+      $$ProfileRuleAccountsTableUpdateCompanionBuilder,
+      (
+        RawProfileRuleAccount,
+        BaseReferences<
+          _$Database,
+          $ProfileRuleAccountsTable,
+          RawProfileRuleAccount
+        >,
+      ),
+      RawProfileRuleAccount,
+      PrefetchHooks Function()
     >;
 typedef $$ProxyGroupsTableCreateCompanionBuilder =
     ProxyGroupsCompanion Function({
@@ -5844,6 +6291,8 @@ class $DatabaseManager {
       $$RulesTableTableManager(_db, _db.rules);
   $$ProfileRuleLinksTableTableManager get profileRuleLinks =>
       $$ProfileRuleLinksTableTableManager(_db, _db.profileRuleLinks);
+  $$ProfileRuleAccountsTableTableManager get profileRuleAccounts =>
+      $$ProfileRuleAccountsTableTableManager(_db, _db.profileRuleAccounts);
   $$ProxyGroupsTableTableManager get proxyGroups =>
       $$ProxyGroupsTableTableManager(_db, _db.proxyGroups);
   $$IconRecordsTableTableManager get iconRecords =>
@@ -5879,6 +6328,8 @@ mixin _$RulesDaoMixin on DatabaseAccessor<Database> {
   $ProfilesTable get profiles => attachedDatabase.profiles;
   $ProfileRuleLinksTable get profileRuleLinks =>
       attachedDatabase.profileRuleLinks;
+  $ProfileRuleAccountsTable get profileRuleAccounts =>
+      attachedDatabase.profileRuleAccounts;
   RulesDaoManager get managers => RulesDaoManager(this);
 }
 
@@ -5893,6 +6344,11 @@ class RulesDaoManager {
       $$ProfileRuleLinksTableTableManager(
         _db.attachedDatabase,
         _db.profileRuleLinks,
+      );
+  $$ProfileRuleAccountsTableTableManager get profileRuleAccounts =>
+      $$ProfileRuleAccountsTableTableManager(
+        _db.attachedDatabase,
+        _db.profileRuleAccounts,
       );
 }
 

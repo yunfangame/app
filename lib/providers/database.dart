@@ -5,10 +5,21 @@ import 'package:drift/drift.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/database/database.dart';
 import 'package:fl_clash/models/models.dart';
+import 'package:fl_clash/state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'generated/database.g.dart';
+
+Future<void> _checkProfileRuleAccount(int profileId) async {
+  final revision = globalState.xboardSessionRevision;
+  final activeAccountKey = globalState.xboardRuleAccountKey;
+  final accountKey = await database.rulesDao.getProfileAccountKey(profileId);
+  if (revision != globalState.xboardSessionRevision ||
+      (accountKey != null && accountKey != activeAccountKey)) {
+    throw StateError('profile_rule_account_mismatch');
+  }
+}
 
 Future<void> withRollback<T>({
   required T snapshot,
@@ -31,6 +42,11 @@ Stream<List<Profile>> profilesStream(Ref ref) {
 @riverpod
 Stream<List<Rule>> addedRulesStream(Ref ref, int profileId) {
   return database.rulesDao.queryAddedRules(profileId).watch();
+}
+
+@riverpod
+Future<String?> profileRuleAccountKey(Ref ref, int profileId) {
+  return database.rulesDao.getProfileAccountKey(profileId);
 }
 
 @riverpod
@@ -305,13 +321,17 @@ class ProfileAddedRules extends _$ProfileAddedRules with AsyncNotifierMixin {
     unawaited(
       withRollback(
         snapshot: previous,
-        action: () => database.rulesDao.putProfileAddedRule(profileId, newRule),
+        action: () async {
+          await _checkProfileRuleAccount(profileId);
+          await database.rulesDao.putProfileAddedRule(profileId, newRule);
+        },
         rollback: (v) => value = v,
       ),
     );
   }
 
   Future<void> putAndWait(Rule rule) async {
+    await _checkProfileRuleAccount(profileId);
     final previous = List<Rule>.from(value);
     final newRule = rule.autoOrder(rule, null, previous.firstOrNull?.order);
     value = previous.copyAndPut(newRule, (item) => item.id == newRule.id);
@@ -328,6 +348,7 @@ class ProfileAddedRules extends _$ProfileAddedRules with AsyncNotifierMixin {
   }
 
   Future<void> delAllAndWait(Iterable<int> ruleIds) async {
+    await _checkProfileRuleAccount(profileId);
     final ids = ruleIds.toList(growable: false);
     final previous = List<Rule>.from(value);
     value = List.from(previous.where((item) => !ids.contains(item.id)));
@@ -343,6 +364,7 @@ class ProfileAddedRules extends _$ProfileAddedRules with AsyncNotifierMixin {
   }
 
   Future<void> orderAndWait(int oldIndex, int newIndex) async {
+    await _checkProfileRuleAccount(profileId);
     final previous = List<Rule>.from(value);
     final item = previous[oldIndex];
     final nextItems = previous.copyAndReorder(oldIndex, newIndex);
@@ -569,6 +591,7 @@ class ProfileDisabledRuleIds extends _$ProfileDisabledRuleIds
   }
 
   Future<void> delAndWait(int ruleId) async {
+    await _checkProfileRuleAccount(profileId);
     final previous = List<int>.from(value);
     value = List.from(previous.where((item) => item != ruleId));
     await withRollback(
@@ -583,6 +606,7 @@ class ProfileDisabledRuleIds extends _$ProfileDisabledRuleIds
   }
 
   Future<void> putAndWait(int ruleId) async {
+    await _checkProfileRuleAccount(profileId);
     final previous = List<int>.from(value);
     _put(ruleId);
     await withRollback(

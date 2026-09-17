@@ -2144,6 +2144,12 @@ class MessageLookup extends MessageLookupByLibrary {
       "Правило обновлено и применено",
     ),
     "savedRules": MessageLookupByLibrary.simpleMessage("Сохранённые правила"),
+    "savedRulesAccountHint": MessageLookupByLibrary.simpleMessage(
+      "Правила хранятся только на этом устройстве, сохраняются после выхода и восстанавливаются при повторном входе в тот же аккаунт.",
+    ),
+    "savedRulesAccountScope": MessageLookupByLibrary.simpleMessage(
+      "Локальные правила текущего аккаунта",
+    ),
     "savedRulesLoadFailed": MessageLookupByLibrary.simpleMessage(
       "Не удалось загрузить сохранённые правила",
     ),

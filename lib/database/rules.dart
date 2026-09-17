@@ -26,9 +26,100 @@ class Rules extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-@DriftAccessor(tables: [Rules, ProfileRuleLinks])
+@DriftAccessor(tables: [Rules, ProfileRuleLinks, ProfileRuleAccounts])
 class RulesDao extends DatabaseAccessor<Database> with _$RulesDaoMixin {
   RulesDao(super.attachedDatabase);
+
+  Future<String?> getProfileAccountKey(int profileId) async {
+    final query = select(profileRuleAccounts)
+      ..where((table) => table.profileId.equals(profileId));
+    return (await query.getSingleOrNull())?.accountKey;
+  }
+
+  Future<void> bindProfileAccount(int profileId, String accountKey) async {
+    if (accountKey.isEmpty) {
+      throw ArgumentError.value(accountKey, 'accountKey');
+    }
+    await transaction(() async {
+      final previous = await getProfileAccountKey(profileId);
+      if (previous != null) {
+        if (previous != accountKey) {
+          throw StateError('profile_rule_account_mismatch');
+        }
+        return;
+      }
+      final accountProfiles = await (select(
+        profileRuleAccounts,
+      )..where((table) => table.accountKey.equals(accountKey))).get();
+      final accountLinks = await (select(
+        profileRuleLinks,
+      )..where((table) => table.accountKey.equals(accountKey))).get();
+      final legacyQuery = select(profileRuleLinks)
+        ..where(
+          (table) =>
+              table.profileId.equals(profileId) &
+              table.accountKey.isNull() &
+              table.scene.isInValues([RuleScene.added, RuleScene.disabled]),
+        );
+      final legacyLinks = await legacyQuery.get();
+      if (accountProfiles.isEmpty && accountLinks.isEmpty) {
+        for (final link in legacyLinks) {
+          await profileRuleLinks.insertOnConflictUpdate(
+            link
+                .toLink()
+                .copyWith(profileId: null, accountKey: accountKey)
+                .toCompanion(),
+          );
+        }
+      }
+      await profileRuleLinks.deleteWhere(
+        (table) => table.id.isIn(legacyLinks.map((link) => link.id)),
+      );
+      await profileRuleAccounts.insertOnConflictUpdate(
+        ProfileRuleAccountsCompanion.insert(
+          profileId: Value(profileId),
+          accountKey: accountKey,
+        ),
+      );
+      await _deleteUnlinkedRules();
+    });
+  }
+
+  Expression<bool> get _globalScope =>
+      profileRuleLinks.profileId.isNull() &
+      profileRuleLinks.accountKey.isNull();
+
+  Expression<bool> _scope(int? profileId, RuleScene? scene) {
+    if (profileId == null) return _globalScope;
+    final local =
+        profileRuleLinks.profileId.equals(profileId) &
+        profileRuleLinks.accountKey.isNull();
+    if (scene == RuleScene.custom) return local;
+    final accountQuery = selectOnly(profileRuleAccounts)
+      ..addColumns([profileRuleAccounts.accountKey])
+      ..where(profileRuleAccounts.profileId.equals(profileId));
+    return (local & notExistsQuery(accountQuery)) |
+        (profileRuleLinks.profileId.isNull() &
+            profileRuleLinks.accountKey.isInQuery(accountQuery));
+  }
+
+  Future<ProfileRuleLink> _link({
+    required int ruleId,
+    int? profileId,
+    RuleScene? scene,
+    String? order,
+  }) async {
+    final accountKey = profileId == null || scene == RuleScene.custom
+        ? null
+        : await getProfileAccountKey(profileId);
+    return ProfileRuleLink(
+      ruleId: ruleId,
+      profileId: accountKey == null ? profileId : null,
+      accountKey: accountKey,
+      scene: scene,
+      order: order,
+    );
+  }
 
   Selectable<Rule> queryGlobalAddedRules() {
     return _query();
@@ -58,7 +149,7 @@ class RulesDao extends DatabaseAccessor<Database> with _$RulesDaoMixin {
     final disabledIdsQuery = selectOnly(profileRuleLinks)
       ..addColumns([profileRuleLinks.ruleId])
       ..where(
-        profileRuleLinks.profileId.equals(profileId) &
+        _scope(profileId, RuleScene.disabled) &
             profileRuleLinks.scene.equalsValue(RuleScene.disabled),
       );
 
@@ -67,15 +158,15 @@ class RulesDao extends DatabaseAccessor<Database> with _$RulesDaoMixin {
     ]);
 
     query.where(
-      (profileRuleLinks.profileId.isNull() |
-              (profileRuleLinks.profileId.equals(profileId) &
+      (_globalScope |
+              (_scope(profileId, RuleScene.added) &
                   profileRuleLinks.scene.equalsValue(RuleScene.added))) &
           profileRuleLinks.ruleId.isNotInQuery(disabledIdsQuery),
     );
 
     query.orderBy([
       OrderingTerm.asc(
-        profileRuleLinks.profileId.isNull().caseMatch<int>(
+        _globalScope.caseMatch<int>(
           when: {const Constant(true): const Constant(1)},
           orElse: const Constant(0),
         ),
@@ -112,21 +203,52 @@ class RulesDao extends DatabaseAccessor<Database> with _$RulesDaoMixin {
   void restoreWithBatch(
     Batch batch,
     Iterable<Rule> rules,
-    Iterable<ProfileRuleLink> links,
-  ) {
+    Iterable<ProfileRuleLink> links, {
+    Set<int> protectedRuleIds = const {},
+  }) {
+    final importedLinks = links
+        .where(
+          (link) =>
+              link.accountKey == null &&
+              !protectedRuleIds.contains(link.ruleId),
+        )
+        .toList();
+    final importedRuleIds = importedLinks.map((link) => link.ruleId).toSet();
+    final importedRules = rules
+        .where(
+          (rule) =>
+              importedRuleIds.contains(rule.id) &&
+              !protectedRuleIds.contains(rule.id),
+        )
+        .toList();
     batch.insertAllOnConflictUpdate(
       this.rules,
-      rules.map((item) => item.toCompanion()),
+      importedRules.map((item) => item.toCompanion()),
     );
-    final ruleIds = rules.map((item) => item.id);
+    final ruleIds = {
+      ...importedRules.map((item) => item.id),
+      ...protectedRuleIds,
+    };
     batch.deleteWhere(this.rules, (t) => t.id.isNotIn(ruleIds));
-    final keys = indexing.generateNKeys(links.length);
+    final keys = indexing.generateNKeys(importedLinks.length);
     batch.insertAllOnConflictUpdate(
       profileRuleLinks,
-      links.mapIndexed((index, item) => item.toCompanion(keys[index])),
+      importedLinks.mapIndexed((index, item) => item.toCompanion(keys[index])),
     );
-    final linkKeys = links.map((item) => item.key);
-    batch.deleteWhere(profileRuleLinks, (t) => t.id.isNotIn(linkKeys));
+    final linkKeys = importedLinks.map((item) => item.key);
+    batch.deleteWhere(
+      profileRuleLinks,
+      (t) => t.accountKey.isNull() & t.id.isNotIn(linkKeys),
+    );
+  }
+
+  Future<Set<int>> _accountRuleIds() async {
+    final query = selectOnly(profileRuleLinks)
+      ..addColumns([profileRuleLinks.ruleId])
+      ..where(profileRuleLinks.accountKey.isNotNull());
+    return (await query.get())
+        .map((row) => row.read(profileRuleLinks.ruleId)!)
+        .toSet();
   }
 
   Future<void> delRules(Iterable<int> ruleIds) {
@@ -146,7 +268,7 @@ class RulesDao extends DatabaseAccessor<Database> with _$RulesDaoMixin {
   }
 
   Future<void> putProfileDisabledRule(int profileId, Rule rule) {
-    return _put(rule, profileId: profileId, scene: RuleScene.added);
+    return _put(rule, profileId: profileId, scene: RuleScene.disabled);
   }
 
   void setCustomRulesWithBatch(int profileId, Batch b, Iterable<Rule> rules) {
@@ -154,23 +276,21 @@ class RulesDao extends DatabaseAccessor<Database> with _$RulesDaoMixin {
   }
 
   Future<int> putDisabledLink(int profileId, int ruleId) async {
-    return profileRuleLinks.insertOnConflictUpdate(
-      ProfileRuleLink(
-        ruleId: ruleId,
-        profileId: profileId,
-        scene: RuleScene.disabled,
-      ).toCompanion(),
+    final link = await _link(
+      ruleId: ruleId,
+      profileId: profileId,
+      scene: RuleScene.disabled,
     );
+    return profileRuleLinks.insertOnConflictUpdate(link.toCompanion());
   }
 
   Future<bool> delDisabledLink(int profileId, int ruleId) async {
-    return profileRuleLinks.deleteOne(
-      ProfileRuleLink(
-        profileId: profileId,
-        ruleId: ruleId,
-        scene: RuleScene.disabled,
-      ).toCompanion(),
+    final link = await _link(
+      ruleId: ruleId,
+      profileId: profileId,
+      scene: RuleScene.disabled,
     );
+    return profileRuleLinks.deleteOne(link.toCompanion());
   }
 
   Future<int> orderGlobalRule({
@@ -235,10 +355,10 @@ class RulesDao extends DatabaseAccessor<Database> with _$RulesDaoMixin {
     ]);
 
     query.where(
-      profileId == null
-          ? profileRuleLinks.profileId.isNull()
-          : profileRuleLinks.profileId.equals(profileId) &
-                profileRuleLinks.scene.equalsValue(scene),
+      _scope(profileId, scene) &
+          (profileId == null
+              ? const Constant(true)
+              : profileRuleLinks.scene.equalsValue(scene)),
     );
 
     query.orderBy([OrderingTerm.asc(profileRuleLinks.order)]);
@@ -262,9 +382,7 @@ class RulesDao extends DatabaseAccessor<Database> with _$RulesDaoMixin {
   }) async {
     final stmt = profileRuleLinks.update();
     stmt.where((t) {
-      return (profileId == null
-              ? t.profileId.isNull()
-              : t.profileId.equals(profileId)) &
+      return _scope(profileId, scene) &
           t.ruleId.equals(ruleId) &
           t.scene.equalsValue(scene);
     });
@@ -278,18 +396,28 @@ class RulesDao extends DatabaseAccessor<Database> with _$RulesDaoMixin {
         return 0;
       }
       return profileRuleLinks.insertOnConflictUpdate(
-        ProfileRuleLink(
+        (await _link(
           ruleId: rule.id,
           profileId: profileId,
           scene: scene,
           order: rule.order,
-        ).toCompanion(),
+        )).toCompanion(),
       );
     });
   }
 
   Future<void> _delAll(Iterable<int> ruleIds) async {
-    await rules.deleteWhere((t) => t.id.isIn(ruleIds));
+    final ids = ruleIds.toList(growable: false);
+    await transaction(() async {
+      await profileRuleLinks.deleteWhere((t) => t.ruleId.isIn(ids));
+      await rules.deleteWhere((t) => t.id.isIn(ids));
+    });
+  }
+
+  Future<void> _deleteUnlinkedRules() async {
+    final linkedIds = selectOnly(profileRuleLinks)
+      ..addColumns([profileRuleLinks.ruleId]);
+    await rules.deleteWhere((rule) => rule.id.isNotInQuery(linkedIds));
   }
 
   void _setWithBatch(
@@ -306,9 +434,7 @@ class RulesDao extends DatabaseAccessor<Database> with _$RulesDaoMixin {
     b.deleteWhere(
       profileRuleLinks,
       (t) =>
-          (profileId == null
-              ? t.profileId.isNull()
-              : t.profileId.equals(profileId)) &
+          _scope(profileId, scene) &
           (scene == null ? const Constant(true) : t.scene.equalsValue(scene)),
     );
 

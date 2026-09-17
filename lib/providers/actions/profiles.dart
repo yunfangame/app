@@ -82,6 +82,7 @@ class ProfilesAction extends _$ProfilesAction {
     String url, {
     String? label,
     String? replacingUrl,
+    String? ruleAccountKey,
     Future<Profile> Function(Profile profile)? loader,
     Future<void> Function(int profileId)? effectClearer,
     bool Function()? isCurrent,
@@ -92,6 +93,7 @@ class ProfilesAction extends _$ProfilesAction {
         url,
         label: label,
         replacingUrl: replacingUrl,
+        ruleAccountKey: ruleAccountKey,
         loader: loader,
         effectClearer: effectClearer,
         isCurrent: isCurrent,
@@ -104,6 +106,7 @@ class ProfilesAction extends _$ProfilesAction {
     String url, {
     String? label,
     String? replacingUrl,
+    String? ruleAccountKey,
     Future<Profile> Function(Profile profile)? loader,
     Future<void> Function(int profileId)? effectClearer,
     bool Function()? isCurrent,
@@ -118,13 +121,37 @@ class ProfilesAction extends _$ProfilesAction {
       throw ArgumentError.value(url, 'url', 'Invalid subscription URL');
     }
 
+    await _isolateRuleAccount(ruleAccountKey, isCurrent: isCurrent);
     final normalizedUrl = subscriptionUri.toString();
     final profiles = ref.read(profilesProvider);
     Profile? existingProfile;
     for (final profile in profiles) {
-      if (profile.url == normalizedUrl) {
+      if (profile.url == normalizedUrl &&
+          await _canUseRuleAccount(profile.id, ruleAccountKey)) {
         existingProfile = profile;
         break;
+      }
+    }
+    if (existingProfile == null && replacingUrl != null) {
+      final previousUri = Uri.tryParse(replacingUrl);
+      final onlyEndpointChanged =
+          previousUri != null &&
+          {'http', 'https'}.contains(previousUri.scheme) &&
+          previousUri.host.isNotEmpty &&
+          previousUri.replace(
+                scheme: subscriptionUri.scheme,
+                host: subscriptionUri.host,
+                port: subscriptionUri.port,
+              ) ==
+              subscriptionUri;
+      if (onlyEndpointChanged) {
+        for (final profile in profiles) {
+          if (profile.url == replacingUrl &&
+              await _canUseRuleAccount(profile.id, ruleAccountKey)) {
+            existingProfile = profile.copyWith(url: normalizedUrl);
+            break;
+          }
+        }
       }
     }
 
@@ -157,6 +184,8 @@ class ProfilesAction extends _$ProfilesAction {
         sourceProfileId: sourceProfile.id,
         sourceFileSnapshot: sourceFileSnapshot,
       );
+      ensureCurrent();
+      await _bindProfileRuleAccount(updatedProfile.id, ruleAccountKey);
       ensureCurrent();
       await ref
           .read(setupActionProvider.notifier)
@@ -197,6 +226,7 @@ class ProfilesAction extends _$ProfilesAction {
     required String sourceId,
     String? label,
     String? replacingUrl,
+    String? ruleAccountKey,
     bool removeLegacyXboardProfiles = false,
     Future<Profile> Function(Profile profile, Uint8List bytes)? loader,
     Future<void> Function(int profileId)? effectClearer,
@@ -210,6 +240,7 @@ class ProfilesAction extends _$ProfilesAction {
         sourceId: sourceId,
         label: label,
         replacingUrl: replacingUrl,
+        ruleAccountKey: ruleAccountKey,
         removeLegacyXboardProfiles: removeLegacyXboardProfiles,
         loader: loader,
         effectClearer: effectClearer,
@@ -225,6 +256,7 @@ class ProfilesAction extends _$ProfilesAction {
     required String sourceId,
     String? label,
     String? replacingUrl,
+    String? ruleAccountKey,
     bool removeLegacyXboardProfiles = false,
     Future<Profile> Function(Profile profile, Uint8List bytes)? loader,
     Future<void> Function(int profileId)? effectClearer,
@@ -235,17 +267,22 @@ class ProfilesAction extends _$ProfilesAction {
     if (!isSubscriptionV2ProfileSource(sourceId)) {
       throw ArgumentError.value(sourceId, 'sourceId', 'Invalid V2 source');
     }
+    await _isolateRuleAccount(ruleAccountKey, isCurrent: isCurrent);
     final profiles = ref.read(profilesProvider);
     Profile? existingProfile;
     for (final profile in profiles) {
-      if (profile.url == sourceId) {
+      if (profile.url == sourceId &&
+          await _canUseRuleAccount(profile.id, ruleAccountKey)) {
         existingProfile = profile;
         break;
       }
     }
     if (existingProfile == null && replacingUrl != null) {
       for (final profile in profiles) {
-        if (profile.url == replacingUrl) {
+        if (profile.url == replacingUrl &&
+            (ruleAccountKey == null ||
+                await database.rulesDao.getProfileAccountKey(profile.id) ==
+                    ruleAccountKey)) {
           existingProfile = profile.copyWith(url: sourceId);
           break;
         }
@@ -285,6 +322,8 @@ class ProfilesAction extends _$ProfilesAction {
         sourceProfileId: sourceProfile.id,
         sourceFileSnapshot: sourceFileSnapshot,
       );
+      ensureCurrent();
+      await _bindProfileRuleAccount(updatedProfile.id, ruleAccountKey);
       ensureCurrent();
       await runSubscriptionDiagnosticStage(
         stage: 'profile_write',
@@ -344,6 +383,53 @@ class ProfilesAction extends _$ProfilesAction {
         isCurrent: isCurrent,
       ),
     );
+  }
+
+  Future<bool> _canUseRuleAccount(int profileId, String? accountKey) async {
+    if (accountKey == null) return true;
+    final existingKey = await database.rulesDao.getProfileAccountKey(profileId);
+    return existingKey == null || existingKey == accountKey;
+  }
+
+  Future<void> prepareRuleAccount(
+    String? accountKey, {
+    bool Function()? isCurrent,
+  }) {
+    return _profileMutationScheduler.run(
+      () => _isolateRuleAccount(accountKey, isCurrent: isCurrent),
+    );
+  }
+
+  Future<void> _isolateRuleAccount(
+    String? accountKey, {
+    bool Function()? isCurrent,
+  }) async {
+    if (accountKey == null) return;
+    final profileId = ref.read(currentProfileIdProvider);
+    if (profileId == null) return;
+    final existingKey = await database.rulesDao.getProfileAccountKey(profileId);
+    if (isCurrent?.call() == false) {
+      throw StateError('profile_sync_superseded');
+    }
+    if (existingKey == null || existingKey == accountKey) return;
+    if (ref.read(currentProfileIdProvider) != profileId) return;
+    ref.read(currentProfileIdProvider.notifier).value = null;
+    await ref
+        .read(setupActionProvider.notifier)
+        .setRunning(false, propagateErrors: true);
+    if (isCurrent?.call() == false) {
+      throw StateError('profile_sync_superseded');
+    }
+  }
+
+  Future<void> _bindProfileRuleAccount(
+    int profileId,
+    String? accountKey,
+  ) async {
+    if (accountKey == null) return;
+    await database.rulesDao.bindProfileAccount(profileId, accountKey);
+    ref.invalidate(profileRuleAccountKeyProvider(profileId));
+    ref.invalidate(setupStateProvider(profileId));
   }
 
   Future<void> _removeLegacyXboardSubscriptionProfiles({

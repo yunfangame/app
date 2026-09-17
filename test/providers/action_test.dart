@@ -462,47 +462,317 @@ void main() {
     );
 
     test(
-      'replaces the previous account subscription after applying the new one',
+      'a failed new account sync cannot restore the previous account rules',
       () async {
-        const oldUrl = 'https://subscribe.example.com/client/account-a';
-        const newUrl = 'https://subscribe.example.com/client/account-b';
-        final oldProfile = Profile.normal(label: 'Account A', url: oldUrl);
-        final manualProfile = Profile.normal(
-          label: 'Manual',
-          url: 'https://manual.example.com/config',
+        final profileA = Profile.normal(url: 'https://api.example/s/account-a');
+        final accountA = 'owner-a-${profileA.id}';
+        final accountB = 'owner-b-${profileA.id}';
+        await database.rulesDao.bindProfileAccount(profileA.id, accountA);
+        final ruleA = Rule(
+          id: snowflake.id,
+          ruleAction: RuleAction.PROCESS_NAME,
+          content: 'Weixin.exe',
+          ruleTarget: 'DIRECT',
         );
-        late _TestSetupAction setupAction;
-        final clearedEffects = <int>[];
+        await database.rulesDao.putProfileAddedRule(profileA.id, ruleA);
+        addTearDown(() => database.rulesDao.delRules([ruleA.id]));
+        final setupAction = _TestSetupAction();
         final container = ProviderContainer(
           overrides: [
-            currentProfileIdProvider.overrideWithBuild((_, _) => oldProfile.id),
-            profilesProvider.overrideWith(
-              () => _TestProfiles([oldProfile, manualProfile]),
-            ),
-            setupActionProvider.overrideWith(() {
-              setupAction = _TestSetupAction();
-              return setupAction;
-            }),
+            currentProfileIdProvider.overrideWithBuild((_, _) => profileA.id),
+            profilesProvider.overrideWith(() => _TestProfiles([profileA])),
+            setupActionProvider.overrideWith(() => setupAction),
           ],
         );
         addTearDown(container.dispose);
+        final action = container.read(profilesActionProvider.notifier);
 
-        final imported = await container
-            .read(profilesActionProvider.notifier)
-            .syncSubscriptionProfile(
-              newUrl,
-              replacingUrl: oldUrl,
-              loader: (profile) async => profile.copyWith(label: 'Account B'),
-              effectClearer: (profileId) async => clearedEffects.add(profileId),
-            );
+        final currentProfileSubscription = container.listen(
+          currentProfileIdProvider,
+          (_, _) {},
+        );
+        addTearDown(currentProfileSubscription.close);
+        await action.prepareRuleAccount(accountB);
+        expect(container.read(currentProfileIdProvider), isNull);
+        expect(setupAction.setRunningCount, 1);
+        expect(setupAction.lastSetRunningPropagateErrors, isTrue);
+        await expectLater(
+          action.syncSubscriptionProfile(
+            'https://api.example/s/account-b',
+            ruleAccountKey: accountB,
+            loader: (_) async => throw StateError('subscription unavailable'),
+          ),
+          throwsStateError,
+        );
 
-        expect(container.read(profilesProvider), [manualProfile, imported]);
-        expect(container.read(currentProfileIdProvider), imported.id);
-        expect(setupAction.applyProfileCount, 1);
-        expect(setupAction.setRunningCount, 0);
-        expect(clearedEffects, [oldProfile.id]);
+        expect(container.read(currentProfileIdProvider), isNull);
+        expect(container.read(profilesProvider), [profileA]);
+        expect(setupAction.applyProfileCount, 0);
+        expect(
+          await database.rulesDao.queryProfileAddedRules(profileA.id).get(),
+          [ruleA],
+        );
       },
     );
+
+    for (final useV2 in [false, true]) {
+      test(
+        'account rules survive logout and account switching, V2=$useV2',
+        () async {
+          final initialSource = useV2
+              ? 'fengwo-v2://test-key/initial-token'
+              : 'https://old-api.example/s/initial-token';
+          final nextSource = useV2
+              ? 'fengwo-v2://rotated-key/new-token'
+              : 'https://new-api.example/s/new-token';
+          final existing = Profile.normal(
+            label: 'Account A',
+            url: initialSource,
+          );
+          final accountARule = Rule(
+            id: snowflake.id,
+            ruleAction: RuleAction.PROCESS_NAME,
+            content: 'Weixin.exe',
+            ruleTarget: 'DIRECT',
+            order: 'a0',
+          );
+          final disabledRule = accountARule.copyWith(
+            id: snowflake.id,
+            content: 'WeChat.exe',
+            order: 'a1',
+          );
+          final accountBRule = accountARule.copyWith(
+            id: snowflake.id,
+            content: 'other.exe',
+          );
+          final accountA = 'account-a-${existing.id}';
+          final accountB = 'account-b-${existing.id}';
+          final ruleIds = [accountARule.id, disabledRule.id, accountBRule.id];
+          addTearDown(() => database.rulesDao.delRules(ruleIds));
+          await database.rulesDao.putProfileAddedRule(
+            existing.id,
+            accountARule,
+          );
+          await database.rulesDao.putProfileAddedRule(
+            existing.id,
+            disabledRule,
+          );
+          await database.rulesDao.putDisabledLink(existing.id, disabledRule.id);
+          final appliedRules = <List<Rule>>[];
+          final setupAction = _TestSetupAction()
+            ..onApplyProfile = (profile) async {
+              appliedRules.add(
+                await database.rulesDao.queryAddedRules(profile!.id).get(),
+              );
+            };
+          final container = ProviderContainer(
+            overrides: [
+              currentProfileIdProvider.overrideWithBuild((_, _) => existing.id),
+              profilesProvider.overrideWith(() => _TestProfiles([existing])),
+              setupActionProvider.overrideWith(() => setupAction),
+            ],
+          );
+          addTearDown(container.dispose);
+          final action = container.read(profilesActionProvider.notifier);
+          Future<Profile> login(String source, String accountKey) => useV2
+              ? action.syncSubscriptionProfileBytes(
+                  Uint8List.fromList([1]),
+                  sourceId: source,
+                  ruleAccountKey: accountKey,
+                  loader: (profile, _) async => profile,
+                )
+              : action.syncSubscriptionProfile(
+                  source,
+                  ruleAccountKey: accountKey,
+                  loader: (profile) async => profile,
+                );
+
+          await login(initialSource, accountA);
+          expect(appliedRules.last, [accountARule]);
+          await action.removeSubscriptionProfile(
+            initialSource,
+            effectClearer: (_) async {},
+          );
+          expect(container.read(profilesProvider), isEmpty);
+          final profileB = await login(initialSource, accountB);
+          expect(profileB.id, isNot(existing.id));
+          expect(appliedRules.last, isEmpty);
+          await database.rulesDao.putProfileAddedRule(
+            profileB.id,
+            accountBRule,
+          );
+          await action.removeSubscriptionProfile(
+            initialSource,
+            effectClearer: (_) async {},
+          );
+
+          final restoredA = await login(nextSource, accountA);
+          expect(restoredA.id, isNot(existing.id));
+          expect(appliedRules.last, [accountARule]);
+          expect(
+            await database.rulesDao.queryProfileAddedRules(restoredA.id).get(),
+            [accountARule, disabledRule],
+          );
+          expect(
+            await database.rulesDao
+                .queryProfileDisabledRules(restoredA.id)
+                .get(),
+            [disabledRule.copyWith(order: null)],
+          );
+          expect(
+            await database.rulesDao.queryProfileAddedRules(profileB.id).get(),
+            [accountBRule],
+          );
+          expect(
+            await container.read(
+              profileRuleAccountKeyProvider(restoredA.id).future,
+            ),
+            accountA,
+          );
+        },
+      );
+    }
+
+    for (final failCommit in [false, true]) {
+      test(
+        'V1 endpoint rotation preserves saved rules, failed commit=$failCommit',
+        () async {
+          const oldUrl = 'https://old-api.example/s/current-token?flag=clash';
+          const newUrl = 'https://new-api.example/s/current-token?flag=clash';
+          final existing = Profile.normal(
+            label: 'Current',
+            url: oldUrl,
+          ).copyWith(selectedMap: {'Proxy': 'Selected node'});
+          final savedRule = Rule(
+            id: snowflake.id,
+            ruleAction: RuleAction.PROCESS_NAME,
+            content: 'Weixin.exe',
+            ruleTarget: 'DIRECT',
+            order: 'a0',
+          );
+          await database.rulesDao.putProfileAddedRule(existing.id, savedRule);
+          addTearDown(() => database.rulesDao.delRules([savedRule.id]));
+          final originalFile = File(
+            await appPath.getProfilePath(existing.id.toString()),
+          );
+          await originalFile.safeWriteAsBytes(utf8.encode('original profile'));
+          final setupAction = _TestSetupAction();
+          final clearedEffects = <int>[];
+          final commitError = StateError('profile commit failed');
+          final container = ProviderContainer(
+            overrides: [
+              currentProfileIdProvider.overrideWithBuild((_, _) => existing.id),
+              profilesProvider.overrideWith(
+                () => failCommit
+                    ? _FailingDurableProfiles([existing], commitError)
+                    : _TestProfiles([existing]),
+              ),
+              setupActionProvider.overrideWith(() => setupAction),
+            ],
+          );
+          addTearDown(container.dispose);
+          Profile? loadedProfile;
+
+          final syncing = container
+              .read(profilesActionProvider.notifier)
+              .syncSubscriptionProfile(
+                newUrl,
+                replacingUrl: oldUrl,
+                loader: (profile) async {
+                  loadedProfile = profile;
+                  final file = File(
+                    await appPath.getProfilePath(profile.id.toString()),
+                  );
+                  await file.safeWriteAsBytes(utf8.encode('updated profile'));
+                  return profile;
+                },
+                effectClearer: (id) async => clearedEffects.add(id),
+              );
+          if (failCommit) {
+            await expectLater(syncing, throwsA(same(commitError)));
+          } else {
+            await syncing;
+          }
+
+          expect(loadedProfile?.id, existing.id);
+          expect(loadedProfile?.url, newUrl);
+          expect(loadedProfile?.selectedMap, existing.selectedMap);
+          final current = container.read(profilesProvider).single;
+          expect(current.id, existing.id);
+          expect(current.url, failCommit ? oldUrl : newUrl);
+          expect(container.read(currentProfileIdProvider), existing.id);
+          expect(
+            await database.rulesDao.queryProfileAddedRules(current.id).get(),
+            [savedRule],
+          );
+          expect(
+            await database.rulesDao.queryAddedRules(current.id).get(),
+            contains(savedRule),
+          );
+          expect(clearedEffects, isEmpty);
+          expect(
+            await originalFile.readAsString(),
+            failCommit ? 'original profile' : 'updated profile',
+          );
+        },
+      );
+    }
+
+    for (final (oldUrl, newUrl) in const [
+      (
+        'https://subscribe.example.com/client/account-a',
+        'https://subscribe.example.com/client/account-b',
+      ),
+      (
+        'https://old-api.example/client/subscribe?token=account-a',
+        'https://new-api.example/client/subscribe?token=account-b',
+      ),
+    ]) {
+      test(
+        'replaces the previous account subscription after applying $newUrl',
+        () async {
+          final oldProfile = Profile.normal(label: 'Account A', url: oldUrl);
+          final manualProfile = Profile.normal(
+            label: 'Manual',
+            url: 'https://manual.example.com/config',
+          );
+          late _TestSetupAction setupAction;
+          final clearedEffects = <int>[];
+          final container = ProviderContainer(
+            overrides: [
+              currentProfileIdProvider.overrideWithBuild(
+                (_, _) => oldProfile.id,
+              ),
+              profilesProvider.overrideWith(
+                () => _TestProfiles([oldProfile, manualProfile]),
+              ),
+              setupActionProvider.overrideWith(() {
+                setupAction = _TestSetupAction();
+                return setupAction;
+              }),
+            ],
+          );
+          addTearDown(container.dispose);
+
+          final imported = await container
+              .read(profilesActionProvider.notifier)
+              .syncSubscriptionProfile(
+                newUrl,
+                replacingUrl: oldUrl,
+                loader: (profile) async => profile.copyWith(label: 'Account B'),
+                effectClearer: (profileId) async =>
+                    clearedEffects.add(profileId),
+              );
+
+          expect(imported.id, isNot(oldProfile.id));
+          expect(container.read(profilesProvider), [manualProfile, imported]);
+          expect(container.read(currentProfileIdProvider), imported.id);
+          expect(setupAction.applyProfileCount, 1);
+          expect(setupAction.setRunningCount, 0);
+          expect(clearedEffects, [oldProfile.id]);
+        },
+      );
+    }
 
     test('replaces a legacy URL with a local V2 source identifier', () async {
       const oldUrl = 'https://subscribe.example.com/client/account-a';
@@ -1006,6 +1276,7 @@ void main() {
           'client/token',
           'ftp://subscribe.example.com/client/token',
           'https:///client/token',
+          'https://subscribe.example.com/client/token#fragment',
         ]) {
           await expectLater(
             action.syncSubscriptionProfile(
@@ -1943,6 +2214,7 @@ class _TestSetupAction extends SetupAction {
   bool? lastSetRunningPropagateErrors;
   bool? lastApplyPropagateErrors;
   Profile? lastProfileOverride;
+  Future<void> Function(Profile?)? onApplyProfile;
   Completer<void>? firstApplyStarted;
   Completer<void>? firstApplyCompleter;
 
@@ -1968,6 +2240,7 @@ class _TestSetupAction extends SetupAction {
     applyProfileCount++;
     lastApplyPropagateErrors = propagateErrors;
     lastProfileOverride = profileOverride;
+    await onApplyProfile?.call(profileOverride);
     if (applyProfileCount == 1) {
       firstApplyStarted?.complete();
       await firstApplyCompleter?.future;

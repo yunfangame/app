@@ -24,6 +24,7 @@ part 'scripts.dart';
     Scripts,
     Rules,
     ProfileRuleLinks,
+    ProfileRuleAccounts,
     ProxyGroups,
     IconRecords,
   ],
@@ -33,7 +34,7 @@ class Database extends _$Database {
   Database([QueryExecutor? executor]) : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   static LazyDatabase _openConnection() {
     return LazyDatabase(() async {
@@ -50,6 +51,19 @@ class Database extends _$Database {
           throw StateError(
             'Database schema $from is newer than supported schema $to.',
           );
+        }
+        if (from < 4) {
+          await _addColumnIfMissing(
+            m,
+            profileRuleLinks,
+            profileRuleLinks.accountKey,
+          );
+          final accountTable = await customSelect(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'profile_rule_accounts'",
+          ).get();
+          if (accountTable.isEmpty) {
+            await m.createTable(profileRuleAccounts);
+          }
         }
         if (from < 2) {
           await m.createTable(proxyGroups);
@@ -142,16 +156,24 @@ class Database extends _$Database {
         scripts.isNotEmpty ||
         rules.isNotEmpty ||
         links.isNotEmpty) {
-      await batch((b) {
-        isOverride
-            ? profilesDao.setAllWithBatch(b, profiles)
-            : profilesDao.putAllWithBatch(
-                b,
-                profiles.map((item) => item.toCompanion()),
-              );
-        scriptsDao.setAllWithBatch(b, scripts);
-        rulesDao.restoreWithBatch(b, rules, links);
-        proxyGroupsDao.setAllWithBatch(null, b, proxyGroups);
+      await transaction(() async {
+        final accountRuleIds = await rulesDao._accountRuleIds();
+        await batch((b) {
+          isOverride
+              ? profilesDao.setAllWithBatch(b, profiles)
+              : profilesDao.putAllWithBatch(
+                  b,
+                  profiles.map((item) => item.toCompanion()),
+                );
+          scriptsDao.setAllWithBatch(b, scripts);
+          rulesDao.restoreWithBatch(
+            b,
+            rules,
+            links,
+            protectedRuleIds: accountRuleIds,
+          );
+          proxyGroupsDao.setAllWithBatch(null, b, proxyGroups);
+        });
       });
     }
   }

@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'local_secret_store.dart';
+import 'xboard_rule_account.dart';
 
 const xboardOfflineGracePeriod = Duration(days: 3);
 
@@ -16,6 +17,7 @@ class XboardOfflineCache {
     required this.nodes,
     required this.isAdmin,
     this.secureSubscription = false,
+    this.ruleAccountKey,
   });
 
   final DateTime verifiedAt;
@@ -23,6 +25,7 @@ class XboardOfflineCache {
   final List<XboardNodeData> nodes;
   final bool isAdmin;
   final bool secureSubscription;
+  final String? ruleAccountKey;
 
   bool isUsableAt(DateTime now) {
     final expiresAt = subscription.expiresAt;
@@ -497,12 +500,16 @@ class XboardSessionStorage {
     required XboardLoginResult session,
     required List<XboardNodeData> nodes,
     DateTime? verifiedAt,
+    String? ruleAccountKey,
   }) async {
     final preferences = await _preferencesLoader();
     final payload = <String, Object?>{
       'verified_at': (verifiedAt ?? DateTime.now()).toUtc().toIso8601String(),
       'is_admin': session.isAdmin,
       'secure_subscription': session.secureSubscription,
+      'rule_account_key':
+          normalizeXboardRuleAccountKey(ruleAccountKey) ??
+          xboardRuleAccountKeyForEmail(session.subscription.email),
       'subscription': _subscriptionToJson(session.subscription),
       'nodes': nodes.map(_nodeToJson).toList(growable: false),
     };
@@ -534,6 +541,9 @@ class XboardSessionStorage {
         nodes: List.unmodifiable(nodes),
         isAdmin: data['is_admin'] == true,
         secureSubscription: data['secure_subscription'] == true,
+        ruleAccountKey:
+            normalizeXboardRuleAccountKey(data['rule_account_key']) ??
+            xboardRuleAccountKeyForEmail(subscription.email),
       );
     } catch (_) {
       return null;

@@ -1056,6 +1056,8 @@
   "savedRulesProfileScope": "Текущая подписка: {profile}",
   "@savedRulesProfileScope": {"placeholders": {"profile": {"type": "String"}}},
   "savedRulesProfileHint": "При смене подписки отображаются сохранённые для неё правила",
+  "savedRulesAccountScope": "Локальные правила текущего аккаунта",
+  "savedRulesAccountHint": "Правила хранятся только на этом устройстве, сохраняются после выхода и восстанавливаются при повторном входе в тот же аккаунт.",
   "savedRulesRequireProfile": "Выберите подписку перед добавлением или управлением правилами",
   "noSavedRules": "Нет сохранённых правил",
   "noSavedRulesDescription": "Добавьте правило из активного подключения или создайте его здесь",

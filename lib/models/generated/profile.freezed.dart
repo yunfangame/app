@@ -624,7 +624,7 @@ $SubscriptionInfoCopyWith<$Res>? get subscriptionInfo {
 /// @nodoc
 mixin _$ProfileRuleLink {
 
- int? get profileId; int get ruleId; RuleScene? get scene; String? get order;
+ int? get profileId; String? get accountKey; int get ruleId; RuleScene? get scene; String? get order;
 /// Create a copy of ProfileRuleLink
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -635,16 +635,16 @@ $ProfileRuleLinkCopyWith<ProfileRuleLink> get copyWith => _$ProfileRuleLinkCopyW
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ProfileRuleLink&&(identical(other.profileId, profileId) || other.profileId == profileId)&&(identical(other.ruleId, ruleId) || other.ruleId == ruleId)&&(identical(other.scene, scene) || other.scene == scene)&&(identical(other.order, order) || other.order == order));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ProfileRuleLink&&(identical(other.profileId, profileId) || other.profileId == profileId)&&(identical(other.accountKey, accountKey) || other.accountKey == accountKey)&&(identical(other.ruleId, ruleId) || other.ruleId == ruleId)&&(identical(other.scene, scene) || other.scene == scene)&&(identical(other.order, order) || other.order == order));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,profileId,ruleId,scene,order);
+int get hashCode => Object.hash(runtimeType,profileId,accountKey,ruleId,scene,order);
 
 @override
 String toString() {
-  return 'ProfileRuleLink(profileId: $profileId, ruleId: $ruleId, scene: $scene, order: $order)';
+  return 'ProfileRuleLink(profileId: $profileId, accountKey: $accountKey, ruleId: $ruleId, scene: $scene, order: $order)';
 }
 
 
@@ -655,7 +655,7 @@ abstract mixin class $ProfileRuleLinkCopyWith<$Res>  {
   factory $ProfileRuleLinkCopyWith(ProfileRuleLink value, $Res Function(ProfileRuleLink) _then) = _$ProfileRuleLinkCopyWithImpl;
 @useResult
 $Res call({
- int? profileId, int ruleId, RuleScene? scene, String? order
+ int? profileId, String? accountKey, int ruleId, RuleScene? scene, String? order
 });
 
 
@@ -672,10 +672,11 @@ class _$ProfileRuleLinkCopyWithImpl<$Res>
 
 /// Create a copy of ProfileRuleLink
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? profileId = freezed,Object? ruleId = null,Object? scene = freezed,Object? order = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? profileId = freezed,Object? accountKey = freezed,Object? ruleId = null,Object? scene = freezed,Object? order = freezed,}) {
   return _then(_self.copyWith(
 profileId: freezed == profileId ? _self.profileId : profileId // ignore: cast_nullable_to_non_nullable
-as int?,ruleId: null == ruleId ? _self.ruleId : ruleId // ignore: cast_nullable_to_non_nullable
+as int?,accountKey: freezed == accountKey ? _self.accountKey : accountKey // ignore: cast_nullable_to_non_nullable
+as String?,ruleId: null == ruleId ? _self.ruleId : ruleId // ignore: cast_nullable_to_non_nullable
 as int,scene: freezed == scene ? _self.scene : scene // ignore: cast_nullable_to_non_nullable
 as RuleScene?,order: freezed == order ? _self.order : order // ignore: cast_nullable_to_non_nullable
 as String?,
@@ -763,10 +764,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int? profileId,  int ruleId,  RuleScene? scene,  String? order)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int? profileId,  String? accountKey,  int ruleId,  RuleScene? scene,  String? order)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _ProfileRuleLink() when $default != null:
-return $default(_that.profileId,_that.ruleId,_that.scene,_that.order);case _:
+return $default(_that.profileId,_that.accountKey,_that.ruleId,_that.scene,_that.order);case _:
   return orElse();
 
 }
@@ -784,10 +785,10 @@ return $default(_that.profileId,_that.ruleId,_that.scene,_that.order);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int? profileId,  int ruleId,  RuleScene? scene,  String? order)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int? profileId,  String? accountKey,  int ruleId,  RuleScene? scene,  String? order)  $default,) {final _that = this;
 switch (_that) {
 case _ProfileRuleLink():
-return $default(_that.profileId,_that.ruleId,_that.scene,_that.order);case _:
+return $default(_that.profileId,_that.accountKey,_that.ruleId,_that.scene,_that.order);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -804,10 +805,10 @@ return $default(_that.profileId,_that.ruleId,_that.scene,_that.order);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int? profileId,  int ruleId,  RuleScene? scene,  String? order)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int? profileId,  String? accountKey,  int ruleId,  RuleScene? scene,  String? order)?  $default,) {final _that = this;
 switch (_that) {
 case _ProfileRuleLink() when $default != null:
-return $default(_that.profileId,_that.ruleId,_that.scene,_that.order);case _:
+return $default(_that.profileId,_that.accountKey,_that.ruleId,_that.scene,_that.order);case _:
   return null;
 
 }
@@ -819,10 +820,11 @@ return $default(_that.profileId,_that.ruleId,_that.scene,_that.order);case _:
 
 
 class _ProfileRuleLink implements ProfileRuleLink {
-  const _ProfileRuleLink({this.profileId, required this.ruleId, this.scene, this.order});
+  const _ProfileRuleLink({this.profileId, this.accountKey, required this.ruleId, this.scene, this.order});
   
 
 @override final  int? profileId;
+@override final  String? accountKey;
 @override final  int ruleId;
 @override final  RuleScene? scene;
 @override final  String? order;
@@ -837,16 +839,16 @@ _$ProfileRuleLinkCopyWith<_ProfileRuleLink> get copyWith => __$ProfileRuleLinkCo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _ProfileRuleLink&&(identical(other.profileId, profileId) || other.profileId == profileId)&&(identical(other.ruleId, ruleId) || other.ruleId == ruleId)&&(identical(other.scene, scene) || other.scene == scene)&&(identical(other.order, order) || other.order == order));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _ProfileRuleLink&&(identical(other.profileId, profileId) || other.profileId == profileId)&&(identical(other.accountKey, accountKey) || other.accountKey == accountKey)&&(identical(other.ruleId, ruleId) || other.ruleId == ruleId)&&(identical(other.scene, scene) || other.scene == scene)&&(identical(other.order, order) || other.order == order));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,profileId,ruleId,scene,order);
+int get hashCode => Object.hash(runtimeType,profileId,accountKey,ruleId,scene,order);
 
 @override
 String toString() {
-  return 'ProfileRuleLink(profileId: $profileId, ruleId: $ruleId, scene: $scene, order: $order)';
+  return 'ProfileRuleLink(profileId: $profileId, accountKey: $accountKey, ruleId: $ruleId, scene: $scene, order: $order)';
 }
 
 
@@ -857,7 +859,7 @@ abstract mixin class _$ProfileRuleLinkCopyWith<$Res> implements $ProfileRuleLink
   factory _$ProfileRuleLinkCopyWith(_ProfileRuleLink value, $Res Function(_ProfileRuleLink) _then) = __$ProfileRuleLinkCopyWithImpl;
 @override @useResult
 $Res call({
- int? profileId, int ruleId, RuleScene? scene, String? order
+ int? profileId, String? accountKey, int ruleId, RuleScene? scene, String? order
 });
 
 
@@ -874,10 +876,11 @@ class __$ProfileRuleLinkCopyWithImpl<$Res>
 
 /// Create a copy of ProfileRuleLink
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? profileId = freezed,Object? ruleId = null,Object? scene = freezed,Object? order = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? profileId = freezed,Object? accountKey = freezed,Object? ruleId = null,Object? scene = freezed,Object? order = freezed,}) {
   return _then(_ProfileRuleLink(
 profileId: freezed == profileId ? _self.profileId : profileId // ignore: cast_nullable_to_non_nullable
-as int?,ruleId: null == ruleId ? _self.ruleId : ruleId // ignore: cast_nullable_to_non_nullable
+as int?,accountKey: freezed == accountKey ? _self.accountKey : accountKey // ignore: cast_nullable_to_non_nullable
+as String?,ruleId: null == ruleId ? _self.ruleId : ruleId // ignore: cast_nullable_to_non_nullable
 as int,scene: freezed == scene ? _self.scene : scene // ignore: cast_nullable_to_non_nullable
 as RuleScene?,order: freezed == order ? _self.order : order // ignore: cast_nullable_to_non_nullable
 as String?,

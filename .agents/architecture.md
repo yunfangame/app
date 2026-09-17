@@ -185,7 +185,7 @@ Provider files in `lib/providers/`:
 
 ## Database
 
-The app uses Drift/SQLite in `lib/database/`. Current schema version is 2.
+The app uses Drift/SQLite in `lib/database/`. Current schema version is 4.
 
 Tables:
 
@@ -193,10 +193,16 @@ Tables:
 - `Scripts`
 - `Rules`
 - `ProfileRuleLinks` (`profile_rule_mapping`)
+- `ProfileRuleAccounts` (`profile_rule_accounts`)
 - `ProxyGroups`
 - `IconRecords` (`icon_records`)
 
 Rule scenes distinguish global added rules, profile added rules, profile custom rules, and disabled links. Rule and proxy-group ordering use fractional indexing.
+
+Managed subscriptions bind added rules and disabled links to a local account key derived from the authenticated email,
+independently of the API endpoint, token, and profile ID. Account links survive subscription removal and logout; custom
+rules remain profile-scoped. Global links have neither a profile ID nor an account key. Backups omit account-owned rules
+and account mappings, and restore preserves existing local account rules instead of importing account data.
 
 Generated Drift output lives in `lib/database/generated/database.g.dart`. After schema changes, run code generation and add or update focused database tests under `test/database/` when converter or migration behavior changes.
 

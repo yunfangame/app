@@ -20,6 +20,8 @@ class ProfileRuleLinks extends Table {
   IntColumn get ruleId =>
       integer().references(Rules, #id, onDelete: KeyAction.cascade)();
 
+  TextColumn get accountKey => text().nullable()();
+
   TextColumn get scene => textEnum<RuleScene>().nullable()();
 
   TextColumn get order => text().nullable()();
@@ -28,10 +30,21 @@ class ProfileRuleLinks extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+@DataClassName('RawProfileRuleAccount')
+class ProfileRuleAccounts extends Table {
+  IntColumn get profileId => integer()();
+
+  TextColumn get accountKey => text()();
+
+  @override
+  Set<Column> get primaryKey => {profileId};
+}
+
 extension RawProfileRuleLinkExt on RawProfileRuleLink {
   ProfileRuleLink toLink() {
     return ProfileRuleLink(
       profileId: profileId,
+      accountKey: accountKey,
       ruleId: ruleId,
       scene: scene,
       order: order,
@@ -46,6 +59,7 @@ extension ProfileRuleLinksCompanionExt on ProfileRuleLink {
       ruleId: ruleId,
       scene: Value(scene),
       profileId: Value(profileId),
+      accountKey: Value(accountKey),
       order: Value(order ?? this.order),
     );
   }

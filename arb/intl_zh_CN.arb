@@ -1056,6 +1056,8 @@
   "savedRulesProfileScope": "当前订阅：{profile}",
   "@savedRulesProfileScope": {"placeholders": {"profile": {"type": "String"}}},
   "savedRulesProfileHint": "切换订阅后，将显示该订阅对应的规则",
+  "savedRulesAccountScope": "当前账号的本地规则",
+  "savedRulesAccountHint": "规则仅保存在此设备，退出登录后保留，同账号再次登录自动恢复",
   "savedRulesRequireProfile": "请先选择订阅，再添加或管理规则",
   "noSavedRules": "暂无已保存规则",
   "noSavedRulesDescription": "可从实时连接添加规则，也可以在这里直接创建",

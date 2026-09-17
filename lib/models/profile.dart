@@ -77,6 +77,7 @@ abstract class Profile with _$Profile {
 abstract class ProfileRuleLink with _$ProfileRuleLink {
   const factory ProfileRuleLink({
     int? profileId,
+    String? accountKey,
     required int ruleId,
     RuleScene? scene,
     String? order,
@@ -86,6 +87,7 @@ abstract class ProfileRuleLink with _$ProfileRuleLink {
 extension ProfileRuleLinkExt on ProfileRuleLink {
   String get key {
     final splits = <String?>[
+      if (accountKey != null) 'account:${Uri.encodeComponent(accountKey!)}',
       profileId?.toString(),
       ruleId.toString(),
       scene?.name,

@@ -17,6 +17,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'common/common.dart';
 import 'common/migration.dart';
+import 'common/xboard_rule_account.dart';
 import 'common/xboard_tickets.dart';
 import 'database/database.dart';
 import 'enum/enum.dart';
@@ -39,6 +40,7 @@ class GlobalState {
   bool needInitStatus = true;
   bool _didCrashOnPreviousExecution = false;
   XboardLoginResult? xboardSession;
+  String? xboardRuleAccountKey;
   XboardGuestConfig? xboardGuestConfig;
   List<XboardNodeData> xboardNodes = const [];
   int _xboardSessionRevision = 0;
@@ -78,9 +80,15 @@ class GlobalState {
   int activateXboardSession(
     XboardLoginResult session, {
     List<XboardNodeData> nodes = const [],
+    String? accountEmail,
+    String? ruleAccountKey,
   }) {
     _xboardSessionRevision++;
     xboardSession = session;
+    xboardRuleAccountKey =
+        normalizeXboardRuleAccountKey(ruleAccountKey) ??
+        xboardRuleAccountKeyForEmail(session.subscription.email) ??
+        xboardRuleAccountKeyForEmail(accountEmail);
     xboardNodes = List.unmodifiable(nodes);
     xboardSessionRevisionNotifier.value = _xboardSessionRevision;
     return _xboardSessionRevision;
@@ -105,6 +113,7 @@ class GlobalState {
     _xboardSessionRevision++;
     _xboardAnnouncementPromptPending = false;
     xboardSession = null;
+    xboardRuleAccountKey = null;
     xboardNodes = const [];
     xboardSessionRevisionNotifier.value = _xboardSessionRevision;
   }

@@ -1494,6 +1494,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "savedRuleEnabled": MessageLookupByLibrary.simpleMessage("规则已启用并生效"),
     "savedRuleUpdated": MessageLookupByLibrary.simpleMessage("规则已修改并生效"),
     "savedRules": MessageLookupByLibrary.simpleMessage("已保存规则"),
+    "savedRulesAccountHint": MessageLookupByLibrary.simpleMessage(
+      "规则仅保存在此设备，退出登录后保留，同账号再次登录自动恢复",
+    ),
+    "savedRulesAccountScope": MessageLookupByLibrary.simpleMessage("当前账号的本地规则"),
     "savedRulesLoadFailed": MessageLookupByLibrary.simpleMessage("已保存规则加载失败"),
     "savedRulesLoadFailedDescription": MessageLookupByLibrary.simpleMessage(
       "请检查本地订阅数据后重试",

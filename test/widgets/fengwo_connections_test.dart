@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/theme.dart';
+import 'package:fl_clash/common/xboard_rule_account.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
@@ -15,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   tearDown(() {
+    globalState.clearXboardSession();
     globalState.xboardNodes = const [];
     globalState.setOfflineMode(false);
   });
@@ -60,6 +64,9 @@ void main() {
     Locale locale = const Locale('en'),
     List<Rule>? savedRules,
     List<int> disabledRuleIds = const [],
+    String? ruleAccountKey,
+    Future<String?> Function()? ruleAccountReader,
+    Future<void> Function(Rule)? savedRuleWriter,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -94,14 +101,19 @@ void main() {
             ),
         ]),
         currentProfileProvider.overrideWithValue(profile),
+        profileRuleAccountKeyProvider(profile.id).overrideWith((ref) async {
+          return ruleAccountReader == null
+              ? ruleAccountKey
+              : await ruleAccountReader();
+        }),
         delayProvider(proxyName: 'Node A').overrideWithValue(measuredDelay),
         patchClashConfigProvider.overrideWithBuild(
           (_, _) => PatchClashConfig(mode: mode),
         ),
         if (savedRules != null)
-          profileAddedRulesProvider(
-            profile.id,
-          ).overrideWith(() => _TestProfileAddedRules(savedRules)),
+          profileAddedRulesProvider(profile.id).overrideWith(
+            () => _TestProfileAddedRules(savedRules, writer: savedRuleWriter),
+          ),
         if (savedRules != null)
           profileDisabledRuleIdsProvider(
             profile.id,
@@ -458,6 +470,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Current subscription: Test plan'), findsOneWidget);
+    expect(find.text('Local rules for the current account'), findsNothing);
     expect(find.text('webmail.vip.163.com'), findsOneWidget);
     expect(find.text('All remaining traffic'), findsOneWidget);
     expect(find.text('Target policy: Direct · Enabled'), findsOneWidget);
@@ -472,6 +485,221 @@ void main() {
     expect(find.text('Edit rule'), findsOneWidget);
     expect(find.text('webmail.vip.163.com'), findsWidgets);
     expect(tester.takeException(), isNull);
+  });
+
+  for (final size in [const Size(1500, 980), const Size(390, 844)]) {
+    testWidgets('saved account rules describe local persistence at $size', (
+      tester,
+    ) async {
+      try {
+        globalState.activateXboardSession(_accountSession('a@example.com'));
+        await pumpView(
+          tester,
+          size: size,
+          reader: () async => [],
+          savedRules: const [],
+          ruleAccountKey: xboardRuleAccountKeyForEmail('a@example.com'),
+          locale: const Locale('zh', 'CN'),
+        );
+        await tester.pump();
+        await tester.tap(
+          find.byKey(const ValueKey('connection-section-saved-rules')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('当前账号的本地规则'), findsOneWidget);
+        expect(find.text('规则仅保存在此设备，退出登录后保留，同账号再次登录自动恢复'), findsOneWidget);
+        expect(find.text('当前订阅：Test plan'), findsNothing);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+    });
+  }
+
+  testWidgets(
+    'account switch hides rules belonging to a retained old profile',
+    (tester) async {
+      try {
+        globalState.activateXboardSession(_accountSession('a@example.com'));
+        await pumpView(
+          tester,
+          size: const Size(1500, 980),
+          reader: () async => [connection()],
+          ruleAccountKey: xboardRuleAccountKeyForEmail('a@example.com'),
+          savedRules: const [
+            Rule(
+              id: 51,
+              content: 'account-a-private.example',
+              ruleTarget: 'DIRECT',
+            ),
+          ],
+        );
+        await tester.pump();
+        await tester.tap(
+          find.byKey(const ValueKey('connection-section-saved-rules')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('account-a-private.example'), findsOneWidget);
+
+        globalState.activateXboardSession(_accountSession('b@example.com'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('account-a-private.example'), findsNothing);
+        expect(find.byKey(const ValueKey('edit-saved-rule-51')), findsNothing);
+        expect(
+          tester
+              .widget<FilledButton>(
+                find.byKey(const ValueKey('add-saved-rule')),
+              )
+              .onPressed,
+          isNull,
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('connection-section-current')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
+        await tester.pumpAndSettle();
+        final addItem = tester.widget<PopupMenuItem<dynamic>>(
+          find.ancestor(
+            of: find.text('Add rule'),
+            matching: find.byWidgetPredicate(
+              (widget) => widget is PopupMenuItem,
+            ),
+          ),
+        );
+        expect(addItem.enabled, isFalse);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+    },
+  );
+
+  testWidgets('owner lookup must finish before saved rules can be viewed', (
+    tester,
+  ) async {
+    final owner = Completer<String?>();
+    try {
+      globalState.activateXboardSession(_accountSession('b@example.com'));
+      await pumpView(
+        tester,
+        size: const Size(1500, 980),
+        reader: () async => [],
+        ruleAccountReader: () => owner.future,
+        savedRules: const [
+          Rule(
+            id: 51,
+            content: 'account-a-private.example',
+            ruleTarget: 'DIRECT',
+          ),
+        ],
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('connection-section-saved-rules')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('account-a-private.example'), findsNothing);
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const ValueKey('add-saved-rule')))
+            .onPressed,
+        isNull,
+      );
+      owner.complete(xboardRuleAccountKeyForEmail('a@example.com'));
+      await tester.pumpAndSettle();
+      expect(find.text('account-a-private.example'), findsNothing);
+      expect(tester.takeException(), isNull);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
+  testWidgets(
+    'switching accounts dismisses a connection rule dialog without saving',
+    (tester) async {
+      var writes = 0;
+      try {
+        globalState.activateXboardSession(_accountSession('a@example.com'));
+        await pumpView(
+          tester,
+          size: const Size(1500, 980),
+          reader: () async => [connection()],
+          ruleAccountKey: xboardRuleAccountKeyForEmail('a@example.com'),
+          ruleApplier:
+              ({
+                required connection,
+                required rule,
+                required fallbackTarget,
+                required switchToRuleMode,
+              }) async => writes++,
+        );
+        await tester.pump();
+        await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Add rule'));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('apply-connection-rule')),
+          findsOneWidget,
+        );
+
+        globalState.activateXboardSession(_accountSession('b@example.com'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('apply-connection-rule')),
+          findsNothing,
+        );
+        expect(writes, 0);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+    },
+  );
+
+  testWidgets('switching accounts dismisses saved rule edits without saving', (
+    tester,
+  ) async {
+    var writes = 0;
+    try {
+      globalState.activateXboardSession(_accountSession('a@example.com'));
+      await pumpView(
+        tester,
+        size: const Size(1500, 980),
+        reader: () async => [],
+        ruleAccountKey: xboardRuleAccountKeyForEmail('a@example.com'),
+        savedRules: const [
+          Rule(
+            id: 51,
+            content: 'account-a-private.example',
+            ruleTarget: 'DIRECT',
+          ),
+        ],
+        savedRuleWriter: (_) async => writes++,
+      );
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey('connection-section-saved-rules')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('edit-saved-rule-51')));
+      await tester.pumpAndSettle();
+      expect(find.text('Edit rule'), findsOneWidget);
+
+      globalState.activateXboardSession(_accountSession('b@example.com'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Edit rule'), findsNothing);
+      expect(find.text('account-a-private.example'), findsNothing);
+      expect(writes, 0);
+      expect(tester.takeException(), isNull);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
   });
 
   testWidgets('mobile saved rules remain scrollable without overflow', (
@@ -590,11 +818,40 @@ class _TestApp extends StatelessWidget {
 
 class _TestProfileAddedRules extends ProfileAddedRules {
   final List<Rule> initialRules;
+  final Future<void> Function(Rule)? writer;
 
-  _TestProfileAddedRules(this.initialRules);
+  _TestProfileAddedRules(this.initialRules, {this.writer});
 
   @override
   Stream<List<Rule>> build(int profileId) => Stream.value(initialRules);
+
+  @override
+  Future<void> putAndWait(Rule rule) async {
+    if (writer != null) {
+      await writer!(rule);
+      return;
+    }
+    await super.putAndWait(rule);
+  }
+}
+
+XboardLoginResult _accountSession(String email) {
+  final endpoint = Uri.parse('https://api.example.com/api/v1');
+  return XboardLoginResult(
+    endpoint: endpoint,
+    token: 'test-token',
+    authData: 'test-auth',
+    isAdmin: false,
+    subscription: XboardSubscriptionData(
+      endpoint: endpoint,
+      email: email,
+      subscribeUrl: null,
+      uploadBytes: 0,
+      downloadBytes: 0,
+      transferEnableBytes: 1024,
+      rawData: const {},
+    ),
+  );
 }
 
 class _TestProfileDisabledRuleIds extends ProfileDisabledRuleIds {

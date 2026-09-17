@@ -38,6 +38,12 @@ enum _ConnectionSection { current, savedRules }
 
 enum _SavedRuleAction { edit, delete }
 
+typedef _RuleMutationScope = ({
+  int profileId,
+  int sessionRevision,
+  String? accountKey,
+});
+
 class FengWoConnectionsView extends ConsumerStatefulWidget {
   final Future<List<TrackerInfo>> Function()? connectionsReader;
   final Future<void> Function(String id)? connectionCloser;
@@ -76,6 +82,62 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
   _ConnectionSection _section = _ConnectionSection.current;
   _ConnectionSort _sort = _ConnectionSort.start;
   bool _ascending = false;
+  BuildContext? _ruleDialogContext;
+
+  @override
+  void initState() {
+    super.initState();
+    globalState.xboardSessionRevisionNotifier.addListener(_onSessionChanged);
+  }
+
+  void _onSessionChanged() {
+    if (!mounted) return;
+    final dialogContext = _ruleDialogContext;
+    if (dialogContext != null &&
+        dialogContext.mounted &&
+        ModalRoute.of(dialogContext)?.isCurrent == true) {
+      Navigator.of(dialogContext).pop();
+    }
+    setState(() {});
+  }
+
+  bool _canManageProfileRules(Profile? profile, AsyncValue<String?>? owner) {
+    if (profile == null ||
+        owner == null ||
+        owner.isLoading ||
+        owner.hasError ||
+        !owner.hasValue) {
+      return false;
+    }
+    return owner.value == null ||
+        owner.value == globalState.xboardRuleAccountKey;
+  }
+
+  _RuleMutationScope? _captureRuleScope() {
+    final profile = ref.read(currentProfileProvider);
+    if (profile == null ||
+        !_canManageProfileRules(
+          profile,
+          ref.read(profileRuleAccountKeyProvider(profile.id)),
+        )) {
+      return null;
+    }
+    return (
+      profileId: profile.id,
+      sessionRevision: globalState.xboardSessionRevision,
+      accountKey: globalState.xboardRuleAccountKey,
+    );
+  }
+
+  bool _isRuleScopeCurrent(_RuleMutationScope scope) {
+    return mounted && _captureRuleScope() == scope;
+  }
+
+  void _requireRuleScopeCurrent(_RuleMutationScope scope) {
+    if (!_isRuleScopeCurrent(scope)) {
+      throw currentAppLocalizations.noProfileForRule;
+    }
+  }
 
   @override
   Duration get pollInterval => const Duration(seconds: 1);
@@ -320,6 +382,11 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
   }
 
   Future<void> _showRuleDialog(TrackerInfo connection) async {
+    final scope = _captureRuleScope();
+    if (scope == null) {
+      context.showNotifier(context.appLocalizations.noProfileForRule);
+      return;
+    }
     final groups = ref.read(groupsProvider);
     final groupTargets = groups
         .where((group) => group.name != GroupName.GLOBAL.name)
@@ -336,36 +403,42 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     bool? changed;
     final applied = await showDialog<bool>(
       context: context,
-      builder: (_) => _AddConnectionRuleDialog(
-        connection: connection,
-        policyTargets: allTargets,
-        fallbackTargets: groupTargets,
-        switchToRuleMode: mode == Mode.global,
-        onApply:
-            ({
-              required rule,
-              required fallbackTarget,
-              required switchToRuleMode,
-            }) async {
-              if (widget.ruleApplier != null) {
-                await widget.ruleApplier!(
-                  connection: connection,
-                  rule: rule,
-                  fallbackTarget: fallbackTarget,
-                  switchToRuleMode: switchToRuleMode,
-                );
-              } else {
-                changed = await _applyRule(
-                  connection: connection,
-                  rule: rule,
-                  fallbackTarget: fallbackTarget,
-                  switchToRuleMode: switchToRuleMode,
-                );
-              }
-            },
-      ),
+      builder: (dialogContext) {
+        _ruleDialogContext = dialogContext;
+        return _AddConnectionRuleDialog(
+          connection: connection,
+          policyTargets: allTargets,
+          fallbackTargets: groupTargets,
+          switchToRuleMode: mode == Mode.global,
+          onApply:
+              ({
+                required rule,
+                required fallbackTarget,
+                required switchToRuleMode,
+              }) async {
+                _requireRuleScopeCurrent(scope);
+                if (widget.ruleApplier != null) {
+                  await widget.ruleApplier!(
+                    connection: connection,
+                    rule: rule,
+                    fallbackTarget: fallbackTarget,
+                    switchToRuleMode: switchToRuleMode,
+                  );
+                } else {
+                  changed = await _applyRule(
+                    scope: scope,
+                    connection: connection,
+                    rule: rule,
+                    fallbackTarget: fallbackTarget,
+                    switchToRuleMode: switchToRuleMode,
+                  );
+                }
+              },
+        );
+      },
     );
-    if (applied != true || !mounted) return;
+    _ruleDialogContext = null;
+    if (applied != true || !mounted || !_isRuleScopeCurrent(scope)) return;
     _showRuleSavedFeedback(
       changed == false
           ? context.appLocalizations.connectionRuleAlreadyExists
@@ -386,21 +459,28 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
   }
 
   Future<void> _addOrEditSavedRule([Rule? rule]) async {
-    final profile = ref.read(currentProfileProvider);
-    if (profile == null || _savingRules) {
-      if (profile == null) {
+    final scope = _captureRuleScope();
+    if (scope == null || _savingRules) {
+      if (scope == null) {
         context.showNotifier(context.appLocalizations.noProfileForRule);
       }
       return;
     }
     final result = await globalState.showCommonDialog<Rule>(
-      child: AddOrEditRuleDialog(rule: rule),
+      child: Builder(
+        builder: (dialogContext) {
+          _ruleDialogContext = dialogContext;
+          return AddOrEditRuleDialog(rule: rule);
+        },
+      ),
     );
-    if (result == null || !mounted) return;
+    _ruleDialogContext = null;
+    if (result == null || !mounted || !_isRuleScopeCurrent(scope)) return;
     final savedRule = result.copyWith(order: rule?.order);
     await _runSavedRuleMutation(
+      scope: scope,
       mutation: () => ref
-          .read(profileAddedRulesProvider(profile.id).notifier)
+          .read(profileAddedRulesProvider(scope.profileId).notifier)
           .putAndWait(savedRule),
       successMessage: rule == null
           ? context.appLocalizations.connectionRuleApplied
@@ -409,30 +489,32 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
   }
 
   Future<void> _deleteSavedRule(Rule rule) async {
-    final profile = ref.read(currentProfileProvider);
-    if (profile == null || _savingRules) return;
+    final scope = _captureRuleScope();
+    if (scope == null || _savingRules) return;
     final confirmed = await globalState.showMessage(
       title: context.appLocalizations.delete,
       message: TextSpan(
         text: context.appLocalizations.deleteTip(context.appLocalizations.rule),
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !mounted || !_isRuleScopeCurrent(scope)) return;
     await _runSavedRuleMutation(
+      scope: scope,
       mutation: () => ref
-          .read(profileAddedRulesProvider(profile.id).notifier)
+          .read(profileAddedRulesProvider(scope.profileId).notifier)
           .delAllAndWait([rule.id]),
       successMessage: context.appLocalizations.savedRuleDeleted,
     );
   }
 
   Future<void> _toggleSavedRule(Rule rule, bool enabled) async {
-    final profile = ref.read(currentProfileProvider);
-    if (profile == null || _savingRules) return;
+    final scope = _captureRuleScope();
+    if (scope == null || _savingRules) return;
     final notifier = ref.read(
-      profileDisabledRuleIdsProvider(profile.id).notifier,
+      profileDisabledRuleIdsProvider(scope.profileId).notifier,
     );
     await _runSavedRuleMutation(
+      scope: scope,
       mutation: enabled
           ? () => notifier.delAndWait(rule.id)
           : () => notifier.putAndWait(rule.id),
@@ -443,28 +525,33 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
   }
 
   Future<void> _reorderSavedRule(int oldIndex, int newIndex) async {
-    final profile = ref.read(currentProfileProvider);
-    if (profile == null || _savingRules || oldIndex == newIndex) return;
+    final scope = _captureRuleScope();
+    if (scope == null || _savingRules || oldIndex == newIndex) return;
     await _runSavedRuleMutation(
+      scope: scope,
       mutation: () => ref
-          .read(profileAddedRulesProvider(profile.id).notifier)
+          .read(profileAddedRulesProvider(scope.profileId).notifier)
           .orderAndWait(oldIndex, newIndex),
       successMessage: context.appLocalizations.savedRulesReordered,
     );
   }
 
   Future<void> _runSavedRuleMutation({
+    required _RuleMutationScope scope,
     required Future<void> Function() mutation,
     required String successMessage,
   }) async {
-    if (_savingRules) return;
+    if (_savingRules || !_isRuleScopeCurrent(scope)) return;
     setState(() => _savingRules = true);
     try {
       await mutation();
+      if (!_isRuleScopeCurrent(scope)) return;
       await ref
           .read(setupActionProvider.notifier)
           .applyProfile(force: true, silence: true);
-      if (mounted) context.showNotifier(successMessage);
+      if (mounted && _isRuleScopeCurrent(scope)) {
+        context.showNotifier(successMessage);
+      }
     } catch (error) {
       if (mounted) context.showNotifier(error.toString());
     } finally {
@@ -480,16 +567,14 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
   }
 
   Future<bool> _applyRule({
+    required _RuleMutationScope scope,
     required TrackerInfo connection,
     required Rule rule,
     required String? fallbackTarget,
     required bool switchToRuleMode,
   }) async {
-    final profile = ref.read(currentProfileProvider);
-    if (profile == null) {
-      throw context.appLocalizations.noProfileForRule;
-    }
-    final provider = profileAddedRulesProvider(profile.id);
+    _requireRuleScopeCurrent(scope);
+    final provider = profileAddedRulesProvider(scope.profileId);
     final notifier = ref.read(provider.notifier);
     final existingRules = ref.read(provider).value ?? const <Rule>[];
     var changed = false;
@@ -510,6 +595,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
         changed = true;
       }
     }
+    _requireRuleScopeCurrent(scope);
     final currentRules = ref.read(provider).value ?? const <Rule>[];
     final duplicate = currentRules.any(
       (item) =>
@@ -521,12 +607,14 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
       await notifier.putAndWait(rule);
       changed = true;
     }
+    _requireRuleScopeCurrent(scope);
     if (switchToRuleMode) {
       ref.read(setupActionProvider.notifier).changeModeOnly(Mode.rule);
     }
     await ref
         .read(setupActionProvider.notifier)
         .applyProfile(force: true, silence: true);
+    _requireRuleScopeCurrent(scope);
     await _closeConnection(connection);
     return changed;
   }
@@ -562,6 +650,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
 
   @override
   void dispose() {
+    globalState.xboardSessionRevisionNotifier.removeListener(_onSessionChanged);
     _searchController.dispose();
     _desktopVerticalController.dispose();
     _desktopHorizontalController.dispose();
@@ -573,12 +662,17 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     final colors = _ConnectionColors.of(context);
     final delay = _currentDelay(ref);
     final profile = ref.watch(currentProfileProvider);
-    final savedRules = profile == null
+    final owner = profile == null
         ? null
-        : ref.watch(profileAddedRulesProvider(profile.id));
-    final disabledRuleIds = profile == null
+        : ref.watch(profileRuleAccountKeyProvider(profile.id));
+    final canManageRules = _canManageProfileRules(profile, owner);
+    final savedRules = !canManageRules
+        ? null
+        : ref.watch(profileAddedRulesProvider(profile!.id));
+    final isAccountScoped = canManageRules && owner?.value != null;
+    final disabledRuleIds = !canManageRules
         ? const <int>[]
-        : ref.watch(profileDisabledRuleIdsProvider(profile.id)).value ??
+        : ref.watch(profileDisabledRuleIdsProvider(profile!.id)).value ??
               const <int>[];
     final backendStatus = resolveXboardNodeDisplayStatus(
       delay.nodeName,
@@ -596,9 +690,10 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
               connections,
               delay.delay,
               backendStatus,
-              profile,
+              canManageRules ? profile : null,
               savedRules,
               disabledRuleIds,
+              isAccountScoped,
             );
           }
           return _buildMobile(
@@ -606,9 +701,10 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
             connections,
             delay.delay,
             backendStatus,
-            profile,
+            canManageRules ? profile : null,
             savedRules,
             disabledRuleIds,
+            isAccountScoped,
           );
         },
       ),
@@ -623,6 +719,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     Profile? profile,
     AsyncValue<List<Rule>>? savedRules,
     List<int> disabledRuleIds,
+    bool isAccountScoped,
   ) {
     return Column(
       children: [
@@ -653,7 +750,11 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
                           onAutoRefreshChanged: _toggleAutoRefresh,
                           onRefresh: _refresh,
                           onCloseAll: _closeAllConnections,
-                          child: _buildDesktopTable(colors, connections),
+                          child: _buildDesktopTable(
+                            colors,
+                            connections,
+                            canAddRule: profile != null,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 14),
@@ -670,6 +771,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
                 : _SavedConnectionRulesPanel(
                     colors: colors,
                     profile: profile,
+                    isAccountScoped: isAccountScoped,
                     rules: savedRules,
                     disabledRuleIds: disabledRuleIds,
                     saving: _savingRules,
@@ -695,6 +797,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     Profile? profile,
     AsyncValue<List<Rule>>? savedRules,
     List<int> disabledRuleIds,
+    bool isAccountScoped,
   ) {
     if (_section == _ConnectionSection.savedRules) {
       return Column(
@@ -713,6 +816,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
               child: _SavedConnectionRulesPanel(
                 colors: colors,
                 profile: profile,
+                isAccountScoped: isAccountScoped,
                 rules: savedRules,
                 disabledRuleIds: disabledRuleIds,
                 saving: _savingRules,
@@ -804,6 +908,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
                     destination: _destination(connection),
                     node: _node(connection),
                     now: _now,
+                    canAddRule: profile != null,
                     onAction: (action) => _handleAction(action, connection),
                   );
                 },
@@ -816,8 +921,9 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
 
   Widget _buildDesktopTable(
     _ConnectionColors colors,
-    List<TrackerInfo> connections,
-  ) {
+    List<TrackerInfo> connections, {
+    required bool canAddRule,
+  }) {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -865,6 +971,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
                           destination: _destination(connection),
                           node: _node(connection),
                           now: _now,
+                          canAddRule: canAddRule,
                           onAction: (action) =>
                               _handleAction(action, connection),
                         );
@@ -1192,6 +1299,7 @@ class _ConnectionSectionTab extends StatelessWidget {
 class _SavedConnectionRulesPanel extends StatelessWidget {
   final _ConnectionColors colors;
   final Profile? profile;
+  final bool isAccountScoped;
   final AsyncValue<List<Rule>>? rules;
   final List<int> disabledRuleIds;
   final bool saving;
@@ -1206,6 +1314,7 @@ class _SavedConnectionRulesPanel extends StatelessWidget {
   const _SavedConnectionRulesPanel({
     required this.colors,
     required this.profile,
+    required this.isAccountScoped,
     required this.rules,
     required this.disabledRuleIds,
     required this.saving,
@@ -1322,18 +1431,26 @@ class _SavedConnectionRulesPanel extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.cloud_outlined, color: colors.primary, size: 21),
+                    Icon(
+                      isAccountScoped
+                          ? Icons.account_circle_outlined
+                          : Icons.cloud_outlined,
+                      color: colors.primary,
+                      size: 21,
+                    ),
                     const SizedBox(width: 9),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            l10n.savedRulesProfileScope(
-                              profile!.label.takeFirstValid([
-                                profile!.id.toString(),
-                              ]),
-                            ),
+                            isAccountScoped
+                                ? l10n.savedRulesAccountScope
+                                : l10n.savedRulesProfileScope(
+                                    profile!.label.takeFirstValid([
+                                      profile!.id.toString(),
+                                    ]),
+                                  ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
@@ -1343,7 +1460,9 @@ class _SavedConnectionRulesPanel extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            l10n.savedRulesProfileHint,
+                            isAccountScoped
+                                ? l10n.savedRulesAccountHint
+                                : l10n.savedRulesProfileHint,
                             style: TextStyle(color: colors.muted, fontSize: 12),
                           ),
                         ],
@@ -2269,6 +2388,7 @@ class _ConnectionTableRow extends StatelessWidget {
   final String destination;
   final String node;
   final DateTime now;
+  final bool canAddRule;
   final ValueChanged<_ConnectionAction> onAction;
 
   const _ConnectionTableRow({
@@ -2278,6 +2398,7 @@ class _ConnectionTableRow extends StatelessWidget {
     required this.destination,
     required this.node,
     required this.now,
+    required this.canAddRule,
     required this.onAction,
   });
 
@@ -2384,7 +2505,11 @@ class _ConnectionTableRow extends StatelessWidget {
           ),
           SizedBox(
             width: 55,
-            child: _ConnectionActionMenu(colors: colors, onSelected: onAction),
+            child: _ConnectionActionMenu(
+              colors: colors,
+              canAddRule: canAddRule,
+              onSelected: onAction,
+            ),
           ),
         ],
       ),
@@ -2478,9 +2603,14 @@ class _ConnectionFavicon extends StatelessWidget {
 
 class _ConnectionActionMenu extends StatelessWidget {
   final _ConnectionColors colors;
+  final bool canAddRule;
   final ValueChanged<_ConnectionAction> onSelected;
 
-  const _ConnectionActionMenu({required this.colors, required this.onSelected});
+  const _ConnectionActionMenu({
+    required this.colors,
+    required this.canAddRule,
+    required this.onSelected,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2499,6 +2629,7 @@ class _ConnectionActionMenu extends StatelessWidget {
         ),
         PopupMenuItem(
           value: _ConnectionAction.addRule,
+          enabled: canAddRule,
           child: ListTile(
             dense: true,
             leading: Icon(Icons.add_task_rounded, color: colors.primary),
@@ -2528,6 +2659,7 @@ class _MobileConnectionCard extends StatelessWidget {
   final String destination;
   final String node;
   final DateTime now;
+  final bool canAddRule;
   final ValueChanged<_ConnectionAction> onAction;
 
   const _MobileConnectionCard({
@@ -2537,6 +2669,7 @@ class _MobileConnectionCard extends StatelessWidget {
     required this.destination,
     required this.node,
     required this.now,
+    required this.canAddRule,
     required this.onAction,
   });
 
@@ -2594,7 +2727,11 @@ class _MobileConnectionCard extends StatelessWidget {
                   ),
                 ),
               ),
-              _ConnectionActionMenu(colors: colors, onSelected: onAction),
+              _ConnectionActionMenu(
+                colors: colors,
+                canAddRule: canAddRule,
+                onSelected: onAction,
+              ),
             ],
           ),
           const SizedBox(height: 13),

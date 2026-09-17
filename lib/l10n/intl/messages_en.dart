@@ -2064,6 +2064,12 @@ class MessageLookup extends MessageLookupByLibrary {
       "Rule updated and applied",
     ),
     "savedRules": MessageLookupByLibrary.simpleMessage("Saved rules"),
+    "savedRulesAccountHint": MessageLookupByLibrary.simpleMessage(
+      "Rules are stored only on this device, remain after sign-out, and are restored when you sign in to the same account.",
+    ),
+    "savedRulesAccountScope": MessageLookupByLibrary.simpleMessage(
+      "Local rules for the current account",
+    ),
     "savedRulesLoadFailed": MessageLookupByLibrary.simpleMessage(
       "Unable to load saved rules",
     ),

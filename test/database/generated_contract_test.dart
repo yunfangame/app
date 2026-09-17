@@ -221,7 +221,7 @@ void main() {
 
     const emptyLink = RawProfileRuleLink(id: '10', ruleId: 10);
     expect(emptyLink.toColumns(true), hasLength(2));
-    expect(emptyLink.toColumns(false), hasLength(5));
+    expect(emptyLink.toColumns(false), hasLength(6));
     final linkCompanion =
         ProfileRuleLinksCompanion.insert(id: 'link', ruleId: 10).copyWith(
           profileId: const Value(1),

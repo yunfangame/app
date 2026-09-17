@@ -203,6 +203,7 @@ class ApplicationState extends ConsumerState<Application> {
   }) async {
     if (globalState.isOfflineMode && !ignoreOfflineMode) return;
     final revision = globalState.xboardSessionRevision;
+    final ruleAccountKey = globalState.xboardRuleAccountKey;
     commonPrint.event(
       'subscription.nodes.fetch.started',
       fields: {'session_revision': revision},
@@ -226,6 +227,7 @@ class ApplicationState extends ConsumerState<Application> {
       await _xboardSessionStorage.saveOfflineCache(
         session: session,
         nodes: nodes,
+        ruleAccountKey: ruleAccountKey,
       );
       if (!globalState.isActiveXboardSession(session, revision)) return;
       _offlineAvailable = true;
@@ -289,10 +291,16 @@ class ApplicationState extends ConsumerState<Application> {
       _offlineAvailable =
           hasProfiles &&
           offlineCache != null &&
-          offlineCache.isUsableAt(DateTime.now());
+          offlineCache.isUsableAt(DateTime.now()) &&
+          await _canUseOfflineProfile(offlineCache);
+      if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
       if (offlineRequested && _offlineAvailable) {
         final session = offlineCache!.toSession();
-        globalState.activateXboardSession(session, nodes: offlineCache.nodes);
+        globalState.activateXboardSession(
+          session,
+          nodes: offlineCache.nodes,
+          ruleAccountKey: offlineCache.ruleAccountKey,
+        );
         _beginDefaultLoginRouting(session);
         globalState.setOfflineMode(true);
         _completeAuthenticationBootstrap(
@@ -322,7 +330,10 @@ class ApplicationState extends ConsumerState<Application> {
           secureSubscription: storedSession.secureSubscription,
         );
         if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
-        final sessionRevision = globalState.activateXboardSession(session);
+        final sessionRevision = globalState.activateXboardSession(
+          session,
+          accountEmail: storedSession.email,
+        );
         _authenticationBootstrapSessionRevision = sessionRevision;
         _beginDefaultLoginRouting(session);
         _startPostLoginProfileSync(session, sessionRevision);
@@ -446,7 +457,7 @@ class ApplicationState extends ConsumerState<Application> {
         secureSubscription: stored.secureSubscription,
       );
       if (!mounted || _logoutInProgress) return session;
-      globalState.activateXboardSession(session);
+      globalState.activateXboardSession(session, accountEmail: email);
       _beginDefaultLoginRouting(session);
       _startPostLoginProfileSync(session, globalState.xboardSessionRevision);
       await _loadXboardNodes(session, ignoreOfflineMode: true);
@@ -694,32 +705,40 @@ class ApplicationState extends ConsumerState<Application> {
     int sessionRevision,
     bool Function() isCurrent,
   ) async {
-    final readiness = await _applicationReadinessGate.wait();
-    if (!isCurrent()) {
-      commonPrint.event(
-        'subscription.profile.sync.discarded',
-        fields: {'stage': 'application_readiness'},
-      );
-      return null;
-    }
-    if (readiness != ApplicationReadiness.ready) {
-      if (readiness == ApplicationReadiness.timedOut) {
-        _deferredProfileSyncRevision = sessionRevision;
+    final ruleAccountKey =
+        globalState.isActiveXboardSession(session, sessionRevision)
+        ? globalState.xboardRuleAccountKey
+        : null;
+    try {
+      await ref
+          .read(profilesActionProvider.notifier)
+          .prepareRuleAccount(ruleAccountKey, isCurrent: isCurrent);
+      if (!isCurrent()) return null;
+      final readiness = await _applicationReadinessGate.wait();
+      if (!isCurrent()) {
+        commonPrint.event(
+          'subscription.profile.sync.discarded',
+          fields: {'stage': 'application_readiness'},
+        );
+        return null;
+      }
+      if (readiness != ApplicationReadiness.ready) {
+        if (readiness == ApplicationReadiness.timedOut) {
+          _deferredProfileSyncRevision = sessionRevision;
+        }
+        commonPrint.event(
+          'subscription.profile.sync.skipped',
+          fields: {'reason': 'application_${readiness.name}'},
+        );
+        return null;
+      }
+      if (_deferredProfileSyncRevision == sessionRevision) {
+        _deferredProfileSyncRevision = null;
       }
       commonPrint.event(
-        'subscription.profile.sync.skipped',
-        fields: {'reason': 'application_${readiness.name}'},
+        'subscription.profile.sync.started',
+        fields: {'secure_subscription': session.secureSubscription},
       );
-      return null;
-    }
-    if (_deferredProfileSyncRevision == sessionRevision) {
-      _deferredProfileSyncRevision = null;
-    }
-    commonPrint.event(
-      'subscription.profile.sync.started',
-      fields: {'secure_subscription': session.secureSubscription},
-    );
-    try {
       final planName = session.subscription.plan?.name?.trim();
       final previousUrl = await _xboardSessionStorage.loadManagedProfileUrl();
       if (!isCurrent()) return null;
@@ -741,6 +760,7 @@ class ApplicationState extends ConsumerState<Application> {
               secureProfile.bytes,
               sourceId: secureProfile.sourceId,
               label: label,
+              ruleAccountKey: ruleAccountKey,
               replacingUrl: previousUrl,
               removeLegacyXboardProfiles: true,
               isCurrent: isCurrent,
@@ -781,6 +801,7 @@ class ApplicationState extends ConsumerState<Application> {
           .syncSubscriptionProfile(
             subscriptionUrl,
             label: label,
+            ruleAccountKey: ruleAccountKey,
             replacingUrl: previousUrl,
             isCurrent: isCurrent,
             validationTimeout: _profileValidationTimeout,
@@ -966,21 +987,48 @@ class ApplicationState extends ConsumerState<Application> {
     );
   }
 
+  Future<bool> _canUseOfflineProfile(XboardOfflineCache cache) async {
+    final profile = ref.read(currentProfileProvider);
+    if (profile == null) return false;
+    final accountKey = await ref.read(
+      profileRuleAccountKeyProvider(profile.id).future,
+    );
+    return mounted &&
+        ref.read(currentProfileIdProvider) == profile.id &&
+        (accountKey == null || accountKey == cache.ruleAccountKey);
+  }
+
   Future<bool> _enableOfflineMode() async {
     if (ref.read(profilesProvider).isEmpty) return false;
     final session = globalState.xboardSession;
+    final revision = globalState.xboardSessionRevision;
+    final ruleAccountKey = globalState.xboardRuleAccountKey;
     if (session != null && session.authData.isNotEmpty) {
       await _xboardSessionStorage.saveOfflineCache(
         session: session,
         nodes: globalState.xboardNodes,
+        ruleAccountKey: ruleAccountKey,
       );
     }
     final cache = await _xboardSessionStorage.loadOfflineCache();
-    if (cache == null || !cache.isUsableAt(DateTime.now())) return false;
+    if (cache == null ||
+        !cache.isUsableAt(DateTime.now()) ||
+        !await _canUseOfflineProfile(cache) ||
+        globalState.xboardSessionRevision != revision) {
+      return false;
+    }
     await _xboardSessionStorage.setOfflineMode(true);
-    if (!mounted || _logoutInProgress) return false;
+    if (!mounted ||
+        _logoutInProgress ||
+        globalState.xboardSessionRevision != revision) {
+      return false;
+    }
     final cachedSession = cache.toSession();
-    globalState.activateXboardSession(cachedSession, nodes: cache.nodes);
+    globalState.activateXboardSession(
+      cachedSession,
+      nodes: cache.nodes,
+      ruleAccountKey: cache.ruleAccountKey,
+    );
     _beginDefaultLoginRouting(cachedSession);
     globalState.setOfflineMode(true);
     if (mounted) setState(() => _offlineAvailable = true);
@@ -1011,7 +1059,10 @@ class ApplicationState extends ConsumerState<Application> {
         isAdmin: storedSession.isAdmin,
         secureSubscription: storedSession.secureSubscription,
       );
-      globalState.activateXboardSession(session);
+      globalState.activateXboardSession(
+        session,
+        accountEmail: storedSession.email,
+      );
       await _loadXboardNodes(session, ignoreOfflineMode: true);
       final sessionRevision = globalState.xboardSessionRevision;
       await _syncSubscriptionProfile(session, sessionRevision);
@@ -1051,6 +1102,7 @@ class ApplicationState extends ConsumerState<Application> {
     final activeSession = globalState.xboardSession;
     if (activeSession == null || activeSession.authData.isEmpty) return false;
     final activeRevision = globalState.xboardSessionRevision;
+    final ruleAccountKey = globalState.xboardRuleAccountKey;
     final activeEmail = _loginPersistence.state.email;
     final retryDelays = retryWhenUnchanged
         ? const [Duration.zero, Duration(seconds: 1), Duration(seconds: 2)]
@@ -1094,6 +1146,7 @@ class ApplicationState extends ConsumerState<Application> {
         final updatedRevision = globalState.activateXboardSession(
           updatedSession,
           nodes: globalState.xboardNodes,
+          ruleAccountKey: ruleAccountKey,
         );
         if (refreshNodeMetadata) {
           await _loadXboardNodes(updatedSession);
@@ -1116,6 +1169,7 @@ class ApplicationState extends ConsumerState<Application> {
           await _xboardSessionStorage.saveOfflineCache(
             session: updatedSession,
             nodes: nodes,
+            ruleAccountKey: ruleAccountKey,
           );
           _offlineAvailable = true;
         } catch (error, stackTrace) {
@@ -1394,7 +1448,7 @@ class ApplicationState extends ConsumerState<Application> {
             appVersion: globalState.packageInfo.version,
           );
           if (!mounted || _logoutInProgress) return session;
-          globalState.activateXboardSession(session);
+          globalState.activateXboardSession(session, accountEmail: email);
           _beginDefaultLoginRouting(session);
           _startPostLoginProfileSync(
             session,

@@ -122,6 +122,76 @@ final class AddedRulesStreamFamily extends $Family
   String toString() => r'addedRulesStreamProvider';
 }
 
+@ProviderFor(profileRuleAccountKey)
+final profileRuleAccountKeyProvider = ProfileRuleAccountKeyFamily._();
+
+final class ProfileRuleAccountKeyProvider
+    extends $FunctionalProvider<AsyncValue<String?>, String?, FutureOr<String?>>
+    with $FutureModifier<String?>, $FutureProvider<String?> {
+  ProfileRuleAccountKeyProvider._({
+    required ProfileRuleAccountKeyFamily super.from,
+    required int super.argument,
+  }) : super(
+         retry: null,
+         name: r'profileRuleAccountKeyProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$profileRuleAccountKeyHash();
+
+  @override
+  String toString() {
+    return r'profileRuleAccountKeyProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<String?> $createElement($ProviderPointer pointer) =>
+      $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<String?> create(Ref ref) {
+    final argument = this.argument as int;
+    return profileRuleAccountKey(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is ProfileRuleAccountKeyProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$profileRuleAccountKeyHash() =>
+    r'f8ca795fa6ec107218c2360af1cfa6cd69c4307d';
+
+final class ProfileRuleAccountKeyFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<String?>, int> {
+  ProfileRuleAccountKeyFamily._()
+    : super(
+        retry: null,
+        name: r'profileRuleAccountKeyProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  ProfileRuleAccountKeyProvider call(int profileId) =>
+      ProfileRuleAccountKeyProvider._(argument: profileId, from: this);
+
+  @override
+  String toString() => r'profileRuleAccountKeyProvider';
+}
+
 @ProviderFor(customRulesCount)
 final customRulesCountProvider = CustomRulesCountFamily._();
 
@@ -510,7 +580,7 @@ final class ProfileAddedRulesProvider
   }
 }
 
-String _$profileAddedRulesHash() => r'0b40fd65607a765e0ed1e65110cc04093dd59999';
+String _$profileAddedRulesHash() => r'9648ea718bf4421c61c928d317bcdee45c5a4d20';
 
 final class ProfileAddedRulesFamily extends $Family
     with
@@ -781,7 +851,7 @@ final class ProfileDisabledRuleIdsProvider
 }
 
 String _$profileDisabledRuleIdsHash() =>
-    r'd4dc2c2046a1394600f6f2c9e97a801c77f51885';
+    r'fd664d09969d141046e127dfa506af9638c9004a';
 
 final class ProfileDisabledRuleIdsFamily extends $Family
     with

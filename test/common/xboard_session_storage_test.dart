@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:fl_clash/common/xboard_rule_account.dart';
 import 'package:fl_clash/common/xboard_session_storage.dart';
 import 'package:fl_clash/common/xboard_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -461,6 +463,10 @@ void main() {
     expect(await storage.loadOfflineMode(), isTrue);
     expect(cache, isNotNull);
     expect(cache!.subscription.email, 'offline@example.com');
+    expect(
+      cache.ruleAccountKey,
+      xboardRuleAccountKeyForEmail('offline@example.com'),
+    );
     expect(cache.subscription.plan?.name, 'Offline plan');
     expect(cache.nodes.single.rate, 1.5);
     expect(cache.nodes.single.tags, ['HK']);
@@ -473,6 +479,76 @@ void main() {
     expect(await storage.loadOfflineMode(), isFalse);
     expect(await storage.loadOfflineCache(), isNull);
   });
+
+  test(
+    'offline cache retains account identity without remembered login',
+    () async {
+      final storage = XboardSessionStorage();
+      final endpoint = Uri.parse('https://api.example.com');
+      final key = xboardRuleAccountKeyForEmail('manual@example.com');
+      await storage.save(
+        email: 'manual@example.com',
+        password: 'temporary-password',
+        rememberMe: false,
+        autoLogin: false,
+        endpoint: endpoint,
+        token: 'token',
+        authData: 'Bearer auth',
+        isAdmin: false,
+      );
+      await storage.saveOfflineCache(
+        session: XboardLoginResult(
+          endpoint: endpoint,
+          token: 'token',
+          authData: 'Bearer auth',
+          isAdmin: false,
+          subscription: XboardSubscriptionData(
+            endpoint: endpoint,
+            subscribeUrl: null,
+            uploadBytes: 0,
+            downloadBytes: 0,
+            transferEnableBytes: 1024,
+            rawData: const {},
+          ),
+        ),
+        nodes: const [],
+        ruleAccountKey: key,
+      );
+
+      final restored = await XboardSessionStorage().loadOfflineCache();
+      expect((await storage.load()).email, isNull);
+      expect(restored?.subscription.email, isNull);
+      expect(restored?.ruleAccountKey, key);
+      expect(restored?.toSession().token, isEmpty);
+      expect(restored?.toSession().authData, isEmpty);
+      final preferences = await SharedPreferences.getInstance();
+      expect(
+        preferences.getString('xboard.offline_cache'),
+        isNot(contains('manual@example.com')),
+      );
+    },
+  );
+
+  for (final storedKey in [null, 'invalid-account-key']) {
+    test('legacy offline account email recovers key from $storedKey', () async {
+      SharedPreferences.setMockInitialValues({
+        'xboard.offline_cache': jsonEncode({
+          'verified_at': '2026-09-17T00:00:00Z',
+          'rule_account_key': storedKey,
+          'subscription': {
+            'endpoint': 'https://api.example.com',
+            'email': ' LEGACY@example.com ',
+          },
+          'nodes': [],
+        }),
+      });
+      final cache = await XboardSessionStorage().loadOfflineCache();
+      expect(
+        cache?.ruleAccountKey,
+        xboardRuleAccountKeyForEmail('legacy@example.com'),
+      );
+    });
+  }
 }
 
 class _ManagedProfilePreferences extends Fake implements SharedPreferences {

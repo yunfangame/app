@@ -1726,6 +1726,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "savedRuleEnabled": MessageLookupByLibrary.simpleMessage("ルールを有効にして適用しました"),
     "savedRuleUpdated": MessageLookupByLibrary.simpleMessage("ルールを更新して適用しました"),
     "savedRules": MessageLookupByLibrary.simpleMessage("保存済みルール"),
+    "savedRulesAccountHint": MessageLookupByLibrary.simpleMessage(
+      "ルールはこの端末にのみ保存されます。ログアウト後も保持され、同じアカウントで再ログインすると自動的に復元されます。",
+    ),
+    "savedRulesAccountScope": MessageLookupByLibrary.simpleMessage(
+      "現在のアカウントのローカルルール",
+    ),
     "savedRulesLoadFailed": MessageLookupByLibrary.simpleMessage(
       "保存済みルールを読み込めません",
     ),

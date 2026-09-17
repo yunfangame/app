@@ -1,6 +1,7 @@
 import 'package:drift/native.dart';
 import 'package:fl_clash/database/database.dart' as fl;
 import 'package:fl_clash/enum/enum.dart';
+import 'package:fl_clash/models/models.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqlite3/sqlite3.dart';
 
@@ -19,7 +20,14 @@ void _downgradeToV1(Database raw) {
   raw.execute('PRAGMA user_version = 1');
 }
 
+void _downgradeToV3(Database raw) {
+  raw.execute('DROP TABLE IF EXISTS profile_rule_accounts');
+  raw.execute('ALTER TABLE profile_rule_mapping DROP COLUMN account_key');
+  raw.execute('PRAGMA user_version = 3');
+}
+
 void _downgradeToV2(Database raw) {
+  _downgradeToV3(raw);
   raw.execute('ALTER TABLE profiles DROP COLUMN match_target');
   raw.execute('PRAGMA user_version = 2');
 }
@@ -68,7 +76,7 @@ void main() {
 
     await openAndMigrate();
 
-    expect(_userVersion(raw), 3);
+    expect(_userVersion(raw), 4);
   });
 
   test('the v3 upgrade adds match_target to profiles', () async {
@@ -78,8 +86,42 @@ void main() {
     await openAndMigrate();
 
     expect(_columnsOf(raw, 'profiles'), contains('match_target'));
-    expect(_userVersion(raw), 3);
+    expect(_userVersion(raw), 4);
   });
+
+  test(
+    'the v4 upgrade preserves v3 rules before assigning an account',
+    () async {
+      final legacy = fl.Database(
+        NativeDatabase.opened(raw, closeUnderlyingOnClose: false),
+      );
+      const rule = Rule(
+        id: 7,
+        ruleAction: RuleAction.PROCESS_NAME,
+        content: 'WeChat.exe',
+        ruleTarget: 'DIRECT',
+        order: 'b',
+      );
+      await legacy.profilesDao.putAll([
+        const Profile(id: 1, autoUpdateDuration: Duration.zero).toCompanion(),
+      ]);
+      await legacy.rulesDao.putProfileAddedRule(1, rule);
+      await legacy.rulesDao.putDisabledLink(1, rule.id);
+      await legacy.close();
+      _downgradeToV3(raw);
+
+      final database = await openAndMigrate();
+
+      expect(_columnsOf(raw, 'profile_rule_mapping'), contains('account_key'));
+      expect(_hasTable(raw, 'profile_rule_accounts'), isTrue);
+      expect(await database.rulesDao.queryProfileAddedRules(1).get(), [rule]);
+      expect(await database.rulesDao.getProfileAccountKey(1), isNull);
+      await database.rulesDao.bindProfileAccount(1, 'account-a');
+      await database.rulesDao.bindProfileAccount(2, 'account-a');
+      expect(await database.rulesDao.queryProfileAddedRules(2).get(), [rule]);
+      expect(await database.rulesDao.queryAddedRules(2).get(), isEmpty);
+    },
+  );
 
   test(
     'a v2 user_version with match_target already present still opens',
@@ -90,7 +132,7 @@ void main() {
       await openAndMigrate();
 
       expect(_columnsOf(raw, 'profiles'), contains('match_target'));
-      expect(_userVersion(raw), 3);
+      expect(_userVersion(raw), 4);
     },
   );
 
@@ -156,29 +198,29 @@ void main() {
     expect(rows[1].read<int>('no_resolve'), 1);
   });
 
-  test('an empty v1 rules table still reaches v3', () async {
+  test('an empty v1 rules table still reaches v4', () async {
     _downgradeToV1(raw);
 
     final database = await openAndMigrate();
 
-    expect(_userVersion(raw), 3);
+    expect(_userVersion(raw), 4);
     expect(await database.customSelect('SELECT * FROM rules').get(), isEmpty);
   });
 
-  test('opening a database already at v3 changes nothing', () async {
+  test('opening a database already at v4 changes nothing', () async {
     final before = _columnsOf(raw, 'rules');
 
     await openAndMigrate();
 
     expect(_columnsOf(raw, 'rules'), before);
-    expect(_userVersion(raw), 3);
+    expect(_userVersion(raw), 4);
     expect(_hasTable(raw, 'proxy_groups'), isTrue);
   });
 
   test(
     'opening a newer schema is rejected without rewriting its version',
     () async {
-      raw.execute('PRAGMA user_version = 4');
+      raw.execute('PRAGMA user_version = 5');
 
       await expectLater(
         openAndMigrate(),
@@ -186,12 +228,12 @@ void main() {
           isA<StateError>().having(
             (error) => error.message,
             'message',
-            contains('schema 4 is newer than supported schema 3'),
+            contains('schema 5 is newer than supported schema 4'),
           ),
         ),
       );
 
-      expect(_userVersion(raw), 4);
+      expect(_userVersion(raw), 5);
     },
   );
 }

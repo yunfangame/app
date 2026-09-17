@@ -1056,6 +1056,8 @@
   "savedRulesProfileScope": "現在の購読：{profile}",
   "@savedRulesProfileScope": {"placeholders": {"profile": {"type": "String"}}},
   "savedRulesProfileHint": "購読を切り替えると、その購読に保存されたルールを表示します",
+  "savedRulesAccountScope": "現在のアカウントのローカルルール",
+  "savedRulesAccountHint": "ルールはこの端末にのみ保存されます。ログアウト後も保持され、同じアカウントで再ログインすると自動的に復元されます。",
   "savedRulesRequireProfile": "ルールを追加・管理する前に購読を選択してください",
   "noSavedRules": "保存済みルールはありません",
   "noSavedRulesDescription": "リアルタイム接続から追加するか、ここで作成できます",
