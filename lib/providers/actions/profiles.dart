@@ -169,6 +169,10 @@ class ProfilesAction extends _$ProfilesAction {
     var candidateApplied = false;
     try {
       ensureCurrent();
+      await ref
+          .read(coreActionProvider.notifier)
+          .ensureCoreForSubscription(isCurrent: isCurrent);
+      ensureCurrent();
       final updatedProfile =
           await (loader ??
               (profile) => profile.update(
@@ -301,6 +305,10 @@ class ProfilesAction extends _$ProfilesAction {
     _ProfileSyncSnapshot? transactionSnapshot;
     var candidateApplied = false;
     try {
+      ensureCurrent();
+      await ref
+          .read(coreActionProvider.notifier)
+          .ensureCoreForSubscription(isCurrent: isCurrent);
       ensureCurrent();
       final updatedProfile = await runSubscriptionDiagnosticStage(
         stage: 'profile_validation',

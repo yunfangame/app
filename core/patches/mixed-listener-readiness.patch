@@ -1,8 +1,8 @@
 diff --git a/listener/listener.go b/listener/listener.go
-index ececbc41..a8df2009 100644
+index ececbc41..5b3fe1cd 100644
 --- a/listener/listener.go
 +++ b/listener/listener.go
-@@ -441,58 +441,56 @@ func ReCreateTProxy(port int, tunnel C.Tunnel) {
+@@ -441,95 +441,94 @@ func ReCreateTProxy(port int, tunnel C.Tunnel) {
  }
  
  func ReCreateMixed(port int, tunnel C.Tunnel) {
@@ -90,3 +90,57 @@ index ececbc41..a8df2009 100644
  }
  
  func ReCreateTun(tunConf LC.Tun, tunnel C.Tunnel) {
+-	tunConf.Sort()
++	result := ReCreateTunWithResult(tunConf, tunnel)
++	if result.Error != nil {
++		log.Errorln("Start TUN listening error: %s", result.Error.Error())
++	}
++}
++
++type TunListenerResult struct {
++	Ready bool
++	Error error
++}
+ 
++func ReCreateTunWithResult(tunConf LC.Tun, tunnel C.Tunnel) TunListenerResult {
++	tunConf.Sort()
+ 	tunMux.Lock()
+ 	defer func() {
+ 		LastTunConf = tunConf
+ 		tunMux.Unlock()
+ 	}()
+ 
+-	var err error
+-	defer func() {
+-		if err != nil {
+-			log.Errorln("Start TUN listening error: %s", err.Error())
+-			tunConf.Enable = false
+-		}
+-	}()
+-
+ 	if tunLister != nil && tunConf.Equal(LastTunConf) {
+ 		tunLister.OnReload()
+-		return
++		return TunListenerResult{Ready: true}
+ 	}
+-
+ 	closeTunListener()
+-
+ 	if !tunConf.Enable {
+-		return
++		return TunListenerResult{}
+ 	}
+-
+ 	lister, err := sing_tun.New(tunConf, tunnel)
+ 	if err != nil {
+-		return
++		tunConf.Enable = false
++		return TunListenerResult{Error: err}
+ 	}
+ 	tunLister = lister
+-
+ 	log.Infoln("[TUN] Tun adapter listening at: %s", tunLister.Address())
++	return TunListenerResult{Ready: true}
+ }
+ 
+ func PatchTunnel(tunnels []LC.Tunnel, tunnel C.Tunnel) {

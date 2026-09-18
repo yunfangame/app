@@ -46,6 +46,7 @@ enum XboardAuthFailure {
   rateLimited,
   subscriptionRejected,
   subscriptionUnavailable,
+  coreUnavailable,
   verificationRejected,
   registrationRejected,
   passwordResetRejected,

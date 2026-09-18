@@ -4,6 +4,9 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <chrono>
+#include <future>
+#include <stdexcept>
 #include <string>
 #include <variant>
 #include <cstring>
@@ -21,6 +24,29 @@ using flutter::EncodableList;
 using flutter::EncodableValue;
 using flutter::MethodCall;
 using flutter::MethodResultFunctions;
+
+std::future<EncodableValue> InvokeProxy(
+    ProxyPlugin& plugin, const std::string& method, EncodableMap arguments) {
+  auto completion = std::make_shared<std::promise<EncodableValue>>();
+  auto future = completion->get_future();
+  plugin.HandleMethodCall(
+      MethodCall(method,
+                 std::make_unique<EncodableValue>(std::move(arguments))),
+      std::make_unique<MethodResultFunctions<>>(
+          [completion](const EncodableValue* value) {
+            completion->set_value(value == nullptr ? EncodableValue() : *value);
+          },
+          [completion](const std::string& code, const std::string& message,
+                       const EncodableValue*) {
+            completion->set_exception(
+                std::make_exception_ptr(std::runtime_error(code + ": " + message)));
+          },
+          [completion]() {
+            completion->set_exception(
+                std::make_exception_ptr(std::runtime_error("not implemented")));
+          }));
+  return future;
+}
 
 }  // namespace
 
@@ -152,84 +178,44 @@ TEST(ProxyPlugin, InspectProxyRejectsMissingExpectedPort) {
   EXPECT_EQ(error_code, "bad_args");
 }
 
+TEST(ProxyPlugin, SessionEndRejectsFurtherProxyOperations) {
+  ProxyPlugin plugin;
+  plugin.HandleWindowProc(nullptr, WM_ENDSESSION, TRUE, 0);
+  auto future = InvokeProxy(plugin, "InspectProxy", {
+      {EncodableValue("expectedPort"), EncodableValue(7890)}});
+  ASSERT_EQ(future.wait_for(std::chrono::seconds(1)), std::future_status::ready);
+  try {
+    future.get();
+    FAIL() << "Proxy operations must be rejected after session end";
+  } catch (const std::runtime_error& error) {
+    EXPECT_NE(std::string(error.what()).find("proxy_shutdown"), std::string::npos);
+  }
+}
+
 TEST(ProxyPlugin, DetailedStartAndStopRoundTripCurrentUserProxy) {
   if (GetEnvironmentVariableA("FENGWO_PROXY_MUTATING_TEST", nullptr, 0) == 0) {
     GTEST_SKIP() << "Requires an isolated Windows account with no existing proxy";
   }
   ProxyPlugin plugin;
-  bool start_called = false;
-  bool start_success = false;
-  bool start_enabled = false;
-  std::string start_server;
-  EncodableMap start_arguments = {
+  auto start = InvokeProxy(plugin, "StartProxyDetailed", {
       {EncodableValue("port"), EncodableValue(7890)},
       {EncodableValue("bypassDomain"),
-       EncodableValue(EncodableList{EncodableValue("localhost")})}};
+       EncodableValue(EncodableList{EncodableValue("localhost")})}});
+  ASSERT_EQ(start.wait_for(std::chrono::seconds(30)), std::future_status::ready);
+  const auto start_value = start.get();
+  const auto& start_map = std::get<EncodableMap>(start_value);
+  EXPECT_TRUE(std::get<bool>(start_map.at(EncodableValue("success"))));
+  EXPECT_TRUE(std::get<bool>(start_map.at(EncodableValue("enabled"))));
+  EXPECT_EQ(std::get<std::string>(start_map.at(EncodableValue("server"))),
+            "127.0.0.1:7890");
 
-  plugin.HandleMethodCall(
-      MethodCall(
-          "StartProxyDetailed",
-          std::make_unique<EncodableValue>(std::move(start_arguments))),
-      std::make_unique<MethodResultFunctions<>>(
-          [&start_called, &start_success, &start_enabled, &start_server](
-              const EncodableValue* value) {
-            start_called = true;
-            const auto* map = std::get_if<EncodableMap>(value);
-            if (map == nullptr) {
-              return;
-            }
-            const auto success = map->find(EncodableValue("success"));
-            const auto enabled = map->find(EncodableValue("enabled"));
-            const auto server = map->find(EncodableValue("server"));
-            if (success != map->end()) {
-              start_success = std::get<bool>(success->second);
-            }
-            if (enabled != map->end()) {
-              start_enabled = std::get<bool>(enabled->second);
-            }
-            if (server != map->end()) {
-              start_server = std::get<std::string>(server->second);
-            }
-          },
-          nullptr,
-          nullptr));
-
-  bool stop_called = false;
-  bool stop_success = false;
-  bool stop_enabled = true;
-  EncodableMap stop_arguments = {
-      {EncodableValue("expectedPort"), EncodableValue(7890)}};
-  plugin.HandleMethodCall(
-      MethodCall(
-          "StopProxyDetailed",
-          std::make_unique<EncodableValue>(std::move(stop_arguments))),
-      std::make_unique<MethodResultFunctions<>>(
-          [&stop_called, &stop_success, &stop_enabled](
-              const EncodableValue* value) {
-            stop_called = true;
-            const auto* map = std::get_if<EncodableMap>(value);
-            if (map == nullptr) {
-              return;
-            }
-            const auto success = map->find(EncodableValue("success"));
-            const auto enabled = map->find(EncodableValue("enabled"));
-            if (success != map->end()) {
-              stop_success = std::get<bool>(success->second);
-            }
-            if (enabled != map->end()) {
-              stop_enabled = std::get<bool>(enabled->second);
-            }
-          },
-          nullptr,
-          nullptr));
-
-  EXPECT_TRUE(start_called);
-  EXPECT_TRUE(start_success);
-  EXPECT_TRUE(start_enabled);
-  EXPECT_EQ(start_server, "127.0.0.1:7890");
-  EXPECT_TRUE(stop_called);
-  EXPECT_TRUE(stop_success);
-  EXPECT_FALSE(stop_enabled);
+  auto stop = InvokeProxy(plugin, "StopProxyDetailed", {
+      {EncodableValue("expectedPort"), EncodableValue(7890)}});
+  ASSERT_EQ(stop.wait_for(std::chrono::seconds(30)), std::future_status::ready);
+  const auto stop_value = stop.get();
+  const auto& stop_map = std::get<EncodableMap>(stop_value);
+  EXPECT_TRUE(std::get<bool>(stop_map.at(EncodableValue("success"))));
+  EXPECT_FALSE(std::get<bool>(stop_map.at(EncodableValue("enabled"))));
 }
 
 TEST(ProxySettings, InvalidParameterRetriesTypedAnsiOptions) {

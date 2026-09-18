@@ -2520,8 +2520,53 @@ class MessageLookup extends MessageLookupByLibrary {
       "Использование трафика",
     ),
     "tun": MessageLookupByLibrary.simpleMessage("TUN"),
+    "tunAdapterFailed": MessageLookupByLibrary.simpleMessage(
+      "Не удалось инициализировать адаптер или драйвер.",
+    ),
+    "tunAuthorizationCancelled": MessageLookupByLibrary.simpleMessage(
+      "Разрешение администратора отменено.",
+    ),
+    "tunComponentMissing": MessageLookupByLibrary.simpleMessage(
+      "Отсутствует служба или файл проверки целостности. Переустановите полный пакет клиента.",
+    ),
     "tunDesc": MessageLookupByLibrary.simpleMessage(
       "действительно только в режиме администратора",
+    ),
+    "tunFailureHelp": MessageLookupByLibrary.simpleMessage(
+      "Виртуальный адаптер выключен. Подробности записаны в экспортируемые журналы. Повторите авторизацию или выберите системный прокси для поддерживающих его приложений.",
+    ),
+    "tunPermissionDenied": MessageLookupByLibrary.simpleMessage(
+      "Нет прав на создание виртуального адаптера.",
+    ),
+    "tunRepairService": MessageLookupByLibrary.simpleMessage(
+      "Проверить и восстановить службу",
+    ),
+    "tunRetry": MessageLookupByLibrary.simpleMessage(
+      "Авторизовать и повторить",
+    ),
+    "tunSecurityBlocked": MessageLookupByLibrary.simpleMessage(
+      "Политика безопасности Windows заблокировала службу. Проверьте журнал защиты или обратитесь к администратору.",
+    ),
+    "tunServiceReady": MessageLookupByLibrary.simpleMessage(
+      "Служба готова. Включите виртуальный адаптер для проверки подключения.",
+    ),
+    "tunServiceUnavailable": MessageLookupByLibrary.simpleMessage(
+      "Служба не готова. Возможна блокировка или несовпадение версии.",
+    ),
+    "tunStartFailed": MessageLookupByLibrary.simpleMessage(
+      "Не удалось запустить виртуальный адаптер",
+    ),
+    "tunTools": MessageLookupByLibrary.simpleMessage(
+      "Инструменты виртуального адаптера",
+    ),
+    "tunToolsDescription": MessageLookupByLibrary.simpleMessage(
+      "При первом запуске требуются права администратора. Инструмент проверит службу и переустановит её при отсутствии или несовместимости. Затем включите адаптер для проверки.",
+    ),
+    "tunUseSystemProxy": MessageLookupByLibrary.simpleMessage(
+      "Системный прокси",
+    ),
+    "tunWaiting": MessageLookupByLibrary.simpleMessage(
+      "Ожидание подключения и проверки",
     ),
     "turnOff": MessageLookupByLibrary.simpleMessage("Выключить"),
     "turnOn": MessageLookupByLibrary.simpleMessage("Включить"),

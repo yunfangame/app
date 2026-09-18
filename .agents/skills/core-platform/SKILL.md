@@ -57,8 +57,8 @@ Read `.agents/architecture.md` for the current core modes, manager stack, build 
   termination cannot be confirmed the Helper keeps the child and answers `coreStopFailed`, and `/start` reports the same
   code instead of spawning a replacement. Keep that code out of the Dart pre-spawn fallback set in
   `helper_client.dart`, or the direct launch will race a Core the Helper still owns.
-- TUN is not a required run condition. Degrading to the unelevated direct Core — and silently losing TUN — is the
-  expected outcome whenever the Helper path fails; do not fail the launch instead.
+- Direct Core fallback may keep the application available, but a requested Windows TUN must fail visibly if authorization
+  or adapter creation fails. Publish TUN readiness only after native success; system-proxy fallback requires user selection.
 - A desktop process lease with unconfirmed exit must remain owned until cleanup succeeds. Do not discard it and start a
   replacement Core.
 - `CoreController.close()` is terminal. Do not call it from a reusable manager lifecycle or recover by starting it again.

@@ -10542,6 +10542,156 @@ class AppLocalizations {
       args: [],
     );
   }
+
+  /// `Virtual adapter could not start`
+  String get tunStartFailed {
+    return Intl.message(
+      'Virtual adapter could not start',
+      name: 'tunStartFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Administrator authorization was cancelled.`
+  String get tunAuthorizationCancelled {
+    return Intl.message(
+      'Administrator authorization was cancelled.',
+      name: 'tunAuthorizationCancelled',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Permission to create the virtual adapter was denied.`
+  String get tunPermissionDenied {
+    return Intl.message(
+      'Permission to create the virtual adapter was denied.',
+      name: 'tunPermissionDenied',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The helper or integrity manifest is missing. Reinstall the complete client package.`
+  String get tunComponentMissing {
+    return Intl.message(
+      'The helper or integrity manifest is missing. Reinstall the complete client package.',
+      name: 'tunComponentMissing',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The helper service did not become ready. It may be blocked or belong to a different installation.`
+  String get tunServiceUnavailable {
+    return Intl.message(
+      'The helper service did not become ready. It may be blocked or belong to a different installation.',
+      name: 'tunServiceUnavailable',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Windows security policy blocked the helper. Check Protection history and ask your administrator to review the client.`
+  String get tunSecurityBlocked {
+    return Intl.message(
+      'Windows security policy blocked the helper. Check Protection history and ask your administrator to review the client.',
+      name: 'tunSecurityBlocked',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The virtual adapter or its driver could not be initialized.`
+  String get tunAdapterFailed {
+    return Intl.message(
+      'The virtual adapter or its driver could not be initialized.',
+      name: 'tunAdapterFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The virtual adapter has been turned off. The failure details are recorded in the exported logs. Retry authorization, or choose system proxy for applications that support it.`
+  String get tunFailureHelp {
+    return Intl.message(
+      'The virtual adapter has been turned off. The failure details are recorded in the exported logs. Retry authorization, or choose system proxy for applications that support it.',
+      name: 'tunFailureHelp',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Use system proxy`
+  String get tunUseSystemProxy {
+    return Intl.message(
+      'Use system proxy',
+      name: 'tunUseSystemProxy',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Authorize and retry`
+  String get tunRetry {
+    return Intl.message(
+      'Authorize and retry',
+      name: 'tunRetry',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Requested; waiting for connection and verification`
+  String get tunWaiting {
+    return Intl.message(
+      'Requested; waiting for connection and verification',
+      name: 'tunWaiting',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Virtual adapter tools`
+  String get tunTools {
+    return Intl.message(
+      'Virtual adapter tools',
+      name: 'tunTools',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `First use requires administrator authorization to install the helper. Check the service and reinstall it if missing or incompatible. Then enable the virtual adapter to verify creation.`
+  String get tunToolsDescription {
+    return Intl.message(
+      'First use requires administrator authorization to install the helper. Check the service and reinstall it if missing or incompatible. Then enable the virtual adapter to verify creation.',
+      name: 'tunToolsDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Check and repair service`
+  String get tunRepairService {
+    return Intl.message(
+      'Check and repair service',
+      name: 'tunRepairService',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Helper service is ready. Enable the virtual adapter to verify the connection.`
+  String get tunServiceReady {
+    return Intl.message(
+      'Helper service is ready. Enable the virtual adapter to verify the connection.',
+      name: 'tunServiceReady',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<AppLocalizations> {

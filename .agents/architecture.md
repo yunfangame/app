@@ -61,6 +61,9 @@ Windows listener readiness is separate from the desktop Core process connection.
 listeners, and the expected IPv4 loopback endpoint is reachable. Only then does it publish runtime/connected state.
 Explicit authorized TUN-only configurations with a zero mixed port retain their existing no-mixed-listener behavior.
 Configuration changes during startup must repeat configuration and ownership verification, not just probe a new port.
+Windows TUN readiness is confirmed by the native TUN listener owner. Authorization and adapter creation errors must reach
+the UI and persistent diagnostics; a requested toggle is never evidence of an active adapter. The user may explicitly
+select system-proxy fallback or use the virtual adapter tools to check and repair the helper service.
 An excluded SSID preserves pending user intent; Windows suspension/resumption goes through `SetupAction.refreshSuspension`
 and the same readiness path. A later stop or start supersedes earlier completions. Android retains native service intent
 ownership and optimistic presentation.
@@ -382,7 +385,7 @@ The helper owns its Windows Service Control Manager lifecycle through two elevat
 - `FlClashHelperService.exe uninstall` stops the service, waits for shutdown, removes its registration, and is also used
   by the Windows package uninstaller.
 
-The Dart layer only launches the helper's `install` command through `ShellExecuteW`; it does not compose `sc.exe`,
+The Dart layer only launches the helper's `install` command through `ShellExecuteExW`, retaining the installer exit code; it does not compose `sc.exe`,
 `taskkill`, or `cmd.exe` command lines.
 
 In every Flutter build mode `/start` opens the fixed Core executable beside the Helper without write/delete sharing,

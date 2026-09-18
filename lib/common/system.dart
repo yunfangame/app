@@ -13,6 +13,9 @@ import 'package:fl_clash/widgets/input.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:path/path.dart';
+import 'package:win32/win32.dart' as win32;
+
+import 'tun_failure.dart';
 
 typedef ProcessRunner =
     Future<ProcessResult> Function(String executable, List<String> arguments);
@@ -220,11 +223,7 @@ final system = System();
 
 class Windows {
   static Windows? _instance;
-  late DynamicLibrary _shell32;
-
-  Windows._internal() {
-    _shell32 = DynamicLibrary.open('shell32.dll');
-  }
+  Windows._internal();
 
   factory Windows() {
     _instance ??= Windows._internal();
@@ -232,68 +231,66 @@ class Windows {
   }
 
   bool runas(String command, String arguments) {
+    return _runElevated(command, arguments).error == 0;
+  }
+
+  ({int error, win32.HANDLE? process}) _runElevated(
+    String command,
+    String arguments, {
+    bool retainProcess = false,
+  }) {
+    const noAsync = 0x00000100;
+    const noErrorDialog = 0x00000400;
+    const retainProcessHandle = 0x00000040;
+    final info = calloc<win32.SHELLEXECUTEINFO>();
     final commandPtr = command.toNativeUtf16();
     final argumentsPtr = arguments.toNativeUtf16();
     final operationPtr = 'runas'.toNativeUtf16();
-
-    final shellExecute = _shell32
-        .lookupFunction<
-          Int32 Function(
-            Pointer<Utf16> hwnd,
-            Pointer<Utf16> lpOperation,
-            Pointer<Utf16> lpFile,
-            Pointer<Utf16> lpParameters,
-            Pointer<Utf16> lpDirectory,
-            Int32 nShowCmd,
-          ),
-          int Function(
-            Pointer<Utf16> hwnd,
-            Pointer<Utf16> lpOperation,
-            Pointer<Utf16> lpFile,
-            Pointer<Utf16> lpParameters,
-            Pointer<Utf16> lpDirectory,
-            int nShowCmd,
-          )
-        >('ShellExecuteW');
-
-    final result = shellExecute(
-      nullptr,
-      operationPtr,
-      commandPtr,
-      argumentsPtr,
-      nullptr,
-      1,
-    );
-
-    calloc.free(commandPtr);
-    calloc.free(argumentsPtr);
-    calloc.free(operationPtr);
-
-    commonPrint.log(
-      'windows runas: $command $arguments resultCode:$result',
-      logLevel: LogLevel.warning,
-    );
-
-    if (result <= 32) {
-      return false;
+    try {
+      info.ref
+        ..cbSize = sizeOf<win32.SHELLEXECUTEINFO>()
+        ..fMask =
+            noAsync | noErrorDialog | (retainProcess ? retainProcessHandle : 0)
+        ..lpVerb = win32.PWSTR(operationPtr)
+        ..lpFile = win32.PWSTR(commandPtr)
+        ..lpParameters = win32.PWSTR(argumentsPtr)
+        ..nShow = 1;
+      final result = win32.ShellExecuteEx(info);
+      final error = result.value
+          ? 0
+          : (result.error.toInt() == 0 ? -1 : result.error.toInt());
+      commonPrint.event(
+        'windows.elevation.completed',
+        fields: {'success': result.value, 'os_error_code': error},
+      );
+      return (
+        error: error,
+        process: result.value && retainProcess ? info.ref.hProcess : null,
+      );
+    } finally {
+      calloc.free(info);
+      calloc.free(commandPtr);
+      calloc.free(argumentsPtr);
+      calloc.free(operationPtr);
     }
-    return true;
   }
 
-  Future<AuthorizeCode> registerService() async {
+  Future<AuthorizeCode>? _registeringService;
+
+  Future<AuthorizeCode> registerService() {
+    return _registeringService ??= _registerService().whenComplete(() {
+      _registeringService = null;
+    });
+  }
+
+  Future<AuthorizeCode> _registerService() async {
     final readiness = await windowsHelperClient.readiness();
     switch (readiness) {
       case WindowsHelperReadiness.ready:
         commonPrint.log('helper service is ready');
         return AuthorizeCode.none;
       case WindowsHelperReadiness.manifestMissing:
-        commonPrint.log(
-          'Core manifest is missing or invalid; Helper service unavailable, '
-          'falling back to direct Core',
-          logLevel: LogLevel.warning,
-        );
-        globalState.showNotifier(currentAppLocalizations.helperCorruptTip);
-        return AuthorizeCode.error;
+        throw const TunFailure('preflight', 'manifest_missing');
       case WindowsHelperReadiness.notReady:
         break;
     }
@@ -302,12 +299,22 @@ class Windows {
       'helper service is unavailable, requesting elevated installation',
       logLevel: LogLevel.warning,
     );
-    if (!runas(appPath.helperPath, 'install')) {
-      commonPrint.log(
-        'failed to launch elevated helper installation',
-        logLevel: LogLevel.error,
-      );
-      return AuthorizeCode.error;
+    if (!await File(appPath.helperPath).exists()) {
+      throw const TunFailure('preflight', 'helper_missing');
+    }
+    final elevation = _runElevated(
+      appPath.helperPath,
+      'install',
+      retainProcess: true,
+    );
+    if (elevation.error != 0) throw TunFailure.elevation(elevation.error);
+    final process = elevation.process;
+    if (process != null && process.address != 0) {
+      try {
+        await _waitForInstaller(process);
+      } finally {
+        win32.CloseHandle(process);
+      }
     }
 
     final isRunning = await _waitForHelperService();
@@ -317,7 +324,46 @@ class Windows {
           : 'helper service did not become ready after installation',
       logLevel: isRunning ? LogLevel.info : LogLevel.error,
     );
-    return isRunning ? AuthorizeCode.success : AuthorizeCode.error;
+    if (!isRunning) {
+      await windowsHelperClient.readiness();
+      throw const TunFailure('service_start', 'helper_not_ready');
+    }
+    return AuthorizeCode.success;
+  }
+
+  Future<void> _waitForInstaller(win32.HANDLE process) async {
+    final exitCode = calloc<Uint32>();
+    final watch = Stopwatch()..start();
+    try {
+      while (watch.elapsed < const Duration(seconds: 45)) {
+        final result = win32.GetExitCodeProcess(process, exitCode);
+        if (!result.value) {
+          throw TunFailure(
+            'service_install',
+            'installer_status_failed',
+            osErrorCode: result.error.toInt(),
+          );
+        }
+        if (exitCode.value != 259) {
+          commonPrint.event(
+            'windows.helper.install.completed',
+            fields: {'exit_code': exitCode.value},
+          );
+          if (exitCode.value != 0) {
+            throw TunFailure(
+              'service_install',
+              'installer_failed',
+              installerExitCode: exitCode.value,
+            );
+          }
+          return;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+      throw const TunFailure('service_install', 'installer_timeout');
+    } finally {
+      calloc.free(exitCode);
+    }
   }
 
   Future<bool> _waitForHelperService() async {

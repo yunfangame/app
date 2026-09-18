@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/core/method.dart';
+import 'package:fl_clash/common/tun_failure.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
@@ -25,6 +26,110 @@ void main() {
     action = container.read(setupActionProvider.notifier) as _WindowsSetup;
   });
   tearDown(() => container.dispose());
+
+  for (final failure in [
+    const TunFailure(
+      'authorization',
+      'authorization_cancelled',
+      osErrorCode: 1223,
+    ),
+    const TunFailure('service_start', 'helper_not_ready'),
+    const CoreMethodException(
+      code: 'listener_not_ready',
+      message: 'TUN failed',
+      details: {
+        'listener': 'tun',
+        'stage': 'adapter_create',
+        'reason': 'access_denied',
+        'os_error_code': 5,
+      },
+    ),
+  ]) {
+    test('TUN failure clears requested and verified state: $failure', () async {
+      container
+          .read(patchClashConfigProvider.notifier)
+          .update((s) => s.copyWith.tun(enable: true));
+      container.read(authorizedTunEnableProvider.notifier).value =
+          TunAuthorizationState.authorized;
+      action.prepareFailure = failure;
+      await action.setRunning(true);
+      expect(container.read(patchClashConfigProvider).tun.enable, isFalse);
+      expect(container.read(windowsTunReadyProvider), isFalse);
+      expect(
+        container.read(authorizedTunEnableProvider),
+        TunAuthorizationState.none,
+      );
+      expect(container.read(networkSettingProvider).systemProxy, isFalse);
+      expect(action.tunNotifications, hasLength(1));
+      expect(action.notifications, 0);
+      expect(container.read(isStartProvider), isFalse);
+    });
+  }
+
+  test('TUN readiness waits for native success and clears on stop', () async {
+    container
+        .read(patchClashConfigProvider.notifier)
+        .update((s) => s.copyWith.tun(enable: true));
+    container.read(authorizedTunEnableProvider.notifier).value =
+        TunAuthorizationState.authorized;
+    action.start = Completer<bool>();
+    final pending = action.setRunning(true);
+    await action.startEntered.future;
+    expect(container.read(windowsTunReadyProvider), isFalse);
+    action.start!.complete(true);
+    await pending;
+    expect(container.read(windowsTunReadyProvider), isTrue);
+    await action.setRunning(false);
+    expect(container.read(windowsTunReadyProvider), isFalse);
+  });
+
+  test(
+    'an old TUN update failure cannot clear a newer off-on request',
+    () async {
+      await action.setRunning(true);
+      container
+          .read(patchClashConfigProvider.notifier)
+          .update((s) => s.copyWith.tun(enable: true));
+      final update = Completer<String>();
+      action.update = update;
+      final oldUpdate = action.updateConfig();
+      await action.updateEntered.future;
+      container
+          .read(patchClashConfigProvider.notifier)
+          .update((s) => s.copyWith.tun(enable: false));
+      container
+          .read(patchClashConfigProvider.notifier)
+          .update((s) => s.copyWith.tun(enable: true));
+      update.completeError(
+        const CoreMethodException(
+          code: 'listener_not_ready',
+          message: 'obsolete TUN failure',
+          details: {'listener': 'tun', 'reason': 'access_denied'},
+        ),
+      );
+      await oldUpdate;
+      expect(container.read(patchClashConfigProvider).tun.enable, isTrue);
+      expect(action.tunNotifications, isEmpty);
+      expect(container.read(isStartProvider), isTrue);
+      await action.setRunning(false);
+    },
+  );
+
+  test('native TUN create failure during update disables the switch', () async {
+    await action.setRunning(true);
+    container
+        .read(patchClashConfigProvider.notifier)
+        .update((s) => s.copyWith.tun(enable: true));
+    action.updateFailure = const CoreMethodException(
+      code: 'listener_not_ready',
+      message: 'TUN failed',
+      details: {'listener': 'tun', 'reason': 'adapter_not_ready'},
+    );
+    await action.updateConfig();
+    expect(container.read(patchClashConfigProvider).tun.enable, isFalse);
+    expect(action.tunNotifications, ['adapter_not_ready']);
+    expect(container.read(isStartProvider), isFalse);
+  });
 
   test(
     'config and owned listener precede loopback and connected state',
@@ -350,6 +455,10 @@ class _WindowsSetup extends SetupAction {
   int updateCalls = 0;
   int authorizationCalls = 0;
   int notifications = 0;
+  final tunNotifications = <String>[];
+
+  @override
+  void notifyTunFailure(String code) => tunNotifications.add(code);
 
   @override
   bool get requiresListenerReadiness => true;

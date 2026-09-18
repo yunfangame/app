@@ -1,5 +1,6 @@
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/providers/config.dart';
+import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/views/config/network.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
@@ -62,17 +63,18 @@ class TUNButton extends StatelessWidget {
               ),
               Consumer(
                 builder: (_, ref, _) {
-                  final enable = ref.watch(
-                    patchClashConfigProvider.select(
-                      (state) => state.tun.enable,
-                    ),
+                  final enable = ref.watch(tunActiveProvider);
+                  final requested = ref.watch(
+                    patchClashConfigProvider.select((s) => s.tun.enable),
                   );
                   return Switch(
                     value: enable,
                     onChanged: (value) {
                       ref
                           .read(patchClashConfigProvider.notifier)
-                          .update((state) => state.copyWith.tun(enable: value));
+                          .update(
+                            (state) => state.copyWith.tun(enable: !requested),
+                          );
                     },
                   );
                 },

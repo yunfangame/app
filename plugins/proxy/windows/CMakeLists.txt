@@ -16,10 +16,10 @@ cmake_policy(VERSION 3.14...3.25)
 # not be changed
 set(PLUGIN_NAME "proxy_plugin")
 
-# Any new source files that you add to the plugin should be added here.
 list(APPEND PLUGIN_SOURCES
   "proxy_plugin.cpp"
   "proxy_plugin.h"
+  "proxy_task_runner.h"
 )
 
 # Define the plugin library target. Its name must not be changed (see comment
@@ -82,6 +82,7 @@ FetchContent_MakeAvailable(googletest)
 # directly into the test binary rather than using the DLL.
 add_executable(${TEST_RUNNER}
   test/proxy_plugin_test.cpp
+  test/proxy_task_runner_test.cpp
   ${PLUGIN_SOURCES}
 )
 apply_standard_settings(${TEST_RUNNER})

@@ -155,7 +155,9 @@ TrayState trayState(Ref ref) {
     port: clashConfigVm3.b,
     autoLaunch: appSettingVm3.a,
     systemProxy: systemProxy,
-    tunEnable: clashConfigVm3.c,
+    tunEnable: system.isWindows
+        ? ref.watch(tunActiveProvider)
+        : clashConfigVm3.c,
     isStart: isStart,
     locale: appSettingVm3.b,
     brightness: brightness,

@@ -24,6 +24,31 @@ class ConnectionPending extends _$ConnectionPending
 }
 
 @Riverpod(keepAlive: true)
+class WindowsTunReady extends _$WindowsTunReady with AutoDisposeNotifierMixin {
+  @override
+  bool build() {
+    ref.listen(coreStatusProvider, (_, next) {
+      if (next != CoreStatus.connected) state = false;
+    });
+    ref.listen(patchClashConfigProvider, (previous, next) {
+      if (previous?.tun != next.tun) state = false;
+    });
+    return false;
+  }
+}
+
+@riverpod
+bool tunActive(Ref ref) {
+  final requested = ref.watch(patchClashConfigProvider).tun.enable;
+  if (!system.isWindows) return requested;
+  return requested &&
+      ref.watch(windowsTunReadyProvider) &&
+      ref.watch(coreStatusProvider) == CoreStatus.connected &&
+      ref.watch(isStartProvider) &&
+      !ref.watch(connectionPendingProvider);
+}
+
+@Riverpod(keepAlive: true)
 class AuthorizedTunEnable extends _$AuthorizedTunEnable
     with AutoDisposeNotifierMixin {
   @override
@@ -118,6 +143,7 @@ class Logs extends _$Logs with AutoDisposeNotifierMixin {
       'allow_lan': ref.read(patchClashConfigProvider).allowLan,
       'system_proxy_requested': ref.read(networkSettingProvider).systemProxy,
       'tun_requested': ref.read(patchClashConfigProvider).tun.enable,
+      'tun_verified': ref.read(windowsTunReadyProvider),
       'tun_authorization': ref.read(authorizedTunEnableProvider).name,
       'vpn_enabled': ref.read(vpnSettingProvider).enable,
       'profile_count': ref.read(profilesProvider).length,

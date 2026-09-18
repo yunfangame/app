@@ -10,6 +10,7 @@ import 'package:fl_clash/views/dashboard/widgets/dashboard_subscription_refresh_
 import 'package:fl_clash/views/dashboard/widgets/global_mode_confirmation.dart';
 import 'package:fl_clash/views/proxies/common.dart';
 import 'package:fl_clash/widgets/fengwo_marquee.dart';
+import 'package:fl_clash/widgets/windows_tun_tools.dart';
 import 'package:fl_clash/widgets/subscription_status_indicator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -568,9 +569,7 @@ class _ModeSelector extends ConsumerWidget {
     final mode = ref.watch(
       patchClashConfigProvider.select((config) => config.mode),
     );
-    final tunEnabled = ref.watch(
-      patchClashConfigProvider.select((config) => config.tun.enable),
-    );
+    final tunEnabled = ref.watch(tunActiveProvider);
     final systemProxyEnabled = ref.watch(
       networkSettingProvider.select((settings) => settings.systemProxy),
     );
@@ -624,6 +623,7 @@ class _ModeSelector extends ConsumerWidget {
             selected: tunEnabled,
             onTap: () => ref.read(systemActionProvider.notifier).updateTun(),
           ),
+          if (system.isWindows) const WindowsTunToolsButton(),
           _ModeItem(
             key: const ValueKey('fengwo-desktop-system-proxy'),
             colors: colors,

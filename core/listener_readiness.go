@@ -12,16 +12,17 @@ import (
 )
 
 type listenerFailure struct {
-	Stage       string `json:"stage"`
-	Listener    string `json:"listener"`
-	Protocol    string `json:"protocol"`
-	Port        int    `json:"port"`
-	BindAddress string `json:"bind_address"`
-	AllowLAN    bool   `json:"allow_lan"`
-	TCPReady    bool   `json:"tcp_ready"`
-	UDPReady    bool   `json:"udp_ready"`
-	Reason      string `json:"reason"`
-	OSErrorCode uint64 `json:"os_error_code"`
+	Stage        string `json:"stage"`
+	Listener     string `json:"listener"`
+	Protocol     string `json:"protocol"`
+	Port         int    `json:"port"`
+	BindAddress  string `json:"bind_address"`
+	AllowLAN     bool   `json:"allow_lan"`
+	TCPReady     bool   `json:"tcp_ready"`
+	UDPReady     bool   `json:"udp_ready"`
+	Reason       string `json:"reason"`
+	ErrorMessage string `json:"error_message,omitempty"`
+	OSErrorCode  uint64 `json:"os_error_code"`
 }
 
 func (failure *listenerFailure) Error() string {
@@ -96,4 +97,27 @@ func respondListenerFailure(response MethodResponse, err error) bool {
 		failure,
 	)
 	return true
+}
+
+func tunListenerFailure(enabled bool, result listener.TunListenerResult) *listenerFailure {
+	if !enabled || result.Ready && result.Error == nil {
+		return nil
+	}
+	failure := &listenerFailure{
+		Stage:    "adapter_create",
+		Listener: "tun",
+		Protocol: "tun",
+		Reason:   "adapter_not_ready",
+	}
+	if result.Error != nil {
+		failure.ErrorMessage = result.Error.Error()
+	}
+	var errno syscall.Errno
+	if errors.As(result.Error, &errno) {
+		failure.OSErrorCode = uint64(errno)
+	}
+	if errors.Is(result.Error, syscall.EACCES) || errors.Is(result.Error, syscall.EPERM) || failure.OSErrorCode == 5 {
+		failure.Reason = "access_denied"
+	}
+	return failure
 }

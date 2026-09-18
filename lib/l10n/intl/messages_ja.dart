@@ -2035,7 +2035,42 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "trafficUsage": MessageLookupByLibrary.simpleMessage("トラフィック使用量"),
     "tun": MessageLookupByLibrary.simpleMessage("TUN"),
+    "tunAdapterFailed": MessageLookupByLibrary.simpleMessage(
+      "仮想アダプターまたはドライバーを初期化できませんでした。",
+    ),
+    "tunAuthorizationCancelled": MessageLookupByLibrary.simpleMessage(
+      "管理者の承認がキャンセルされました。",
+    ),
+    "tunComponentMissing": MessageLookupByLibrary.simpleMessage(
+      "ヘルパーまたは検証ファイルがありません。完全なパッケージを再インストールしてください。",
+    ),
     "tunDesc": MessageLookupByLibrary.simpleMessage("管理者モードでのみ有効"),
+    "tunFailureHelp": MessageLookupByLibrary.simpleMessage(
+      "仮想アダプターを無効にしました。詳細はエクスポートしたログで確認できます。再承認するか、対応アプリ用にシステムプロキシを選択してください。",
+    ),
+    "tunPermissionDenied": MessageLookupByLibrary.simpleMessage(
+      "仮想アダプターを作成する権限がありません。",
+    ),
+    "tunRepairService": MessageLookupByLibrary.simpleMessage("サービスを確認・修復"),
+    "tunRetry": MessageLookupByLibrary.simpleMessage("承認して再試行"),
+    "tunSecurityBlocked": MessageLookupByLibrary.simpleMessage(
+      "Windows のセキュリティポリシーがヘルパーをブロックしました。保護の履歴を確認するか管理者に相談してください。",
+    ),
+    "tunServiceReady": MessageLookupByLibrary.simpleMessage(
+      "サービスの準備ができました。仮想アダプターを有効にして接続を確認してください。",
+    ),
+    "tunServiceUnavailable": MessageLookupByLibrary.simpleMessage(
+      "ヘルパーサービスが準備できません。ブロックまたは別バージョンの可能性があります。",
+    ),
+    "tunStartFailed": MessageLookupByLibrary.simpleMessage(
+      "仮想アダプターを起動できませんでした",
+    ),
+    "tunTools": MessageLookupByLibrary.simpleMessage("仮想アダプターツール"),
+    "tunToolsDescription": MessageLookupByLibrary.simpleMessage(
+      "初回は管理者の承認が必要です。サービスがない場合や互換性がない場合は再インストールします。その後アダプターを有効にして確認してください。",
+    ),
+    "tunUseSystemProxy": MessageLookupByLibrary.simpleMessage("システムプロキシを使用"),
+    "tunWaiting": MessageLookupByLibrary.simpleMessage("要求済み：接続と検証を待機中"),
     "turnOff": MessageLookupByLibrary.simpleMessage("オフ"),
     "turnOn": MessageLookupByLibrary.simpleMessage("オン"),
     "twoYearBilling": MessageLookupByLibrary.simpleMessage("2年"),
