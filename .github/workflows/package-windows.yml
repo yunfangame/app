@@ -77,6 +77,14 @@ jobs:
           dart test test/core_patches_test.dart
           if ($LASTEXITCODE -ne 0) { throw 'Core patch tests failed' }
 
+      - name: Analyze test snapshot
+        run: flutter analyze --no-fatal-infos
+
+      - name: Test Windows TUN authorization and tools
+        run: |
+          flutter test test/providers/windows_tun_authorization_test.dart test/providers/subscription_core_recovery_test.dart test/widgets/windows_tun_tools_test.dart test/widgets/desktop_mode_hit_test.dart --reporter expanded
+          if ($LASTEXITCODE -ne 0) { throw 'Windows TUN regression tests failed' }
+
       - name: Test connection and credential regressions
         shell: pwsh
         run: |
