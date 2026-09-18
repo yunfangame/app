@@ -1769,7 +1769,47 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "trafficUsage": MessageLookupByLibrary.simpleMessage("流量统计"),
     "tun": MessageLookupByLibrary.simpleMessage("虚拟网卡"),
+    "tunActivationFailed": MessageLookupByLibrary.simpleMessage(
+      "虚拟网卡未能启动，请导出日志查看检测和连接失败的原因。",
+    ),
+    "tunAdapterFailed": MessageLookupByLibrary.simpleMessage(
+      "虚拟网卡或驱动初始化失败，请导出日志查看具体原因。",
+    ),
+    "tunAuthorizationCancelled": MessageLookupByLibrary.simpleMessage(
+      "已取消管理员授权，未创建虚拟网卡。",
+    ),
+    "tunComponentMissing": MessageLookupByLibrary.simpleMessage(
+      "服务组件或完整性校验文件缺失，请重新安装完整客户端。",
+    ),
     "tunDesc": MessageLookupByLibrary.simpleMessage("仅在管理员模式生效"),
+    "tunFailureHelp": MessageLookupByLibrary.simpleMessage(
+      "虚拟网卡已关闭，失败详情已写入日志。可以重新授权重试；也可以选择系统代理，供支持系统代理的应用使用。",
+    ),
+    "tunPermissionDenied": MessageLookupByLibrary.simpleMessage(
+      "没有创建虚拟网卡所需的权限，请允许管理员授权。",
+    ),
+    "tunRepairService": MessageLookupByLibrary.simpleMessage("检测并修复服务"),
+    "tunRetry": MessageLookupByLibrary.simpleMessage("重新授权并重试"),
+    "tunSecurityBlocked": MessageLookupByLibrary.simpleMessage(
+      "Windows 安全策略阻止了辅助服务，请检查保护历史记录或联系管理员处理。",
+    ),
+    "tunServiceReady": MessageLookupByLibrary.simpleMessage(
+      "辅助服务已就绪，请开启虚拟网卡验证连接。",
+    ),
+    "tunServiceUnavailable": MessageLookupByLibrary.simpleMessage(
+      "辅助服务未能就绪，可能被拦截或与当前安装版本不一致。",
+    ),
+    "tunStartFailed": MessageLookupByLibrary.simpleMessage("虚拟网卡启动失败"),
+    "tunStarting": MessageLookupByLibrary.simpleMessage("虚拟网卡开启中"),
+    "tunStartingDescription": MessageLookupByLibrary.simpleMessage(
+      "正在检测辅助服务并启动虚拟网卡，请稍候。首次使用可能需要管理员授权。",
+    ),
+    "tunTools": MessageLookupByLibrary.simpleMessage("虚拟网卡工具"),
+    "tunToolsDescription": MessageLookupByLibrary.simpleMessage(
+      "首次启用需要管理员授权安装辅助服务。此工具会检查服务，并在缺失或版本不匹配时重新安装。服务就绪后仍需开启虚拟网卡，确认网卡创建成功。",
+    ),
+    "tunUseSystemProxy": MessageLookupByLibrary.simpleMessage("使用系统代理"),
+    "tunWaiting": MessageLookupByLibrary.simpleMessage("已请求，等待连接及验证"),
     "turnOff": MessageLookupByLibrary.simpleMessage("关闭"),
     "turnOn": MessageLookupByLibrary.simpleMessage("开启"),
     "twoYearBilling": MessageLookupByLibrary.simpleMessage("两年付"),

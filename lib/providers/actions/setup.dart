@@ -40,6 +40,11 @@ class SetupAction extends _$SetupAction {
   Mode? _pendingMode;
   Future<ModeSwitchResult>? _pendingModeChange;
   String? _lastConfigurationFailureStage;
+  Object? _reportedTunFailure;
+  int _tunRevision = 0;
+  Future<void>? _enablingWindowsTun;
+  String? _pendingTunFailure;
+  VoidCallback? _closeTunProgress;
   DateTime? _startTime;
   int? _appliedRuleProfileId;
   String? _appliedRuleTarget;
@@ -161,7 +166,12 @@ class SetupAction extends _$SetupAction {
 
   @override
   void build() {
+    ref.listen(patchClashConfigProvider, (previous, next) {
+      if (previous?.tun != next.tun) _tunRevision++;
+    });
     ref.onDispose(() {
+      _closeTunProgress?.call();
+      _closeTunProgress = null;
       _runtimeTimer?.cancel();
       _physicalNetworkRecoveryRevision++;
     });
@@ -318,6 +328,7 @@ class SetupAction extends _$SetupAction {
       },
     );
     _latestRunRequest = request;
+    ref.read(windowsTunReadyProvider.notifier).value = false;
     ref.read(connectionPendingProvider.notifier).value =
         running && requiresListenerReadiness;
     _setLocalRunning(running && !requiresListenerReadiness);
@@ -366,23 +377,32 @@ class SetupAction extends _$SetupAction {
     _RunRequest request, {
     bool propagateErrors = false,
   }) async {
+    var tunRevision = _tunRevision;
     try {
       for (var attempt = 0; attempt < 3; attempt++) {
         if (!_isCurrent(request)) return;
         if (await _pauseIfSuspended(request)) return;
         if (!_isCurrent(request)) return;
+        tunRevision = _tunRevision;
         final config = ref.read(patchClashConfigProvider);
         final port = config.mixedPort;
+        ref.read(windowsTunReadyProvider.notifier).value = false;
         await prepareListenerProfile();
         if (!_isCurrent(request)) return;
         if (await _pauseIfSuspended(request)) return;
         if (!_isCurrent(request)) return;
-        if (config != ref.read(patchClashConfigProvider)) continue;
+        if (config != ref.read(patchClashConfigProvider) ||
+            tunRevision != _tunRevision) {
+          continue;
+        }
         await _setCoreRunning(request);
         if (!_isCurrent(request)) return;
         if (await _pauseIfSuspended(request)) return;
         if (!_isCurrent(request)) return;
-        if (config != ref.read(patchClashConfigProvider)) continue;
+        if (config != ref.read(patchClashConfigProvider) ||
+            tunRevision != _tunRevision) {
+          continue;
+        }
         final tunOnly =
             port == 0 &&
             !ref.read(networkSettingProvider).systemProxy &&
@@ -395,13 +415,17 @@ class SetupAction extends _$SetupAction {
             isCancelled: () =>
                 !_isCurrent(request) ||
                 ref.read(suspendProvider) ||
+                tunRevision != _tunRevision ||
                 config != ref.read(patchClashConfigProvider),
           );
         }
         if (!_isCurrent(request)) return;
         if (await _pauseIfSuspended(request)) return;
         if (!_isCurrent(request)) return;
-        if (config != ref.read(patchClashConfigProvider)) continue;
+        if (config != ref.read(patchClashConfigProvider) ||
+            tunRevision != _tunRevision) {
+          continue;
+        }
         ref.read(connectionPendingProvider.notifier).value = false;
         _setLocalRunning(true);
         commonPrint.event('connection.ready', fields: {'port': port});
@@ -409,6 +433,10 @@ class SetupAction extends _$SetupAction {
       }
       throw StateError('Listener configuration changed during startup');
     } catch (error, stackTrace) {
+      if (_isCurrent(request) && tunRevision != _tunRevision) {
+        await _startVerified(request, propagateErrors: propagateErrors);
+        return;
+      }
       await _failConnection(request, error);
       if (propagateErrors) {
         Error.throwWithStackTrace(error, stackTrace);
@@ -421,6 +449,7 @@ class SetupAction extends _$SetupAction {
     await _listenerScheduler.run(() async {
       if (!_isCurrent(request) || !ref.read(suspendProvider)) return;
       await setCoreRunning(false);
+      ref.read(windowsTunReadyProvider.notifier).value = false;
       commonPrint.event(
         'connection.suspended',
         fields: {'reason': 'excluded_ssid'},
@@ -462,7 +491,15 @@ class SetupAction extends _$SetupAction {
         systemProxy: false,
       );
     }
-    notifyListenerFailure(port);
+    if (!reportTunFailure(error)) {
+      if (ref.read(windowsTunActivatingProvider)) {
+        reportTunFailure(
+          TunFailure('activation', 'activation_failed', cause: error),
+        );
+      } else {
+        notifyListenerFailure(port);
+      }
+    }
     try {
       await setRunning(false);
     } catch (stopError) {
@@ -568,6 +605,21 @@ class SetupAction extends _$SetupAction {
       }
       try {
         final succeeded = await setCoreRunning(request.running);
+        if (_isCurrent(request)) {
+          final ready =
+              succeeded &&
+              request.running &&
+              _getEffectiveTunEnable(
+                ref.read(patchClashConfigProvider).tun.enable,
+              );
+          ref.read(windowsTunReadyProvider.notifier).value = ready;
+          if (requiresListenerReadiness && ready) {
+            commonPrint.event(
+              'tun.adapter.ready',
+              fields: {'stage': 'adapter_create'},
+            );
+          }
+        }
         commonPrint.event(
           'connection.core_transition.completed',
           fields: {'running': request.running, 'success': succeeded},
@@ -593,6 +645,7 @@ class SetupAction extends _$SetupAction {
       ref.mounted && identical(_latestRunRequest, request);
 
   Future<void> updateConfigDebounce() async {
+    if (ref.read(windowsTunActivatingProvider)) return;
     debouncer.call(FunctionTag.updateConfig, updateConfig);
   }
 
@@ -868,12 +921,20 @@ class SetupAction extends _$SetupAction {
     await _setupScheduler.run(() async {
       await globalState.safeRun(() async {
         await _inspectSystemProxy('before_update');
+        final tunRevision = _tunRevision;
         try {
           final updateParams = ref.read(updateParamsProvider);
+          ref.read(windowsTunReadyProvider.notifier).value = false;
           final shouldContinueSetup = await requestAdmin(
             updateParams.tun.enable,
           );
-          if (!ref.mounted || !identical(request, _latestRunRequest)) return;
+          if (!ref.mounted ||
+              tunRevision != _tunRevision ||
+              !identical(request, _latestRunRequest) ||
+              updateParams.tun.enable !=
+                  ref.read(patchClashConfigProvider).tun.enable) {
+            return;
+          }
           if (!shouldContinueSetup) {
             restartAfterAuthorization = true;
             return;
@@ -885,11 +946,19 @@ class SetupAction extends _$SetupAction {
           );
           ref.read(checkIpNumProvider.notifier).add();
           if (message.isNotEmpty) throw message;
+          if (identical(request, _latestRunRequest) &&
+              tunRevision == _tunRevision &&
+              ref.read(updateParamsProvider) == updateParams &&
+              request?.running == true) {
+            ref.read(windowsTunReadyProvider.notifier).value =
+                _getEffectiveTunEnable(updateParams.tun.enable);
+          }
         } catch (error) {
+          if (tunRevision != _tunRevision) return;
           if (requiresListenerReadiness && request?.running == true) {
             await _failConnection(request!, error);
           } else {
-            rethrow;
+            if (!reportTunFailure(error)) rethrow;
           }
         } finally {
           await _inspectSystemProxy('after_update');
@@ -897,9 +966,18 @@ class SetupAction extends _$SetupAction {
       });
     });
     if (restartAfterAuthorization) {
-      await _restartCoreAfterAuthorization();
-      await updateConfig();
-      await _restoreListenerAfterRestart(request);
+      try {
+        await _restartCoreAfterAuthorization();
+        await updateConfig();
+        await _restoreListenerAfterRestart(request);
+      } catch (error) {
+        if (!ref.mounted || !identical(request, _latestRunRequest)) return;
+        if (requiresListenerReadiness && request?.running == true) {
+          await _failConnection(request!, error);
+        } else if (!reportTunFailure(error)) {
+          rethrow;
+        }
+      }
     }
   }
 
@@ -1776,8 +1854,10 @@ class SetupAction extends _$SetupAction {
       if (!requiresListenerReadiness) rethrow;
       if (request?.running == true) {
         await _failConnection(request!, error);
-      } else if (!propagateErrors) {
-        notifyListenerFailure(ref.read(patchClashConfigProvider).mixedPort);
+      } else if (!propagateErrors || error is TunFailure) {
+        if (!reportTunFailure(error)) {
+          notifyListenerFailure(ref.read(patchClashConfigProvider).mixedPort);
+        }
       }
       if (propagateErrors || handedOffToCoreRestart) rethrow;
     }
@@ -1855,15 +1935,29 @@ class SetupAction extends _$SetupAction {
           isCancelled: () => !shouldRestore(),
         );
       }
+      if (shouldRestore()) {
+        ref.read(windowsTunReadyProvider.notifier).value =
+            _getEffectiveTunEnable(config.tun.enable);
+        if (ref.read(isStartProvider)) {
+          ref.read(connectionPendingProvider.notifier).value = false;
+        }
+      }
     });
   }
 
   Future<void> _restartCoreAfterAuthorization() async {
+    ref.read(windowsTunReadyProvider.notifier).value = false;
+    if (requiresListenerReadiness && ref.read(isStartProvider)) {
+      ref.read(connectionPendingProvider.notifier).value = true;
+    }
     try {
       await restartCoreLifecycleOnly();
-    } catch (_) {
+    } catch (error) {
       ref.read(authorizedTunEnableProvider.notifier).value =
           TunAuthorizationState.none;
+      if (requiresListenerReadiness) {
+        throw TunFailure('core_start', 'core_restart_failed', cause: error);
+      }
       rethrow;
     }
   }
@@ -1889,6 +1983,12 @@ class SetupAction extends _$SetupAction {
     );
     try {
       await restartCoreLifecycleOnly();
+      if (profile == null) {
+        final configFile = File(await appPath.configFilePath);
+        if (!await configFile.exists()) {
+          await configFile.safeWriteAsString('');
+        }
+      }
       final message = await _applyCoreSetupWithDeadline(
         params: _setupParams(profile),
       );
@@ -1922,6 +2022,7 @@ class SetupAction extends _$SetupAction {
           'reason': reason,
           'elapsed_ms': stopwatch.elapsedMilliseconds,
           'error_type': error.runtimeType.toString(),
+          'error': '$error',
           'core_stopped': stopped,
         },
       );
@@ -2015,12 +2116,127 @@ class SetupAction extends _$SetupAction {
 
   bool _getEffectiveTunEnable(bool enableTun) {
     final authorizationState = ref.read(authorizedTunEnableProvider);
-    return enableTun && authorizationState == TunAuthorizationState.authorized;
+    return enableTun &&
+        authorizationState == TunAuthorizationState.authorized &&
+        (!requiresListenerReadiness ||
+            ref.read(patchClashConfigProvider).tun.enable);
   }
 
   @protected
   Future<AuthorizeCode> authorizeCore() {
     return system.authorizeCore();
+  }
+
+  @protected
+  Future<bool> isTunServiceReady() async {
+    return !system.isWindows || await system.checkIsAdmin();
+  }
+
+  @protected
+  VoidCallback showTunProgress() {
+    final context = globalState.navigatorKey.currentContext;
+    return context == null ? () {} : showWindowsTunProgress(context);
+  }
+
+  @protected
+  Future<void> ensureTunCoreReady() async {
+    if (ref.read(coreStatusProvider) != CoreStatus.connected) {
+      await ref.read(coreActionProvider.notifier).restartCore();
+    }
+  }
+
+  Future<void> enableWindowsTun() {
+    return _enablingWindowsTun ??= _enableWindowsTun().whenComplete(() {
+      _enablingWindowsTun = null;
+    });
+  }
+
+  Future<void> _enableWindowsTun() async {
+    if (!requiresListenerReadiness) return;
+    ref.read(windowsTunActivatingProvider.notifier).value = true;
+    _pendingTunFailure = null;
+    debouncer.cancel(FunctionTag.updateConfig);
+    final previousRequest = _latestRunRequest;
+    bool stoppedWhilePreparing() =>
+        !identical(previousRequest, _latestRunRequest) &&
+        _latestRunRequest?.running == false;
+    try {
+      _closeTunProgress = showTunProgress();
+      ref
+          .read(patchClashConfigProvider.notifier)
+          .update((s) => s.copyWith.tun(enable: true));
+      await ensureTunCoreReady();
+      if (!ref.mounted ||
+          stoppedWhilePreparing() ||
+          !ref.read(patchClashConfigProvider).tun.enable) {
+        return;
+      }
+      if (!ref.read(initProvider)) {
+        throw const TunFailure('core_initialization', 'activation_failed');
+      }
+      await setRunning(true, propagateErrors: true);
+      if (ref.mounted &&
+          _latestRunRequest?.running == true &&
+          ref.read(patchClashConfigProvider).tun.enable &&
+          !ref.read(windowsTunReadyProvider)) {
+        throw const TunFailure('activation', 'activation_failed');
+      }
+    } catch (error) {
+      if (ref.mounted &&
+          !stoppedWhilePreparing() &&
+          _pendingTunFailure == null) {
+        if (!reportTunFailure(error)) {
+          reportTunFailure(
+            TunFailure('activation', 'activation_failed', cause: error),
+          );
+        }
+      }
+    } finally {
+      _closeTunProgress?.call();
+      _closeTunProgress = null;
+      if (ref.mounted) {
+        ref.read(windowsTunActivatingProvider.notifier).value = false;
+        final failure = _pendingTunFailure;
+        _pendingTunFailure = null;
+        if (failure != null) notifyTunFailure(failure);
+      }
+    }
+  }
+
+  Future<bool>? _repairingTunService;
+
+  Future<bool> repairTunService() {
+    return _repairingTunService ??= _repairTunService().whenComplete(() {
+      _repairingTunService = null;
+    });
+  }
+
+  Future<bool> _repairTunService() async {
+    if (!requiresListenerReadiness) return false;
+    commonPrint.event('tun.service.repair.started');
+    try {
+      final code = await _setupScheduler.run(authorizeCore);
+      if (!ref.mounted) return false;
+      if (code == AuthorizeCode.error) {
+        throw const TunFailure('service_start', 'authorization_failed');
+      }
+      ref.read(authorizedTunEnableProvider.notifier).value =
+          TunAuthorizationState.authorized;
+      if (code == AuthorizeCode.success) {
+        await ref.read(coreActionProvider.notifier).restartCore();
+      }
+      commonPrint.event('tun.service.repair.completed');
+      return true;
+    } catch (error) {
+      commonPrint.event(
+        'tun.service.repair.failed',
+        fields: {'error': '$error'},
+      );
+      if (!reportTunFailure(error)) {
+        globalState.showNotifier(currentAppLocalizations.tunServiceUnavailable);
+      }
+      return false;
+    }
   }
 
   @visibleForTesting
@@ -2029,7 +2245,12 @@ class SetupAction extends _$SetupAction {
       return true;
     }
     final authorizationState = ref.read(authorizedTunEnableProvider);
-    if (authorizationState != TunAuthorizationState.none) {
+    if (authorizationState != TunAuthorizationState.none &&
+        !requiresListenerReadiness) {
+      return true;
+    }
+    if (authorizationState == TunAuthorizationState.authorized &&
+        await isTunServiceReady()) {
       return true;
     }
 
@@ -2038,7 +2259,26 @@ class SetupAction extends _$SetupAction {
     );
     authorizationNotifier.value = TunAuthorizationState.unauthorized;
 
-    final code = await authorizeCore();
+    final request = _latestRunRequest;
+    final tunRevision = _tunRevision;
+    final AuthorizeCode code;
+    try {
+      code = await authorizeCore();
+    } catch (_) {
+      if (!ref.mounted ||
+          tunRevision != _tunRevision ||
+          !identical(request, _latestRunRequest) ||
+          !ref.read(patchClashConfigProvider).tun.enable) {
+        return true;
+      }
+      rethrow;
+    }
+    if (!ref.mounted ||
+        tunRevision != _tunRevision ||
+        !identical(request, _latestRunRequest) ||
+        !ref.read(patchClashConfigProvider).tun.enable) {
+      return true;
+    }
     commonPrint.event(
       'tun.authorization.completed',
       fields: {
@@ -2054,10 +2294,117 @@ class SetupAction extends _$SetupAction {
         return false;
       case AuthorizeCode.none:
         authorizationNotifier.value = TunAuthorizationState.authorized;
-        return true;
+        return !requiresListenerReadiness;
       case AuthorizeCode.error:
+        if (requiresListenerReadiness) {
+          throw const TunFailure('authorization', 'authorization_failed');
+        }
         return true;
     }
+  }
+
+  @visibleForTesting
+  bool reportTunFailure(Object error) {
+    if (!requiresListenerReadiness || !ref.mounted) return false;
+    final details = error is CoreMethodException ? error.details : null;
+    final nativeTunFailure =
+        error is CoreMethodException &&
+        error.code == 'listener_not_ready' &&
+        details is Map &&
+        details['listener'] == 'tun';
+    if (error is! TunFailure && !nativeTunFailure) return false;
+    if (identical(_reportedTunFailure, error)) return true;
+    _reportedTunFailure = error;
+    commonPrint.event(
+      'tun.activation.failed',
+      fields: {
+        'platform': Platform.operatingSystem,
+        'platform_version': Platform.operatingSystemVersion,
+        if (error is TunFailure) ...error.toDiagnosticData(),
+        if (nativeTunFailure) 'details': details,
+      },
+    );
+    ref.read(windowsTunReadyProvider.notifier).value = false;
+    ref.read(authorizedTunEnableProvider.notifier).value =
+        TunAuthorizationState.none;
+    ref
+        .read(patchClashConfigProvider.notifier)
+        .update((state) => state.copyWith.tun(enable: false));
+    final code = error is TunFailure
+        ? error.code
+        : '${(details as Map)['reason']}';
+    if (ref.read(windowsTunActivatingProvider)) {
+      _pendingTunFailure = code;
+    } else {
+      notifyTunFailure(code);
+    }
+    return true;
+  }
+
+  @protected
+  void notifyTunFailure(String code) {
+    final l10n = currentAppLocalizations;
+    final reason = switch (code) {
+      'authorization_cancelled' => l10n.tunAuthorizationCancelled,
+      'access_denied' || 'authorization_failed' => l10n.tunPermissionDenied,
+      'helper_missing' || 'manifest_missing' => l10n.tunComponentMissing,
+      'helper_not_ready' ||
+      'installer_failed' ||
+      'installer_timeout' ||
+      'installer_status_failed' ||
+      'core_restart_failed' => l10n.tunServiceUnavailable,
+      'security_policy_blocked' => l10n.tunSecurityBlocked,
+      'activation_failed' => l10n.tunActivationFailed,
+      _ => l10n.tunAdapterFailed,
+    };
+    if (globalState.navigatorKey.currentContext == null) return;
+    unawaited(
+      Future<void>(() async {
+        if (!ref.mounted) return;
+        final choice = await globalState.showCommonDialog<String>(
+          child: Builder(
+            builder: (context) => AlertDialog(
+              title: Text(l10n.tunStartFailed),
+              content: Text('$reason\n\n${l10n.tunFailureHelp}\n[$code]'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, 'logs'),
+                  child: Text(l10n.exportLogs),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, 'proxy'),
+                  child: Text(l10n.tunUseSystemProxy),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, 'retry'),
+                  child: Text(l10n.tunRetry),
+                ),
+              ],
+            ),
+          ),
+        );
+        if (!ref.mounted) return;
+        if (choice == 'logs') {
+          await ref.read(logsProvider.notifier).exportLogs();
+        } else if (choice == 'retry') {
+          await enableWindowsTun();
+        } else if (choice == 'proxy') {
+          ref
+              .read(networkSettingProvider.notifier)
+              .update((s) => s.copyWith(systemProxy: true));
+          if (ref.read(coreStatusProvider) != CoreStatus.connected) {
+            await ref.read(coreActionProvider.notifier).restartCore();
+          }
+          await setRunning(true);
+        }
+      }).catchError((Object error) {
+        commonPrint.event(
+          'tun.failure_action.failed',
+          fields: {'error': '$error'},
+        );
+        if (ref.mounted) globalState.showNotifier(l10n.tunServiceUnavailable);
+      }),
+    );
   }
 
   Future<_SetupTaskResult> _setupConfig({

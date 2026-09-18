@@ -6,8 +6,11 @@
 #include <flutter/method_channel.h>
 #include <flutter/plugin_registrar_windows.h>
 
+#include <functional>
 #include <memory>
 #include <optional>
+
+#include "proxy_task_runner.h"
 
 namespace proxy {
 
@@ -15,17 +18,15 @@ class ProxyPlugin : public flutter::Plugin {
  public:
   static void RegisterWithRegistrar(flutter::PluginRegistrarWindows *registrar);
 
-  ProxyPlugin() = default;
+  ProxyPlugin();
 
   explicit ProxyPlugin(flutter::PluginRegistrarWindows* registrar);
 
   ~ProxyPlugin() override;
 
-  // Disallow copy and assign.
   ProxyPlugin(const ProxyPlugin&) = delete;
   ProxyPlugin& operator=(const ProxyPlugin&) = delete;
 
-  // Called when a method is called on this plugin's channel from Dart.
   void HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue> &method_call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
@@ -38,9 +39,18 @@ class ProxyPlugin : public flutter::Plugin {
       HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 
  private:
+  struct ProxyState;
+
+  void Dispatch(
+      std::function<flutter::EncodableValue()> operation,
+      std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
+
+  void Shutdown();
+
   flutter::PluginRegistrarWindows* registrar_ = nullptr;
   int window_proc_id_ = -1;
-  std::optional<int> applied_proxy_port_;
+  std::shared_ptr<ProxyState> state_;
+  ProxyTaskRunner task_runner_;
 };
 
 }  // namespace proxy

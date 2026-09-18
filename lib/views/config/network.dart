@@ -1,7 +1,9 @@
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/config.dart';
+import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/widgets/widgets.dart';
+import 'package:fl_clash/providers/action.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -34,18 +36,21 @@ class TUNItem extends ConsumerWidget {
   @override
   Widget build(BuildContext context, ref) {
     final appLocalizations = context.appLocalizations;
-    final enable = ref.watch(
-      patchClashConfigProvider.select((state) => state.tun.enable),
+    final enable = ref.watch(tunActiveProvider);
+    final requested = ref.watch(
+      patchClashConfigProvider.select((s) => s.tun.enable),
     );
 
     return ListItem.toggle(
       title: Text(appLocalizations.tun),
-      subtitle: Text(appLocalizations.tunDesc),
+      subtitle: Text(
+        system.isWindows && requested && !enable
+            ? appLocalizations.tunWaiting
+            : appLocalizations.tunDesc,
+      ),
       value: enable,
       onChanged: (value) async {
-        ref
-            .read(patchClashConfigProvider.notifier)
-            .update((state) => state.copyWith.tun(enable: value));
+        ref.read(systemActionProvider.notifier).updateTun();
       },
     );
   }

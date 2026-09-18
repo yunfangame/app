@@ -568,9 +568,7 @@ class _ModeSelector extends ConsumerWidget {
     final mode = ref.watch(
       patchClashConfigProvider.select((config) => config.mode),
     );
-    final tunEnabled = ref.watch(
-      patchClashConfigProvider.select((config) => config.tun.enable),
-    );
+    final tunEnabled = ref.watch(tunActiveProvider);
     final systemProxyEnabled = ref.watch(
       networkSettingProvider.select((settings) => settings.systemProxy),
     );

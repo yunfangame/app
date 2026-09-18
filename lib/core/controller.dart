@@ -83,6 +83,10 @@ class CoreController {
             'code': error.code,
             'phase': error.phase.name,
             'revision': error.revision,
+            if (error.cause != null) ...{
+              'cause_type': error.cause.runtimeType.toString(),
+              'cause': '${error.cause}',
+            },
           },
         },
       );

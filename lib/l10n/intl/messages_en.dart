@@ -2422,8 +2422,58 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "trafficUsage": MessageLookupByLibrary.simpleMessage("Traffic usage"),
     "tun": MessageLookupByLibrary.simpleMessage("TUN"),
+    "tunActivationFailed": MessageLookupByLibrary.simpleMessage(
+      "The virtual adapter could not start. Export the logs to inspect the checks and connection failure.",
+    ),
+    "tunAdapterFailed": MessageLookupByLibrary.simpleMessage(
+      "The virtual adapter or its driver could not be initialized.",
+    ),
+    "tunAuthorizationCancelled": MessageLookupByLibrary.simpleMessage(
+      "Administrator authorization was cancelled.",
+    ),
+    "tunComponentMissing": MessageLookupByLibrary.simpleMessage(
+      "The helper or integrity manifest is missing. Reinstall the complete client package.",
+    ),
     "tunDesc": MessageLookupByLibrary.simpleMessage(
       "only effective in administrator mode",
+    ),
+    "tunFailureHelp": MessageLookupByLibrary.simpleMessage(
+      "The virtual adapter has been turned off. The failure details are recorded in the exported logs. Retry authorization, or choose system proxy for applications that support it.",
+    ),
+    "tunPermissionDenied": MessageLookupByLibrary.simpleMessage(
+      "Permission to create the virtual adapter was denied.",
+    ),
+    "tunRepairService": MessageLookupByLibrary.simpleMessage(
+      "Check and repair service",
+    ),
+    "tunRetry": MessageLookupByLibrary.simpleMessage("Authorize and retry"),
+    "tunSecurityBlocked": MessageLookupByLibrary.simpleMessage(
+      "Windows security policy blocked the helper. Check Protection history and ask your administrator to review the client.",
+    ),
+    "tunServiceReady": MessageLookupByLibrary.simpleMessage(
+      "Helper service is ready. Enable the virtual adapter to verify the connection.",
+    ),
+    "tunServiceUnavailable": MessageLookupByLibrary.simpleMessage(
+      "The helper service did not become ready. It may be blocked or belong to a different installation.",
+    ),
+    "tunStartFailed": MessageLookupByLibrary.simpleMessage(
+      "Virtual adapter could not start",
+    ),
+    "tunStarting": MessageLookupByLibrary.simpleMessage(
+      "Starting virtual adapter",
+    ),
+    "tunStartingDescription": MessageLookupByLibrary.simpleMessage(
+      "Checking the helper service and starting the virtual adapter. Administrator authorization may be required on first use.",
+    ),
+    "tunTools": MessageLookupByLibrary.simpleMessage("Virtual adapter tools"),
+    "tunToolsDescription": MessageLookupByLibrary.simpleMessage(
+      "First use requires administrator authorization to install the helper. Check the service and reinstall it if missing or incompatible. Then enable the virtual adapter to verify creation.",
+    ),
+    "tunUseSystemProxy": MessageLookupByLibrary.simpleMessage(
+      "Use system proxy",
+    ),
+    "tunWaiting": MessageLookupByLibrary.simpleMessage(
+      "Requested; waiting for connection and verification",
     ),
     "turnOff": MessageLookupByLibrary.simpleMessage("Turn Off"),
     "turnOn": MessageLookupByLibrary.simpleMessage("Turn On"),

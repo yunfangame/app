@@ -114,14 +114,20 @@ class SystemAction extends _$SystemAction {
   }
 
   void updateTun() {
+    if (ref.read(windowsTunActivatingProvider)) return;
     final previous = ref.read(patchClashConfigProvider).tun.enable;
+    final next = system.isWindows ? !ref.read(tunActiveProvider) : !previous;
     commonPrint.event(
       'tun.toggle.requested',
-      fields: {'previous': previous, 'next': !previous},
+      fields: {'previous': previous, 'next': next},
     );
+    if (system.isWindows && next) {
+      unawaited(ref.read(setupActionProvider.notifier).enableWindowsTun());
+      return;
+    }
     ref
         .read(patchClashConfigProvider.notifier)
-        .update((state) => state.copyWith.tun(enable: !state.tun.enable));
+        .update((state) => state.copyWith.tun(enable: next));
   }
 
   void updateSystemProxy() {
