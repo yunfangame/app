@@ -167,7 +167,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows helper tests failed' }
 
       - name: Package stable Windows release
-        run: dart setup.dart windows --env stable --targets exe,zip
+        run: dart setup.dart windows --env stable --targets exe
 
       - name: Test Windows system proxy round trip
         shell: pwsh
@@ -186,9 +186,10 @@ jobs:
         run: |
           $names = Get-ChildItem dist -File | ForEach-Object Name
           if (($names -join "`n") -match '(?i)pre') { throw 'Package name contains pre' }
-          $archive = Get-ChildItem dist -Filter '*windows*.zip' | Select-Object -First 1
-          if ($null -eq $archive) { throw 'Windows archive not found' }
-          Expand-Archive $archive.FullName -DestinationPath verify-windows -Force
+          $installers = @(Get-ChildItem dist -Filter '*.exe')
+          if ($installers.Count -ne 1) { throw 'Expected exactly one Windows installer' }
+          if (@(Get-ChildItem dist -Filter '*.zip').Count -ne 0) { throw 'Portable archive must not be generated' }
+          Copy-Item -Path build/windows/x64/runner/Release -Destination verify-windows -Recurse -Force
           $app = Get-ChildItem verify-windows -Recurse -Filter FlClash.exe | Where-Object { $_.FullName -notmatch 'Core' } | Select-Object -First 1
           $core = Get-ChildItem verify-windows -Recurse -Filter FlClashCore.exe | Select-Object -First 1
           $wifiPlugin = Get-ChildItem verify-windows -Recurse -Filter wifi_ssid_plugin.dll | Select-Object -First 1
@@ -284,5 +285,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fengwo-windows-amd64
-          path: dist
+          path: dist/*.exe
           if-no-files-found: error
