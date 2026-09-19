@@ -235,7 +235,7 @@ func delayValue(delay uint16) int32 {
 	if delay == 0 {
 		return -1
 	}
-	return int32(delay)
+	return (int32(delay)*7+10)/20 + 30
 }
 
 var anyDelayTestStatus utils.IntRanges[uint16]
