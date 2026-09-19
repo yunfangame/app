@@ -440,16 +440,6 @@ void main() {
                 findsOneWidget,
               );
             }
-            if (mobile) {
-              expect(
-                tester
-                    .widget<FengWoWorldMap>(find.byType(FengWoWorldMap))
-                    .nodes
-                    .single
-                    .backendStatus,
-                offlineMode ? XboardNodeDisplayStatus.unknown : backendStatus,
-              );
-            }
             if (!mobile && measured < 0) {
               expect(find.text('ms'), findsNothing);
             }
@@ -762,13 +752,9 @@ void main() {
 
     expect(find.byType(FengWoMobileDashboard), findsOneWidget);
     expect(find.byType(FengWoDesktopDashboard), findsNothing);
-    final mobileMap = find.byKey(const ValueKey('fengwo-mobile-world-map'));
     expect(
-      find.descendant(
-        of: mobileMap,
-        matching: find.byKey(const ValueKey('fengwo-flutter-map')),
-      ),
-      findsOneWidget,
+      find.byKey(const ValueKey('fengwo-mobile-world-map-card')),
+      findsNothing,
     );
     final l10n = tester
         .element(find.byType(FengWoMobileDashboard))
@@ -1053,15 +1039,14 @@ void main() {
         await tester.pump();
 
         expect(find.byType(FengWoMobileDashboard), findsOneWidget);
-        expect(find.byType(FengWoWorldMap), findsOneWidget);
-        final l10n = tester
-            .element(find.byType(FengWoMobileDashboard))
-            .appLocalizations;
-        final nodeCount = find.byKey(
-          const ValueKey('fengwo-mobile-map-country-count'),
+        expect(
+          find.byKey(const ValueKey('fengwo-mobile-world-map-card')),
+          findsNothing,
         );
-        expect(nodeCount, findsOneWidget);
-        expect(tester.widget<Text>(nodeCount).data, l10n.countriesCount(1));
+        expect(
+          find.byKey(const ValueKey('fengwo-mobile-node-card')),
+          findsOneWidget,
+        );
         final scrollFinder = find.byKey(
           const ValueKey('fengwo-mobile-dashboard-scroll'),
         );
@@ -1072,7 +1057,10 @@ void main() {
         await tester.drag(scrollFinder, const Offset(0, -1200));
         await tester.pump();
 
-        expect(find.byType(FengWoWorldMap), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('fengwo-mobile-world-map-card')),
+          findsNothing,
+        );
         expect(tester.takeException(), null);
       },
     );
