@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/campus_network.dart';
 import 'package:fl_clash/common/network_diagnostic_selection.dart';
@@ -47,6 +49,16 @@ class _FengWoAdvancedSettingsViewState
   bool _exportingLogs = false;
   bool _diagnosingNetwork = false;
   NetworkDiagnosticReport? _networkDiagnosticReport;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(_refreshCampusNetworkConfigOnEntry());
+      }
+    });
+  }
 
   Future<void> _runNetworkDiagnostics() async {
     if (_diagnosingNetwork) return;
@@ -101,20 +113,54 @@ class _FengWoAdvancedSettingsViewState
         ref.read(coreActionProvider.notifier).restartCore();
   }
 
+  AppSettingProps _applyCampusNetworkConfig(
+    AppSettingProps settings,
+    CampusNetworkConfig config,
+  ) {
+    return settings.copyWith(
+      campusOperator: resolveCampusOperator(
+        settings.campusOperator,
+        config.hostsByOperator,
+      ),
+      campusHostsByOperator: config.hostsByOperator,
+    );
+  }
+
+  Future<void> _refreshCampusNetworkConfigOnEntry() async {
+    if (_updatingCampusNetwork) return;
+    setState(() => _updatingCampusNetwork = true);
+    final previous = ref.read(appSettingProvider);
+    try {
+      final config = await _loadCampusNetworkConfig();
+      if (!mounted) return;
+      final next = _applyCampusNetworkConfig(previous, config);
+      ref.read(appSettingProvider.notifier).value = next;
+      if (previous.campusNetworkEnabled && next != previous) {
+        await _restartCoreForCampusNetwork();
+      }
+    } catch (error, stackTrace) {
+      commonPrint.log(
+        'refresh campus network config failed: $error, $stackTrace',
+        logLevel: LogLevel.warning,
+      );
+    } finally {
+      if (mounted) setState(() => _updatingCampusNetwork = false);
+    }
+  }
+
   Future<void> _setCampusNetworkEnabled(bool enabled) async {
     if (_updatingCampusNetwork) return;
     final previous = ref.read(appSettingProvider);
     setState(() => _updatingCampusNetwork = true);
     try {
-      var hostsByOperator = previous.campusHostsByOperator;
-      if (enabled && !hasCompleteCampusNetworkConfig(hostsByOperator)) {
-        hostsByOperator = (await _loadCampusNetworkConfig()).hostsByOperator;
-      }
+      final refreshed = enabled
+          ? _applyCampusNetworkConfig(
+              previous,
+              await _loadCampusNetworkConfig(),
+            )
+          : previous;
       if (!mounted) return;
-      final next = previous.copyWith(
-        campusNetworkEnabled: enabled,
-        campusHostsByOperator: hostsByOperator,
-      );
+      final next = refreshed.copyWith(campusNetworkEnabled: enabled);
       ref.read(appSettingProvider.notifier).value = next;
       try {
         await _restartCoreForCampusNetwork();
@@ -145,16 +191,25 @@ class _FengWoAdvancedSettingsViewState
   Future<void> _selectCampusOperator() async {
     if (_updatingCampusNetwork) return;
     final previous = ref.read(appSettingProvider);
+    final options = availableCampusOperators(previous.campusHostsByOperator);
+    if (options.isEmpty) {
+      context.showNotifier(context.appLocalizations.campusNetworkApplyFailed);
+      return;
+    }
+    final current = resolveCampusOperator(
+      previous.campusOperator,
+      previous.campusHostsByOperator,
+    );
     final selected = await showDialog<CampusOperator>(
       context: context,
       builder: (_) => OptionsDialog<CampusOperator>(
         title: context.appLocalizations.campusNetworkLine,
-        options: CampusOperator.values,
-        textBuilder: _campusOperatorLabel,
-        value: previous.campusOperator,
+        options: options,
+        textBuilder: (operator) => _campusOperatorLabel(operator, options),
+        value: current,
       ),
     );
-    if (selected == null || selected == previous.campusOperator || !mounted) {
+    if (selected == null || selected == current || !mounted) {
       return;
     }
     final next = previous.copyWith(campusOperator: selected);
@@ -645,6 +700,7 @@ class _FengWoAdvancedSettingsViewState
   Widget _buildCampusNetworkCard(_AdvancedColors colors) {
     final l10n = context.appLocalizations;
     final settings = ref.watch(appSettingProvider);
+    final available = availableCampusOperators(settings.campusHostsByOperator);
     return _AdvancedCard(
       key: const ValueKey('advanced-campus-network-card'),
       colors: colors,
@@ -679,7 +735,13 @@ class _FengWoAdvancedSettingsViewState
             icon: Icons.alt_route_rounded,
             iconColor: colors.blue,
             title: l10n.campusNetworkLine,
-            subtitle: _campusOperatorLabel(settings.campusOperator),
+            subtitle: _campusOperatorLabel(
+              resolveCampusOperator(
+                settings.campusOperator,
+                settings.campusHostsByOperator,
+              ),
+              available,
+            ),
             onTap: _selectCampusOperator,
           ),
           const SizedBox(height: 12),
@@ -922,12 +984,17 @@ String _dnsModeLabel(DnsMode mode) {
   };
 }
 
-String _campusOperatorLabel(CampusOperator operator) {
+String _campusOperatorLabel(
+  CampusOperator operator, [
+  List<CampusOperator> available = CampusOperator.values,
+]) {
   final l10n = currentAppLocalizations;
-  return switch (operator) {
-    CampusOperator.telecom => l10n.campusNetworkLine1,
-    CampusOperator.unicom => l10n.campusNetworkLine2,
-    CampusOperator.mobile => l10n.campusNetworkLine3,
+  final candidates = available.isEmpty ? CampusOperator.values : available;
+  final index = candidates.indexOf(operator);
+  return switch (index) {
+    0 => l10n.campusNetworkLine1,
+    1 => l10n.campusNetworkLine2,
+    _ => l10n.campusNetworkLine3,
   };
 }
 

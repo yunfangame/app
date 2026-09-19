@@ -12,13 +12,13 @@ class CampusNetworkConfig {
       throw const FormatException('Invalid campus network config');
     }
     final grouped = _parseGroupedHosts(remoteConfig[campusNetworkConfigKey]);
-    if (_isComplete(grouped)) {
+    if (_hasAvailableLine(grouped)) {
       return CampusNetworkConfig(grouped);
     }
     final legacy = _parseLegacyHosts(
       remoteConfig[legacyCampusNetworkConfigKey],
     );
-    if (_isComplete(legacy)) {
+    if (_hasAvailableLine(legacy)) {
       return CampusNetworkConfig(legacy);
     }
     throw const FormatException('Campus network config is incomplete');
@@ -61,7 +61,27 @@ bool hasActiveCampusNetworkConfig(AppSettingProps appSettings) {
 bool hasCompleteCampusNetworkConfig(
   Map<String, Map<String, String>> hostsByOperator,
 ) {
-  return _isComplete(hostsByOperator);
+  return _hasAvailableLine(hostsByOperator);
+}
+
+List<CampusOperator> availableCampusOperators(
+  Map<String, Map<String, String>> hostsByOperator,
+) {
+  return [
+    for (final operator in CampusOperator.values)
+      if (hostsByOperator[operator.name]?.isNotEmpty == true) operator,
+  ];
+}
+
+CampusOperator resolveCampusOperator(
+  CampusOperator selected,
+  Map<String, Map<String, String>> hostsByOperator,
+) {
+  final available = availableCampusOperators(hostsByOperator);
+  if (available.contains(selected)) {
+    return selected;
+  }
+  return available.isEmpty ? CampusOperator.telecom : available.first;
 }
 
 Map<String, Map<String, String>> _parseGroupedHosts(Object? value) {
@@ -152,8 +172,6 @@ bool _isIpv4(String value) {
   });
 }
 
-bool _isComplete(Map<String, Map<String, String>> value) {
-  return CampusOperator.values.every(
-    (operator) => value[operator.name]?.isNotEmpty == true,
-  );
+bool _hasAvailableLine(Map<String, Map<String, String>> value) {
+  return availableCampusOperators(value).isNotEmpty;
 }
