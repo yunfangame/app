@@ -684,15 +684,17 @@ class _MobileModeSelector extends ConsumerWidget {
               },
             ),
           ),
-          Expanded(
-            child: _MobileModeItem(
-              colors: colors,
-              icon: Icons.account_tree_outlined,
-              label: l10n.tun,
-              selected: tunEnabled,
-              onTap: () => ref.read(systemActionProvider.notifier).updateTun(),
+          if (system.isDesktop)
+            Expanded(
+              child: _MobileModeItem(
+                colors: colors,
+                icon: Icons.account_tree_outlined,
+                label: l10n.tun,
+                selected: tunEnabled,
+                onTap: () =>
+                    ref.read(systemActionProvider.notifier).updateTun(),
+              ),
             ),
-          ),
           if (system.isDesktop)
             Expanded(
               child: _MobileModeItem(
