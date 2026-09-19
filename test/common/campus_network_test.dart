@@ -10,33 +10,36 @@ void main() {
     'vip.fengwo1688.cc',
   ];
 
-  test('parses operator-grouped campus hosts', () {
-    final config = CampusNetworkConfig.fromRemote({
-      'campusHostsByOperator': {
-        'telecom': [for (final domain in domains) '114.80.8.196 $domain'],
-        'unicom': [for (final domain in domains) '112.65.199.196 $domain'],
-        'mobile': [for (final domain in domains) '120.233.118.84 $domain'],
-      },
-    });
+  test(
+    'parses operator-grouped campus hosts using the remote array length',
+    () {
+      final config = CampusNetworkConfig.fromRemote({
+        'campusHostsByOperator': {
+          'telecom': [for (final domain in domains) '114.80.8.196 $domain'],
+          'unicom': [for (final domain in domains) '112.65.199.196 $domain'],
+        },
+      });
 
-    expect(config.hostsFor(CampusOperator.telecom), {
-      for (final domain in domains) domain: '114.80.8.196',
-    });
-    expect(config.hostsFor(CampusOperator.unicom), {
-      for (final domain in domains) domain: '112.65.199.196',
-    });
-    expect(config.hostsFor(CampusOperator.mobile), {
-      for (final domain in domains) domain: '120.233.118.84',
-    });
-  });
+      expect(config.hostsFor(CampusOperator.telecom), {
+        for (final domain in domains) domain: '114.80.8.196',
+      });
+      expect(config.hostsFor(CampusOperator.unicom), {
+        for (final domain in domains) domain: '112.65.199.196',
+      });
+      expect(config.hostsFor(CampusOperator.mobile), isEmpty);
+      expect(availableCampusOperators(config.hostsByOperator), [
+        CampusOperator.telecom,
+        CampusOperator.unicom,
+      ]);
+    },
+  );
 
-  test('converts the existing nine-line format without overwriting routes', () {
+  test('converts a legacy two-line format without inventing a third route', () {
     final config = CampusNetworkConfig.fromRemote({
       'campusHosts': [
         for (final domain in domains) ...[
           '114.80.8.196 $domain',
           '112.65.199.196 $domain',
-          '120.233.118.84 $domain',
         ],
       ],
     });
@@ -49,10 +52,8 @@ void main() {
       config.hostsFor(CampusOperator.unicom)['vip.fengwo1688.cc'],
       '112.65.199.196',
     );
-    expect(
-      config.hostsFor(CampusOperator.mobile)['vip.fengwo1688.cc'],
-      '120.233.118.84',
-    );
+    expect(config.hostsFor(CampusOperator.mobile), isEmpty);
+    expect(availableCampusOperators(config.hostsByOperator), hasLength(2));
   });
 
   test('rejects incomplete or invalid campus hosts', () {
@@ -98,19 +99,33 @@ void main() {
     expect(applyCampusNetworkConfig(patch, settings), same(patch));
   });
 
-  test('recognizes a complete cached campus configuration', () {
-    expect(
-      hasCompleteCampusNetworkConfig({
-        for (final operator in CampusOperator.values)
-          operator.name: {'base.fengwo1688.cc': '192.0.2.1'},
-      }),
-      isTrue,
-    );
+  test('recognizes a usable two-line cached campus configuration', () {
     expect(
       hasCompleteCampusNetworkConfig({
         'telecom': {'base.fengwo1688.cc': '192.0.2.1'},
+        'unicom': {'base.fengwo1688.cc': '192.0.2.2'},
       }),
-      isFalse,
+      isTrue,
     );
+    expect(hasCompleteCampusNetworkConfig({}), isFalse);
   });
+
+  test(
+    'falls back to the first available line when a saved line is removed',
+    () {
+      final hosts = {
+        'telecom': {'base.fengwo1688.cc': '192.0.2.1'},
+        'unicom': {'base.fengwo1688.cc': '192.0.2.2'},
+      };
+
+      expect(
+        resolveCampusOperator(CampusOperator.mobile, hosts),
+        CampusOperator.telecom,
+      );
+      expect(
+        resolveCampusOperator(CampusOperator.unicom, hosts),
+        CampusOperator.unicom,
+      );
+    },
+  );
 }

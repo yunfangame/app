@@ -38,7 +38,11 @@ void main() {
         await tester.pumpWidget(
           UncontrolledProviderScope(
             container: container,
-            child: const _TestApp(child: FengWoAdvancedSettingsView()),
+            child: const _TestApp(
+              child: FengWoAdvancedSettingsView(
+                campusNetworkConfigLoader: _loadTwoCampusLines,
+              ),
+            ),
           ),
         );
         await tester.pumpAndSettle();
@@ -80,13 +84,9 @@ void main() {
             },
             campusNetworkConfigLoader: () async {
               campusConfigLoads++;
-              if (campusConfigLoads > 1) {
-                throw StateError('campus API is unavailable');
-              }
               return const CampusNetworkConfig({
                 'telecom': {'base.fengwo1688.cc': '114.80.8.196'},
                 'unicom': {'base.fengwo1688.cc': '112.65.199.196'},
-                'mobile': {'base.fengwo1688.cc': '120.233.118.84'},
               });
             },
             campusNetworkCoreRestarter: () async {
@@ -176,7 +176,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(container.read(appSettingProvider).campusNetworkEnabled, isTrue);
     expect(campusCoreRestarts, 1);
-    expect(campusConfigLoads, 1);
+    expect(campusConfigLoads, 2);
 
     final runDiagnostics = find.byKey(
       const ValueKey('advanced-run-network-diagnostics'),
@@ -211,10 +211,67 @@ void main() {
     await tester.pumpAndSettle();
     expect(container.read(appSettingProvider).campusNetworkEnabled, isTrue);
     expect(campusCoreRestarts, 3);
-    expect(campusConfigLoads, 1);
+    expect(campusConfigLoads, 3);
 
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'entering settings replaces three cached lines with two remote lines',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final container = ProviderContainer(
+        overrides: [currentProfileProvider.overrideWithValue(null)],
+      );
+      addTearDown(container.dispose);
+      globalState.container = container;
+      container.read(viewSizeProvider.notifier).value = const Size(1280, 1000);
+      container.read(appSettingProvider.notifier).value = const AppSettingProps(
+        campusOperator: CampusOperator.mobile,
+        campusHostsByOperator: {
+          'telecom': {'base.fengwo1688.cc': '192.0.2.1'},
+          'unicom': {'base.fengwo1688.cc': '192.0.2.2'},
+          'mobile': {'base.fengwo1688.cc': '192.0.2.3'},
+        },
+      );
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const _TestApp(
+            child: FengWoAdvancedSettingsView(
+              campusNetworkConfigLoader: _loadTwoCampusLines,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final refreshed = container.read(appSettingProvider);
+      expect(refreshed.campusHostsByOperator.keys, ['telecom', 'unicom']);
+      expect(refreshed.campusOperator, CampusOperator.telecom);
+
+      final lineTile = find.byKey(
+        const ValueKey('advanced-campus-network-line-tile'),
+      );
+      await tester.ensureVisible(lineTile);
+      await tester.pumpAndSettle();
+      await tester.tap(lineTile);
+      await tester.pumpAndSettle();
+
+      final l10n = tester
+          .element(find.byType(FengWoAdvancedSettingsView))
+          .appLocalizations;
+      expect(find.text(l10n.campusNetworkLine1), findsWidgets);
+      expect(find.text(l10n.campusNetworkLine2), findsOneWidget);
+      expect(find.text(l10n.campusNetworkLine3), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('advanced settings use one scroll view on a narrow dark screen', (
     tester,
@@ -229,7 +286,9 @@ void main() {
         overrides: [currentProfileProvider.overrideWithValue(null)],
         child: const _TestApp(
           themeMode: ThemeMode.dark,
-          child: FengWoAdvancedSettingsView(),
+          child: FengWoAdvancedSettingsView(
+            campusNetworkConfigLoader: _loadTwoCampusLines,
+          ),
         ),
       ),
     );
@@ -270,7 +329,11 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [currentProfileProvider.overrideWithValue(null)],
-        child: const _TestApp(child: FengWoAdvancedSettingsView()),
+        child: const _TestApp(
+          child: FengWoAdvancedSettingsView(
+            campusNetworkConfigLoader: _loadTwoCampusLines,
+          ),
+        ),
       ),
     );
     await tester.pump();
@@ -324,6 +387,13 @@ void main() {
       lessThan(1),
     );
     expect(tester.takeException(), isNull);
+  });
+}
+
+Future<CampusNetworkConfig> _loadTwoCampusLines() async {
+  return const CampusNetworkConfig({
+    'telecom': {'base.fengwo1688.cc': '114.80.8.196'},
+    'unicom': {'base.fengwo1688.cc': '112.65.199.196'},
   });
 }
 
