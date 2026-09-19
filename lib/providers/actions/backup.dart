@@ -12,7 +12,12 @@ class BackupAction extends _$BackupAction {
     ]);
     final profileFileNames = res[0];
     final scriptFileNames = res[1];
-    final configMap = ref.read(configProvider).toJson();
+    // Android package names are device-local and must not move with backups.
+    final configMap = ref
+        .read(configProvider)
+        .copyWith
+        .vpnProps(accessControlProps: const AccessControlProps())
+        .toJson();
     configMap['version'] = await preferences.getVersion();
     return backupTask(configMap, [...profileFileNames, ...scriptFileNames]);
   }
@@ -48,7 +53,13 @@ class BackupAction extends _$BackupAction {
           config.currentProfileId;
       ref.read(themeSettingProvider.notifier).value = config.themeProps;
       ref.read(windowSettingProvider.notifier).value = config.windowProps;
-      ref.read(vpnSettingProvider.notifier).value = config.vpnProps;
+      // Keep this device's app routing when restoring another device's backup.
+      final localAccessControl = ref
+          .read(vpnSettingProvider)
+          .accessControlProps;
+      ref.read(vpnSettingProvider.notifier).value = config.copyWith
+          .vpnProps(accessControlProps: localAccessControl)
+          .vpnProps;
       ref.read(proxiesStyleSettingProvider.notifier).value =
           config.proxiesStyleProps;
       ref.read(overrideDnsProvider.notifier).value = config.overrideDns;

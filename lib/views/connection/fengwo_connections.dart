@@ -9,7 +9,9 @@ import 'package:fl_clash/features/overwrite/rule.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/views/access.dart';
 import 'package:fl_clash/widgets/widgets.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
@@ -35,7 +37,7 @@ enum _ConnectionSort {
 
 enum _ConnectionAction { details, addRule, close }
 
-enum _ConnectionSection { current, savedRules }
+enum _ConnectionSection { current, savedRules, appRouting }
 
 enum _SavedRuleAction { edit, delete }
 
@@ -645,56 +647,58 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
           colors: colors,
           section: _section,
           savedRulesCount: savedRules?.value?.length ?? 0,
+          showAppRouting: defaultTargetPlatform == TargetPlatform.android,
           onChanged: _selectSection,
         ),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(24, 0, 24, 22),
-            child: _section == _ConnectionSection.current
-                ? Column(
-                    children: [
-                      Expanded(
-                        child: _ConnectionPanel(
-                          colors: colors,
-                          connectionCount: _connections.length,
-                          searchController: _searchController,
-                          query: _query,
-                          autoRefresh: _autoRefresh,
-                          refreshing: _refreshing,
-                          closingAll: _closingAll,
-                          onQueryChanged: (value) =>
-                              setState(() => _query = value),
-                          onAutoRefreshChanged: _toggleAutoRefresh,
-                          onRefresh: _refresh,
-                          onCloseAll: _closeAllConnections,
-                          child: _buildDesktopTable(colors, connections),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      _ConnectionSummaryRow(
-                        colors: colors,
-                        active: _connections.length,
-                        downloadSpeed: _downloadSpeed,
-                        uploadSpeed: _uploadSpeed,
-                        delay: delay,
-                        backendStatus: backendStatus,
-                      ),
-                    ],
-                  )
-                : _SavedConnectionRulesPanel(
-                    colors: colors,
-                    profile: profile,
-                    rules: savedRules,
-                    disabledRuleIds: disabledRuleIds,
-                    saving: _savingRules,
-                    compact: false,
-                    onAdd: _addOrEditSavedRule,
-                    onEdit: _addOrEditSavedRule,
-                    onDelete: _deleteSavedRule,
-                    onToggle: _toggleSavedRule,
-                    onReorder: _reorderSavedRule,
-                    onRetry: _retrySavedRules,
+            child: switch (_section) {
+              _ConnectionSection.current => Column(
+                children: [
+                  Expanded(
+                    child: _ConnectionPanel(
+                      colors: colors,
+                      connectionCount: _connections.length,
+                      searchController: _searchController,
+                      query: _query,
+                      autoRefresh: _autoRefresh,
+                      refreshing: _refreshing,
+                      closingAll: _closingAll,
+                      onQueryChanged: (value) => setState(() => _query = value),
+                      onAutoRefreshChanged: _toggleAutoRefresh,
+                      onRefresh: _refresh,
+                      onCloseAll: _closeAllConnections,
+                      child: _buildDesktopTable(colors, connections),
+                    ),
                   ),
+                  const SizedBox(height: 14),
+                  _ConnectionSummaryRow(
+                    colors: colors,
+                    active: _connections.length,
+                    downloadSpeed: _downloadSpeed,
+                    uploadSpeed: _uploadSpeed,
+                    delay: delay,
+                    backendStatus: backendStatus,
+                  ),
+                ],
+              ),
+              _ConnectionSection.savedRules => _SavedConnectionRulesPanel(
+                colors: colors,
+                profile: profile,
+                rules: savedRules,
+                disabledRuleIds: disabledRuleIds,
+                saving: _savingRules,
+                compact: false,
+                onAdd: _addOrEditSavedRule,
+                onEdit: _addOrEditSavedRule,
+                onDelete: _deleteSavedRule,
+                onToggle: _toggleSavedRule,
+                onReorder: _reorderSavedRule,
+                onRetry: _retrySavedRules,
+              ),
+              _ConnectionSection.appRouting => const AccessView(embedded: true),
+            },
           ),
         ),
       ],
@@ -710,6 +714,22 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     AsyncValue<List<Rule>>? savedRules,
     List<int> disabledRuleIds,
   ) {
+    if (_section == _ConnectionSection.appRouting) {
+      return Column(
+        children: [
+          _ConnectionHero(colors: colors),
+          _ConnectionSectionTabs(
+            colors: colors,
+            section: _section,
+            savedRulesCount: savedRules?.value?.length ?? 0,
+            showAppRouting: defaultTargetPlatform == TargetPlatform.android,
+            compact: true,
+            onChanged: _selectSection,
+          ),
+          const Expanded(child: AccessView(embedded: true)),
+        ],
+      );
+    }
     if (_section == _ConnectionSection.savedRules) {
       return Column(
         children: [
@@ -718,6 +738,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
             colors: colors,
             section: _section,
             savedRulesCount: savedRules?.value?.length ?? 0,
+            showAppRouting: defaultTargetPlatform == TargetPlatform.android,
             compact: true,
             onChanged: _selectSection,
           ),
@@ -755,6 +776,7 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
               colors: colors,
               section: _section,
               savedRulesCount: savedRules?.value?.length ?? 0,
+              showAppRouting: defaultTargetPlatform == TargetPlatform.android,
               compact: true,
               onChanged: _selectSection,
             ),
@@ -1059,12 +1081,14 @@ class _ConnectionSectionTabs extends StatelessWidget {
   final _ConnectionSection section;
   final int savedRulesCount;
   final bool compact;
+  final bool showAppRouting;
   final ValueChanged<_ConnectionSection> onChanged;
 
   const _ConnectionSectionTabs({
     required this.colors,
     required this.section,
     required this.savedRulesCount,
+    required this.showAppRouting,
     required this.onChanged,
     this.compact = false,
   });
@@ -1077,7 +1101,7 @@ class _ConnectionSectionTabs extends StatelessWidget {
       child: Align(
         alignment: AlignmentDirectional.centerStart,
         child: Container(
-          width: compact ? double.infinity : 460,
+          width: compact ? double.infinity : (showAppRouting ? 660 : 460),
           padding: const EdgeInsets.all(5),
           decoration: BoxDecoration(
             color: colors.surfaceSoft,
@@ -1093,6 +1117,7 @@ class _ConnectionSectionTabs extends StatelessWidget {
                   selected: section == _ConnectionSection.current,
                   icon: Icons.link_rounded,
                   label: l10n.currentConnections,
+                  dense: compact && showAppRouting,
                   onPressed: () => onChanged(_ConnectionSection.current),
                 ),
               ),
@@ -1104,10 +1129,25 @@ class _ConnectionSectionTabs extends StatelessWidget {
                   selected: section == _ConnectionSection.savedRules,
                   icon: Icons.rule_folder_outlined,
                   label: l10n.savedRules,
-                  count: savedRulesCount,
+                  dense: compact && showAppRouting,
+                  count: compact && showAppRouting ? null : savedRulesCount,
                   onPressed: () => onChanged(_ConnectionSection.savedRules),
                 ),
               ),
+              if (showAppRouting) ...[
+                const SizedBox(width: 5),
+                Expanded(
+                  child: _ConnectionSectionTab(
+                    key: const ValueKey('connection-section-app-routing'),
+                    colors: colors,
+                    selected: section == _ConnectionSection.appRouting,
+                    icon: Icons.apps_rounded,
+                    label: l10n.appRouting,
+                    dense: compact && showAppRouting,
+                    onPressed: () => onChanged(_ConnectionSection.appRouting),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -1122,6 +1162,7 @@ class _ConnectionSectionTab extends StatelessWidget {
   final IconData icon;
   final String label;
   final int? count;
+  final bool dense;
   final VoidCallback onPressed;
 
   const _ConnectionSectionTab({
@@ -1132,6 +1173,7 @@ class _ConnectionSectionTab extends StatelessWidget {
     required this.label,
     required this.onPressed,
     this.count,
+    this.dense = false,
   });
 
   @override
@@ -1144,7 +1186,10 @@ class _ConnectionSectionTab extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           constraints: const BoxConstraints(minHeight: 44),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          padding: EdgeInsets.symmetric(
+            horizontal: dense ? 4 : 12,
+            vertical: 9,
+          ),
           decoration: BoxDecoration(
             color: selected ? colors.surface : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
@@ -1157,10 +1202,10 @@ class _ConnectionSectionTab extends StatelessWidget {
             children: [
               Icon(
                 icon,
-                size: 19,
+                size: dense ? 17 : 19,
                 color: selected ? colors.primary : colors.muted,
               ),
-              const SizedBox(width: 7),
+              SizedBox(width: dense ? 4 : 7),
               Flexible(
                 child: Text(
                   label,
@@ -1168,6 +1213,7 @@ class _ConnectionSectionTab extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: selected ? colors.primary : colors.muted,
+                    fontSize: dense ? 12 : null,
                     fontWeight: FontWeight.w800,
                   ),
                 ),

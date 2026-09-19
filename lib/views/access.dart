@@ -10,7 +10,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class AccessView extends ConsumerStatefulWidget {
-  const AccessView({super.key});
+  final bool embedded;
+
+  const AccessView({super.key, this.embedded = false});
 
   @override
   ConsumerState<AccessView> createState() => _AccessViewState();
@@ -649,35 +651,58 @@ class _AccessViewState extends ConsumerState<AccessView> {
               ),
             ],
           ),
-          Material(
-            color: colors.soft,
-            borderRadius: BorderRadius.circular(13),
-            child: InkWell(
-              key: const ValueKey('app-routing-search'),
-              onTap: _handleSearch,
-              borderRadius: BorderRadius.circular(13),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 13,
+          if (widget.embedded)
+            TextField(
+              key: const ValueKey('app-routing-search-field'),
+              inputFormatters: TextInputLimits.limit(TextInputLimits.search),
+              onChanged: _onSearch,
+              decoration: InputDecoration(
+                hintText: l10n.appRoutingSearchHint,
+                hintStyle: TextStyle(color: colors.muted, fontSize: 12),
+                prefixIcon: Icon(
+                  Icons.search_rounded,
+                  size: 20,
+                  color: colors.muted,
                 ),
-                child: Row(
-                  children: [
-                    Icon(Icons.search_rounded, size: 20, color: colors.muted),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        l10n.appRoutingSearchHint,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: colors.muted, fontSize: 12),
+                filled: true,
+                fillColor: colors.soft,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(13),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 13),
+              ),
+            )
+          else
+            Material(
+              color: colors.soft,
+              borderRadius: BorderRadius.circular(13),
+              child: InkWell(
+                key: const ValueKey('app-routing-search'),
+                onTap: _handleSearch,
+                borderRadius: BorderRadius.circular(13),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 13,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.search_rounded, size: 20, color: colors.muted),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          l10n.appRoutingSearchHint,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: colors.muted, fontSize: 12),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
@@ -768,6 +793,72 @@ class _AccessViewState extends ConsumerState<AccessView> {
     final currentList = accessControl.currentList;
     final viewPackageNameList = viewPackages.map((e) => e.packageName).toList();
     final valueList = currentList.intersection(viewPackageNameList);
+    Widget buildBody() {
+      return Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final inlineSave = constraints.maxHeight < 360;
+              final content = _buildContent(
+                packages: viewPackages,
+                valueList: valueList,
+                accessControl: accessControl,
+                inlineSave: inlineSave,
+              );
+              if (inlineSave) return content;
+              return Column(
+                children: [
+                  if (widget.embedded)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 0, 10, 4),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              context.appLocalizations.appRoutingDescription,
+                              style: TextStyle(
+                                color: colors.muted,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          ..._buildActions(
+                            context,
+                            enable: accessControl.enable,
+                          ),
+                        ],
+                      ),
+                    ),
+                  Expanded(child: content),
+                  _buildConfirm(),
+                ],
+              );
+            },
+          ),
+        ),
+      );
+    }
+
+    if (widget.embedded) {
+      return AbsorbPointer(
+        absorbing: _saving,
+        child: Material(
+          key: const ValueKey('embedded-app-routing'),
+          color: colors.background,
+          child: Stack(
+            children: [
+              buildBody(),
+              if (isLoading)
+                const Align(
+                  alignment: Alignment.topCenter,
+                  child: LinearProgressIndicator(),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
     return CommonPopScope(
       onPop: _saving || _hasChanges
           ? (_) async {
@@ -801,29 +892,7 @@ class _AccessViewState extends ConsumerState<AccessView> {
             ),
             title: context.appLocalizations.appRouting,
             actions: _buildActions(context, enable: accessControl.enable),
-            body: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 720),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final inlineSave = constraints.maxHeight < 360;
-                    final content = _buildContent(
-                      packages: viewPackages,
-                      valueList: valueList,
-                      accessControl: accessControl,
-                      inlineSave: inlineSave,
-                    );
-                    if (inlineSave) return content;
-                    return Column(
-                      children: [
-                        Expanded(child: content),
-                        _buildConfirm(),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ),
+            body: buildBody(),
           ),
         ),
       ),

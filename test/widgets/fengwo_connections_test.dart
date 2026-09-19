@@ -152,6 +152,31 @@ void main() {
     expect(tester.takeException(), null);
   });
 
+  testWidgets(
+    'Android shows application routing as a peer connection section',
+    (tester) async {
+      await pumpView(
+        tester,
+        size: const Size(390, 844),
+        reader: () async => [],
+      );
+      await tester.pumpAndSettle();
+
+      final tab = find.byKey(const ValueKey('connection-section-app-routing'));
+      expect(tab, findsOneWidget);
+      await tester.tap(tab);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('embedded-app-routing')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('app-routing-save')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({TargetPlatform.android}),
+  );
+
   for (final size in [const Size(1500, 980), const Size(390, 844)]) {
     for (final sample in <(int?, String)>[
       (null, '-- ms'),
