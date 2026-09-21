@@ -237,3 +237,31 @@ func TestListenerFailureDiagnosticsAreSafeWithoutLogSubscription(t *testing.T) {
 		t.Fatalf("safe OS error classification missing: %+v", failure)
 	}
 }
+
+func TestTunListenerReadiness(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		enabled     bool
+		result      listener.TunListenerResult
+		wantFailure bool
+	}{
+		{"disabled", false, listener.TunListenerResult{}, false},
+		{"ready", true, listener.TunListenerResult{Ready: true}, false},
+		{"absent", true, listener.TunListenerResult{}, true},
+		{"driver refused", true, listener.TunListenerResult{Error: fmt.Errorf("create adapter: %w", syscall.Errno(5))}, true},
+		{"error despite ready", true, listener.TunListenerResult{Ready: true, Error: errors.New("route setup failed")}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			failure := tunListenerFailure(tc.enabled, tc.result)
+			if (failure != nil) != tc.wantFailure {
+				t.Fatalf("unexpected failure: %v", failure)
+			}
+			if failure != nil && (failure.Listener != "tun" || failure.Stage != "adapter_create") {
+				t.Fatalf("wrong diagnostic: %+v", failure)
+			}
+			if tc.name == "driver refused" && (failure.OSErrorCode != 5 || failure.Reason != "access_denied" || failure.ErrorMessage == "") {
+				t.Fatalf("native error lost: %+v", failure)
+			}
+		})
+	}
+}

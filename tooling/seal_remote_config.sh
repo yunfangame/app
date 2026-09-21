@@ -5,7 +5,8 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 source_path="${1:-$repo_root/tooling/remote_config/ConFigOss4.source.json}"
 output_path="${2:-$repo_root/tooling/remote_config/ConFigOss4.json}"
 keys_path="${3:-$repo_root/tooling/remote_config/keys.json}"
-local_flutter="$(find "${repo_root}-toolchains" -maxdepth 4 -type f -path '*/flutter/bin/flutter' 2>/dev/null | sort | tail -1)"
+toolchains_root="${FLCLASH_TOOLCHAINS:-${repo_root}-toolchains}"
+local_flutter="$(find "$toolchains_root" -maxdepth 4 -type f -path '*/flutter/bin/flutter' 2>/dev/null | sort | tail -1)"
 
 if [[ -n "$local_flutter" ]]; then
   dart_bin="$(dirname "$local_flutter")/dart"

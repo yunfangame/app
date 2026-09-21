@@ -10,7 +10,7 @@
 namespace {
 
 constexpr wchar_t kSingleInstanceMutexName[] =
-    L"Local\\FengWoAccelerator.FlClash.MainWindow";
+    L"Local\\FengWoAccelerator.FengWo.MainWindow";
 constexpr wchar_t kMainWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
 struct WindowSearchContext {

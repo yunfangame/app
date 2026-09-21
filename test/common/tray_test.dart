@@ -1,9 +1,14 @@
 import 'dart:io';
 
+import 'package:fl_clash/common/constant.dart';
 import 'package:fl_clash/common/tray.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('uses the FengWo desktop tray name', () {
+    expect(trayName, 'FengWo');
+  });
+
   group('Tray.getTryIcon', () {
     final tray = Tray();
     final suffix = tray.trayIconSuffix;

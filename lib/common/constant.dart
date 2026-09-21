@@ -10,6 +10,8 @@ import 'package:fl_clash/models/models.dart';
 import 'package:flutter/material.dart';
 
 const appName = 'FlClash';
+const trayName = 'FengWo';
+const windowsTunDeviceName = 'FengWoMeta';
 const appHelperService = 'FlClashHelperService';
 const coreManifestName = 'manifest.json';
 const coreName = 'clash.meta';

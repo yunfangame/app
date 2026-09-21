@@ -23,7 +23,7 @@
   "referenceConnectionDelay": "参考接続遅延",
   "referenceStandardizedDelay": "参考 RTT",
   "referenceCurrentNodeDelay": "参考ノード遅延",
-  "referenceDelayExplanation": "コアが返した実測遅延をそのまま表示します。測定失敗時はタイムアウトと表示します。",
+  "referenceDelayExplanation": "経路全体を通した校正済み参考遅延を表示します。測定失敗時はタイムアウトと表示します。",
   "referenceDelayValue": "{value} ms",
   "@referenceDelayValue": {
     "placeholders": {
@@ -1237,5 +1237,23 @@
   "ticketCreated": "送信しました",
   "ticketUnread": "未読の返信",
   "ticketRefresh": "更新",
-  "registrationClosed": "現在、新規ユーザー登録は停止されています。"
+  "registrationClosed": "現在、新規ユーザー登録は停止されています。",
+  "tunStartFailed": "仮想アダプターを起動できませんでした",
+  "tunAuthorizationCancelled": "管理者の承認がキャンセルされました。",
+  "tunPermissionDenied": "仮想アダプターを作成する権限がありません。",
+  "tunComponentMissing": "ヘルパーまたは検証ファイルがありません。完全なパッケージを再インストールしてください。",
+  "tunServiceUnavailable": "ヘルパーサービスが準備できません。ブロックまたは別バージョンの可能性があります。",
+  "tunSecurityBlocked": "Windows のセキュリティポリシーがヘルパーをブロックしました。保護の履歴を確認するか管理者に相談してください。",
+  "tunAdapterFailed": "仮想アダプターまたはドライバーを初期化できませんでした。",
+  "tunFailureHelp": "仮想アダプターを無効にしました。詳細はエクスポートしたログで確認できます。再承認するか、対応アプリ用にシステムプロキシを選択してください。",
+  "tunUseSystemProxy": "システムプロキシを使用",
+  "tunRetry": "承認して再試行",
+  "tunWaiting": "要求済み：接続と検証を待機中",
+  "tunTools": "仮想アダプターツール",
+  "tunToolsDescription": "初回は管理者の承認が必要です。サービスがない場合や互換性がない場合は再インストールします。その後アダプターを有効にして確認してください。",
+  "tunRepairService": "サービスを確認・修復",
+  "tunServiceReady": "サービスの準備ができました。仮想アダプターを有効にして接続を確認してください。",
+  "tunStarting": "仮想アダプターを起動中",
+  "tunStartingDescription": "サービスを確認し、仮想アダプターを起動しています。初回は管理者の承認が必要な場合があります。",
+  "tunActivationFailed": "仮想アダプターを起動できませんでした。ログをエクスポートして原因を確認してください。"
 }

@@ -231,7 +231,7 @@ jobs:
           $iconLines = @($iconsMatch.Groups['entries'].Value -split '\r?\n' | Where-Object { $_ -match '^Name:' })
           if ($iconLines.Count -ne 2) { throw 'Expected two production shortcut entries' }
           $fixtureIcons = foreach ($line in $iconLines) {
-            $rendered = $line.Replace('{{DISPLAY_NAME}}', '蜂窝加速器').Replace('{{EXECUTABLE_NAME}}', 'FlClash.exe')
+            $rendered = $line.Replace('{{DISPLAY_NAME}}', '蜂窝加速器').Replace('{{EXECUTABLE_NAME}}', 'FengWo.exe')
             $rendered = $rendered.Replace('{autoprograms}', '{app}\original-programs').Replace('{autodesktop}', '{app}\original-desktop')
             if ($rendered.Contains('{{')) { throw 'Unexpected unresolved production shortcut variable' }
             Write-Host "shortcut_fixture_template: $rendered"
@@ -252,9 +252,9 @@ jobs:
           [Tasks]
           Name: "desktopicon"; Description: "Fixture desktop shortcut"
           [Files]
-          Source: "$probeFile"; DestDir: "{app}"; DestName: "FlClash.exe"
+          Source: "$probeFile"; DestDir: "{app}"; DestName: "FengWo.exe"
           [Icons]
-          Name: "{app}\control"; Filename: "{app}\FlClash.exe"; WorkingDir: "{app}"
+          Name: "{app}\control"; Filename: "{app}\FengWo.exe"; WorkingDir: "{app}"
           $($fixtureIcons -join "`n")
           "@
           $fixtureScriptPath = Join-Path $probeDir 'shortcut-probe.iss'
@@ -266,7 +266,7 @@ jobs:
           $fixtureInstaller = Join-Path $probeDir 'shortcut-probe-setup.exe'
           $fixtureInstall = Start-Process -FilePath $fixtureInstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=desktopicon' -Wait -PassThru
           if ($fixtureInstall.ExitCode -ne 0) { throw "Shortcut fixture installation failed: $($fixtureInstall.ExitCode)" }
-          $fixtureTarget = Join-Path $fixtureInstallDir 'FlClash.exe'
+          $fixtureTarget = Join-Path $fixtureInstallDir 'FengWo.exe'
           $fixtureShortcuts = @(
             (Join-Path $fixtureInstallDir 'control.lnk'),
             (Join-Path $fixtureInstallDir 'original-programs\蜂窝加速器.lnk'),
@@ -429,11 +429,11 @@ jobs:
           $installers = @(Get-ChildItem dist -Filter '*windows*.exe' -File)
           if ($archives.Count -ne 1 -or $installers.Count -ne 1) { throw 'Expected one Windows archive and installer' }
           Expand-Archive $archives[0].FullName -DestinationPath verify-windows -Force
-          $app = Get-ChildItem verify-windows -Recurse -Filter FlClash.exe | Select-Object -First 1
+          $app = Get-ChildItem verify-windows -Recurse -Filter FengWo.exe | Select-Object -First 1
           $core = Get-ChildItem verify-windows -Recurse -Filter FlClashCore.exe | Select-Object -First 1
           $helper = Get-ChildItem verify-windows -Recurse -Filter FlClashHelperService.exe | Select-Object -First 1
           $wifiPlugin = Get-ChildItem verify-windows -Recurse -Filter wifi_ssid_plugin.dll | Select-Object -First 1
-          if ($null -eq $app) { throw 'FlClash.exe not found' }
+          if ($null -eq $app) { throw 'FengWo.exe not found' }
           ./tooling/windows/verify_vc_runtime_bundle.ps1 -Architecture x64 -BundleDirectory $app.DirectoryName
           foreach ($binary in @($app, $core, $helper, $wifiPlugin)) {
             if ($null -eq $binary) { throw 'Required Windows executable or plugin not found' }
@@ -492,7 +492,7 @@ jobs:
             (Join-Path ([Environment]::GetFolderPath('CommonPrograms')) '蜂窝加速器.lnk'),
             (Join-Path ([Environment]::GetFolderPath('Programs')) '蜂窝加速器.lnk')
           )
-          $expectedTarget = Join-Path $installDir 'FlClash.exe'
+          $expectedTarget = Join-Path $installDir 'FengWo.exe'
           if (-not (Test-Path -LiteralPath $expectedTarget -PathType Leaf)) { throw 'Installed executable not found' }
           $installedVersion = (Get-Item -LiteralPath $expectedTarget).VersionInfo.ProductVersion
           if ($installedVersion -ne $env:PACKAGED_VERSION) { throw "Unexpected installed version: $installedVersion" }
@@ -506,7 +506,7 @@ jobs:
           $expectedIdentity = Assert-FengWoShortcutTarget -ShortcutPath $shortcutPath -ExpectedTarget $expectedTarget -ExpectedWorkingDirectory $installDir
           Start-Process -FilePath $shortcutPath
           Start-Sleep -Seconds 8
-          $primary = Get-Process FlClash -ErrorAction SilentlyContinue | Select-Object -First 1
+          $primary = Get-Process FengWo -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($null -eq $primary) { throw 'Installed application did not start' }
           try {
             $startedIdentity = [FengWoFileIdentity]::Read($primary.Path)
@@ -535,13 +535,13 @@ jobs:
             $primaryId = $primary.Id
             Start-Process -FilePath $shortcutPath
             Start-Sleep -Seconds 4
-            $instances = @(Get-Process FlClash -ErrorAction SilentlyContinue)
-            if ($instances.Count -ne 1) { throw "Expected one FlClash instance, found $($instances.Count)" }
+            $instances = @(Get-Process FengWo -ErrorAction SilentlyContinue)
+            if ($instances.Count -ne 1) { throw "Expected one FengWo instance, found $($instances.Count)" }
             if ($instances[0].Id -ne $primaryId) { throw 'Second shortcut replaced the primary process' }
             if (-not [FengWoWindowTest]::IsWindowVisible($window)) { throw 'Shortcut did not restore the hidden primary window' }
             [void](Assert-FengWoWindowTitle -ProcessId $primaryId)
           } finally {
-            Get-Process FlClash -ErrorAction SilentlyContinue | Stop-Process -Force
+            Get-Process FengWo -ErrorAction SilentlyContinue | Stop-Process -Force
           }
 
       - name: Label test packages and generate checksums

@@ -23,7 +23,7 @@
   "referenceConnectionDelay": "参考连接延迟",
   "referenceStandardizedDelay": "参考标准 RTT",
   "referenceCurrentNodeDelay": "参考节点延迟",
-  "referenceDelayExplanation": "显示核心返回的原始延迟；测速失败显示“超时”。",
+  "referenceDelayExplanation": "显示校准后的完整线路参考延迟；测速失败显示“超时”。",
   "referenceDelayValue": "{value} ms",
   "@referenceDelayValue": {
     "placeholders": {
@@ -1237,5 +1237,23 @@
   "ticketCreated": "工单已提交",
   "ticketUnread": "有未读回复",
   "ticketRefresh": "刷新",
-  "registrationClosed": "当前已停止新用户注册"
+  "registrationClosed": "当前已停止新用户注册",
+  "tunStartFailed": "虚拟网卡启动失败",
+  "tunAuthorizationCancelled": "已取消管理员授权，未创建虚拟网卡。",
+  "tunPermissionDenied": "没有创建虚拟网卡所需的权限，请允许管理员授权。",
+  "tunComponentMissing": "服务组件或完整性校验文件缺失，请重新安装完整客户端。",
+  "tunServiceUnavailable": "辅助服务未能就绪，可能被拦截或与当前安装版本不一致。",
+  "tunSecurityBlocked": "Windows 安全策略阻止了辅助服务，请检查保护历史记录或联系管理员处理。",
+  "tunAdapterFailed": "虚拟网卡或驱动初始化失败，请导出日志查看具体原因。",
+  "tunFailureHelp": "虚拟网卡已关闭，失败详情已写入日志。可以重新授权重试；也可以选择系统代理，供支持系统代理的应用使用。",
+  "tunUseSystemProxy": "使用系统代理",
+  "tunRetry": "重新授权并重试",
+  "tunWaiting": "已请求，等待连接及验证",
+  "tunTools": "虚拟网卡工具",
+  "tunToolsDescription": "首次启用需要管理员授权安装辅助服务。此工具会检查服务，并在缺失或版本不匹配时重新安装。服务就绪后仍需开启虚拟网卡，确认网卡创建成功。",
+  "tunRepairService": "检测并修复服务",
+  "tunServiceReady": "辅助服务已就绪，请开启虚拟网卡验证连接。",
+  "tunStarting": "虚拟网卡开启中",
+  "tunStartingDescription": "正在检测辅助服务并启动虚拟网卡，请稍候。首次使用可能需要管理员授权。",
+  "tunActivationFailed": "虚拟网卡未能启动，请导出日志查看检测和连接失败的原因。"
 }

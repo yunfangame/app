@@ -61,6 +61,151 @@ abstract class _$ConnectionPending extends $Notifier<bool> {
   }
 }
 
+@ProviderFor(WindowsTunActivating)
+final windowsTunActivatingProvider = WindowsTunActivatingProvider._();
+
+final class WindowsTunActivatingProvider
+    extends $NotifierProvider<WindowsTunActivating, bool> {
+  WindowsTunActivatingProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'windowsTunActivatingProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$windowsTunActivatingHash();
+
+  @$internal
+  @override
+  WindowsTunActivating create() => WindowsTunActivating();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(bool value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<bool>(value),
+    );
+  }
+}
+
+String _$windowsTunActivatingHash() =>
+    r'18a16f70190a6e94e2e0c661d883e87fb1b2d8f4';
+
+abstract class _$WindowsTunActivating extends $Notifier<bool> {
+  bool build();
+  @$mustCallSuper
+  @override
+  WhenComplete runBuild() {
+    final ref = this.ref as $Ref<bool, bool>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<bool, bool>,
+              bool,
+              Object?,
+              Object?
+            >;
+    return element.handleCreate(ref, build);
+  }
+}
+
+@ProviderFor(WindowsTunReady)
+final windowsTunReadyProvider = WindowsTunReadyProvider._();
+
+final class WindowsTunReadyProvider
+    extends $NotifierProvider<WindowsTunReady, bool> {
+  WindowsTunReadyProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'windowsTunReadyProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$windowsTunReadyHash();
+
+  @$internal
+  @override
+  WindowsTunReady create() => WindowsTunReady();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(bool value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<bool>(value),
+    );
+  }
+}
+
+String _$windowsTunReadyHash() => r'fb71fa0cb47173dd861113f8986cdbb25a8fa741';
+
+abstract class _$WindowsTunReady extends $Notifier<bool> {
+  bool build();
+  @$mustCallSuper
+  @override
+  WhenComplete runBuild() {
+    final ref = this.ref as $Ref<bool, bool>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<bool, bool>,
+              bool,
+              Object?,
+              Object?
+            >;
+    return element.handleCreate(ref, build);
+  }
+}
+
+@ProviderFor(tunActive)
+final tunActiveProvider = TunActiveProvider._();
+
+final class TunActiveProvider extends $FunctionalProvider<bool, bool, bool>
+    with $Provider<bool> {
+  TunActiveProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'tunActiveProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$tunActiveHash();
+
+  @$internal
+  @override
+  $ProviderElement<bool> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  bool create(Ref ref) {
+    return tunActive(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(bool value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<bool>(value),
+    );
+  }
+}
+
+String _$tunActiveHash() => r'd45d2970109d7eada4ded6681a76f10d88bf24a5';
+
 @ProviderFor(AuthorizedTunEnable)
 final authorizedTunEnableProvider = AuthorizedTunEnableProvider._();
 
@@ -145,7 +290,7 @@ final class LogsProvider extends $NotifierProvider<Logs, FixedList<Log>> {
   }
 }
 
-String _$logsHash() => r'6640063f81d31857d860ae844c8c87670b2f0bba';
+String _$logsHash() => r'd59f2f16fed1c45759693bfb49c5ed6adb56a464';
 
 abstract class _$Logs extends $Notifier<FixedList<Log>> {
   FixedList<Log> build();

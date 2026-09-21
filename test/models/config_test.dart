@@ -17,6 +17,22 @@ T roundTrip<T>(
 }
 
 void main() {
+  group('Tun device branding', () {
+    test('uses FengWoMeta on Windows for existing configurations', () {
+      expect(
+        resolveTunDeviceName('FlClash', isWindows: true),
+        windowsTunDeviceName,
+      );
+    });
+
+    test('preserves the configured device outside Windows', () {
+      expect(
+        resolveTunDeviceName('custom-tun', isWindows: false),
+        'custom-tun',
+      );
+    });
+  });
+
   group('GeoResource JSON', () {
     test('exposes mihomo raw config keys', () {
       expect(GeoResource.MMDB.configKey, 'mmdb');

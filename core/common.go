@@ -167,7 +167,16 @@ func updateListeners(cfg *config.Config) error {
 	listener.ReCreateVmess(general.VmessConfig, tunnel.Tunnel)
 	listener.ReCreateTuic(general.TuicServer, tunnel.Tunnel)
 	if !features.Android {
-		listener.ReCreateTun(general.Tun, tunnel.Tunnel)
+		result := listener.ReCreateTunWithResult(general.Tun, tunnel.Tunnel)
+		if runtime.GOOS == "windows" {
+			if failure := tunListenerFailure(general.Tun.Enable, result); failure != nil {
+				isRunning.Store(false)
+				listener.StopListener()
+				return failure
+			}
+		} else if result.Error != nil {
+			log.Errorln("Start TUN listening error: %s", result.Error)
+		}
 	}
 	return nil
 }

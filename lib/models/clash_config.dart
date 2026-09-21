@@ -244,13 +244,24 @@ extension TunExt on Tun {
         ? defaultBypassPrivateRouteAddress
         : routeAddress;
     return switch (system.isDesktop) {
-      true => copyWith(autoRoute: true, routeAddress: []),
+      true => copyWith(
+        autoRoute: true,
+        routeAddress: [],
+        device: resolveTunDeviceName(device, isWindows: system.isWindows),
+      ),
       false => copyWith(
         autoRoute: mRouteAddress.isEmpty ? true : false,
         routeAddress: mRouteAddress,
       ),
     };
   }
+}
+
+String resolveTunDeviceName(
+  String configuredDevice, {
+  required bool isWindows,
+}) {
+  return isWindows ? windowsTunDeviceName : configuredDevice;
 }
 
 @freezed

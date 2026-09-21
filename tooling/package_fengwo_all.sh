@@ -4,9 +4,10 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 version="$(sed -n 's/^version: \([^+]*\).*/\1/p' "$repo_root/pubspec.yaml" | head -1)"
 build_date="$(date +%Y%m%d)"
+local_build_number="${FENGWO_LOCAL_BUILD_NUMBER:-2026099107}"
 output_root="${1:-/Users/lilaibin/Documents/lilaibin/蜂窝加速器-${version}-${build_date}}"
 macos_universal_package="$output_root/macOS/蜂窝加速器-macOS-Universal2.pkg"
-toolchains_root="${repo_root}-toolchains"
+toolchains_root="${FLCLASH_TOOLCHAINS:-${repo_root}-toolchains}"
 local_flutter="$(find "$toolchains_root" -maxdepth 4 -type f -path '*/flutter/bin/flutter' 2>/dev/null | sort | tail -1)"
 
 if [[ -z "$local_flutter" ]]; then
@@ -27,6 +28,7 @@ windows_tag=''
 package_temp_root="$(mktemp -d "${TMPDIR:-/tmp}/fengwo-local-package.XXXXXX")"
 android_emulator_started=0
 android_emulator_serial=''
+pubspec_backup_path=''
 
 export PATH="$(dirname "$flutter_bin"):$toolchains_root/go-1.26.4/go/bin:$pub_cache/bin:$PATH"
 export PUB_CACHE="$pub_cache"
@@ -43,6 +45,7 @@ for gradle_cache_dir in caches wrapper jdks; do
 done
 
 cleanup_windows_snapshot() {
+  restore_release_pubspec
   if [[ "$android_emulator_started" == '1' && -n "$android_emulator_serial" ]]; then
     "$android_sdk/platform-tools/adb" -s "$android_emulator_serial" emu kill >/dev/null 2>&1 || true
   fi
@@ -58,6 +61,40 @@ cleanup_windows_snapshot() {
   case "$package_temp_root" in
     /tmp/*|/var/folders/*) rm -rf "$package_temp_root" ;;
   esac
+}
+
+prepare_local_release_pubspec() {
+  if [[ -n "$pubspec_backup_path" ]]; then
+    return
+  fi
+  pubspec_backup_path="$package_temp_root/pubspec.yaml"
+  cp -p "$repo_root/pubspec.yaml" "$pubspec_backup_path"
+  python3 - "$repo_root/pubspec.yaml" "$version" "$local_build_number" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+version = sys.argv[2]
+build_number = sys.argv[3]
+text = path.read_text()
+updated, count = re.subn(
+    r"(?m)^version:[^\r\n]*$",
+    f"version: {version}+{build_number}",
+    text,
+    count=1,
+)
+if count != 1:
+    raise SystemExit("Unable to set the local release build number")
+path.write_text(updated)
+PY
+}
+
+restore_release_pubspec() {
+  if [[ -n "$pubspec_backup_path" && -f "$pubspec_backup_path" ]]; then
+    cp -p "$pubspec_backup_path" "$repo_root/pubspec.yaml"
+    pubspec_backup_path=''
+  fi
 }
 
 trap cleanup_windows_snapshot EXIT
@@ -192,7 +229,7 @@ package_macos() {
 verify_macos_package() {
   local pkg="$1"
   local app binary core pid expected_arch
-  if ! pkgutil --payload-files "$pkg" | grep -F '蜂窝加速器.app/Contents/MacOS/FlClash' >/dev/null; then
+  if ! pkgutil --payload-files "$pkg" | grep -F '蜂窝加速器.app/Contents/MacOS/FengWo' >/dev/null; then
     printf 'macOS PKG 中缺少蜂窝加速器。\n' >&2
     exit 1
   fi
@@ -201,7 +238,7 @@ verify_macos_package() {
     printf '找不到 macOS Release 应用。\n' >&2
     exit 1
   fi
-  binary="$app/Contents/MacOS/FlClash"
+  binary="$app/Contents/MacOS/FengWo"
   core="$app/Contents/MacOS/FlClashCore"
   /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$app/Contents/Info.plist" | grep -Fx '蜂窝加速器' >/dev/null
   for expected_arch in arm64 x86_64; do
@@ -209,8 +246,8 @@ verify_macos_package() {
     lipo -archs "$core" | tr ' ' '\n' | grep -Fx "$expected_arch" >/dev/null
   done
   codesign --verify --deep --strict "$app"
-  if pgrep -x FlClash >/dev/null 2>&1; then
-    printf '检测到已有 FlClash/蜂窝加速器实例，跳过会触发单实例保护的启动测试。\n' \
+  if pgrep -x FengWo >/dev/null 2>&1; then
+    printf '检测到已有 FengWo/蜂窝加速器实例，跳过会触发单实例保护的启动测试。\n' \
       >"$output_root/macos-universal-launch.log"
   else
     for expected_arch in arm64 x86_64; do
@@ -298,17 +335,33 @@ package_windows_remote() {
 verify_windows_packages() {
   local archive="$output_root/Windows/蜂窝加速器-${version}-windows-amd64.zip"
   tar -tf "$archive" >/dev/null
-  tar -tf "$archive" | grep -E 'FlClash\.exe|FlClashCore\.exe' >/dev/null
+  tar -tf "$archive" | grep -E 'FengWo\.exe|FlClashCore\.exe' >/dev/null
 }
 
 create_checksums_and_archive() {
   local checksum_file="$output_root/SHA256SUMS.txt"
   local archive_path="$(dirname "$output_root")/蜂窝加速器-${version}-全平台-${build_date}.zip"
-  (
-    cd "$output_root"
-    find Android macOS Windows 远程配置 -type f ! -name '*.log' -print0 | sort -z | xargs -0 shasum -a 256
-  ) > "$checksum_file"
-  printf '版本：%s\n环境：stable\n名称：蜂窝加速器\nmacOS Universal 2 文件：蜂窝加速器-macOS-Universal2.pkg\nAndroid：签名、结构、模拟器安装启动通过\nmacOS：主程序、Flutter 引擎、插件和代理内核均通过 ARM64 与 X86_64 双架构校验\nWindows AMD64：云端构建、结构、启动冒烟测试通过\n远程配置：AES-GCM 解密与 Ed25519 签名验证通过\n更新配置：按平台独立版本、HTML 更新说明、AES-GCM 与 Ed25519 验证通过\n' "$version" > "$output_root/验证报告.txt"
+  local android_report='Android：签名、结构、模拟器安装启动通过\n'
+  if [[ "${FENGWO_DESKTOP_ONLY:-0}" == '1' ]]; then
+    android_report=''
+    archive_path="$(dirname "$output_root")/蜂窝加速器-${version}-桌面端-${build_date}.zip"
+    rm -rf "$output_root/Android" "$output_root/远程配置"
+    rm -f "$output_root/一键打包.command" "$output_root"/*.log
+    rm -f "$output_root/Windows"/*.zip "$output_root"/*.zip "$archive_path"
+    (
+      cd "$output_root"
+      find macOS Windows -type f -print0 | sort -z | xargs -0 shasum -a 256
+    ) > "$checksum_file"
+  else
+    (
+      cd "$output_root"
+      find Android macOS Windows 远程配置 -type f ! -name '*.log' -print0 | sort -z | xargs -0 shasum -a 256
+    ) > "$checksum_file"
+  fi
+  printf '版本：%s\n环境：stable\n名称：蜂窝加速器\nmacOS Universal 2 文件：蜂窝加速器-macOS-Universal2.pkg\n%bmacOS：主程序、Flutter 引擎、插件和代理内核均通过 ARM64 与 X86_64 双架构校验\nWindows AMD64：云端构建、结构、启动冒烟测试通过\n远程配置：AES-GCM 解密与 Ed25519 签名验证通过\n更新配置：按平台独立版本、HTML 更新说明、AES-GCM 与 Ed25519 验证通过\n' "$version" "$android_report" > "$output_root/验证报告.txt"
+  if [[ "${FENGWO_DESKTOP_ONLY:-0}" == '1' ]]; then
+    return
+  fi
   rm -f "$archive_path"
   rm -f "$output_root/$(basename "$archive_path")"
   ditto -c -k --sequesterRsrc --keepParent "$output_root" "$archive_path"
@@ -316,27 +369,37 @@ create_checksums_and_archive() {
 }
 
 cd "$repo_root"
-if [[ "${FENGWO_FINALIZE_ONLY:-0}" == '1' ]]; then
+if [[ "${FENGWO_DESKTOP_ONLY:-0}" == '1' ]]; then
+  rm -rf "$output_root/Android"
+  mkdir -p "$output_root/Android"
+  prepare_local_release_pubspec
+  package_macos
+  verify_macos_package "$macos_universal_package"
+elif [[ "${FENGWO_FINALIZE_ONLY:-0}" == '1' ]]; then
   verify_android_packages
 elif [[ "${FENGWO_RESUME_AFTER_MACOS:-0}" == '1' ]]; then
   verify_android_packages
   verify_macos_package "$macos_universal_package"
 elif [[ "${FENGWO_RESUME_AFTER_INTEL:-0}" == '1' ]]; then
   verify_android_packages
+  prepare_local_release_pubspec
   package_macos
   verify_macos_package "$macos_universal_package"
 else
   if [[ "${FENGWO_RESUME_AFTER_ANDROID:-0}" != '1' ]]; then
     "$flutter_bin" pub get
     "$flutter_bin" test test/setup_test.dart test/common/remote_config_cipher_test.dart test/common/app_update_test.dart test/common/subscription_v2_test.dart test/common/xboard_auth_test.dart test/common/xboard_marquee_test.dart test/common/xboard_session_storage_test.dart test/providers/action_test.dart test/core/controller_test.dart test/core/protocol_contract_test.dart test/views/proxies/common_test.dart test/widgets/app_update_dialog_test.dart test/widgets/fengwo_marquee_test.dart test/widgets/dashboard_layout_test.dart --reporter expanded
+    prepare_local_release_pubspec
     "$dart_bin" setup.dart android --env stable --targets apk
     copy_android_packages
   fi
   verify_android_packages
   test_android_launch
+  prepare_local_release_pubspec
   package_macos
   verify_macos_package "$macos_universal_package"
 fi
+restore_release_pubspec
 if [[ "${FENGWO_FINALIZE_ONLY:-0}" != '1' ]]; then
   package_windows_remote
 fi

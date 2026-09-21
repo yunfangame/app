@@ -1,8 +1,19 @@
 part of '../action.dart';
 
+class CorePreparationException implements Exception {
+  const CorePreparationException(this.code, {this.cause});
+
+  final String code;
+  final Object? cause;
+
+  @override
+  String toString() => 'CorePreparationException($code)';
+}
+
 @Riverpod(keepAlive: true)
 class CoreAction extends _$CoreAction {
   final _lifecycleScheduler = SerialTaskScheduler();
+  int _lifecycleRevision = 0;
   int _requestedRestartRevision = 0;
   Future<void>? _restartOperation;
 
@@ -21,16 +32,74 @@ class CoreAction extends _$CoreAction {
     }
   }
 
-  Future<void> startCore() async {
-    ref.read(coreStatusProvider.notifier).value = CoreStatus.connecting;
-    try {
-      await coreController.start();
-      ref.read(coreStatusProvider.notifier).value = CoreStatus.connected;
-      await initCore();
-    } catch (error) {
-      ref.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
-      globalState.showNotifier(error.toString());
+  Future<void> startCore() {
+    _lifecycleRevision++;
+    return _lifecycleScheduler.run(() async {
+      ref.read(coreStatusProvider.notifier).value = CoreStatus.connecting;
+      try {
+        await startLifecycle();
+        ref.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+        await initCore();
+      } catch (error) {
+        ref.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
+        globalState.showNotifier(error.toString());
+      }
+    });
+  }
+
+  @protected
+  Future<CoreLifecycleResult> startLifecycle() {
+    return coreController.start();
+  }
+
+  @protected
+  Future<bool> initializeCoreForSubscription() async {
+    if (await coreController.isInit) return true;
+    return coreController.init(ref.read(versionProvider));
+  }
+
+  Future<void> ensureCoreForSubscription({bool Function()? isCurrent}) {
+    if (!system.isDesktop) return Future.value();
+    final revision = _lifecycleRevision;
+    void ensureCurrent() {
+      if (!ref.mounted ||
+          revision != _lifecycleRevision ||
+          isCurrent?.call() == false) {
+        throw const CorePreparationException('core_preparation_superseded');
+      }
     }
+
+    return _lifecycleScheduler.run(() async {
+      ensureCurrent();
+      if (ref.read(coreStatusProvider) == CoreStatus.connected) return;
+      ref.read(coreStatusProvider.notifier).value = CoreStatus.connecting;
+      var stage = 'start';
+      try {
+        final result = await startLifecycle();
+        ensureCurrent();
+        if (result.outcome == CoreLifecycleOutcome.superseded) {
+          throw const CorePreparationException('core_preparation_superseded');
+        }
+        stage = 'init';
+        final initialized = await initializeCoreForSubscription().timeout(
+          const Duration(seconds: 15),
+        );
+        ensureCurrent();
+        if (!initialized) {
+          throw const CorePreparationException('core_init_failed');
+        }
+        ref.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+      } catch (error, stackTrace) {
+        if (ref.mounted && revision == _lifecycleRevision) {
+          ref.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
+        }
+        if (error is CorePreparationException) rethrow;
+        Error.throwWithStackTrace(
+          CorePreparationException('core_${stage}_failed', cause: error),
+          stackTrace,
+        );
+      }
+    });
   }
 
   @protected
@@ -44,6 +113,7 @@ class CoreAction extends _$CoreAction {
   }
 
   Future<void> restartCoreLifecycleOnly() {
+    _lifecycleRevision++;
     return _lifecycleScheduler.run(() async {
       ref.read(coreStatusProvider.notifier).value = CoreStatus.connecting;
       try {
@@ -58,6 +128,7 @@ class CoreAction extends _$CoreAction {
   }
 
   Future<void> stopCoreLifecycleOnly() {
+    _lifecycleRevision++;
     return _lifecycleScheduler.run(() async {
       try {
         await stopLifecycle();

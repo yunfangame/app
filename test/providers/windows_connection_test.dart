@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:fl_clash/core/method.dart';
+import 'package:fl_clash/common/tun_failure.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart';
 import 'package:riverpod/riverpod.dart';
 
 void main() {
@@ -25,6 +27,189 @@ void main() {
     action = container.read(setupActionProvider.notifier) as _WindowsSetup;
   });
   tearDown(() => container.dispose());
+
+  test(
+    'one click waits for native readiness and closes progress on success',
+    () async {
+      container.read(authorizedTunEnableProvider.notifier).value =
+          TunAuthorizationState.authorized;
+      action.start = Completer<bool>();
+      final first = action.enableWindowsTun();
+      final repeated = action.enableWindowsTun();
+      expect(identical(first, repeated), isTrue);
+      await action.startEntered.future;
+      expect(container.read(windowsTunActivatingProvider), isTrue);
+      expect(container.read(windowsTunReadyProvider), isFalse);
+      expect(action.progressEvents, ['open']);
+      action.start!.complete(true);
+      await first;
+      expect(container.read(windowsTunActivatingProvider), isFalse);
+      expect(container.read(windowsTunReadyProvider), isTrue);
+      expect(container.read(isStartProvider), isTrue);
+      expect(action.progressEvents, ['open', 'close']);
+      await action.setRunning(false);
+    },
+  );
+
+  test(
+    'failure closes progress before displaying error and permits retry',
+    () async {
+      action.prepareFailure = TunFailure.elevation(1223);
+      await action.enableWindowsTun();
+      expect(action.progressEvents, ['open', 'close', 'error']);
+      expect(action.errorWhileBusy, isFalse);
+      expect(container.read(windowsTunActivatingProvider), isFalse);
+      expect(container.read(patchClashConfigProvider).tun.enable, isFalse);
+      action.prepareFailure = null;
+      container.read(authorizedTunEnableProvider.notifier).value =
+          TunAuthorizationState.authorized;
+      await action.enableWindowsTun();
+      expect(container.read(windowsTunReadyProvider), isTrue);
+      expect(action.progressEvents, [
+        'open',
+        'close',
+        'error',
+        'open',
+        'close',
+      ]);
+      await action.setRunning(false);
+    },
+  );
+
+  test(
+    'uninitialized application reports failure instead of silently ending loading',
+    () async {
+      container.read(initProvider.notifier).value = false;
+      await action.enableWindowsTun();
+      expect(action.progressEvents, ['open', 'close', 'error']);
+      expect(container.read(patchClashConfigProvider).tun.enable, isFalse);
+      expect(container.read(windowsTunActivatingProvider), isFalse);
+    },
+  );
+
+  test('unexpected startup error cannot leave loading active', () async {
+    action.prepareFailure = StateError('configuration unavailable');
+    await action.enableWindowsTun();
+    expect(container.read(windowsTunActivatingProvider), isFalse);
+    expect(action.progressEvents, ['open', 'close', 'error']);
+    expect(action.tunNotifications, ['activation_failed']);
+    expect(action.notifications, 0);
+  });
+
+  test('disposal closes TUN progress once despite late completion', () async {
+    action.prepare = Completer<void>();
+    final enabling = action.enableWindowsTun();
+    await action.prepared.future;
+    container.dispose();
+    action.prepare!.complete();
+    await enabling;
+    expect(action.progressEvents, ['open', 'close']);
+    expect(action.tunNotifications, isEmpty);
+  });
+
+  for (final failure in [
+    const TunFailure(
+      'authorization',
+      'authorization_cancelled',
+      osErrorCode: 1223,
+    ),
+    const TunFailure('service_start', 'helper_not_ready'),
+    const CoreMethodException(
+      code: 'listener_not_ready',
+      message: 'TUN failed',
+      details: {
+        'listener': 'tun',
+        'stage': 'adapter_create',
+        'reason': 'access_denied',
+        'os_error_code': 5,
+      },
+    ),
+  ]) {
+    test('TUN failure clears requested and verified state: $failure', () async {
+      container
+          .read(patchClashConfigProvider.notifier)
+          .update((s) => s.copyWith.tun(enable: true));
+      container.read(authorizedTunEnableProvider.notifier).value =
+          TunAuthorizationState.authorized;
+      action.prepareFailure = failure;
+      await action.setRunning(true);
+      expect(container.read(patchClashConfigProvider).tun.enable, isFalse);
+      expect(container.read(windowsTunReadyProvider), isFalse);
+      expect(
+        container.read(authorizedTunEnableProvider),
+        TunAuthorizationState.none,
+      );
+      expect(container.read(networkSettingProvider).systemProxy, isFalse);
+      expect(action.tunNotifications, hasLength(1));
+      expect(action.notifications, 0);
+      expect(container.read(isStartProvider), isFalse);
+    });
+  }
+
+  test('TUN readiness waits for native success and clears on stop', () async {
+    container
+        .read(patchClashConfigProvider.notifier)
+        .update((s) => s.copyWith.tun(enable: true));
+    container.read(authorizedTunEnableProvider.notifier).value =
+        TunAuthorizationState.authorized;
+    action.start = Completer<bool>();
+    final pending = action.setRunning(true);
+    await action.startEntered.future;
+    expect(container.read(windowsTunReadyProvider), isFalse);
+    action.start!.complete(true);
+    await pending;
+    expect(container.read(windowsTunReadyProvider), isTrue);
+    await action.setRunning(false);
+    expect(container.read(windowsTunReadyProvider), isFalse);
+  });
+
+  test(
+    'an old TUN update failure cannot clear a newer off-on request',
+    () async {
+      await action.setRunning(true);
+      container
+          .read(patchClashConfigProvider.notifier)
+          .update((s) => s.copyWith.tun(enable: true));
+      final update = Completer<String>();
+      action.update = update;
+      final oldUpdate = action.updateConfig();
+      await action.updateEntered.future;
+      container
+          .read(patchClashConfigProvider.notifier)
+          .update((s) => s.copyWith.tun(enable: false));
+      container
+          .read(patchClashConfigProvider.notifier)
+          .update((s) => s.copyWith.tun(enable: true));
+      update.completeError(
+        const CoreMethodException(
+          code: 'listener_not_ready',
+          message: 'obsolete TUN failure',
+          details: {'listener': 'tun', 'reason': 'access_denied'},
+        ),
+      );
+      await oldUpdate;
+      expect(container.read(patchClashConfigProvider).tun.enable, isTrue);
+      expect(action.tunNotifications, isEmpty);
+      expect(container.read(isStartProvider), isTrue);
+      await action.setRunning(false);
+    },
+  );
+
+  test('native TUN create failure during update disables the switch', () async {
+    await action.setRunning(true);
+    container
+        .read(patchClashConfigProvider.notifier)
+        .update((s) => s.copyWith.tun(enable: true));
+    action.updateFailure = const CoreMethodException(
+      code: 'listener_not_ready',
+      message: 'TUN failed',
+      details: {'listener': 'tun', 'reason': 'adapter_not_ready'},
+    );
+    await action.updateConfig();
+    expect(container.read(patchClashConfigProvider).tun.enable, isFalse);
+    expect(action.tunNotifications, ['adapter_not_ready']);
+    expect(container.read(isStartProvider), isFalse);
+  });
 
   test(
     'config and owned listener precede loopback and connected state',
@@ -350,6 +535,26 @@ class _WindowsSetup extends SetupAction {
   int updateCalls = 0;
   int authorizationCalls = 0;
   int notifications = 0;
+  final tunNotifications = <String>[];
+
+  @override
+  void notifyTunFailure(String code) {
+    tunNotifications.add(code);
+    progressEvents.add('error');
+    errorWhileBusy = ref.read(windowsTunActivatingProvider);
+  }
+
+  final progressEvents = <String>[];
+  bool errorWhileBusy = false;
+
+  @override
+  VoidCallback showTunProgress() {
+    progressEvents.add('open');
+    return () => progressEvents.add('close');
+  }
+
+  @override
+  Future<void> ensureTunCoreReady() async {}
 
   @override
   bool get requiresListenerReadiness => true;

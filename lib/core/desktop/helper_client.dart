@@ -209,7 +209,10 @@ final class WindowsHelperClient {
 
   void _logPingFailure(String message, bool enabled) {
     if (enabled) {
-      commonPrint.log(message, logLevel: LogLevel.warning);
+      commonPrint.event(
+        'windows.helper.readiness.failed',
+        fields: {'stage': 'service_preflight', 'reason': message},
+      );
     }
   }
 
@@ -450,6 +453,14 @@ final class FallbackCoreLauncher implements CoreProcessLauncher {
       return await primary.start(sessionId: sessionId, address: address);
     } on WindowsHelperException catch (error) {
       if (!_preSpawnHelperErrors.contains(error.code)) rethrow;
+      commonPrint.event(
+        'windows.helper.launch.failed',
+        fields: {
+          'stage': 'core_start',
+          'error_code': error.code,
+          'details': error.details,
+        },
+      );
       commonPrint.log(
         'Helper could not start the Core ($error); '
         'falling back to direct Core',

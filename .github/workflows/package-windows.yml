@@ -180,10 +180,10 @@ jobs:
           $archive = Get-ChildItem dist -Filter '*windows*.zip' | Select-Object -First 1
           if ($null -eq $archive) { throw 'Windows archive not found' }
           Expand-Archive $archive.FullName -DestinationPath verify-windows -Force
-          $app = Get-ChildItem verify-windows -Recurse -Filter FlClash.exe | Where-Object { $_.FullName -notmatch 'Core' } | Select-Object -First 1
+          $app = Get-ChildItem verify-windows -Recurse -Filter FengWo.exe | Where-Object { $_.FullName -notmatch 'Core' } | Select-Object -First 1
           $core = Get-ChildItem verify-windows -Recurse -Filter FlClashCore.exe | Select-Object -First 1
           $wifiPlugin = Get-ChildItem verify-windows -Recurse -Filter wifi_ssid_plugin.dll | Select-Object -First 1
-          if ($null -eq $app) { throw 'FlClash.exe not found' }
+          if ($null -eq $app) { throw 'FengWo.exe not found' }
           ./tooling/windows/verify_vc_runtime_bundle.ps1 -Architecture x64 -BundleDirectory $app.DirectoryName
           if ($null -eq $core) { throw 'FlClashCore.exe not found' }
           if ($null -eq $wifiPlugin) { throw 'wifi_ssid_plugin.dll not found' }
@@ -231,7 +231,7 @@ jobs:
             (Join-Path ([Environment]::GetFolderPath('CommonPrograms')) '蜂窝加速器.lnk'),
             (Join-Path ([Environment]::GetFolderPath('Programs')) '蜂窝加速器.lnk')
           )
-          $expectedTarget = Join-Path $installDir 'FlClash.exe'
+          $expectedTarget = Join-Path $installDir 'FengWo.exe'
           if (-not (Test-Path -LiteralPath $expectedTarget -PathType Leaf)) {
             throw "Installed executable not found: $expectedTarget"
           }
@@ -243,7 +243,7 @@ jobs:
           Write-Host "Testing installed shortcut: $shortcutPath"
           Start-Process -FilePath $shortcutPath
           Start-Sleep -Seconds 8
-          $primary = Get-Process FlClash -ErrorAction SilentlyContinue | Select-Object -First 1
+          $primary = Get-Process FengWo -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($null -eq $primary) { throw 'Installed application did not start' }
           Add-Type @'
           using System;
@@ -262,8 +262,8 @@ jobs:
           $primaryId = $primary.Id
           Start-Process -FilePath $shortcutPath
           Start-Sleep -Seconds 4
-          $instances = @(Get-Process FlClash -ErrorAction SilentlyContinue)
-          if ($instances.Count -ne 1) { throw "Expected one FlClash instance, found $($instances.Count)" }
+          $instances = @(Get-Process FengWo -ErrorAction SilentlyContinue)
+          if ($instances.Count -ne 1) { throw "Expected one FengWo instance, found $($instances.Count)" }
           if ($instances[0].Id -ne $primaryId) { throw 'Second shortcut replaced the primary process' }
           if (-not [FengWoWindowTest]::IsWindowVisible($window)) {
             throw 'Shortcut did not restore the hidden primary window'

@@ -1,6 +1,5 @@
 #include "proxy_plugin.h"
 
-// This must be included before many other Windows headers.
 #include <windows.h>
 
 #include <WinInet.h>
@@ -8,7 +7,9 @@
 #include <RasError.h>
 #include "proxy_settings.h"
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
+#include <exception>
 #include <memory>
 #include <string>
 #include <vector>
@@ -516,7 +517,11 @@ bool ParseOptionalExpectedPort(
 namespace proxy
 {
 
-// static
+struct ProxyPlugin::ProxyState
+{
+  std::optional<int> applied_port;
+};
+
 void ProxyPlugin::RegisterWithRegistrar(
     flutter::PluginRegistrarWindows* registrar)
 {
@@ -536,9 +541,12 @@ void ProxyPlugin::RegisterWithRegistrar(
   registrar->AddPlugin(std::move(plugin));
 }
 
+ProxyPlugin::ProxyPlugin() : state_(std::make_shared<ProxyState>()) {}
+
 ProxyPlugin::ProxyPlugin(flutter::PluginRegistrarWindows* registrar)
-    : registrar_(registrar)
+    : ProxyPlugin()
 {
+  registrar_ = registrar;
   window_proc_id_ = registrar_->RegisterTopLevelWindowProcDelegate(
       [this](HWND window, UINT message, WPARAM wparam, LPARAM lparam)
       {
@@ -548,10 +556,58 @@ ProxyPlugin::ProxyPlugin(flutter::PluginRegistrarWindows* registrar)
 
 ProxyPlugin::~ProxyPlugin()
 {
+  Shutdown();
   if (registrar_ != nullptr)
   {
     registrar_->UnregisterTopLevelWindowProcDelegate(window_proc_id_);
   }
+}
+
+void ProxyPlugin::Dispatch(
+    std::function<flutter::EncodableValue()> operation,
+    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result)
+{
+  auto reply =
+      std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(
+          std::move(result));
+  const auto cancelled = [reply]()
+  {
+    reply->Error("proxy_shutdown", "The system proxy worker is shutting down");
+  };
+  if (!task_runner_.Post(
+          [operation = std::move(operation), reply]()
+          {
+            flutter::EncodableValue value;
+            try
+            {
+              value = operation();
+            }
+            catch (const std::exception& error)
+            {
+              reply->Error("proxy_operation_failed", error.what());
+              return;
+            }
+            catch (...)
+            {
+              reply->Error("proxy_operation_failed", "System proxy operation failed");
+              return;
+            }
+            reply->Success(value);
+          },
+          cancelled))
+  {
+    cancelled();
+  }
+}
+
+void ProxyPlugin::Shutdown()
+{
+  task_runner_.Shutdown([state = state_]()
+  {
+    if (!state->applied_port.has_value()) return;
+    const int port = *state->applied_port;
+    if (StopProxy(&port).success) state->applied_port.reset();
+  });
 }
 
 bool ProxyPlugin::IsSessionEnding(UINT message, WPARAM wparam)
@@ -567,13 +623,10 @@ std::optional<int> ProxyPlugin::AppliedProxyPort(bool success, int port)
 std::optional<LRESULT> ProxyPlugin::HandleWindowProc(
     HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
-  if (applied_proxy_port_.has_value() && IsSessionEnding(message, wparam))
+  if (IsSessionEnding(message, wparam))
   {
-    const int expectedPort = *applied_proxy_port_;
-    if (StopProxy(&expectedPort).success)
-    {
-      applied_proxy_port_.reset();
-    }
+    Shutdown();
+    task_runner_.WaitForShutdown(std::chrono::milliseconds(2000));
   }
   return std::nullopt;
 }
@@ -593,19 +646,18 @@ void ProxyPlugin::HandleMethodCall(
       result->Error("bad_args", errorMessage);
       return;
     }
-    const auto details = StopProxy(expectedPort);
-    if (details.success)
-    {
-      applied_proxy_port_.reset();
-    }
-    if (methodCall.method_name() == "StopProxy")
-    {
-      result->Success(flutter::EncodableValue(details.success));
-    }
-    else
-    {
-      result->Success(EncodeDetails(details));
-    }
+    const auto port = expectedPort == nullptr
+        ? std::optional<int>() : std::make_optional(*expectedPort);
+    const bool detailed = methodCall.method_name() == "StopProxyDetailed";
+    Dispatch(
+        [state = state_, port, detailed]()
+        {
+          const auto details = StopProxy(port ? &*port : nullptr);
+          if (details.success) state->applied_port.reset();
+          return detailed ? EncodeDetails(details)
+                          : flutter::EncodableValue(details.success);
+        },
+        std::move(result));
     return;
   }
 
@@ -632,7 +684,12 @@ void ProxyPlugin::HandleMethodCall(
       result->Error("bad_args", "InspectProxy expectedPort is invalid");
       return;
     }
-    result->Success(EncodeDetails(InspectProxy(*expectedPort)));
+    Dispatch(
+        [port = *expectedPort]()
+        {
+          return EncodeDetails(InspectProxy(port));
+        },
+        std::move(result));
     return;
   }
 
@@ -648,16 +705,16 @@ void ProxyPlugin::HandleMethodCall(
       result->Error("bad_args", errorMessage);
       return;
     }
-    const auto details = ApplyProxy(true, *port, *bypassDomain);
-    applied_proxy_port_ = AppliedProxyPort(details.success, *port);
-    if (methodCall.method_name() == "StartProxy")
-    {
-      result->Success(flutter::EncodableValue(details.success));
-    }
-    else
-    {
-      result->Success(EncodeDetails(details));
-    }
+    const bool detailed = methodCall.method_name() == "StartProxyDetailed";
+    Dispatch(
+        [state = state_, port = *port, bypass = *bypassDomain, detailed]()
+        {
+          const auto details = ApplyProxy(true, port, bypass);
+          state->applied_port = AppliedProxyPort(details.success, port);
+          return detailed ? EncodeDetails(details)
+                          : flutter::EncodableValue(details.success);
+        },
+        std::move(result));
     return;
   }
 

@@ -233,6 +233,71 @@ void main() {
       );
     },
   );
+
+  test(
+    'first setup timeout keeps a core ready for subscription import',
+    () async {
+      await configFile.delete();
+      final harness = _Harness(stableProfile: null);
+      addTearDown(harness.container.dispose);
+      final lateSetup = Completer<String>();
+      harness.setup.onApply = (count) async {
+        if (count == 1) return lateSetup.future;
+        if (!await configFile.exists()) return 'config.yaml does not exist';
+        expect(await configFile.readAsString(), isEmpty);
+        return 'file is empty';
+      };
+
+      await expectLater(
+        harness.setup.applyProfile(
+          force: true,
+          silence: true,
+          propagateErrors: true,
+        ),
+        throwsA(isA<TimeoutException>()),
+      );
+
+      expect(harness.core.restartCount, 1);
+      expect(harness.core.stopCount, 0);
+      expect(harness.container.read(coreStatusProvider), CoreStatus.connected);
+      expect(await configFile.readAsString(), isEmpty);
+      expect(harness.container.read(currentProfileProvider), isNull);
+      expect(harness.container.read(isStartProvider), isFalse);
+      expect(
+        diagnostics.any(
+          (line) => line.contains('configuration.recovery.succeeded'),
+        ),
+        isTrue,
+      );
+      lateSetup.complete('');
+    },
+  );
+
+  test('missing stable profile config still fails recovery closed', () async {
+    await configFile.delete();
+    final harness = _Harness(stableProfile: _stableProfile);
+    addTearDown(harness.container.dispose);
+    final lateSetup = Completer<String>();
+    harness.setup.onApply = (count) async {
+      if (count == 1) return lateSetup.future;
+      return await configFile.exists() ? '' : 'config.yaml does not exist';
+    };
+
+    await expectLater(
+      harness.setup.applyProfile(
+        force: true,
+        silence: true,
+        propagateErrors: true,
+      ),
+      throwsA(isA<TimeoutException>()),
+    );
+
+    expect(harness.core.stopCount, 1);
+    expect(harness.container.read(coreStatusProvider), CoreStatus.disconnected);
+    expect(await configFile.exists(), isFalse);
+    expect(harness.container.read(currentProfileProvider), _stableProfile);
+    lateSetup.complete('');
+  });
 }
 
 class _Harness {
@@ -287,6 +352,9 @@ class _TestSetupAction extends SetupAction {
   bool get requiresListenerReadiness => true;
 
   @override
+  Future<bool> isTunServiceReady() async => true;
+
+  @override
   bool get supportsCoreSetupTimeoutRecovery => true;
 
   @override
@@ -326,6 +394,7 @@ class _TestSetupAction extends SetupAction {
 
 class _TestCoreAction extends CoreAction {
   int restartCount = 0;
+  int stopCount = 0;
   Future<void> Function(int count)? onRestart;
 
   @override
@@ -337,6 +406,15 @@ class _TestCoreAction extends CoreAction {
     await onRestart?.call(restartCount);
     return CoreLifecycleResult(
       revision: restartCount,
+      outcome: CoreLifecycleOutcome.applied,
+    );
+  }
+
+  @override
+  Future<CoreLifecycleResult> stopLifecycle() async {
+    stopCount++;
+    return CoreLifecycleResult(
+      revision: restartCount + stopCount,
       outcome: CoreLifecycleOutcome.applied,
     );
   }

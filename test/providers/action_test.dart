@@ -58,6 +58,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          coreStatusProvider.overrideWithBuild((_, _) => CoreStatus.connected),
           currentProfileIdProvider.overrideWithBuild((_, _) => null),
           profilesProvider.overrideWith(() => _TestProfiles([original])),
         ],
@@ -97,6 +98,9 @@ void main() {
       ) {
         final container = ProviderContainer(
           overrides: [
+            coreStatusProvider.overrideWithBuild(
+              (_, _) => CoreStatus.connected,
+            ),
             currentProfileIdProvider.overrideWithBuild((_, _) => null),
             profilesProvider.overrideWith(() => _TestProfiles([profile])),
             profilesActionProvider.overrideWith(() => action),
@@ -309,6 +313,7 @@ void main() {
       final second = Profile.normal(label: 'Second');
       final container = ProviderContainer(
         overrides: [
+          coreStatusProvider.overrideWithBuild((_, _) => CoreStatus.connected),
           currentProfileIdProvider.overrideWithBuild((_, _) => first.id),
           profilesProvider.overrideWith(() => _TestProfiles([first])),
         ],
@@ -348,6 +353,9 @@ void main() {
         ];
         final container = ProviderContainer(
           overrides: [
+            coreStatusProvider.overrideWithBuild(
+              (_, _) => CoreStatus.connected,
+            ),
             currentProfileIdProvider.overrideWithBuild((_, _) => null),
             profilesProvider.overrideWith(() => _TestProfiles(profiles)),
           ],
@@ -367,6 +375,7 @@ void main() {
       final other = Profile.normal(label: 'Other');
       final container = ProviderContainer(
         overrides: [
+          coreStatusProvider.overrideWithBuild((_, _) => CoreStatus.connected),
           currentProfileIdProvider.overrideWithBuild((_, _) => current.id),
           profilesProvider.overrideWith(() => _TestProfiles([current])),
         ],
@@ -387,6 +396,7 @@ void main() {
       Profile? loadedProfile;
       final container = ProviderContainer(
         overrides: [
+          coreStatusProvider.overrideWithBuild((_, _) => CoreStatus.connected),
           currentProfileIdProvider.overrideWithBuild((_, _) => null),
           profilesProvider.overrideWith(() => _TestProfiles([])),
           setupActionProvider.overrideWith(() {
@@ -426,6 +436,9 @@ void main() {
         var loaderCalls = 0;
         final container = ProviderContainer(
           overrides: [
+            coreStatusProvider.overrideWithBuild(
+              (_, _) => CoreStatus.connected,
+            ),
             currentProfileIdProvider.overrideWithBuild((_, _) => other.id),
             profilesProvider.overrideWith(
               () => _TestProfiles([other, existing]),
@@ -479,6 +492,9 @@ void main() {
         final setupAction = _TestSetupAction();
         final container = ProviderContainer(
           overrides: [
+            coreStatusProvider.overrideWithBuild(
+              (_, _) => CoreStatus.connected,
+            ),
             currentProfileIdProvider.overrideWithBuild((_, _) => profileA.id),
             profilesProvider.overrideWith(() => _TestProfiles([profileA])),
             setupActionProvider.overrideWith(() => setupAction),
@@ -567,6 +583,9 @@ void main() {
             };
           final container = ProviderContainer(
             overrides: [
+              coreStatusProvider.overrideWithBuild(
+                (_, _) => CoreStatus.connected,
+              ),
               currentProfileIdProvider.overrideWithBuild((_, _) => existing.id),
               profilesProvider.overrideWith(() => _TestProfiles([existing])),
               setupActionProvider.overrideWith(() => setupAction),
@@ -661,6 +680,9 @@ void main() {
           final commitError = StateError('profile commit failed');
           final container = ProviderContainer(
             overrides: [
+              coreStatusProvider.overrideWithBuild(
+                (_, _) => CoreStatus.connected,
+              ),
               currentProfileIdProvider.overrideWithBuild((_, _) => existing.id),
               profilesProvider.overrideWith(
                 () => failCommit
@@ -740,6 +762,9 @@ void main() {
           final clearedEffects = <int>[];
           final container = ProviderContainer(
             overrides: [
+              coreStatusProvider.overrideWithBuild(
+                (_, _) => CoreStatus.connected,
+              ),
               currentProfileIdProvider.overrideWithBuild(
                 (_, _) => oldProfile.id,
               ),
@@ -784,6 +809,7 @@ void main() {
       final diagnosticEvents = <Map<String, Object?>>[];
       final container = ProviderContainer(
         overrides: [
+          coreStatusProvider.overrideWithBuild((_, _) => CoreStatus.connected),
           currentProfileIdProvider.overrideWithBuild((_, _) => oldProfile.id),
           profilesProvider.overrideWith(() => _TestProfiles([oldProfile])),
           setupActionProvider.overrideWith(() {
@@ -856,6 +882,7 @@ void main() {
       final clearedEffects = <int>[];
       final container = ProviderContainer(
         overrides: [
+          coreStatusProvider.overrideWithBuild((_, _) => CoreStatus.connected),
           currentProfileIdProvider.overrideWithBuild((_, _) => staleLegacy.id),
           profilesProvider.overrideWith(
             () => _TestProfiles([staleLegacy, manualProfile]),
@@ -894,6 +921,7 @@ void main() {
       final diagnosticEvents = <Map<String, Object?>>[];
       final container = ProviderContainer(
         overrides: [
+          coreStatusProvider.overrideWithBuild((_, _) => CoreStatus.connected),
           currentProfileIdProvider.overrideWithBuild((_, _) => staleLegacy.id),
           profilesProvider.overrideWith(() => _TestProfiles([staleLegacy])),
           setupActionProvider.overrideWith(() {
@@ -951,6 +979,9 @@ void main() {
         final clearedEffects = <int>[];
         final container = ProviderContainer(
           overrides: [
+            coreStatusProvider.overrideWithBuild(
+              (_, _) => CoreStatus.connected,
+            ),
             currentProfileIdProvider.overrideWithBuild(
               (_, _) => accountProfile.id,
             ),
@@ -989,6 +1020,9 @@ void main() {
         late _TestSetupAction setupAction;
         final container = ProviderContainer(
           overrides: [
+            coreStatusProvider.overrideWithBuild(
+              (_, _) => CoreStatus.connected,
+            ),
             currentProfileIdProvider.overrideWithBuild((_, _) => original.id),
             profilesProvider.overrideWith(() => _TestProfiles([original])),
             setupActionProvider.overrideWith(() {
@@ -1029,6 +1063,9 @@ void main() {
         var sessionCurrent = true;
         final container = ProviderContainer(
           overrides: [
+            coreStatusProvider.overrideWithBuild(
+              (_, _) => CoreStatus.connected,
+            ),
             currentProfileIdProvider.overrideWithBuild((_, _) => existing.id),
             profilesProvider.overrideWith(() => _TestProfiles([existing])),
             setupActionProvider.overrideWith(() {
@@ -1073,6 +1110,9 @@ void main() {
         final applyCompletion = Completer<void>();
         final container = ProviderContainer(
           overrides: [
+            coreStatusProvider.overrideWithBuild(
+              (_, _) => CoreStatus.connected,
+            ),
             currentProfileIdProvider.overrideWithBuild((_, _) => existing.id),
             profilesProvider.overrideWith(() => _TestProfiles([existing])),
             setupActionProvider.overrideWith(() {
@@ -1134,6 +1174,9 @@ void main() {
         final applyCompletion = Completer<void>();
         final container = ProviderContainer(
           overrides: [
+            coreStatusProvider.overrideWithBuild(
+              (_, _) => CoreStatus.connected,
+            ),
             currentProfileIdProvider.overrideWithBuild((_, _) => existing.id),
             profilesProvider.overrideWith(() => _TestProfiles([existing])),
             setupActionProvider.overrideWith(() {
@@ -1179,6 +1222,9 @@ void main() {
         final setupAction = _TestSetupAction();
         final container = ProviderContainer(
           overrides: [
+            coreStatusProvider.overrideWithBuild(
+              (_, _) => CoreStatus.connected,
+            ),
             currentProfileIdProvider.overrideWithBuild((_, _) => existing.id),
             profilesProvider.overrideWith(() => profiles),
             setupActionProvider.overrideWith(() => setupAction),
@@ -1215,6 +1261,9 @@ void main() {
         var current = true;
         final container = ProviderContainer(
           overrides: [
+            coreStatusProvider.overrideWithBuild(
+              (_, _) => CoreStatus.connected,
+            ),
             currentProfileIdProvider.overrideWithBuild((_, _) => existing.id),
             profilesProvider.overrideWith(() => _TestProfiles([existing])),
             setupActionProvider.overrideWith(() => setupAction),
@@ -1259,6 +1308,9 @@ void main() {
         var loaderCalls = 0;
         final container = ProviderContainer(
           overrides: [
+            coreStatusProvider.overrideWithBuild(
+              (_, _) => CoreStatus.connected,
+            ),
             currentProfileIdProvider.overrideWithBuild((_, _) => null),
             profilesProvider.overrideWith(() => _TestProfiles([])),
             setupActionProvider.overrideWith(() {
@@ -2294,6 +2346,9 @@ class _WindowsAuthorizationFailureSetupAction extends SetupAction {
 
   @override
   bool get requiresListenerReadiness => true;
+
+  @override
+  Future<bool> isTunServiceReady() async => true;
 
   @override
   Future<AuthorizeCode> authorizeCore() async {

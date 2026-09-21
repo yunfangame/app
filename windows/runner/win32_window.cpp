@@ -18,7 +18,7 @@ namespace {
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 constexpr const wchar_t kWindowActivationMessageName[] =
-    L"FengWoAccelerator.FlClash.ActivateMainWindow";
+    L"FengWoAccelerator.FengWo.ActivateMainWindow";
 
 /// Registry key for app theme preference.
 ///

@@ -371,8 +371,9 @@ class ApplicationState extends ConsumerState<Application> {
         _showStartupMessage(
           sessionExpired
               ? currentAppLocalizations.loginSessionExpired
-              : error.failure == XboardAuthFailure.subscriptionUnavailable
-              ? currentAppLocalizations.subscriptionImportFailed
+              : error.failure == XboardAuthFailure.subscriptionUnavailable ||
+                    error.failure == XboardAuthFailure.coreUnavailable
+              ? error.message
               : currentAppLocalizations.automaticLoginUnavailable,
         );
       }
@@ -418,10 +419,7 @@ class ApplicationState extends ConsumerState<Application> {
           'error_type': error.runtimeType.toString(),
         },
       );
-      _showStartupMessage(
-        currentAppLocalizations.subscriptionImportFailed,
-        isCurrent: isCurrent,
-      );
+      _showStartupMessage(error.message, isCurrent: isCurrent);
     } catch (error, stackTrace) {
       commonPrint.event(
         'auth.post_login.sync.failed',
@@ -680,7 +678,12 @@ class ApplicationState extends ConsumerState<Application> {
     try {
       return await _syncSubscriptionProfile(session, sessionRevision);
     } on XboardAuthException catch (error) {
-      if (error.failure != XboardAuthFailure.subscriptionUnavailable) rethrow;
+      final coreUnavailable =
+          error.failure == XboardAuthFailure.coreUnavailable;
+      if (error.failure != XboardAuthFailure.subscriptionUnavailable &&
+          !coreUnavailable) {
+        rethrow;
+      }
       bool isCurrent() =>
           mounted &&
           !_logoutInProgress &&
@@ -690,11 +693,8 @@ class ApplicationState extends ConsumerState<Application> {
         'auth.profile_sync.degraded',
         fields: {'failure': error.failure.name},
       );
-      if (showFailureMessage) {
-        _showStartupMessage(
-          currentAppLocalizations.subscriptionImportFailed,
-          isCurrent: isCurrent,
-        );
+      if (showFailureMessage || coreUnavailable) {
+        _showStartupMessage(error.message, isCurrent: isCurrent);
       }
       return null;
     }
@@ -818,7 +818,9 @@ class ApplicationState extends ConsumerState<Application> {
       );
       return profile;
     } catch (error, stackTrace) {
-      if (!isCurrent()) {
+      if (!isCurrent() ||
+          (error is CorePreparationException &&
+              error.code == 'core_preparation_superseded')) {
         commonPrint.event(
           'subscription.profile.sync.discarded',
           fields: {'stage': 'profile_mutation'},
@@ -837,8 +839,12 @@ class ApplicationState extends ConsumerState<Application> {
         'sync XBoard subscription profile failed: $error, $stackTrace',
       );
       throw XboardAuthException(
-        failure: XboardAuthFailure.subscriptionUnavailable,
-        message: currentAppLocalizations.subscriptionImportFailed,
+        failure: error is CorePreparationException
+            ? XboardAuthFailure.coreUnavailable
+            : XboardAuthFailure.subscriptionUnavailable,
+        message: error is CorePreparationException
+            ? currentAppLocalizations.networkDiagnosticCoreNotRunning
+            : currentAppLocalizations.subscriptionImportFailed,
         endpoint: session.endpoint,
       );
     }

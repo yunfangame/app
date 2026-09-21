@@ -7,8 +7,7 @@
 // The application's name. By default this is also the title of the Flutter window.
 PRODUCT_NAME = 蜂窝加速器
 
-// Keep the internal executable name stable for core/helper compatibility.
-EXECUTABLE_NAME = FlClash
+EXECUTABLE_NAME = FengWo
 
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = com.follow.clash
