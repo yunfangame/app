@@ -1,4 +1,3 @@
-import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 
 const campusNetworkConfigKey = 'campusHostsByOperator';
@@ -11,13 +10,22 @@ class CampusNetworkConfig {
     if (remoteConfig is! Map) {
       throw const FormatException('Invalid campus network config');
     }
-    final grouped = _parseGroupedHosts(remoteConfig[campusNetworkConfigKey]);
-    if (_hasAvailableLine(grouped)) {
-      return CampusNetworkConfig(grouped);
+    if (remoteConfig.containsKey(campusNetworkConfigKey)) {
+      final value = remoteConfig[campusNetworkConfigKey];
+      if (value is! Map) {
+        throw const FormatException('Invalid campus network lines');
+      }
+      final grouped = _parseGroupedHosts(value);
+      if (value.isEmpty || _hasAvailableLine(grouped)) {
+        return CampusNetworkConfig(grouped);
+      }
+      throw const FormatException('Campus network config is incomplete');
     }
-    final legacy = _parseLegacyHosts(
-      remoteConfig[legacyCampusNetworkConfigKey],
-    );
+    final legacyValue = remoteConfig[legacyCampusNetworkConfigKey];
+    if (legacyValue is List && legacyValue.isEmpty) {
+      return const CampusNetworkConfig({});
+    }
+    final legacy = _parseLegacyHosts(legacyValue);
     if (_hasAvailableLine(legacy)) {
       return CampusNetworkConfig(legacy);
     }
@@ -26,8 +34,8 @@ class CampusNetworkConfig {
 
   final Map<String, Map<String, String>> hostsByOperator;
 
-  Map<String, String> hostsFor(CampusOperator operator) =>
-      Map.unmodifiable(hostsByOperator[operator.name] ?? const {});
+  Map<String, String> hostsFor(String operator) =>
+      Map.unmodifiable(hostsByOperator[operator] ?? const {});
 }
 
 PatchClashConfig applyCampusNetworkConfig(
@@ -37,8 +45,7 @@ PatchClashConfig applyCampusNetworkConfig(
   if (!appSettings.campusNetworkEnabled) {
     return patchConfig;
   }
-  final hosts =
-      appSettings.campusHostsByOperator[appSettings.campusOperator.name];
+  final hosts = appSettings.campusHostsByOperator[appSettings.campusOperator];
   if (hosts == null || hosts.isEmpty) {
     return patchConfig;
   }
@@ -53,7 +60,7 @@ bool hasActiveCampusNetworkConfig(AppSettingProps appSettings) {
     return false;
   }
   return appSettings
-          .campusHostsByOperator[appSettings.campusOperator.name]
+          .campusHostsByOperator[appSettings.campusOperator]
           ?.isNotEmpty ==
       true;
 }
@@ -64,24 +71,24 @@ bool hasCompleteCampusNetworkConfig(
   return _hasAvailableLine(hostsByOperator);
 }
 
-List<CampusOperator> availableCampusOperators(
+List<String> availableCampusOperators(
   Map<String, Map<String, String>> hostsByOperator,
 ) {
   return [
-    for (final operator in CampusOperator.values)
-      if (hostsByOperator[operator.name]?.isNotEmpty == true) operator,
+    for (final entry in hostsByOperator.entries)
+      if (entry.value.isNotEmpty) entry.key,
   ];
 }
 
-CampusOperator resolveCampusOperator(
-  CampusOperator selected,
+String resolveCampusOperator(
+  String selected,
   Map<String, Map<String, String>> hostsByOperator,
 ) {
   final available = availableCampusOperators(hostsByOperator);
   if (available.contains(selected)) {
     return selected;
   }
-  return available.isEmpty ? CampusOperator.telecom : available.first;
+  return available.isEmpty ? '' : available.first;
 }
 
 Map<String, Map<String, String>> _parseGroupedHosts(Object? value) {
@@ -89,10 +96,13 @@ Map<String, Map<String, String>> _parseGroupedHosts(Object? value) {
     return const {};
   }
   final result = <String, Map<String, String>>{};
-  for (final operator in CampusOperator.values) {
-    final entries = _parseHostEntries(value[operator.name]);
+  for (final entry in value.entries) {
+    if (entry.key is! String || (entry.key as String).trim().isEmpty) {
+      continue;
+    }
+    final entries = _parseHostEntries(entry.value);
     if (entries.isNotEmpty) {
-      result[operator.name] = entries;
+      result[entry.key as String] = entries;
     }
   }
   return result;
@@ -109,12 +119,15 @@ Map<String, Map<String, String>> _parseLegacyHosts(Object? value) {
       continue;
     }
     final values = candidates.putIfAbsent(parsed.key, () => []);
-    if (!values.contains(parsed.value)) {
-      values.add(parsed.value);
-    }
+    values.add(parsed.value);
   }
   final result = <String, Map<String, String>>{};
-  for (var index = 0; index < CampusOperator.values.length; index++) {
+  final count = candidates.values.fold<int>(
+    0,
+    (maximum, values) => values.length > maximum ? values.length : maximum,
+  );
+  const legacyIds = ['telecom', 'unicom', 'mobile'];
+  for (var index = 0; index < count; index++) {
     final hosts = <String, String>{};
     for (final entry in candidates.entries) {
       if (entry.value.length > index) {
@@ -122,7 +135,10 @@ Map<String, Map<String, String>> _parseLegacyHosts(Object? value) {
       }
     }
     if (hosts.isNotEmpty) {
-      result[CampusOperator.values[index].name] = hosts;
+      final id = index < legacyIds.length
+          ? legacyIds[index]
+          : 'line_${index + 1}';
+      result[id] = hosts;
     }
   }
   return result;

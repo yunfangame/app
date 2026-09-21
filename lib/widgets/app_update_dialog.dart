@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:fl_clash/common/app_update.dart';
+import 'package:fl_clash/common/common.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -31,6 +31,15 @@ class AppUpdateDialog extends StatelessWidget {
   final AppUpdateRelease release;
   final String currentVersion;
 
+  String _displayVersion(String version) {
+    final normalized = version
+        .trim()
+        .replaceFirst(RegExp(r'^[vV]'), '')
+        .split('+')
+        .first;
+    return 'v$normalized';
+  }
+
   Future<void> _openHtmlLink(String? value) async {
     final parsed = Uri.tryParse(value?.trim() ?? '');
     if (parsed == null) return;
@@ -43,6 +52,7 @@ class AppUpdateDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final localizations = context.appLocalizations;
     final scheme = Theme.of(context).colorScheme;
     final mediaSize = MediaQuery.sizeOf(context);
     final width = math.min(620.0, mediaSize.width - 24);
@@ -85,14 +95,17 @@ class AppUpdateDialog extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          release.title ?? '发现新版本',
+                          release.title ?? localizations.discoverNewVersion,
                           key: const ValueKey('app-update-title'),
                           style: Theme.of(context).textTheme.headlineSmall
                               ?.copyWith(fontWeight: FontWeight.w900),
                         ),
                         const SizedBox(height: 5),
                         Text(
-                          '当前 $currentVersion  →  最新 ${release.version}',
+                          localizations.appUpdateVersionSummary(
+                            _displayVersion(currentVersion),
+                            _displayVersion(release.version),
+                          ),
                           style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(color: scheme.onSurfaceVariant),
                         ),
@@ -101,7 +114,7 @@ class AppUpdateDialog extends StatelessWidget {
                   ),
                   IconButton.filledTonal(
                     key: const ValueKey('app-update-close'),
-                    tooltip: '稍后提醒',
+                    tooltip: localizations.appUpdateLater,
                     onPressed: () =>
                         Navigator.pop(context, AppUpdateDecision.later),
                     icon: const Icon(Icons.close_rounded),
@@ -147,20 +160,20 @@ class AppUpdateDialog extends StatelessWidget {
                     key: const ValueKey('app-update-ignore'),
                     onPressed: () =>
                         Navigator.pop(context, AppUpdateDecision.ignoreVersion),
-                    child: const Text('不再提示此版本'),
+                    child: Text(localizations.appUpdateIgnoreVersion),
                   ),
                   OutlinedButton(
                     key: const ValueKey('app-update-later'),
                     onPressed: () =>
                         Navigator.pop(context, AppUpdateDecision.later),
-                    child: const Text('稍后提醒'),
+                    child: Text(localizations.appUpdateLater),
                   ),
                   FilledButton.icon(
                     key: const ValueKey('app-update-confirm'),
                     onPressed: () =>
                         Navigator.pop(context, AppUpdateDecision.update),
                     icon: const Icon(Icons.download_rounded),
-                    label: const Text('立即更新'),
+                    label: Text(localizations.appUpdateDownload),
                   ),
                 ],
               ),

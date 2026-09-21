@@ -1255,5 +1255,83 @@
   "tunServiceReady": "辅助服务已就绪，请开启虚拟网卡验证连接。",
   "tunStarting": "虚拟网卡开启中",
   "tunStartingDescription": "正在检测辅助服务并启动虚拟网卡，请稍候。首次使用可能需要管理员授权。",
-  "tunActivationFailed": "虚拟网卡未能启动，请导出日志查看检测和连接失败的原因。"
+  "tunActivationFailed": "虚拟网卡未能启动，请导出日志查看检测和连接失败的原因。",
+  "softwareUpdate": "软件更新",
+  "appUpdateCurrentVersion": "当前版本 {version}",
+  "appUpdateChecking": "正在检查更新…",
+  "appUpdateAvailable": "发现新版本 {version}",
+  "appUpdateLatest": "{version} 已是最新版本",
+  "appUpdateFailed": "检查更新失败，请稍后重试。",
+  "appUpdateUnavailable": "暂时无法获取当前平台的更新信息，请稍后重试。",
+  "appUpdateDownload": "下载更新",
+  "appUpdateDownloading": "正在下载更新…",
+  "appUpdateVerifying": "正在校验下载文件…",
+  "appUpdateDownloadReady": "下载和校验已完成，可以安装更新。",
+  "appUpdateInstall": "安装更新",
+  "appUpdateCancelDownload": "取消下载",
+  "appUpdateDownloadCancelled": "下载已取消",
+  "appUpdateDownloadFailed": "下载失败，请检查网络后重试。",
+  "appUpdateChecksumMissing": "更新缺少文件校验信息，暂时无法下载，请联系客服。",
+  "appUpdateChecksumMismatch": "下载文件校验失败，请重新下载。",
+  "appUpdateInstallerOpenFailed": "无法打开安装程序，请重试。",
+  "appUpdateUnsupportedPackage": "暂不支持在软件内安装此更新包。",
+  "appUpdateInstalling": "正在打开安装程序…",
+  "appUpdateBackground": "后台下载",
+  "appUpdateRetry": "重试",
+  "appUpdateProgress": "{received} / {total}",
+  "appUpdateOpenFailed": "无法打开下载链接，请稍后重试。",
+  "appUpdateVersionSummary": "当前 {current}  →  最新 {latest}",
+  "appUpdateLater": "稍后提醒",
+  "appUpdateIgnoreVersion": "不再提示此版本",
+  "@appUpdateCurrentVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateAvailable": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateLatest": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateProgress": {
+    "placeholders": {
+      "received": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateVersionSummary": {
+    "placeholders": {
+      "current": {
+        "type": "String"
+      },
+      "latest": {
+        "type": "String"
+      }
+    }
+  },
+  "appUpdateInstallerOpened": "安装程序已打开，请按提示完成更新。",
+  "appUpdateDownloadDetails": "下载详情",
+  "campusNetworkLineNumber": "穿透{index}线路",
+  "@campusNetworkLineNumber": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      }
+    }
+  }
 }

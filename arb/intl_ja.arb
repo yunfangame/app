@@ -1255,5 +1255,83 @@
   "tunServiceReady": "サービスの準備ができました。仮想アダプターを有効にして接続を確認してください。",
   "tunStarting": "仮想アダプターを起動中",
   "tunStartingDescription": "サービスを確認し、仮想アダプターを起動しています。初回は管理者の承認が必要な場合があります。",
-  "tunActivationFailed": "仮想アダプターを起動できませんでした。ログをエクスポートして原因を確認してください。"
+  "tunActivationFailed": "仮想アダプターを起動できませんでした。ログをエクスポートして原因を確認してください。",
+  "softwareUpdate": "ソフトウェア更新",
+  "appUpdateCurrentVersion": "現在のバージョン {version}",
+  "appUpdateChecking": "更新を確認中…",
+  "appUpdateAvailable": "新しいバージョン {version} があります",
+  "appUpdateLatest": "{version} は最新バージョンです",
+  "appUpdateFailed": "更新を確認できませんでした。しばらくしてから再試行してください。",
+  "appUpdateUnavailable": "このプラットフォームの更新情報を取得できません。しばらくしてから再試行してください。",
+  "appUpdateDownload": "更新をダウンロード",
+  "appUpdateDownloading": "更新をダウンロード中…",
+  "appUpdateVerifying": "ダウンロードしたファイルを検証中…",
+  "appUpdateDownloadReady": "ダウンロードと検証が完了しました。更新をインストールできます。",
+  "appUpdateInstall": "更新をインストール",
+  "appUpdateCancelDownload": "ダウンロードをキャンセル",
+  "appUpdateDownloadCancelled": "ダウンロードをキャンセルしました",
+  "appUpdateDownloadFailed": "ダウンロードに失敗しました。接続を確認して再試行してください。",
+  "appUpdateChecksumMissing": "更新の検証情報がないため、ダウンロードできません。サポートにお問い合わせください。",
+  "appUpdateChecksumMismatch": "ダウンロードしたファイルの検証に失敗しました。もう一度ダウンロードしてください。",
+  "appUpdateInstallerOpenFailed": "インストーラーを開けませんでした。再試行してください。",
+  "appUpdateUnsupportedPackage": "この更新パッケージはアプリ内からのインストールに対応していません。",
+  "appUpdateInstalling": "インストーラーを開いています…",
+  "appUpdateBackground": "バックグラウンドでダウンロード",
+  "appUpdateRetry": "再試行",
+  "appUpdateProgress": "{received} / {total}",
+  "appUpdateOpenFailed": "ダウンロードリンクを開けませんでした。しばらくしてから再試行してください。",
+  "appUpdateVersionSummary": "現在 {current}  →  最新 {latest}",
+  "appUpdateLater": "後で通知",
+  "appUpdateIgnoreVersion": "このバージョンをスキップ",
+  "@appUpdateCurrentVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateAvailable": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateLatest": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateProgress": {
+    "placeholders": {
+      "received": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateVersionSummary": {
+    "placeholders": {
+      "current": {
+        "type": "String"
+      },
+      "latest": {
+        "type": "String"
+      }
+    }
+  },
+  "appUpdateInstallerOpened": "インストーラーを開きました。画面の案内に従って更新を完了してください。",
+  "appUpdateDownloadDetails": "ダウンロードの詳細",
+  "campusNetworkLineNumber": "ルート {index}",
+  "@campusNetworkLineNumber": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      }
+    }
+  }
 }

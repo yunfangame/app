@@ -1255,5 +1255,83 @@
   "tunServiceReady": "Helper service is ready. Enable the virtual adapter to verify the connection.",
   "tunStarting": "Starting virtual adapter",
   "tunStartingDescription": "Checking the helper service and starting the virtual adapter. Administrator authorization may be required on first use.",
-  "tunActivationFailed": "The virtual adapter could not start. Export the logs to inspect the checks and connection failure."
+  "tunActivationFailed": "The virtual adapter could not start. Export the logs to inspect the checks and connection failure.",
+  "softwareUpdate": "Software update",
+  "appUpdateCurrentVersion": "Current version {version}",
+  "appUpdateChecking": "Checking for updates…",
+  "appUpdateAvailable": "Version {version} is available",
+  "appUpdateLatest": "Version {version} is up to date",
+  "appUpdateFailed": "Could not check for updates. Please try again later.",
+  "appUpdateUnavailable": "Update information for this platform is temporarily unavailable. Please try again later.",
+  "appUpdateDownload": "Download update",
+  "appUpdateDownloading": "Downloading update…",
+  "appUpdateVerifying": "Verifying download…",
+  "appUpdateDownloadReady": "Download verified. The update is ready to install.",
+  "appUpdateInstall": "Install update",
+  "appUpdateCancelDownload": "Cancel download",
+  "appUpdateDownloadCancelled": "Download cancelled",
+  "appUpdateDownloadFailed": "The download failed. Please check your connection and retry.",
+  "appUpdateChecksumMissing": "This update is missing verification information and cannot be downloaded. Please contact support.",
+  "appUpdateChecksumMismatch": "The downloaded file did not pass verification. Please download it again.",
+  "appUpdateInstallerOpenFailed": "Could not open the installer. Please try again.",
+  "appUpdateUnsupportedPackage": "This update package is not supported for installation within the app.",
+  "appUpdateInstalling": "Opening the installer…",
+  "appUpdateBackground": "Download in background",
+  "appUpdateRetry": "Retry",
+  "appUpdateProgress": "{received} / {total}",
+  "appUpdateOpenFailed": "Could not open the download link. Please try again later.",
+  "appUpdateVersionSummary": "Current {current}  →  Latest {latest}",
+  "appUpdateLater": "Remind me later",
+  "appUpdateIgnoreVersion": "Skip this version",
+  "@appUpdateCurrentVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateAvailable": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateLatest": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateProgress": {
+    "placeholders": {
+      "received": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateVersionSummary": {
+    "placeholders": {
+      "current": {
+        "type": "String"
+      },
+      "latest": {
+        "type": "String"
+      }
+    }
+  },
+  "appUpdateInstallerOpened": "The installer is open. Follow its instructions to complete the update.",
+  "appUpdateDownloadDetails": "Download details",
+  "campusNetworkLineNumber": "Route {index}",
+  "@campusNetworkLineNumber": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      }
+    }
+  }
 }

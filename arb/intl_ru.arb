@@ -1255,5 +1255,83 @@
   "tunServiceReady": "Служба готова. Включите виртуальный адаптер для проверки подключения.",
   "tunStarting": "Запуск виртуального адаптера",
   "tunStartingDescription": "Проверяем службу и запускаем виртуальный адаптер. При первом запуске может потребоваться разрешение администратора.",
-  "tunActivationFailed": "Не удалось запустить виртуальный адаптер. Экспортируйте журналы для проверки причины ошибки."
+  "tunActivationFailed": "Не удалось запустить виртуальный адаптер. Экспортируйте журналы для проверки причины ошибки.",
+  "softwareUpdate": "Обновление приложения",
+  "appUpdateCurrentVersion": "Текущая версия {version}",
+  "appUpdateChecking": "Проверка обновлений…",
+  "appUpdateAvailable": "Доступна версия {version}",
+  "appUpdateLatest": "Версия {version} является последней",
+  "appUpdateFailed": "Не удалось проверить обновления. Повторите попытку позже.",
+  "appUpdateUnavailable": "Информация об обновлении для этой платформы временно недоступна. Повторите попытку позже.",
+  "appUpdateDownload": "Скачать обновление",
+  "appUpdateDownloading": "Загрузка обновления…",
+  "appUpdateVerifying": "Проверка загруженного файла…",
+  "appUpdateDownloadReady": "Загрузка и проверка завершены. Обновление готово к установке.",
+  "appUpdateInstall": "Установить обновление",
+  "appUpdateCancelDownload": "Отменить загрузку",
+  "appUpdateDownloadCancelled": "Загрузка отменена",
+  "appUpdateDownloadFailed": "Не удалось скачать обновление. Проверьте подключение и повторите попытку.",
+  "appUpdateChecksumMissing": "У обновления нет данных для проверки файла. Загрузка недоступна. Обратитесь в поддержку.",
+  "appUpdateChecksumMismatch": "Загруженный файл не прошёл проверку. Скачайте его заново.",
+  "appUpdateInstallerOpenFailed": "Не удалось открыть установщик. Повторите попытку.",
+  "appUpdateUnsupportedPackage": "Этот пакет обновления не поддерживает установку из приложения.",
+  "appUpdateInstalling": "Открытие установщика…",
+  "appUpdateBackground": "Скачать в фоне",
+  "appUpdateRetry": "Повторить",
+  "appUpdateProgress": "{received} / {total}",
+  "appUpdateOpenFailed": "Не удалось открыть ссылку для скачивания. Повторите попытку позже.",
+  "appUpdateVersionSummary": "Текущая {current}  →  Новая {latest}",
+  "appUpdateLater": "Напомнить позже",
+  "appUpdateIgnoreVersion": "Пропустить эту версию",
+  "@appUpdateCurrentVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateAvailable": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateLatest": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateProgress": {
+    "placeholders": {
+      "received": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateVersionSummary": {
+    "placeholders": {
+      "current": {
+        "type": "String"
+      },
+      "latest": {
+        "type": "String"
+      }
+    }
+  },
+  "appUpdateInstallerOpened": "Установщик открыт. Следуйте его инструкциям, чтобы завершить обновление.",
+  "appUpdateDownloadDetails": "Сведения о загрузке",
+  "campusNetworkLineNumber": "Маршрут {index}",
+  "@campusNetworkLineNumber": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      }
+    }
+  }
 }
