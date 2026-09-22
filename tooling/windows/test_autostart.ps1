@@ -116,6 +116,18 @@ try {
         Start-Sleep -Milliseconds 250
     } while ([DateTime]::UtcNow -lt $deadline)
     if (-not $ready) { throw 'Registered command did not start the installed application' }
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    $synced = $false
+    do {
+        try {
+            $savedPreferences = Get-Content -LiteralPath (Join-Path $profileDirectory 'shared_preferences.json') -Raw | ConvertFrom-Json
+            $savedConfig = $savedPreferences.'flutter.config' | ConvertFrom-Json
+            $synced = $savedConfig.appSettingProps.autoLaunch -eq $false
+        } catch {}
+        if ($synced) { break }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $synced) { throw 'Application did not synchronize the system-disabled auto launch state' }
     $running = @(Get-Process FengWo -ErrorAction SilentlyContinue | Where-Object { $_.Path -ieq $applicationPath })
     if ($running.Count -ne 1) { throw 'Registered command did not start exactly one installed FengWo process' }
     if ($keys[$runPath].GetValue('FengWo') -cne $expectedCommand) { throw 'Application startup discarded the disabled registration' }
@@ -127,8 +139,19 @@ try {
     Assert-ForeignRegistration
     $results.Add(@{case='disable-cleans-owned-registration'; passed=$true})
     Invoke-NativeOperation 'enable'
-    Invoke-BoundedProcess (Join-Path $installDirectory 'unins000.exe') @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
-    if ($keys[$runPath].GetValue('FengWo') -ne $null -or $keys[$approvedPath].GetValue('FengWo') -ne $null) { throw 'Uninstall left owned FengWo autostart registration' }
+    $uninstallLog = Join-Path $OutputDirectory 'uninstall.log'
+    Invoke-BoundedProcess (Join-Path $installDirectory 'unins000.exe') @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/LOG="' + $uninstallLog + '"'))
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    $uninstalled = $false
+    do {
+        $uninstalled = $keys[$runPath].GetValue('FengWo') -eq $null -and $keys[$approvedPath].GetValue('FengWo') -eq $null -and -not (Test-Path -LiteralPath $applicationPath)
+        if ($uninstalled) { break }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $uninstalled) {
+        @{run=$keys[$runPath].GetValue('FengWo'); approval=$keys[$approvedPath].GetValue('FengWo'); application_exists=(Test-Path -LiteralPath $applicationPath)} | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'uninstall-timeout.json') -Encoding utf8
+        throw 'Uninstall did not remove the installed application and its owned autostart registration within 30 seconds'
+    }
     Assert-ForeignRegistration
     $results.Add(@{case='uninstall-cleans-owned-and-preserves-foreign-registration'; passed=$true})
 } finally {

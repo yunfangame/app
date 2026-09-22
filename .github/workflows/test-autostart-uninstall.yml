@@ -1,0 +1,23 @@
+name: Isolated Windows autostart uninstall probe
+on:
+  push:
+    branches: [codex/windows-autostart-uninstall-test]
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: windows-2022
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test production Inno uninstall callback
+        shell: pwsh
+        run: ./tooling/windows/test_autostart_uninstall.ps1 -OutputDirectory "$env:RUNNER_TEMP/autostart-uninstall-probe"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: autostart-uninstall-probe
+          path: |
+            ${{ runner.temp }}/autostart-uninstall-probe/*.json
+            ${{ runner.temp }}/autostart-uninstall-probe/*.log
+            ${{ runner.temp }}/autostart-uninstall-probe/*.iss
