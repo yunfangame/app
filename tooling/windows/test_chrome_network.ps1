@@ -65,11 +65,11 @@ try {
     if (-not $curlProcess.WaitForExit(100000)) { & taskkill /PID $curlProcess.Id /T /F | Out-Null }
     $report.curl_download_exit_code = $curlProcess.ExitCode
     if ($curlProcess.ExitCode -ne 0) {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $downloadParameters = @{Uri=$installerUrl; OutFile=$installer; UseBasicParsing=$true; TimeoutSec=90}
-        if ($Mode -ne 'direct') { $downloadParameters.Proxy = 'http://127.0.0.1:17890' }
-        Invoke-WebRequest @downloadParameters
-        $report.installer_download_fallback = 'dotnet_tls12_strict_certificate_validation'
+        $report.installer_download_fallback = 'direct_bootstrap_only_not_a_proxy_success'
+        $directArgs = @('--fail', '--silent', '--show-error', '--location', '--noproxy', '*', '--connect-timeout', '15', '--max-time', '90', '--output', $installer, $installerUrl)
+        $directProcess = Start-Process curl.exe -ArgumentList $directArgs -PassThru -RedirectStandardError "$OutputDirectory/curl-direct-stderr.txt" -RedirectStandardOutput "$OutputDirectory/curl-direct-stdout.txt"
+        if (-not $directProcess.WaitForExit(100000)) { & taskkill /PID $directProcess.Id /T /F | Out-Null }
+        if ($directProcess.ExitCode -ne 0) { throw "Direct bootstrap download failed: $($directProcess.ExitCode)" }
     }
     $signature = Get-AuthenticodeSignature $installer
     $report.installer_signature = @{status=$signature.Status.ToString(); subject=$signature.SignerCertificate.Subject; sha256=(Get-FileHash $installer -Algorithm SHA256).Hash; bytes=(Get-Item $installer).Length}

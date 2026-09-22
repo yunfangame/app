@@ -5,6 +5,7 @@ import socket
 import socketserver
 import threading
 import time
+import urllib.parse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--port', type=int, default=17890)
@@ -25,15 +26,29 @@ class Handler(socketserver.StreamRequestHandler):
             self.connection.settimeout(15)
             line = self.rfile.readline(16384).decode('ascii', errors='replace')
             method, authority, version = line.strip().split(' ', 2)
-            while self.rfile.readline(16384) not in (b'\r\n', b'\n', b''):
-                pass
-            if method != 'CONNECT':
-                self.connection.sendall(b'HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n')
-                log(method=method, error='non_connect')
-                return
-            host, port = authority.rsplit(':', 1)
+            headers = []
+            while True:
+                header = self.rfile.readline(16384)
+                if header in (b'\r\n', b'\n', b''):
+                    break
+                headers.append(header)
+            if method == 'CONNECT':
+                host, port = authority.rsplit(':', 1)
+            else:
+                uri = urllib.parse.urlsplit(authority)
+                if uri.scheme != 'http' or not uri.hostname:
+                    raise ValueError('Unsupported HTTP proxy target')
+                host, port = uri.hostname, uri.port or 80
             remote = socket.create_connection((host, int(port)), timeout=15)
-            self.connection.sendall(b'HTTP/1.1 200 Connection Established\r\n\r\n')
+            if method == 'CONNECT':
+                self.connection.sendall(b'HTTP/1.1 200 Connection Established\r\n\r\n')
+            else:
+                path = urllib.parse.urlunsplit(('', '', uri.path or '/', uri.query, ''))
+                request = f'{method} {path} {version}\r\n'.encode('ascii')
+                request += b''.join(header for header in headers if not header.lower().startswith((b'proxy-connection:', b'connection:')))
+                length = next((int(header.split(b':', 1)[1]) for header in headers if header.lower().startswith(b'content-length:')), 0)
+                body = self.rfile.read(length) if length else b''
+                remote.sendall(request + b'Connection: close\r\n\r\n' + body)
             log(method=method, host=host, port=int(port), stage='connected')
             sockets = [self.connection, remote]
             self.connection.setblocking(False)
@@ -43,7 +58,7 @@ class Handler(socketserver.StreamRequestHandler):
             while time.monotonic() < deadline:
                 ready, _, _ = select.select(sockets, [], [], 20)
                 if not ready:
-                    break
+                    continue
                 for source in ready:
                     data = source.recv(65536)
                     if not data:

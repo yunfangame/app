@@ -1,6 +1,8 @@
 using System;
 using System.ComponentModel;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 public static class ChromeNetworkProbe {
     [StructLayout(LayoutKind.Sequential)]
@@ -27,6 +29,26 @@ public static class ChromeNetworkProbe {
     static extern bool WinHttpQueryHeaders(IntPtr handle, uint level, string name, out uint value, ref uint length, IntPtr index);
     [DllImport("winhttp.dll", SetLastError=true)]
     static extern bool WinHttpCloseHandle(IntPtr handle);
+    delegate void StatusCallback(IntPtr handle, IntPtr context, uint status, IntPtr information, uint informationLength);
+    [DllImport("winhttp.dll", SetLastError=true)]
+    static extern IntPtr WinHttpSetStatusCallback(IntPtr handle, StatusCallback callback, uint flags, IntPtr reserved);
+    sealed class Pending {
+        public ManualResetEvent Sent=new ManualResetEvent(false);
+        public ManualResetEvent Headers=new ManualResetEvent(false);
+        public int Error;
+    }
+    static readonly ConcurrentDictionary<IntPtr, Pending> pending=new ConcurrentDictionary<IntPtr, Pending>();
+    static readonly StatusCallback callback=OnStatus;
+    static void OnStatus(IntPtr handle, IntPtr context, uint status, IntPtr information, uint length) {
+        Pending state;
+        if(!pending.TryGetValue(handle, out state)) return;
+        if(status==0x00400000) state.Sent.Set();
+        if(status==0x00020000) state.Headers.Set();
+        if(status==0x00200000) {
+            state.Error=Marshal.ReadInt32(information, IntPtr.Size);
+            state.Sent.Set(); state.Headers.Set();
+        }
+    }
     public sealed class Result {
         public string url;
         public uint access;
@@ -71,11 +93,13 @@ public static class ChromeNetworkProbe {
         if(String.IsNullOrEmpty(proxy)) proxy=null;
         var result = new Result {url=url, access=access, proxy=proxy};
         var clock = System.Diagnostics.Stopwatch.StartNew();
+        var state=new Pending();
         IntPtr session=IntPtr.Zero, connection=IntPtr.Zero, request=IntPtr.Zero;
         try {
             result.stage="open";
-            session=WinHttpOpen("FengWoChromeNetworkProbe/1.0", access, proxy, null, 0);
+            session=WinHttpOpen("FengWoChromeNetworkProbe/1.0", access, proxy, null, 0x10000000);
             if(session == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            if(WinHttpSetStatusCallback(session, callback, 0x00620000, IntPtr.Zero)==new IntPtr(-1)) throw new Win32Exception(Marshal.GetLastWin32Error());
             WinHttpSetTimeouts(session, 8000, 8000, 8000, 8000);
             var uri=new Uri(url);
             result.stage="connect";
@@ -84,11 +108,22 @@ public static class ChromeNetworkProbe {
             result.stage="request";
             request=WinHttpOpenRequest(connection, "GET", uri.PathAndQuery, null, null, IntPtr.Zero, uri.Scheme=="https" ? 0x800000u : 0);
             if(request == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            pending[request]=state;
             result.stage="send";
             const string headers="Range: bytes=0-1023\r\n";
-            if(!WinHttpSendRequest(request, headers, (uint)headers.Length, IntPtr.Zero, 0, 0, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            if(!WinHttpSendRequest(request, headers, (uint)headers.Length, IntPtr.Zero, 0, 0, IntPtr.Zero)) {
+                int error=Marshal.GetLastWin32Error();
+                if(error!=997) throw new Win32Exception(error);
+            }
+            if(!state.Sent.WaitOne(15000)) throw new Win32Exception(12002);
+            if(state.Error!=0) throw new Win32Exception(state.Error);
             result.stage="receive";
-            if(!WinHttpReceiveResponse(request, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            if(!WinHttpReceiveResponse(request, IntPtr.Zero)) {
+                int error=Marshal.GetLastWin32Error();
+                if(error!=997) throw new Win32Exception(error);
+            }
+            if(!state.Headers.WaitOne(15000)) throw new Win32Exception(12002);
+            if(state.Error!=0) throw new Win32Exception(state.Error);
             result.stage="headers";
             uint size=4, status;
             if(!WinHttpQueryHeaders(request, 19u|0x20000000u, null, out status, ref size, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -101,6 +136,8 @@ public static class ChromeNetworkProbe {
             if(request!=IntPtr.Zero) WinHttpCloseHandle(request);
             if(connection!=IntPtr.Zero) WinHttpCloseHandle(connection);
             if(session!=IntPtr.Zero) WinHttpCloseHandle(session);
+            Pending removed;
+            pending.TryRemove(request, out removed);
             result.elapsed_ms=clock.Elapsed.TotalMilliseconds;
         }
         return result;

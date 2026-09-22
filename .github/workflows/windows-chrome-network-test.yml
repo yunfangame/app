@@ -20,6 +20,10 @@ jobs:
       - name: Probe native Windows networking and real Chrome online installer
         shell: powershell
         run: ./tooling/windows/test_chrome_network.ps1 -Mode '${{ matrix.proxy }}' -OutputDirectory "$env:RUNNER_TEMP/chrome-network"
+      - name: Validate read-only diagnostic collector on PowerShell 5.1
+        if: always()
+        shell: powershell
+        run: ./tooling/windows/test_chrome_diagnostics.ps1 -RunCollector
       - uses: actions/upload-artifact@v4
         if: always()
         with:
