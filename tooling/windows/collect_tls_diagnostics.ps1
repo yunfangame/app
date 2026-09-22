@@ -257,21 +257,31 @@ function Get-ExeHash {
 Write-Host '正在只读检查蜂窝 Windows TLS，通常在两分钟内结束。请保持客户端原状。'
 $targets = @('https://house.zryc.tech/ConFigOss4.json', 'https://zryc.oss-cn-beijing.aliyuncs.com/ConFigOss4.json')
 if (-not [string]::IsNullOrWhiteSpace($TargetsFile)) {
+    $targetsValidationStage = 'path'
     try {
         $fullTargetsPath = [IO.Path]::GetFullPath($TargetsFile)
         if ($fullTargetsPath -match '(?i)(^|[\\/])(?:\.private|\.env)(?:[\\/.]|$)' -or [IO.Path]::GetExtension($fullTargetsPath) -ne '.json') {
             throw 'TargetsFile must be a public URL JSON array outside private directories.'
         }
+        $targetsValidationStage = 'file_access'
         $file = Get-Item -LiteralPath $fullTargetsPath
+        $targetsValidationStage = 'file_size'
         if ($file.Length -gt 16384) { throw 'TargetsFile exceeds 16 KiB.' }
+        $targetsValidationStage = 'file_read'
         $content = [IO.File]::ReadAllText($file.FullName)
+        $targetsValidationStage = 'array_shape'
         if (-not $content.TrimStart().StartsWith('[')) { throw 'TargetsFile must contain a JSON array.' }
-        $parsedTargets = @($content | ConvertFrom-Json)
+        $targetsValidationStage = 'json_parse'
+        $parsedTargets = ConvertFrom-Json -InputObject $content
+        $targetsValidationStage = 'target_count'
         if ($parsedTargets.Count -lt 1 -or $parsedTargets.Count -gt 8) { throw 'TargetsFile must contain 1 to 8 URLs.' }
         $validatedTargets = @()
         foreach ($target in $parsedTargets) {
+            $targetsValidationStage = 'target_type'
             if ($target -isnot [string]) { throw 'Each target must be a URL string.' }
+            $targetsValidationStage = 'url_parse'
             $uri = [Uri]::new($target, [UriKind]::Absolute)
+            $targetsValidationStage = 'url_policy'
             if ($uri.Scheme -ne 'https' -or -not [string]::IsNullOrEmpty($uri.UserInfo) -or -not [string]::IsNullOrEmpty($uri.Query) -or -not [string]::IsNullOrEmpty($uri.Fragment)) {
                 throw 'Only HTTPS URLs without credentials, queries or fragments are accepted.'
             }
@@ -279,7 +289,7 @@ if (-not [string]::IsNullOrWhiteSpace($TargetsFile)) {
         }
         $targets = @($validatedTargets | Select-Object -Unique)
     } catch {
-        $errors.Add('端点文件校验失败，已仅检查两个默认公开配置地址；未在报告中记录文件内容。')
+        $errors.Add('端点文件校验失败（分类=' + $targetsValidationStage + '；异常类型=' + $_.Exception.GetType().Name + '），已仅检查两个默认公开配置地址；未在报告中记录文件内容或异常原文。')
     }
 }
 
