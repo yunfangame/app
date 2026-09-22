@@ -61,8 +61,16 @@ try {
     $installer = "$OutputDirectory/ChromeSetup.exe"
     $downloadArgs = @('--fail', '--silent', '--show-error', '--location', '--connect-timeout', '15', '--max-time', '90', '--output', $installer)
     if ($Mode -ne 'direct') { $downloadArgs += @('--proxy', 'http://127.0.0.1:17890') }
-    & curl.exe @downloadArgs $installerUrl
-    if ($LASTEXITCODE -ne 0) { throw "Official installer download failed: $LASTEXITCODE" }
+    $curlProcess = Start-Process curl.exe -ArgumentList ($downloadArgs + @($installerUrl)) -PassThru -RedirectStandardError "$OutputDirectory/curl-stderr.txt" -RedirectStandardOutput "$OutputDirectory/curl-stdout.txt"
+    if (-not $curlProcess.WaitForExit(100000)) { & taskkill /PID $curlProcess.Id /T /F | Out-Null }
+    $report.curl_download_exit_code = $curlProcess.ExitCode
+    if ($curlProcess.ExitCode -ne 0) {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $downloadParameters = @{Uri=$installerUrl; OutFile=$installer; UseBasicParsing=$true; TimeoutSec=90}
+        if ($Mode -ne 'direct') { $downloadParameters.Proxy = 'http://127.0.0.1:17890' }
+        Invoke-WebRequest @downloadParameters
+        $report.installer_download_fallback = 'dotnet_tls12_strict_certificate_validation'
+    }
     $signature = Get-AuthenticodeSignature $installer
     $report.installer_signature = @{status=$signature.Status.ToString(); subject=$signature.SignerCertificate.Subject; sha256=(Get-FileHash $installer -Algorithm SHA256).Hash; bytes=(Get-Item $installer).Length}
     if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Google LLC') { throw 'Official installer signature validation failed' }

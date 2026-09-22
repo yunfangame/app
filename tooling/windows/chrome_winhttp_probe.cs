@@ -38,6 +38,7 @@ public static class ChromeNetworkProbe {
         public double elapsed_ms;
     }
     public static void SetProxy(string proxy, string bypassValue) {
+        if(String.IsNullOrEmpty(proxy)) proxy=null;
         int size = Marshal.SizeOf(typeof(InternetOption));
         IntPtr options = Marshal.AllocHGlobal(size * 3);
         IntPtr server = Marshal.StringToHGlobalUni(proxy ?? "");
@@ -67,6 +68,7 @@ public static class ChromeNetworkProbe {
         }
     }
     public static Result Get(string url, uint access, string proxy) {
+        if(String.IsNullOrEmpty(proxy)) proxy=null;
         var result = new Result {url=url, access=access, proxy=proxy};
         var clock = System.Diagnostics.Stopwatch.StartNew();
         IntPtr session=IntPtr.Zero, connection=IntPtr.Zero, request=IntPtr.Zero;
