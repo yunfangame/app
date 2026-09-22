@@ -1,0 +1,28 @@
+name: windows-chrome-network-test
+on:
+  push:
+    branches:
+      - codex/windows-chrome-network-test
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: windows-2022
+    timeout-minutes: 16
+    strategy:
+      fail-fast: false
+      matrix:
+        proxy: [direct, upstream, current, current_no_ipv6]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Probe native Windows networking and real Chrome online installer
+        shell: powershell
+        run: ./tooling/windows/test_chrome_network.ps1 -Mode '${{ matrix.proxy }}' -OutputDirectory "$env:RUNNER_TEMP/chrome-network"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chrome-network-${{ matrix.proxy }}
+          path: ${{ runner.temp }}/chrome-network
+          retention-days: 7
