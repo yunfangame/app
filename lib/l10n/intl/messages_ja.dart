@@ -2131,12 +2131,24 @@ class MessageLookup extends MessageLookupByLibrary {
       "仮想アダプターを作成する権限がありません。",
     ),
     "tunRepairService": MessageLookupByLibrary.simpleMessage("サービスを確認・修復"),
+    "tunRestartComputerHelp": MessageLookupByLibrary.simpleMessage(
+      "再承認して再試行しても有効にできない場合は、パソコンを再起動してから仮想アダプターを再度有効にしてください。再起動後も失敗する場合は、ログをエクスポートしてサポートにお問い合わせください。",
+    ),
     "tunRetry": MessageLookupByLibrary.simpleMessage("承認して再試行"),
     "tunSecurityBlocked": MessageLookupByLibrary.simpleMessage(
       "Windows のセキュリティポリシーがヘルパーをブロックしました。保護の履歴を確認するか管理者に相談してください。",
     ),
+    "tunServiceExited": MessageLookupByLibrary.simpleMessage(
+      "補助サービスが起動後に異常終了したため、仮想アダプターの準備ができていません。",
+    ),
+    "tunServicePendingDelete": MessageLookupByLibrary.simpleMessage(
+      "Windows が以前の補助サービスを削除中のため、まだ再インストールできません。",
+    ),
     "tunServiceReady": MessageLookupByLibrary.simpleMessage(
       "サービスの準備ができました。仮想アダプターを有効にして接続を確認してください。",
+    ),
+    "tunServiceTimeout": MessageLookupByLibrary.simpleMessage(
+      "補助サービスの停止または起動がタイムアウトし、仮想アダプターを準備できませんでした。",
     ),
     "tunServiceUnavailable": MessageLookupByLibrary.simpleMessage(
       "ヘルパーサービスが準備できません。ブロックまたは別バージョンの可能性があります。",

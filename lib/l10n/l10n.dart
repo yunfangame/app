@@ -10593,6 +10593,46 @@ class AppLocalizations {
     );
   }
 
+  /// `Windows is still removing the previous helper service, so it cannot be installed again yet.`
+  String get tunServicePendingDelete {
+    return Intl.message(
+      'Windows is still removing the previous helper service, so it cannot be installed again yet.',
+      name: 'tunServicePendingDelete',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The helper service timed out while stopping or starting. The virtual adapter could not be prepared.`
+  String get tunServiceTimeout {
+    return Intl.message(
+      'The helper service timed out while stopping or starting. The virtual adapter could not be prepared.',
+      name: 'tunServiceTimeout',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The helper service exited unexpectedly after starting. The virtual adapter is not ready.`
+  String get tunServiceExited {
+    return Intl.message(
+      'The helper service exited unexpectedly after starting. The virtual adapter is not ready.',
+      name: 'tunServiceExited',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `If authorizing and retrying still does not work, try restarting your computer before enabling the virtual adapter again. If it still fails after restarting, export the logs and contact support.`
+  String get tunRestartComputerHelp {
+    return Intl.message(
+      'If authorizing and retrying still does not work, try restarting your computer before enabling the virtual adapter again. If it still fails after restarting, export the logs and contact support.',
+      name: 'tunRestartComputerHelp',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Windows security policy blocked the helper. Check Protection history and ask your administrator to review the client.`
   String get tunSecurityBlocked {
     return Intl.message(

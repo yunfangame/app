@@ -43,10 +43,12 @@ void main() {
     final value = ProviderContainer(
       overrides: [
         appUpdateDownloadServiceProvider.overrideWithValue(service),
-        if (notifier != null)
-          appUpdateDownloadProvider.overrideWith(() => notifier),
-        if (systemAction != null)
-          systemActionProvider.overrideWith(() => systemAction),
+        appUpdateDownloadProvider.overrideWith(
+          () => notifier ?? _InstallerDownload(save: () async {}),
+        ),
+        systemActionProvider.overrideWith(
+          () => systemAction ?? _InstallerExit(<String>[]),
+        ),
       ],
     );
     addTearDown(() {

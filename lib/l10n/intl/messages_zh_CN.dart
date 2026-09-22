@@ -1849,12 +1849,24 @@ class MessageLookup extends MessageLookupByLibrary {
       "没有创建虚拟网卡所需的权限，请允许管理员授权。",
     ),
     "tunRepairService": MessageLookupByLibrary.simpleMessage("检测并修复服务"),
+    "tunRestartComputerHelp": MessageLookupByLibrary.simpleMessage(
+      "如重新授权并重试后仍无法开启，请尝试重启电脑后再开启虚拟网卡。重启后仍失败，请导出日志联系客服。",
+    ),
     "tunRetry": MessageLookupByLibrary.simpleMessage("重新授权并重试"),
     "tunSecurityBlocked": MessageLookupByLibrary.simpleMessage(
       "Windows 安全策略阻止了辅助服务，请检查保护历史记录或联系管理员处理。",
     ),
+    "tunServiceExited": MessageLookupByLibrary.simpleMessage(
+      "辅助服务启动后异常退出，虚拟网卡未能就绪。",
+    ),
+    "tunServicePendingDelete": MessageLookupByLibrary.simpleMessage(
+      "旧的辅助服务仍在等待 Windows 完成清理，暂时无法重新安装。",
+    ),
     "tunServiceReady": MessageLookupByLibrary.simpleMessage(
       "辅助服务已就绪，请开启虚拟网卡验证连接。",
+    ),
+    "tunServiceTimeout": MessageLookupByLibrary.simpleMessage(
+      "辅助服务停止或启动超时，未能完成虚拟网卡准备。",
     ),
     "tunServiceUnavailable": MessageLookupByLibrary.simpleMessage(
       "辅助服务未能就绪，可能被拦截或与当前安装版本不一致。",

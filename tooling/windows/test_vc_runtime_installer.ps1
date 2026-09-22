@@ -38,7 +38,7 @@ $productionCode = $productionCode.Replace($runtimeInclude, $runtimeSource)
 if ($productionCode.Contains('{{') -or $productionCode -match '(?m)^#include') {
     throw 'The production Code section contains an unresolved template or include.'
 }
-$customMessages = @($template -split '\r?\n' | Where-Object { $_ -match '^(?:english\.)?VcRuntime\w+=' } | ForEach-Object { $_ -replace '^english\.', '' }) -join "`n"
+$customMessages = @($template -split '\r?\n' | Where-Object { $_ -match '^(?:english\.)?(?:VcRuntime\w+|HelperStopFailed)=' } | ForEach-Object { $_ -replace '^english\.', '' }) -join "`n"
 if (-not $customMessages) { throw 'The production English runtime messages were not found.' }
 
 $mockCode = $productionCode
@@ -53,6 +53,9 @@ foreach ($entry in $cleanupMocks.GetEnumerator()) {
     }
     $mockCode = [regex]::Replace($mockCode, $pattern, $entry.Value)
 }
+$stopPattern = '(?ms)^function StopHelperService: String;\s*\r?\n.*?^end;'
+if ([regex]::Matches($mockCode, $stopPattern).Count -ne 1) { throw 'Production stop helper function was not found exactly once.' }
+$mockCode = [regex]::Replace($mockCode, $stopPattern, 'function StopHelperService: String; begin TestStopCalls := TestStopCalls + 1; TestActions := TestActions + ''stop;''; if TestHelperStopFails then Result := ''Helper stop failed'' else Result := ''''; end;')
 $mockNames = @(
     'RegQueryDWordValue',
     'RegQueryStringValue',
@@ -78,11 +81,11 @@ $mockCode = $mockCode.Substring($globalsMatch.Length)
 
 $mockSupport = @'
   TestRegistry64, TestRegistry32, TestExecLaunches, TestBecomesReady: Boolean;
-  TestHashValid, TestExtractFails, TestHashThrows, TestLogWritable: Boolean;
+  TestHashValid, TestExtractFails, TestHashThrows, TestLogWritable, TestHelperStopFails: Boolean;
   TestRegistryVersion, TestFileVersion, TestMissingFile, TestActions: String;
   TestParameters, TestInvariantFailure: String;
   TestExitCode, TestExecCalls, TestExtractCalls: Integer;
-  TestKillCalls, TestUnregisterCalls, TestFileReadMask: Integer;
+  TestKillCalls, TestUnregisterCalls, TestStopCalls, TestFileReadMask: Integer;
 
 procedure Require(Condition: Boolean; Message: String);
 begin
@@ -170,6 +173,7 @@ begin
   Require(Pos(' /log "', Parameters) > 0, 'Prerequisite execution omitted its log');
   Require(TestKillCalls = 0, 'Old processes stopped before prerequisite execution');
   Require(TestUnregisterCalls = 0, 'Old helper removed before prerequisite execution');
+  Require(TestStopCalls = 0, 'Old helper stopped before prerequisite execution');
   Require(TestActions = 'extract;hash;mkdir;', 'Prerequisite execution bypassed integrity checks');
   TestExecCalls := TestExecCalls + 1;
   TestParameters := Parameters;
@@ -216,6 +220,15 @@ begin
   else if Name = 'registry32' then
   begin
     TestRegistry32 := True;
+    ExpectedExecCalls := 0;
+    ExpectedExtractCalls := 0;
+    ExpectedOperation := '';
+  end
+  else if Name = 'helper-stop-failure' then
+  begin
+    TestRegistry64 := True;
+    TestHelperStopFails := True;
+    ExpectedSuccess := False;
     ExpectedExecCalls := 0;
     ExpectedExtractCalls := 0;
     ExpectedOperation := '';
@@ -332,13 +345,16 @@ begin
       Name + ': incorrect installation operation: ' + TestParameters);
   if ExpectedSuccess then
   begin
-    Require(TestUnregisterCalls = 1, Name + ': old helper cleanup did not run exactly once');
+    Require(TestUnregisterCalls = 0, Name + ': upgrade must not delete the registered helper');
+    Require(TestStopCalls = 1, Name + ': old helper stop did not run exactly once');
     Require(TestKillCalls = 1, Name + ': old process cleanup did not run exactly once');
-    Require(Pos('unregister;kill;', TestActions) > 0, Name + ': cleanup order changed');
+    Require(Pos('stop;kill;', TestActions) > 0, Name + ': cleanup order changed');
   end
   else
   begin
     Require(TestUnregisterCalls = 0, Name + ': failed preparation removed the old helper');
+    if TestHelperStopFails then Require(TestStopCalls = 1, Name + ': helper stop was not attempted')
+      else Require(TestStopCalls = 0, Name + ': failed prerequisite stopped the helper');
     Require(TestKillCalls = 0, Name + ': failed preparation stopped the old app');
   end;
   Require(PolicyNeedRestart = ExpectedRestart, Name + ': incorrect completion restart state');
@@ -413,7 +429,7 @@ try {
     }
     $fixtureInstaller = Write-InnoFixture 'runtime-policy' 'x64' $mockCode
     $cases = @(
-        'healthy', 'registry32', 'absent', 'outdated', 'missing-dll', 'outdated-dll',
+        'healthy', 'registry32', 'helper-stop-failure', 'absent', 'outdated', 'missing-dll', 'outdated-dll',
         'invalid-hash', 'extraction-failure', 'hash-read-failure', 'log-directory-failure',
         'exec-failure', 'installer-error', 'postcheck-failure', 'already-installed',
         'already-installed-invalid', 'already-installed-hresult',

@@ -16,6 +16,25 @@ class TunFailure implements Exception {
         _ => 'elevation_failed',
       }, osErrorCode: error);
 
+  factory TunFailure.installerExit(int exitCode) => TunFailure(
+    'service_install',
+    switch (exitCode) {
+      1223 => 'authorization_cancelled',
+      5 => 'access_denied',
+      2 || 3 => 'helper_missing',
+      577 || 1275 => 'security_policy_blocked',
+      1053 => 'service_timeout',
+      1067 => 'service_exited',
+      1072 => 'service_pending_delete',
+      _ => 'installer_failed',
+    },
+    osErrorCode: switch (exitCode) {
+      2 || 3 || 5 || 577 || 1053 || 1067 || 1072 || 1223 || 1275 => exitCode,
+      _ => null,
+    },
+    installerExitCode: exitCode,
+  );
+
   final String stage;
   final String code;
   final int? osErrorCode;

@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:fl_clash/common/tun_failure.dart';
 import 'package:fl_clash/enum/enum.dart';
+import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/providers/providers.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -10,6 +12,10 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late ProviderContainer container;
   late _AuthorizationSetup action;
+
+  setUpAll(() async {
+    await AppLocalizations.load(const Locale('zh', 'CN'));
+  });
 
   setUp(() {
     container = ProviderContainer(
@@ -108,6 +114,42 @@ void main() {
     expect(container.read(patchClashConfigProvider).tun.enable, isFalse);
     expect(container.read(windowsTunReadyProvider), isFalse);
   });
+
+  for (final code in [1, 1053, 1067, 1072]) {
+    test(
+      'failed service repair $code explains restart and retains diagnosis',
+      () async {
+        final failure = TunFailure.installerExit(code);
+        action.failure = failure;
+
+        expect(await action.repairTunService(), isFalse);
+        expect(container.read(patchClashConfigProvider).tun.enable, isFalse);
+        expect(container.read(windowsTunReadyProvider), isFalse);
+        expect(action.notifications, [failure.code]);
+        final message = action.describeTunFailure(failure.code);
+        expect(message, contains('请尝试重启电脑后再开启虚拟网卡'));
+        expect(message, contains('重启后仍失败，请导出日志联系客服'));
+        expect(message, contains('[${failure.code}]'));
+        if (code == 1072) {
+          expect(message, contains('等待 Windows 完成清理'));
+        }
+      },
+    );
+  }
+
+  for (final code in [1223, 5, 2, 577]) {
+    test(
+      'installer exit $code keeps its actionable help without restart advice',
+      () {
+        final message = action.describeTunFailure(
+          TunFailure.installerExit(code).code,
+        );
+
+        expect(message, isNot(contains('重启电脑')));
+        expect(message, contains('失败详情已写入日志'));
+      },
+    );
+  }
 }
 
 class _AuthorizationSetup extends SetupAction {

@@ -114,6 +114,7 @@ jobs:
             'test/common/preferences_test.dart',
             'test/common/windows_preferences_test.dart',
             'test/common/windows_preferences_native_test.dart',
+            'test/common/tun_failure_test.dart',
             'test/common/windows_upgrade_startup_test.dart',
             'test/common/migration_test.dart',
             'test/pages/init_error_test.dart',
@@ -348,6 +349,12 @@ jobs:
           $installer = Get-ChildItem dist -Filter '*windows*.exe' -File | Select-Object -First 1
           ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/upgrade-verification"
 
+      - name: Verify installed helper service repair and overwrite
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist -Filter '*windows*.exe' -File | Select-Object -First 1
+          ./tooling/windows/test_helper_service_repair.ps1 -InstallerPath $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/helper-repair-verification"
+
       - name: Record package provenance and signature status
         shell: pwsh
         run: |
@@ -362,7 +369,7 @@ jobs:
           $metadata = [ordered]@{
             version = (Get-Item build/windows/x64/runner/Release/FengWo.exe).VersionInfo.ProductVersion
             release_channel = 'stable'
-            fixes = @('windows_public_root_trust', 'preferences_atomic_save_and_recovery', 'upgrade_save_before_installer')
+            fixes = @('windows_public_root_trust', 'preferences_atomic_save_and_recovery', 'upgrade_save_before_installer', 'windows_tun_service_repair')
             source_branch = 'codex/desktop-upstream-0897-port'
             source_sha = $env:GITHUB_SHA
             source_ref = $env:GITHUB_REF
@@ -400,4 +407,5 @@ jobs:
           path: |
             ${{ runner.temp }}/tls-diagnostics/*
             ${{ runner.temp }}/upgrade-verification/*
+            ${{ runner.temp }}/helper-repair-verification/*
           if-no-files-found: warn

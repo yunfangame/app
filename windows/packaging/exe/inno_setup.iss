@@ -26,6 +26,100 @@ ArchitecturesInstallIn64BitMode={{ARCH}}
 [Code]
 #include "{{SOURCE_DIR}}\prerequisites\vc_runtime_code.iss"
 
+type
+  TFengWoServiceStatus = record
+    ServiceType, CurrentState, ControlsAccepted, Win32ExitCode,
+    ServiceSpecificExitCode, CheckPoint, WaitHint: Cardinal;
+  end;
+
+function FwOpenSCManager(MachineName, DatabaseName: THandle; Access: Cardinal): THandle;
+  external 'OpenSCManagerW@advapi32.dll stdcall';
+function FwOpenService(Manager: THandle; Name: String; Access: Cardinal): THandle;
+  external 'OpenServiceW@advapi32.dll stdcall';
+function FwQueryServiceStatus(Service: THandle; var Status: TFengWoServiceStatus): Integer;
+  external 'QueryServiceStatus@advapi32.dll stdcall';
+function FwControlService(Service: THandle; Control: Cardinal; var Status: TFengWoServiceStatus): Integer;
+  external 'ControlService@advapi32.dll stdcall';
+function FwCloseServiceHandle(Handle: THandle): Integer;
+  external 'CloseServiceHandle@advapi32.dll stdcall';
+
+function StopHelperThroughServiceManager(var ErrorCode: Integer): Boolean;
+var
+  Manager, Service: THandle;
+  Status: TFengWoServiceStatus;
+  Attempt: Integer;
+begin
+  Result := False;
+  Manager := FwOpenSCManager(0, 0, 1);
+  if Manager = 0 then
+  begin
+    ErrorCode := DLLGetLastError;
+    Exit;
+  end;
+  try
+    Service := FwOpenService(Manager, 'FlClashHelperService', $24);
+    if Service = 0 then
+    begin
+      ErrorCode := DLLGetLastError;
+      Result := ErrorCode = 1060;
+      Exit;
+    end;
+    try
+      for Attempt := 0 to 99 do
+      begin
+        if FwQueryServiceStatus(Service, Status) = 0 then
+        begin
+          ErrorCode := DLLGetLastError;
+          Exit;
+        end;
+        if Status.CurrentState = 1 then
+        begin
+          Result := True;
+          Exit;
+        end;
+        if Status.CurrentState <> 3 then
+        begin
+          if FwControlService(Service, 1, Status) = 0 then
+          begin
+            ErrorCode := DLLGetLastError;
+            if ErrorCode = 1062 then
+            begin
+              Result := True;
+              Exit;
+            end;
+            if ErrorCode <> 1061 then Exit;
+          end;
+        end;
+        Sleep(100);
+      end;
+      ErrorCode := 1053;
+    finally
+      FwCloseServiceHandle(Service);
+    end;
+  finally
+    FwCloseServiceHandle(Manager);
+  end;
+end;
+
+function StopHelperService: String;
+var
+  HelperPath: String;
+  ResultCode: Integer;
+begin
+  Result := '';
+  HelperPath := ExpandConstant('{app}\FlClashHelperService.exe');
+  if FileExists(HelperPath) then
+  begin
+    if Exec(HelperPath, 'stop', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      if ResultCode = 0 then Exit;
+  end;
+  if not StopHelperThroughServiceManager(ResultCode) then
+  begin
+    Log('Unable to stop the existing helper service: ' + IntToStr(ResultCode));
+    Result := FmtMessage(CustomMessage('HelperStopFailed'), [IntToStr(ResultCode)]);
+  end;
+end;
+
 procedure KillProcesses;
 var
   Processes: TArrayOfString;
@@ -56,7 +150,8 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := EnsureVcRuntime(NeedsRestart);
   if Result <> '' then Exit;
-  UnregisterHelperService;
+  Result := StopHelperService;
+  if Result <> '' then Exit;
   KillProcesses;
   Result := '';
 end;
@@ -100,6 +195,7 @@ Name: "chineseSimplified"; MessagesFile: {% if locale.file %}{{ locale.file }}{%
 {% endfor %}
 
 [CustomMessages]
+HelperStopFailed=The previous network service is still busy (code %1). Close the old client and Services window, then retry. If it still fails, restart Windows and run the installer again.
 VcRuntimeInstalling=Installing Microsoft Visual C++ runtime. Please wait...
 VcRuntimeInvalid=The bundled Visual C++ runtime is missing or damaged. Download the complete installer again.
 VcRuntimeLogFailed=Unable to create the runtime installation log directory. Check administrator permissions and disk space.
@@ -108,6 +204,7 @@ VcRuntimeVerifyFailed=Visual C++ runtime verification failed. Repair the install
 VcRuntimeRestart=Windows must restart to finish installing the Visual C++ runtime. Restart and run this installer again.
 {% for locale in LOCALES %}
 {% if locale.lang == 'zh' %}
+chineseSimplified.HelperStopFailed=旧版网络服务尚未退出（错误码 %1）。请关闭旧客户端和服务管理窗口后重试；仍失败时，请重启 Windows 后再次安装。
 chineseSimplified.VcRuntimeInstalling=正在安装 Microsoft Visual C++ 运行库，请稍候……
 chineseSimplified.VcRuntimeInvalid=安装包中的 Visual C++ 运行库缺失或损坏，请重新下载完整安装包。
 chineseSimplified.VcRuntimeLogFailed=无法创建运行库安装日志目录，请检查管理员权限和磁盘空间。

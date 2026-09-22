@@ -2631,14 +2631,26 @@ class MessageLookup extends MessageLookupByLibrary {
     "tunRepairService": MessageLookupByLibrary.simpleMessage(
       "Проверить и восстановить службу",
     ),
+    "tunRestartComputerHelp": MessageLookupByLibrary.simpleMessage(
+      "Если повторная авторизация и попытка запуска не помогают, попробуйте перезагрузить компьютер и снова включить виртуальный адаптер. Если ошибка сохраняется, экспортируйте журналы и обратитесь в поддержку.",
+    ),
     "tunRetry": MessageLookupByLibrary.simpleMessage(
       "Авторизовать и повторить",
     ),
     "tunSecurityBlocked": MessageLookupByLibrary.simpleMessage(
       "Политика безопасности Windows заблокировала службу. Проверьте журнал защиты или обратитесь к администратору.",
     ),
+    "tunServiceExited": MessageLookupByLibrary.simpleMessage(
+      "Вспомогательная служба неожиданно завершила работу после запуска. Виртуальный адаптер не готов.",
+    ),
+    "tunServicePendingDelete": MessageLookupByLibrary.simpleMessage(
+      "Windows ещё удаляет предыдущую вспомогательную службу, поэтому пока невозможно установить её заново.",
+    ),
     "tunServiceReady": MessageLookupByLibrary.simpleMessage(
       "Служба готова. Включите виртуальный адаптер для проверки подключения.",
+    ),
+    "tunServiceTimeout": MessageLookupByLibrary.simpleMessage(
+      "Истекло время ожидания остановки или запуска вспомогательной службы. Не удалось подготовить виртуальный адаптер.",
     ),
     "tunServiceUnavailable": MessageLookupByLibrary.simpleMessage(
       "Служба не готова. Возможна блокировка или несовпадение версии.",

@@ -2341,8 +2341,8 @@ class SetupAction extends _$SetupAction {
     return true;
   }
 
-  @protected
-  void notifyTunFailure(String code) {
+  @visibleForTesting
+  String describeTunFailure(String code) {
     final l10n = currentAppLocalizations;
     final reason = switch (code) {
       'authorization_cancelled' => l10n.tunAuthorizationCancelled,
@@ -2353,10 +2353,36 @@ class SetupAction extends _$SetupAction {
       'installer_timeout' ||
       'installer_status_failed' ||
       'core_restart_failed' => l10n.tunServiceUnavailable,
+      'service_pending_delete' => l10n.tunServicePendingDelete,
+      'service_timeout' => l10n.tunServiceTimeout,
+      'service_exited' => l10n.tunServiceExited,
       'security_policy_blocked' => l10n.tunSecurityBlocked,
       'activation_failed' => l10n.tunActivationFailed,
       _ => l10n.tunAdapterFailed,
     };
+    final suggestRestart = switch (code) {
+      'helper_not_ready' ||
+      'installer_failed' ||
+      'installer_timeout' ||
+      'installer_status_failed' ||
+      'core_restart_failed' ||
+      'service_pending_delete' ||
+      'service_timeout' ||
+      'service_exited' => true,
+      _ => false,
+    };
+    return [
+      reason,
+      if (suggestRestart) l10n.tunRestartComputerHelp,
+      l10n.tunFailureHelp,
+      '[$code]',
+    ].join('\n\n');
+  }
+
+  @protected
+  void notifyTunFailure(String code) {
+    final l10n = currentAppLocalizations;
+    final description = describeTunFailure(code);
     if (globalState.navigatorKey.currentContext == null) return;
     unawaited(
       Future<void>(() async {
@@ -2365,7 +2391,7 @@ class SetupAction extends _$SetupAction {
           child: Builder(
             builder: (context) => AlertDialog(
               title: Text(l10n.tunStartFailed),
-              content: Text('$reason\n\n${l10n.tunFailureHelp}\n[$code]'),
+              content: Text(description),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, 'logs'),

@@ -350,11 +350,7 @@ class Windows {
             fields: {'exit_code': exitCode.value},
           );
           if (exitCode.value != 0) {
-            throw TunFailure(
-              'service_install',
-              'installer_failed',
-              installerExitCode: exitCode.value,
-            );
+            throw TunFailure.installerExit(exitCode.value);
           }
           return;
         }

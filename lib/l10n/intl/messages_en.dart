@@ -2529,12 +2529,24 @@ class MessageLookup extends MessageLookupByLibrary {
     "tunRepairService": MessageLookupByLibrary.simpleMessage(
       "Check and repair service",
     ),
+    "tunRestartComputerHelp": MessageLookupByLibrary.simpleMessage(
+      "If authorizing and retrying still does not work, try restarting your computer before enabling the virtual adapter again. If it still fails after restarting, export the logs and contact support.",
+    ),
     "tunRetry": MessageLookupByLibrary.simpleMessage("Authorize and retry"),
     "tunSecurityBlocked": MessageLookupByLibrary.simpleMessage(
       "Windows security policy blocked the helper. Check Protection history and ask your administrator to review the client.",
     ),
+    "tunServiceExited": MessageLookupByLibrary.simpleMessage(
+      "The helper service exited unexpectedly after starting. The virtual adapter is not ready.",
+    ),
+    "tunServicePendingDelete": MessageLookupByLibrary.simpleMessage(
+      "Windows is still removing the previous helper service, so it cannot be installed again yet.",
+    ),
     "tunServiceReady": MessageLookupByLibrary.simpleMessage(
       "Helper service is ready. Enable the virtual adapter to verify the connection.",
+    ),
+    "tunServiceTimeout": MessageLookupByLibrary.simpleMessage(
+      "The helper service timed out while stopping or starting. The virtual adapter could not be prepared.",
     ),
     "tunServiceUnavailable": MessageLookupByLibrary.simpleMessage(
       "The helper service did not become ready. It may be blocked or belong to a different installation.",

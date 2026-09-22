@@ -379,10 +379,13 @@ make core-windows
 The build tool always compiles the Helper in Rust release mode after calculating
 the SHA256 of the Core produced for the active Flutter configuration.
 
-The helper owns its Windows Service Control Manager lifecycle through two elevated commands:
+The helper owns its Windows Service Control Manager lifecycle through elevated commands:
 
-- `FlClashHelperService.exe install` stops and removes any stale registration, creates the auto-start service for the
-  current executable path, starts it, and waits for the running state.
+- `FlClashHelperService.exe install` stops an existing service, updates its registration in place for the current
+  executable path, and starts it. It creates an auto-start service only when no registration exists. Repair must not
+  delete a registration, because another open SCM handle can keep that registration pending deletion until restart.
+- `FlClashHelperService.exe stop` stops the service without deleting its registration and is used before replacing
+  installed files during an upgrade.
 - `FlClashHelperService.exe uninstall` stops the service, waits for shutdown, removes its registration, and is also used
   by the Windows package uninstaller.
 

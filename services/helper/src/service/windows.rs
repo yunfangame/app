@@ -25,15 +25,18 @@ const SERVICE_OPERATION_TIMEOUT: Duration = Duration::from_secs(10);
 const SERVICE_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 const ERROR_SERVICE_ALREADY_RUNNING: i32 = 1056;
+const ERROR_SERVICE_REQUEST_TIMEOUT: i32 = 1053;
 const ERROR_SERVICE_DOES_NOT_EXIST: i32 = 1060;
 const ERROR_SERVICE_CANNOT_ACCEPT_CTRL: i32 = 1061;
 const ERROR_SERVICE_NOT_ACTIVE: i32 = 1062;
 const ERROR_SERVICE_MARKED_FOR_DELETE: i32 = 1072;
+const ERROR_PROCESS_ABORTED: i32 = 1067;
 
 #[derive(Debug, PartialEq, Eq)]
 enum ServiceCommand {
     Run,
     Install,
+    Stop,
     Uninstall,
 }
 
@@ -41,6 +44,7 @@ pub fn main() -> Result<()> {
     match service_command(std::env::args_os().skip(1))? {
         ServiceCommand::Run => start_service().map_err(Into::into),
         ServiceCommand::Install => install_service(),
+        ServiceCommand::Stop => stop_registered_service(),
         ServiceCommand::Uninstall => uninstall_service(),
     }
 }
@@ -50,6 +54,7 @@ fn service_command(args: impl IntoIterator<Item = OsString>) -> Result<ServiceCo
     let command = match args.next().as_deref() {
         None => ServiceCommand::Run,
         Some(value) if value == OsStr::new("install") => ServiceCommand::Install,
+        Some(value) if value == OsStr::new("stop") => ServiceCommand::Stop,
         Some(value) if value == OsStr::new("uninstall") => ServiceCommand::Uninstall,
         Some(value) => bail!("unknown helper command: {}", value.to_string_lossy()),
     };
@@ -157,8 +162,6 @@ fn install_service() -> Result<()> {
         ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
     )
     .context("open Windows service manager")?;
-    remove_existing_service(&manager)?;
-
     let executable_path = std::env::current_exe().context("resolve helper executable path")?;
     let service_info = ServiceInfo {
         name: OsString::from(SERVICE_NAME),
@@ -169,21 +172,55 @@ fn install_service() -> Result<()> {
         executable_path,
         launch_arguments: Vec::new(),
         dependencies: Vec::new(),
-        account_name: None,
+        account_name: Some(OsString::from("LocalSystem")),
         account_password: None,
     };
-    let service = manager
-        .create_service(
-            &service_info,
-            ServiceAccess::QUERY_STATUS | ServiceAccess::START,
-        )
-        .context("create helper service")?;
+    let access = ServiceAccess::QUERY_STATUS
+        | ServiceAccess::START
+        | ServiceAccess::STOP
+        | ServiceAccess::CHANGE_CONFIG;
+    let existing = match manager.open_service(SERVICE_NAME, access) {
+        Ok(service) => Some(service),
+        Err(error) if has_error_code(&error, ERROR_SERVICE_DOES_NOT_EXIST) => None,
+        Err(error) if has_error_code(&error, ERROR_SERVICE_MARKED_FOR_DELETE) => {
+            wait_for_deletion(&manager)?;
+            None
+        }
+        Err(error) => return Err(error).context("open helper service for repair"),
+    };
+    let service = if let Some(service) = existing {
+        stop_service(&service)?;
+        service
+            .change_config(&service_info)
+            .context("update existing helper service configuration")?;
+        service
+    } else {
+        manager
+            .create_service(&service_info, access)
+            .context("create helper service")?
+    };
     if let Err(error) = service.start::<&OsStr>(&[]) {
         if !has_error_code(&error, ERROR_SERVICE_ALREADY_RUNNING) {
             return Err(error).context("start helper service");
         }
     }
     wait_for_running(&service)
+}
+
+fn stop_registered_service() -> Result<()> {
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+        .context("open Windows service manager")?;
+    match manager.open_service(
+        SERVICE_NAME,
+        ServiceAccess::QUERY_STATUS | ServiceAccess::STOP,
+    ) {
+        Ok(service) => stop_service(&service),
+        Err(error) if has_error_code(&error, ERROR_SERVICE_DOES_NOT_EXIST) => Ok(()),
+        Err(error) if has_error_code(&error, ERROR_SERVICE_MARKED_FOR_DELETE) => {
+            wait_for_deletion(&manager)
+        }
+        Err(error) => Err(error).context("open helper service for stopping"),
+    }
 }
 
 fn uninstall_service() -> Result<()> {
@@ -236,7 +273,12 @@ fn stop_service(service: &Service) -> Result<()> {
             }
         }
         if started_at.elapsed() >= SERVICE_OPERATION_TIMEOUT {
-            bail!("timed out waiting for helper service to stop from {state:?}");
+            return Err(std::io::Error::from_raw_os_error(
+                ERROR_SERVICE_REQUEST_TIMEOUT,
+            ))
+            .with_context(|| {
+                format!("timed out waiting for helper service to stop from {state:?}")
+            });
         }
         sleep(SERVICE_POLL_INTERVAL);
     }
@@ -254,7 +296,10 @@ fn wait_for_deletion(manager: &ServiceManager) -> Result<()> {
             Err(_) => {}
         }
         if started_at.elapsed() >= SERVICE_OPERATION_TIMEOUT {
-            bail!("timed out waiting for helper service deletion");
+            return Err(std::io::Error::from_raw_os_error(
+                ERROR_SERVICE_MARKED_FOR_DELETE,
+            ))
+            .context("timed out waiting for helper service deletion");
         }
         sleep(SERVICE_POLL_INTERVAL);
     }
@@ -263,20 +308,55 @@ fn wait_for_deletion(manager: &ServiceManager) -> Result<()> {
 fn wait_for_running(service: &Service) -> Result<()> {
     let started_at = Instant::now();
     loop {
-        let state = service
+        let status = service
             .query_status()
-            .context("query helper service after starting")?
-            .current_state;
+            .context("query helper service after starting")?;
+        let state = status.current_state;
         match state {
             ServiceState::Running => return Ok(()),
-            ServiceState::Stopped => bail!("helper service stopped during startup"),
+            ServiceState::Stopped => {
+                let code = match status.exit_code {
+                    ServiceExitCode::Win32(code) if code > 1 && code <= i32::MAX as u32 => {
+                        code as i32
+                    }
+                    _ => ERROR_PROCESS_ABORTED,
+                };
+                return Err(std::io::Error::from_raw_os_error(code)).with_context(|| {
+                    format!(
+                        "helper service stopped during startup: {:?}",
+                        status.exit_code
+                    )
+                });
+            }
             _ => {}
         }
         if started_at.elapsed() >= SERVICE_OPERATION_TIMEOUT {
-            bail!("timed out waiting for helper service to run from {state:?}");
+            return Err(std::io::Error::from_raw_os_error(
+                ERROR_SERVICE_REQUEST_TIMEOUT,
+            ))
+            .with_context(|| {
+                format!("timed out waiting for helper service to run from {state:?}")
+            });
         }
         sleep(SERVICE_POLL_INTERVAL);
     }
+}
+
+pub fn command_exit_code(error: &anyhow::Error) -> i32 {
+    error
+        .chain()
+        .find_map(|cause| {
+            if let Some(error) = cause.downcast_ref::<std::io::Error>() {
+                return error.raw_os_error().filter(|code| *code > 0);
+            }
+            if let Some(windows_service::Error::Winapi(error)) =
+                cause.downcast_ref::<windows_service::Error>()
+            {
+                return error.raw_os_error().filter(|code| *code > 0);
+            }
+            None
+        })
+        .unwrap_or(1)
 }
 
 fn has_error_code(error: &windows_service::Error, code: i32) -> bool {
@@ -316,6 +396,10 @@ mod tests {
             service_command([OsString::from("uninstall")]).unwrap(),
             ServiceCommand::Uninstall
         );
+        assert_eq!(
+            service_command([OsString::from("stop")]).unwrap(),
+            ServiceCommand::Stop
+        );
     }
 
     #[test]
@@ -324,5 +408,17 @@ mod tests {
         assert!(
             service_command([OsString::from("install"), OsString::from("unexpected")]).is_err()
         );
+    }
+
+    #[test]
+    fn installation_errors_preserve_the_underlying_windows_code() {
+        for code in [5, 1053, 1067, 1072] {
+            let error = anyhow::Error::from(windows_service::Error::Winapi(
+                std::io::Error::from_raw_os_error(code),
+            ))
+            .context("install helper");
+            assert_eq!(command_exit_code(&error), code);
+        }
+        assert_eq!(command_exit_code(&anyhow::anyhow!("unknown failure")), 1);
     }
 }

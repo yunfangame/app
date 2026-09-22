@@ -234,6 +234,7 @@ void main() {
       final started = Completer<void>();
       var downloads = 0;
       final launchedPaths = <String>[];
+      final lifecycleCalls = <String>[];
       final downloadService = AppUpdateDownloadService(
         temporaryDirectoryLoader: () async => temporary,
         packageKeyResolver: () => 'windows-x64',
@@ -247,6 +248,7 @@ void main() {
           );
         },
         launcher: (path) async {
+          lifecycleCalls.add('launch');
           launchedPaths.add(path);
           return true;
         },
@@ -258,6 +260,7 @@ void main() {
       final container = _container(
         _service(manifestLoader: (_) async => manifest),
         downloadService: downloadService,
+        lifecycleCalls: lifecycleCalls,
       );
       final progress = Completer<void>();
       final ready = Completer<void>();
@@ -332,6 +335,14 @@ void main() {
         expect(launchedPaths, hasLength(1));
         expect(launchedPaths.single, endsWith('.exe'));
         expect(downloads, 1);
+        expect(lifecycleCalls, [
+          'save',
+          'launch',
+          'cleanup:false',
+          'window',
+          'core',
+          'exit',
+        ]);
         await tester.tap(
           find.byKey(const ValueKey('app-update-download-close')),
         );
@@ -392,11 +403,17 @@ ProviderContainer _container(
   AppUpdateService service, {
   bool autoCheckUpdate = true,
   AppUpdateDownloadService? downloadService,
+  List<String>? lifecycleCalls,
 }) {
   addTearDown(service.close);
+  final calls = lifecycleCalls ?? <String>[];
   return ProviderContainer(
     overrides: [
       appUpdateServiceProvider.overrideWithValue(service),
+      appUpdateDownloadProvider.overrideWith(
+        () => _ScopedInstallerDownload(calls),
+      ),
+      systemActionProvider.overrideWith(() => _ScopedInstallerExit(calls)),
       if (downloadService != null)
         appUpdateDownloadServiceProvider.overrideWithValue(downloadService),
       appUpdateCurrentVersionProvider.overrideWithValue('1.0.4+104'),
@@ -405,6 +422,38 @@ ProviderContainer _container(
       ),
     ],
   );
+}
+
+class _ScopedInstallerDownload extends AppUpdateDownload {
+  _ScopedInstallerDownload(this.calls);
+
+  final List<String> calls;
+
+  @override
+  bool get exitForInstaller => true;
+
+  @override
+  Future<void> saveBeforeInstaller() async => calls.add('save');
+}
+
+class _ScopedInstallerExit extends SystemAction {
+  _ScopedInstallerExit(this.calls);
+
+  final List<String> calls;
+
+  @override
+  Future<void> cleanupExitResources(bool needSave) async {
+    calls.add('cleanup:$needSave');
+  }
+
+  @override
+  Future<void> closeWindow() async => calls.add('window');
+
+  @override
+  Future<void> closeCore() async => calls.add('core');
+
+  @override
+  Future<void> exitApplication() async => calls.add('exit');
 }
 
 AppUpdateService _service({

@@ -6,8 +6,11 @@ use tokio::runtime::Runtime;
 mod service;
 
 #[cfg(all(feature = "windows-service", target_os = "windows"))]
-pub fn main() -> anyhow::Result<()> {
-    service::windows::main()
+pub fn main() {
+    if let Err(error) = service::windows::main() {
+        eprintln!("{error:#}");
+        std::process::exit(service::windows::command_exit_code(&error));
+    }
 }
 
 #[cfg(not(all(feature = "windows-service", target_os = "windows")))]
