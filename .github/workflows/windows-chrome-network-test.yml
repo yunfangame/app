@@ -13,11 +13,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        proxy: ${{ fromJSON(contains(github.event.head_commit.message, '[bracket-install]') && '["bracket"]' || '["direct","upstream","current","current_no_ipv6"]') }}
+        proxy: ${{ fromJSON(contains(github.event.head_commit.message, '[production-install]') && '["production"]' || contains(github.event.head_commit.message, '[bracket-install]') && '["bracket"]' || '["direct","upstream","current","current_no_ipv6"]') }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Compile and exercise actual production Windows proxy helper
+        if: matrix.proxy == 'production'
+        shell: powershell
+        run: ./tooling/windows/prepare_chrome_production_bypass.ps1 -OutputDirectory "$env:RUNNER_TEMP/chrome-network"
       - name: Probe native Windows networking and real Chrome online installer
         shell: powershell
         run: ./tooling/windows/test_chrome_network.ps1 -Mode '${{ matrix.proxy }}' -OutputDirectory "$env:RUNNER_TEMP/chrome-network"
