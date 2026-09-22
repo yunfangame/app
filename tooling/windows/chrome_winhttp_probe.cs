@@ -89,6 +89,26 @@ public static class ChromeNetworkProbe {
             Marshal.FreeHGlobal(options); Marshal.FreeHGlobal(server); Marshal.FreeHGlobal(bypass);
         }
     }
+    public static void SetProxyFlags(uint flags) {
+        int size=Marshal.SizeOf(typeof(InternetOption));
+        IntPtr option=Marshal.AllocHGlobal(size);
+        IntPtr pointer=IntPtr.Zero;
+        try {
+            Marshal.StructureToPtr(new InternetOption {Option=1, Value=new IntPtr(flags)}, option, false);
+            var list=new InternetOptionList {Size=(uint)Marshal.SizeOf(typeof(InternetOptionList)), Count=1, Options=option};
+            pointer=Marshal.AllocHGlobal((int)list.Size);
+            Marshal.StructureToPtr(list, pointer, false);
+            if(!InternetSetOption(IntPtr.Zero, 75, pointer, list.Size)) {
+                int error=Marshal.GetLastWin32Error();
+                if(error!=87 || !InternetSetOptionAnsi(IntPtr.Zero, 75, pointer, list.Size)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            InternetSetOption(IntPtr.Zero, 39, IntPtr.Zero, 0);
+            InternetSetOption(IntPtr.Zero, 37, IntPtr.Zero, 0);
+        } finally {
+            Marshal.FreeHGlobal(option);
+            if(pointer!=IntPtr.Zero) Marshal.FreeHGlobal(pointer);
+        }
+    }
     public static Result Get(string url, uint access, string proxy) {
         if(String.IsNullOrEmpty(proxy)) proxy=null;
         var result = new Result {url=url, access=access, proxy=proxy};

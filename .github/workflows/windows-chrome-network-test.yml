@@ -7,6 +7,7 @@ permissions:
   contents: read
 jobs:
   probe:
+    if: ${{ !contains(github.event.head_commit.message, '[native-only]') }}
     runs-on: windows-2022
     timeout-minutes: 16
     strategy:
@@ -29,4 +30,21 @@ jobs:
         with:
           name: chrome-network-${{ matrix.proxy }}
           path: ${{ runner.temp }}/chrome-network
+          retention-days: 7
+  native-edges:
+    if: ${{ contains(github.event.head_commit.message, '[native-only]') }}
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify IPv6 bracket syntax and disabled proxy residue
+        shell: powershell
+        run: ./tooling/windows/test_chrome_native_edge_cases.ps1 -OutputDirectory "$env:RUNNER_TEMP/chrome-native-edges"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chrome-native-edges
+          path: ${{ runner.temp }}/chrome-native-edges
           retention-days: 7
