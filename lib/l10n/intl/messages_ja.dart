@@ -412,8 +412,27 @@ class MessageLookup extends MessageLookupByLibrary {
     "autoCloseConnectionsDesc": MessageLookupByLibrary.simpleMessage(
       "ノードを手動で切り替えた後、既存の接続を自動的に閉じる",
     ),
-    "autoLaunch": MessageLookupByLibrary.simpleMessage("自動起動"),
-    "autoLaunchDesc": MessageLookupByLibrary.simpleMessage("システムの自動起動に従う"),
+    "autoLaunch": MessageLookupByLibrary.simpleMessage("ログイン時に起動"),
+    "autoLaunchApplying": MessageLookupByLibrary.simpleMessage("起動設定を適用中…"),
+    "autoLaunchDesc": MessageLookupByLibrary.simpleMessage(
+      "パソコンへのログイン時に FengWo を起動します。初期設定はオフです。",
+    ),
+    "autoLaunchFailed": MessageLookupByLibrary.simpleMessage(
+      "起動設定を変更できません。システムの権限を確認して再試行してください。",
+    ),
+    "autoLaunchPersistenceFailed": MessageLookupByLibrary.simpleMessage(
+      "起動設定を保存できません。以前の設定に戻しました。再試行してください。",
+    ),
+    "autoLaunchReadFailed": MessageLookupByLibrary.simpleMessage(
+      "システムの起動設定を読み取れません。再試行してから変更してください。",
+    ),
+    "autoLaunchReading": MessageLookupByLibrary.simpleMessage("システムの起動設定を確認中…"),
+    "autoLaunchRollbackFailed": MessageLookupByLibrary.simpleMessage(
+      "以前の設定に戻せません。システム設定で起動アプリを確認してください。",
+    ),
+    "autoLaunchVerificationFailed": MessageLookupByLibrary.simpleMessage(
+      "システムで変更を確認できませんでした。起動設定は変更されていません。再試行してください。",
+    ),
     "autoRefresh": MessageLookupByLibrary.simpleMessage("自動更新"),
     "autoRenew": MessageLookupByLibrary.simpleMessage("自動更新"),
     "autoRun": MessageLookupByLibrary.simpleMessage("自動実行"),
@@ -1866,7 +1885,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "showPassword": MessageLookupByLibrary.simpleMessage("パスワードを表示"),
     "shrink": MessageLookupByLibrary.simpleMessage("縮小"),
     "silentLaunch": MessageLookupByLibrary.simpleMessage("バックグラウンド起動"),
-    "silentLaunchDesc": MessageLookupByLibrary.simpleMessage("バックグラウンドで起動"),
+    "silentLaunchDesc": MessageLookupByLibrary.simpleMessage(
+      "起動時にメイン画面を非表示にします。システムトレイから開けます。",
+    ),
     "size": MessageLookupByLibrary.simpleMessage("サイズ"),
     "socksPort": MessageLookupByLibrary.simpleMessage("Socksポート"),
     "softwareUpdate": MessageLookupByLibrary.simpleMessage("ソフトウェア更新"),
@@ -1897,6 +1918,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "startOptimization": MessageLookupByLibrary.simpleMessage("検索開始"),
     "startTest": MessageLookupByLibrary.simpleMessage("判定開始"),
     "startVpn": MessageLookupByLibrary.simpleMessage("VPNを開始中..."),
+    "startupSettings": MessageLookupByLibrary.simpleMessage("起動設定"),
+    "startupSettingsDesc": MessageLookupByLibrary.simpleMessage(
+      "このデバイスでの起動方法を設定します",
+    ),
     "status": MessageLookupByLibrary.simpleMessage("ステータス"),
     "statusDesc": MessageLookupByLibrary.simpleMessage("無効時はシステムDNSを使用"),
     "stop": MessageLookupByLibrary.simpleMessage("停止"),

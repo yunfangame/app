@@ -111,6 +111,7 @@ jobs:
             'test/views/proxies/common_test.dart',
             'test/common/task_test.dart',
             'test/common/startup_test.dart',
+            'test/common/auto_launch_test.dart',
             'test/common/preferences_test.dart',
             'test/common/windows_preferences_test.dart',
             'test/common/windows_preferences_native_test.dart',
@@ -133,11 +134,13 @@ jobs:
             'test/providers/app_update_test.dart',
             'test/providers/app_update_download_test.dart',
             'test/providers/app_update_action_test.dart',
+            'test/providers/auto_launch_action_test.dart',
             'test/providers/windows_tun_authorization_test.dart',
             'test/widgets/app_update_controls_test.dart',
             'test/widgets/app_update_dialog_test.dart',
             'test/widgets/app_update_download_dialog_test.dart',
             'test/widgets/desktop_update_entry_test.dart',
+            'test/widgets/auto_launch_item_test.dart',
             'test/widgets/windows_tun_progress_test.dart',
             'test/widgets/windows_tun_tools_test.dart',
             'test/common/windows_proxy_guard_test.dart',
@@ -219,6 +222,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Proxy test compilation failed' }
           ctest --test-dir build/windows/x64/plugins/proxy -C Release --output-on-failure --no-tests=error -R Proxy
           if ($LASTEXITCODE -ne 0) { throw 'Proxy tests failed' }
+          cmake --build build/windows/x64 --config Release --target proxy_winhttp_compatibility_test
+          if ($LASTEXITCODE -ne 0) { throw 'WinHTTP proxy compatibility test compilation failed' }
+          $rawBypass = Join-Path $env:RUNNER_TEMP 'legacy-proxy-bypass.txt'
+          $normalizedBypass = Join-Path $env:RUNNER_TEMP 'normalized-proxy-bypass.txt'
+          [IO.File]::WriteAllText($rawBypass, 'localhost;*.local;127.*;10.*;172.16.*;192.168.*;::1', [Text.UTF8Encoding]::new($false))
+          & ./build/windows/x64/plugins/proxy/Release/proxy_winhttp_compatibility_test.exe $rawBypass $normalizedBypass | Tee-Object -FilePath "$env:RUNNER_TEMP/proxy-winhttp-regression.txt"
+          if ($LASTEXITCODE -ne 0) { throw 'WinHTTP proxy compatibility regression failed' }
 
       - name: Verify Windows package
         shell: pwsh
@@ -355,6 +365,12 @@ jobs:
           $installer = Get-ChildItem dist -Filter '*windows*.exe' -File | Select-Object -First 1
           ./tooling/windows/test_helper_service_repair.ps1 -InstallerPath $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/helper-repair-verification"
 
+      - name: Verify installed Windows auto launch
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist -Filter '*windows*.exe' -File | Select-Object -First 1
+          ./tooling/windows/test_autostart.ps1 -InstallerPath $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/autostart-verification"
+
       - name: Record package provenance and signature status
         shell: pwsh
         run: |
@@ -369,7 +385,7 @@ jobs:
           $metadata = [ordered]@{
             version = (Get-Item build/windows/x64/runner/Release/FengWo.exe).VersionInfo.ProductVersion
             release_channel = 'stable'
-            fixes = @('windows_public_root_trust', 'preferences_atomic_save_and_recovery', 'upgrade_save_before_installer', 'windows_tun_service_repair')
+            fixes = @('windows_public_root_trust', 'preferences_atomic_save_and_recovery', 'upgrade_save_before_installer', 'windows_tun_service_repair', 'windows_winhttp_ipv6_bypass', 'windows_autostart_verified')
             source_branch = 'codex/desktop-upstream-0897-port'
             source_sha = $env:GITHUB_SHA
             source_ref = $env:GITHUB_REF
@@ -408,4 +424,6 @@ jobs:
             ${{ runner.temp }}/tls-diagnostics/*
             ${{ runner.temp }}/upgrade-verification/*
             ${{ runner.temp }}/helper-repair-verification/*
+            ${{ runner.temp }}/autostart-verification/*
+            ${{ runner.temp }}/proxy-winhttp-regression.txt
           if-no-files-found: warn

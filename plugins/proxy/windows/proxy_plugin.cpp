@@ -101,7 +101,7 @@ std::wstring BuildBypassList(const flutter::EncodableList& bypassDomain)
     }
     bypassList += Utf8ToWide(value);
   }
-  return bypassList;
+  return proxy::settings::NormalizeBypassList(bypassList);
 }
 
 bool IsStringList(const flutter::EncodableList& values)

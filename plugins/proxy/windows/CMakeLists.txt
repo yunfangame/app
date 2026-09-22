@@ -98,4 +98,11 @@ add_custom_command(TARGET ${TEST_RUNNER} POST_BUILD
 # Enable automatic test discovery.
 include(GoogleTest)
 gtest_discover_tests(${TEST_RUNNER})
+
+add_executable(proxy_winhttp_compatibility_test
+  test/proxy_winhttp_compatibility_test.cpp
+)
+apply_standard_settings(proxy_winhttp_compatibility_test)
+target_compile_options(proxy_winhttp_compatibility_test PRIVATE /utf-8)
+target_link_libraries(proxy_winhttp_compatibility_test PRIVATE wininet winhttp)
 endif()

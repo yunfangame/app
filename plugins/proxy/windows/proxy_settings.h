@@ -8,6 +8,26 @@
 
 namespace proxy::settings {
 
+inline std::wstring NormalizeBypassList(const std::wstring& value) {
+  std::wstring normalized;
+  size_t start = 0;
+  while (true) {
+    const auto end = value.find(L';', start);
+    auto rule = value.substr(start, end == std::wstring::npos ? end : end - start);
+    const auto first = rule.find_first_not_of(L" \t\r\n");
+    if (first != std::wstring::npos) {
+      const auto last = rule.find_last_not_of(L" \t\r\n");
+      if (rule.substr(first, last - first + 1) == L"::1") {
+        rule.replace(first, 3, L"[::1]");
+      }
+    }
+    normalized += rule;
+    if (end == std::wstring::npos) return normalized;
+    normalized += L';';
+    start = end + 1;
+  }
+}
+
 inline bool ToAnsi(const wchar_t* value, std::string& output) {
   output.clear();
   if (value == nullptr || *value == L'\0') return true;

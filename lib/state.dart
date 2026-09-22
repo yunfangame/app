@@ -399,11 +399,30 @@ class GlobalState {
     container.read(systemActionProvider.notifier).updateTray();
     container.read(profilesActionProvider.notifier).autoUpdateProfiles();
     container.read(commonActionProvider.notifier).autoCheckUpdate();
-    autoLaunch?.updateStatus(container.read(appSettingProvider).autoLaunch);
-    if (!container.read(appSettingProvider).silentLaunch) {
-      window?.show();
-    } else {
+    if (system.isDesktop) {
+      unawaited(
+        container
+            .read(systemActionProvider.notifier)
+            .refreshAutoLaunch()
+            .catchError((Object error) {
+              commonPrint.event(
+                'autostart.refresh.failed',
+                fields: {
+                  'code': error is AutoLaunchException
+                      ? error.code
+                      : 'readFailed',
+                },
+              );
+            }),
+      );
+    }
+    if (shouldHideWindowAtStartup(
+      silentLaunch: container.read(appSettingProvider).silentLaunch,
+      hasAuthenticatedSession: xboardSession != null,
+    )) {
       window?.hide();
+    } else {
+      window?.show();
     }
     await _handlerDisclaimer();
     await _showCrashRecoveryTip();

@@ -472,9 +472,30 @@ class MessageLookup extends MessageLookupByLibrary {
     "autoCloseConnectionsDesc": MessageLookupByLibrary.simpleMessage(
       "Close existing connections after a manual node switch",
     ),
-    "autoLaunch": MessageLookupByLibrary.simpleMessage("Auto launch"),
+    "autoLaunch": MessageLookupByLibrary.simpleMessage("Launch at startup"),
+    "autoLaunchApplying": MessageLookupByLibrary.simpleMessage(
+      "Applying startup settings…",
+    ),
     "autoLaunchDesc": MessageLookupByLibrary.simpleMessage(
-      "Follow the system self startup",
+      "Start FengWo when you sign in to your computer. Off by default.",
+    ),
+    "autoLaunchFailed": MessageLookupByLibrary.simpleMessage(
+      "Unable to change startup settings. Check system permissions and try again.",
+    ),
+    "autoLaunchPersistenceFailed": MessageLookupByLibrary.simpleMessage(
+      "Unable to save startup settings. The previous setting was restored; please try again.",
+    ),
+    "autoLaunchReadFailed": MessageLookupByLibrary.simpleMessage(
+      "Unable to read system startup settings. Retry before changing this option.",
+    ),
+    "autoLaunchReading": MessageLookupByLibrary.simpleMessage(
+      "Checking system startup settings…",
+    ),
+    "autoLaunchRollbackFailed": MessageLookupByLibrary.simpleMessage(
+      "Unable to restore the previous setting. Check startup apps in system settings.",
+    ),
+    "autoLaunchVerificationFailed": MessageLookupByLibrary.simpleMessage(
+      "The system did not confirm the change. Startup settings were not changed; please try again.",
     ),
     "autoRefresh": MessageLookupByLibrary.simpleMessage("Auto refresh"),
     "autoRenew": MessageLookupByLibrary.simpleMessage("Auto-renew"),
@@ -2222,9 +2243,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "show": MessageLookupByLibrary.simpleMessage("Show"),
     "showPassword": MessageLookupByLibrary.simpleMessage("Show password"),
     "shrink": MessageLookupByLibrary.simpleMessage("Shrink"),
-    "silentLaunch": MessageLookupByLibrary.simpleMessage("SilentLaunch"),
+    "silentLaunch": MessageLookupByLibrary.simpleMessage("Start in background"),
     "silentLaunchDesc": MessageLookupByLibrary.simpleMessage(
-      "Start in the background",
+      "Hide the main window on startup. Open it from the system tray.",
     ),
     "size": MessageLookupByLibrary.simpleMessage("Size"),
     "socksPort": MessageLookupByLibrary.simpleMessage("Socks Port"),
@@ -2258,6 +2279,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "startOptimization": MessageLookupByLibrary.simpleMessage("Start scan"),
     "startTest": MessageLookupByLibrary.simpleMessage("Start test"),
     "startVpn": MessageLookupByLibrary.simpleMessage("Starting VPN..."),
+    "startupSettings": MessageLookupByLibrary.simpleMessage("Startup settings"),
+    "startupSettingsDesc": MessageLookupByLibrary.simpleMessage(
+      "Choose how FengWo starts on this device",
+    ),
     "status": MessageLookupByLibrary.simpleMessage("Status"),
     "statusDesc": MessageLookupByLibrary.simpleMessage(
       "System DNS will be used when turned off",

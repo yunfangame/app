@@ -474,9 +474,32 @@ class MessageLookup extends MessageLookupByLibrary {
     "autoCloseConnectionsDesc": MessageLookupByLibrary.simpleMessage(
       "Закрывать активные соединения после ручного переключения узла",
     ),
-    "autoLaunch": MessageLookupByLibrary.simpleMessage("Автозапуск"),
+    "autoLaunch": MessageLookupByLibrary.simpleMessage(
+      "Запуск при входе в систему",
+    ),
+    "autoLaunchApplying": MessageLookupByLibrary.simpleMessage(
+      "Применение настроек запуска…",
+    ),
     "autoLaunchDesc": MessageLookupByLibrary.simpleMessage(
-      "Следовать автозапуску системы",
+      "Запускать FengWo при входе в систему. По умолчанию выключено.",
+    ),
+    "autoLaunchFailed": MessageLookupByLibrary.simpleMessage(
+      "Не удалось изменить настройки запуска. Проверьте системные разрешения и повторите попытку.",
+    ),
+    "autoLaunchPersistenceFailed": MessageLookupByLibrary.simpleMessage(
+      "Не удалось сохранить настройки запуска. Восстановлено предыдущее значение; повторите попытку.",
+    ),
+    "autoLaunchReadFailed": MessageLookupByLibrary.simpleMessage(
+      "Не удалось прочитать системные настройки запуска. Повторите попытку перед изменением.",
+    ),
+    "autoLaunchReading": MessageLookupByLibrary.simpleMessage(
+      "Проверка системных настроек запуска…",
+    ),
+    "autoLaunchRollbackFailed": MessageLookupByLibrary.simpleMessage(
+      "Не удалось восстановить предыдущее значение. Проверьте автозагрузку в настройках системы.",
+    ),
+    "autoLaunchVerificationFailed": MessageLookupByLibrary.simpleMessage(
+      "Система не подтвердила изменение. Настройки запуска не изменены; повторите попытку.",
     ),
     "autoRefresh": MessageLookupByLibrary.simpleMessage("Автообновление"),
     "autoRenew": MessageLookupByLibrary.simpleMessage("Автопродление"),
@@ -2304,9 +2327,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "show": MessageLookupByLibrary.simpleMessage("Показать"),
     "showPassword": MessageLookupByLibrary.simpleMessage("Показать пароль"),
     "shrink": MessageLookupByLibrary.simpleMessage("Сжать"),
-    "silentLaunch": MessageLookupByLibrary.simpleMessage("Тихий запуск"),
+    "silentLaunch": MessageLookupByLibrary.simpleMessage("Фоновый запуск"),
     "silentLaunchDesc": MessageLookupByLibrary.simpleMessage(
-      "Запуск в фоновом режиме",
+      "Скрывать главное окно при запуске. Открыть его можно из системного трея.",
     ),
     "size": MessageLookupByLibrary.simpleMessage("Размер"),
     "socksPort": MessageLookupByLibrary.simpleMessage("Socks-порт"),
@@ -2348,6 +2371,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "startOptimization": MessageLookupByLibrary.simpleMessage("Начать поиск"),
     "startTest": MessageLookupByLibrary.simpleMessage("Начать проверку"),
     "startVpn": MessageLookupByLibrary.simpleMessage("Запуск VPN..."),
+    "startupSettings": MessageLookupByLibrary.simpleMessage(
+      "Настройки запуска",
+    ),
+    "startupSettingsDesc": MessageLookupByLibrary.simpleMessage(
+      "Выберите способ запуска FengWo на этом устройстве",
+    ),
     "status": MessageLookupByLibrary.simpleMessage("Статус"),
     "statusDesc": MessageLookupByLibrary.simpleMessage(
       "Системный DNS будет использоваться при выключении",
