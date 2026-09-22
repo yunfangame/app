@@ -1,6 +1,14 @@
 import 'package:fl_clash/common/app_update.dart';
 import 'package:fl_clash/common/app_update_download.dart';
+import 'package:fl_clash/common/function.dart';
+import 'package:fl_clash/common/preferences.dart';
+import 'package:fl_clash/common/system.dart';
+import 'package:fl_clash/enum/enum.dart';
+import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+import 'action.dart';
+import 'config.dart';
 
 part 'generated/app_update_download.g.dart';
 
@@ -100,6 +108,8 @@ class AppUpdateDownload extends _$AppUpdateDownload {
           .read(appUpdateDownloadServiceProvider)
           .install(
             release,
+            beforeLaunch: exitForInstaller ? saveBeforeInstaller : null,
+            afterLaunch: exitForInstaller ? exitAfterInstaller : null,
             onVerified: () {
               if (!ref.mounted) return;
               state = AppUpdateDownloadState(
@@ -137,6 +147,24 @@ class AppUpdateDownload extends _$AppUpdateDownload {
         filePath: ready.filePath,
       );
     }
+  }
+
+  @protected
+  bool get exitForInstaller => system.isWindows;
+
+  @protected
+  Future<void> saveBeforeInstaller() async {
+    debouncer.cancel(FunctionTag.savePreferences);
+    if (!await preferences.saveConfig(ref.read(configProvider))) {
+      throw StateError('Unable to save preferences before updating');
+    }
+    debouncer.cancel(FunctionTag.savePreferences);
+  }
+
+  @protected
+  Future<void> exitAfterInstaller() {
+    debouncer.cancel(FunctionTag.savePreferences);
+    return ref.read(systemActionProvider.notifier).handleExit();
   }
 
   void _cancelled(AppUpdateRelease release) {

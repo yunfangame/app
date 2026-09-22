@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:fl_clash/common/app_update.dart';
 import 'package:fl_clash/common/app_update_download.dart';
+import 'package:fl_clash/providers/action.dart';
 import 'package:fl_clash/providers/app_update_download.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,6 +26,8 @@ void main() {
   ProviderContainer container({
     AppUpdateDownloadTransport? transport,
     AppUpdateInstallerLauncher? launcher,
+    AppUpdateDownload? notifier,
+    SystemAction? systemAction,
   }) {
     final service = AppUpdateDownloadService(
       temporaryDirectoryLoader: () async => temporary,
@@ -38,12 +41,19 @@ void main() {
       launcher: launcher ?? (_) async => true,
     );
     final value = ProviderContainer(
-      overrides: [appUpdateDownloadServiceProvider.overrideWithValue(service)],
+      overrides: [
+        appUpdateDownloadServiceProvider.overrideWithValue(service),
+        if (notifier != null)
+          appUpdateDownloadProvider.overrideWith(() => notifier),
+        if (systemAction != null)
+          systemActionProvider.overrideWith(() => systemAction),
+      ],
     );
     addTearDown(() {
       value.dispose();
       service.dispose();
     });
+    if (notifier != null) value.read(appUpdateDownloadProvider);
     return value;
   }
 
@@ -206,6 +216,154 @@ void main() {
     expect(providers.read(appUpdateDownloadProvider).installerLaunched, true);
   });
 
+  test(
+    'Windows waits for saving then launches and uses coordinated exit once',
+    () async {
+      final calls = <String>[];
+      final saving = Completer<void>();
+      final saved = Completer<void>();
+      final action = _InstallerDownload(
+        save: () async {
+          calls.add('save');
+          saving.complete();
+          await saved.future;
+          calls.add('saved');
+        },
+      );
+      final providers = container(
+        notifier: action,
+        systemAction: _InstallerExit(calls),
+        launcher: (_) async {
+          calls.add('launch');
+          return true;
+        },
+      );
+      await action.download(release());
+      final path = providers.read(appUpdateDownloadProvider).filePath!;
+      final install = action.install();
+      await saving.future;
+      await action.install();
+      expect(calls, ['save']);
+      saved.complete();
+      await install;
+      await action.install();
+      expect(calls, [
+        'save',
+        'saved',
+        'launch',
+        'cleanup:false',
+        'window',
+        'core',
+        'exit',
+      ]);
+      expect(providers.read(appUpdateDownloadProvider).installerLaunched, true);
+      expect(await File(path).exists(), isTrue);
+    },
+  );
+
+  test(
+    'Windows save failure prevents launch and exit but allows retry',
+    () async {
+      final calls = <String>[];
+      var failSave = true;
+      final action = _InstallerDownload(
+        save: () async {
+          calls.add('save');
+          if (failSave) throw const FileSystemException('save failed');
+        },
+      );
+      final providers = container(
+        notifier: action,
+        systemAction: _InstallerExit(calls),
+        launcher: (_) async {
+          calls.add('launch');
+          return true;
+        },
+      );
+      await action.download(release());
+      await action.install();
+      expect(calls, ['save']);
+      final failure = providers.read(appUpdateDownloadProvider);
+      expect(failure.failure, AppUpdateDownloadFailure.launchFailed);
+      expect(failure.filePath, isNotNull);
+      expect(failure.installerLaunched, isFalse);
+      failSave = false;
+      await action.install();
+      expect(calls, [
+        'save',
+        'save',
+        'launch',
+        'cleanup:false',
+        'window',
+        'core',
+        'exit',
+      ]);
+    },
+  );
+
+  test('Windows rejected launch keeps client running', () async {
+    final calls = <String>[];
+    final action = _InstallerDownload(save: () async => calls.add('save'));
+    final providers = container(
+      notifier: action,
+      systemAction: _InstallerExit(calls),
+      launcher: (_) async {
+        calls.add('launch');
+        return false;
+      },
+    );
+    await action.download(release());
+    await action.install();
+    expect(calls, ['save', 'launch']);
+    expect(
+      providers.read(appUpdateDownloadProvider).failure,
+      AppUpdateDownloadFailure.launchFailed,
+    );
+  });
+
+  test('failed checksum does not save preferences or exit', () async {
+    final calls = <String>[];
+    final action = _InstallerDownload(save: () async => calls.add('save'));
+    final providers = container(
+      notifier: action,
+      systemAction: _InstallerExit(calls),
+      launcher: (_) async {
+        calls.add('launch');
+        return true;
+      },
+    );
+    await action.download(release());
+    await File(
+      providers.read(appUpdateDownloadProvider).filePath!,
+    ).writeAsString('tampered');
+    await action.install();
+    expect(calls, isEmpty);
+    expect(
+      providers.read(appUpdateDownloadProvider).failure,
+      AppUpdateDownloadFailure.checksumMismatch,
+    );
+  });
+
+  test('non-Windows installation does not use Windows save or exit', () async {
+    final calls = <String>[];
+    final action = _InstallerDownload(
+      windows: false,
+      save: () async => calls.add('save'),
+    );
+    final providers = container(
+      notifier: action,
+      systemAction: _InstallerExit(calls),
+      launcher: (_) async {
+        calls.add('launch');
+        return true;
+      },
+    );
+    await action.download(release());
+    await action.install();
+    expect(calls, ['launch']);
+    expect(providers.read(appUpdateDownloadProvider).installerLaunched, isTrue);
+  });
+
   test('tampered cached installer fails and never launches', () async {
     var launches = 0;
     final providers = container(
@@ -251,4 +409,37 @@ void main() {
       );
     },
   );
+}
+
+class _InstallerDownload extends AppUpdateDownload {
+  _InstallerDownload({required this.save, this.windows = true});
+
+  final Future<void> Function() save;
+  final bool windows;
+
+  @override
+  bool get exitForInstaller => windows;
+
+  @override
+  Future<void> saveBeforeInstaller() => save();
+}
+
+class _InstallerExit extends SystemAction {
+  _InstallerExit(this.calls);
+
+  final List<String> calls;
+
+  @override
+  Future<void> cleanupExitResources(bool needSave) async {
+    calls.add('cleanup:$needSave');
+  }
+
+  @override
+  Future<void> closeWindow() async => calls.add('window');
+
+  @override
+  Future<void> closeCore() async => calls.add('core');
+
+  @override
+  Future<void> exitApplication() async => calls.add('exit');
 }

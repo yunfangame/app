@@ -9,9 +9,29 @@ import 'package:rust_api/rust_api.dart';
 
 import 'application.dart';
 import 'common/common.dart';
+import 'common/windows_tls_trust.dart';
+import 'common/windows_preferences.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isWindows) {
+    installWindowsPreferencesStore(
+      store: WindowsPreferencesStore(
+        onDiagnostic: (error) {
+          unawaited(
+            diagnosticLog.record(
+              'preferences.backup_degraded',
+              fields: {
+                'operation': error.operation,
+                'diagnostic_code': error.code,
+                'error_type': error.cause.runtimeType.toString(),
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
   final startupStage = ValueNotifier<String>('正在准备运行环境…');
   runApp(InitLoadingScreen(stage: startupStage));
   await WidgetsBinding.instance.endOfFrame;
@@ -24,6 +44,29 @@ Future<void> main() async {
         })
       : null;
   try {
+    if (Platform.isWindows) {
+      try {
+        final rootCount = await runStartupStage<int>(
+          stage: '准备安全连接',
+          timeout: const Duration(seconds: 5),
+          operation: windowsTlsTrust.initialize,
+          onStart: (stage) => startupStage.value = '$stage…',
+        );
+        unawaited(
+          diagnosticLog.record(
+            'tls.trust.initialized',
+            fields: {'supplemental_roots': rootCount, 'bundle_version': 1},
+          ),
+        );
+      } catch (error) {
+        unawaited(
+          diagnosticLog.record(
+            'tls.trust.failed',
+            fields: {'error_type': error.runtimeType.toString()},
+          ),
+        );
+      }
+    }
     if (system.isDesktop) {
       await runStartupStage<void>(
         stage: '加载本地组件',
@@ -39,7 +82,7 @@ Future<void> main() async {
       onStart: (stage) => startupStage.value = '$stage…',
     );
     final container = await runStartupStage<ProviderContainer>(
-      stage: '恢复本地数据',
+      stage: '读取本地设置',
       timeout: const Duration(seconds: 20),
       operation: () => globalState.init(version),
       onStart: (stage) => startupStage.value = '$stage…',
@@ -53,10 +96,25 @@ Future<void> main() async {
         child: const Application(),
       ),
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) => startupStage.dispose());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      startupStage.dispose();
+      unawaited(diagnosticLog.record('startup.ready'));
+    });
   } catch (e, s) {
     startupActive = false;
     startupWindowFallback?.cancel();
+    unawaited(
+      diagnosticLog.record(
+        'startup.failed',
+        fields: {
+          'error_type': e.runtimeType.toString(),
+          if (e is StartupStageException) ...{
+            'stage': e.stage,
+            'cause_type': e.cause.runtimeType.toString(),
+          },
+        },
+      ),
+    );
     runApp(
       MaterialApp(
         debugShowCheckedModeBanner: false,

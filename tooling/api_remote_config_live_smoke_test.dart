@@ -45,13 +45,24 @@ void main() {
         final snapshot = await service.check();
         expect(snapshot.error, isNull);
         expect(snapshot.total, greaterThan(0));
+        var verifiedReachableCount = 0;
         for (var index = 0; index < snapshot.total; index++) {
+          var health = snapshot.endpoints[index];
+          for (var attempt = 1; attempt <= 3; attempt++) {
+            stdout.writeln(
+              '${source.key}: ${jsonEncode({'api_index': index + 1, 'attempt': attempt, 'reachable': health.reachable, 'elapsed_ms': health.latency.inMilliseconds, if (health.diagnostic != null) 'reason': health.diagnostic!.code, if (health.diagnostic?.statusCode != null) 'http_status': health.diagnostic!.statusCode})}',
+            );
+            if (health.reachable || attempt == 3) break;
+            await Future<void>.delayed(const Duration(milliseconds: 500));
+            health = await service.probeEndpoint(health.endpoint);
+          }
           expect(
-            snapshot.endpoints[index].reachable,
+            health.reachable,
             isTrue,
             reason:
-                '${source.key} API ${index + 1} must return valid guest config',
+                '${source.key} API ${index + 1} must pass the production probe within three attempts',
           );
+          verifiedReachableCount++;
         }
         final payload = await ApiRemoteConfigCacheStore().load();
         expect(payload, isA<String>());
@@ -106,7 +117,7 @@ void main() {
           hasLength(snapshot.total),
         );
         stdout.writeln(
-          '${source.key}: signature/decryption/tamper/wrong-key/cache passed; APIs ${snapshot.reachableCount}/${snapshot.total}',
+          '${source.key}: signature/decryption/tamper/wrong-key/cache passed; APIs $verifiedReachableCount/${snapshot.total}',
         );
       },
       timeout: const Timeout(Duration(minutes: 2)),

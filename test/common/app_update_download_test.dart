@@ -377,6 +377,100 @@ void main() {
     expect(launches, 2);
   });
 
+  test(
+    'cancellation while saving prevents installer launch and exit',
+    () async {
+      final saving = Completer<void>();
+      final saved = Completer<void>();
+      final calls = <String>[];
+      final downloader = service(
+        transport: transportFor(bytes),
+        launcher: (_) async {
+          calls.add('launch');
+          return true;
+        },
+      );
+      final target = release();
+      final path = await downloader.download(target);
+      final install = downloader.install(
+        target,
+        beforeLaunch: () async {
+          calls.add('save');
+          saving.complete();
+          await saved.future;
+        },
+        afterLaunch: () async => calls.add('exit'),
+      );
+      final expectation = expectLater(
+        install,
+        throwsA(isA<AppUpdateDownloadCancelled>()),
+      );
+      await saving.future;
+      downloader.cancel();
+      saved.complete();
+      await expectation;
+      expect(calls, ['save']);
+      expect(await File(path).exists(), isTrue);
+    },
+  );
+
+  test('exit disposal keeps launched installer on disk', () async {
+    final calls = <String>[];
+    final downloader = service(
+      transport: transportFor(bytes),
+      launcher: (_) async {
+        calls.add('launch');
+        return true;
+      },
+    );
+    final target = release();
+    final path = await downloader.download(target);
+    await downloader.install(
+      target,
+      beforeLaunch: () async => calls.add('save'),
+      afterLaunch: () async {
+        calls.add('exit');
+        downloader.dispose();
+      },
+    );
+    expect(calls, ['save', 'launch', 'exit']);
+    expect(await File(path).readAsBytes(), bytes);
+  });
+
+  test('failed exit never relaunches an already launched installer', () async {
+    final calls = <String>[];
+    final downloader = service(
+      transport: transportFor(bytes),
+      launcher: (_) async {
+        calls.add('launch');
+        return true;
+      },
+    );
+    final target = release();
+    final path = await downloader.download(target);
+    Future<void> beforeLaunch() async => calls.add('save');
+    Future<void> afterLaunch() async {
+      calls.add('exit');
+      throw StateError('exit failed');
+    }
+
+    await expectLater(
+      downloader.install(
+        target,
+        beforeLaunch: beforeLaunch,
+        afterLaunch: afterLaunch,
+      ),
+      failsWith(AppUpdateDownloadFailure.launchFailed),
+    );
+    await downloader.install(
+      target,
+      beforeLaunch: beforeLaunch,
+      afterLaunch: afterLaunch,
+    );
+    expect(calls, ['save', 'launch', 'exit']);
+    expect(await File(path).readAsBytes(), bytes);
+  });
+
   test('cannot launch package for a different release', () async {
     final downloader = service(transport: transportFor(bytes));
     await downloader.download(release());

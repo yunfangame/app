@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:fl_clash/database/database.dart';
 import 'package:fl_clash/models/models.dart';
 
 import 'preferences.dart';
+import 'preferences_storage_error.dart';
 import 'task.dart';
 
 typedef MigrationTransform =
@@ -60,76 +63,108 @@ class _AppMigrationStore implements MigrationStore {
 class Migration {
   final MigrationStore _store;
   final MigrationTransform _migrateV0;
+  final Future<void> Function()? _recoverDamagedConfig;
 
-  Migration({required MigrationStore store, MigrationTransform? migrateV0})
-    : _store = store,
-      _migrateV0 = migrateV0 ?? oldToNowTask;
+  Migration({
+    required MigrationStore store,
+    MigrationTransform? migrateV0,
+    Future<void> Function()? recoverDamagedConfig,
+  }) : _store = store,
+       _migrateV0 = migrateV0 ?? oldToNowTask,
+       _recoverDamagedConfig = recoverDamagedConfig;
 
   static const currentVersion = 1;
 
   Future<Config> run() async {
+    try {
+      return await _load();
+    } on PreferenceStorageException catch (error) {
+      final recover = _recoverDamagedConfig;
+      if (recover == null || error.code != 'PREF-FORMAT') rethrow;
+      await recover();
+      return _load();
+    }
+  }
+
+  Future<Config> _load() async {
     final configMap = await _store.getConfigMap();
-    var oldVersion = await _store.getVersion();
-    Config? config;
+    final oldVersion = await _store.getVersion();
     if (oldVersion > currentVersion) {
       throw StateError(
         'Local data version $oldVersion is newer than $currentVersion.',
       );
     }
-    if (oldVersion == currentVersion) {
-      try {
-        config = Config.realFromJson(configMap);
-      } catch (_) {
-        if (!_isV0(configMap)) {
-          throw StateError(
-            'Local data is damaged. A reset is required to fix this issue.',
-          );
-        }
-        oldVersion = 0;
-      }
-      if (config != null) {
-        final storedDavPassword = _getStoredDavPassword(configMap);
-        final hasPlainTextDavPassword =
-            storedDavPassword != null &&
-            storedDavPassword == config.davProps?.password;
-        if (hasPlainTextDavPassword && !await _store.saveConfig(config)) {
-          throw StateError('Failed to obfuscate the legacy WebDAV password');
-        }
-        return config;
-      }
-    }
 
-    MigrationData data = MigrationData(configMap: configMap);
-    var shouldClearClashConfig = false;
-    if (oldVersion == 0) {
-      final clashConfigMap = await _store.getClashConfigMap();
-      if (_isV0(configMap) && configMap != null) {
-        final legacyConfigMap = Map<String, Object?>.from(configMap);
-        if (clashConfigMap != null) {
-          legacyConfigMap['patchClashConfig'] = clashConfigMap;
-          shouldClearClashConfig = true;
-        }
-        data = await _migrateV0(legacyConfigMap);
-      } else if (clashConfigMap != null) {
-        final currentConfigMap = Map<String, Object?>.from(
-          configMap ?? const {},
-        );
+    if (!_isV0(configMap)) {
+      var currentConfigMap = configMap;
+      final clashConfigMap = oldVersion == 0
+          ? await _store.getClashConfigMap()
+          : null;
+      if (clashConfigMap != null) {
+        currentConfigMap = Map<String, Object?>.from(configMap ?? const {});
         currentConfigMap.putIfAbsent('patchClashConfig', () => clashConfigMap);
-        data = MigrationData(configMap: currentConfigMap);
-        shouldClearClashConfig = true;
       }
+      final config = _decode(currentConfigMap);
+      final storedPassword = _getStoredDavPassword(currentConfigMap);
+      final needsPasswordProtection =
+          storedPassword != null && storedPassword == config.davProps?.password;
+      if (clashConfigMap != null || needsPasswordProtection) {
+        await _save(config);
+      }
+      if (clashConfigMap != null) {
+        await _store.clearClashConfig();
+        await _store.setVersion(currentVersion);
+      }
+      return config;
     }
 
-    config = Config.realFromJson(data.configMap);
+    final clashConfigMap = await _store.getClashConfigMap();
+    final legacyConfigMap = Map<String, Object?>.from(configMap!);
+    if (clashConfigMap != null) {
+      legacyConfigMap['patchClashConfig'] = clashConfigMap;
+    }
+    final MigrationData data;
+    try {
+      data = await _migrateV0(legacyConfigMap);
+    } on FormatException catch (error, stack) {
+      _invalid(error, stack);
+    } on TypeError catch (error, stack) {
+      _invalid(error, stack);
+    } on ArgumentError catch (error, stack) {
+      _invalid(error, stack);
+    } on StateError catch (error, stack) {
+      _invalid(error, stack);
+    }
+    final config = _decode(data.configMap);
     await _store.restore(data);
-    if (!await _store.saveConfig(config)) {
-      throw StateError('Failed to save migrated preferences');
-    }
-    if (shouldClearClashConfig) {
-      await _store.clearClashConfig();
-    }
+    await _save(config);
+    if (clashConfigMap != null) await _store.clearClashConfig();
     await _store.setVersion(currentVersion);
     return config;
+  }
+
+  Config _decode(Map<String, Object?>? configMap) {
+    try {
+      return Config.realFromJson(configMap);
+    } catch (error, stack) {
+      _invalid(error, stack);
+    }
+  }
+
+  Never _invalid(Object error, StackTrace stack) {
+    Error.throwWithStackTrace(
+      PreferenceStorageException(operation: 'decode', cause: error),
+      stack,
+    );
+  }
+
+  Future<void> _save(Config config) async {
+    if (!await _store.saveConfig(config)) {
+      throw PreferenceStorageException(
+        operation: 'write',
+        cause: StateError('Preference storage rejected the write'),
+      );
+    }
   }
 }
 
@@ -145,4 +180,9 @@ String? _getStoredDavPassword(Map<String, Object?>? configMap) {
   return password is String && password.isNotEmpty ? password : null;
 }
 
-final migration = Migration(store: const _AppMigrationStore());
+final migration = Migration(
+  store: const _AppMigrationStore(),
+  recoverDamagedConfig: Platform.isWindows
+      ? preferences.recoverForStartup
+      : null,
+);

@@ -89,7 +89,7 @@ final class AppUpdateDownloadProvider
   }
 }
 
-String _$appUpdateDownloadHash() => r'a26bf3c9a72ec952476aef76703690e71c4f80be';
+String _$appUpdateDownloadHash() => r'b551721d6df3005dc3624c83ec4c256aed45d8ee';
 
 abstract class _$AppUpdateDownload extends $Notifier<AppUpdateDownloadState> {
   AppUpdateDownloadState build();

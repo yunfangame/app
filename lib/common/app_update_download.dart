@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_update.dart';
+import 'diagnostic_log.dart';
 
 enum AppUpdateDownloadStatus {
   idle,
@@ -250,6 +251,8 @@ class AppUpdateDownloadService {
   Future<void> install(
     AppUpdateRelease release, {
     void Function()? onVerified,
+    Future<void> Function()? beforeLaunch,
+    Future<void> Function()? afterLaunch,
   }) async {
     if (_busy || _disposed) return;
     final checksum = _checksum(release);
@@ -267,21 +270,41 @@ class AppUpdateDownloadService {
     if (ready.launched) return;
     _busy = true;
     final token = _cancelToken = CancelToken();
+    var stage = 'verify';
     try {
       await _verify(ready.file, checksum, token);
       _checkCancelled(token);
       onVerified?.call();
       _checkCancelled(token);
+      stage = 'save_preferences';
+      await beforeLaunch?.call();
+      _checkCancelled(token);
+      stage = 'launch';
       if (!await _launcher(ready.file.path)) {
         throw const AppUpdateDownloadException(
           AppUpdateDownloadFailure.launchFailed,
         );
       }
       ready.launched = true;
+      stage = 'exit';
+      await afterLaunch?.call();
     } catch (error) {
-      if (token.isCancelled || error is AppUpdateDownloadCancelled) {
+      if (!ready.launched &&
+          (token.isCancelled || error is AppUpdateDownloadCancelled)) {
         throw const AppUpdateDownloadCancelled();
       }
+      unawaited(
+        diagnosticLog.record(
+          'app_update.install.failed',
+          fields: {
+            'stage': stage,
+            'error_type': error.runtimeType.toString(),
+            'installer_launched': ready.launched,
+            if (error is FileSystemException)
+              'os_error_code': error.osError?.errorCode,
+          },
+        ),
+      );
       if (error is AppUpdateDownloadException) {
         if (error.failure == AppUpdateDownloadFailure.checksumMismatch) {
           _ready = null;

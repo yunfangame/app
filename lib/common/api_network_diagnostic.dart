@@ -21,6 +21,28 @@ enum ApiNetworkFailure {
   configuration,
 }
 
+enum ApiTlsFailure {
+  missingIssuer,
+  expired,
+  notYetValid,
+  hostnameMismatch,
+  untrusted,
+  revoked,
+  certificateVerifyFailed,
+  handshakeFailed;
+
+  String get code => switch (this) {
+    missingIssuer => 'missing_issuer',
+    expired => 'expired',
+    notYetValid => 'not_yet_valid',
+    hostnameMismatch => 'hostname_mismatch',
+    untrusted => 'untrusted',
+    revoked => 'revoked',
+    certificateVerifyFailed => 'certificate_verify_failed',
+    handshakeFailed => 'handshake_failed',
+  };
+}
+
 class ApiNetworkDiagnostic {
   const ApiNetworkDiagnostic({
     required this.failure,
@@ -30,6 +52,7 @@ class ApiNetworkDiagnostic {
     this.elapsedMilliseconds,
     this.endpointRef,
     this.attemptId,
+    this.tlsFailure,
   });
 
   final ApiNetworkFailure failure;
@@ -39,6 +62,7 @@ class ApiNetworkDiagnostic {
   final int? elapsedMilliseconds;
   final String? endpointRef;
   final String? attemptId;
+  final ApiTlsFailure? tlsFailure;
 
   String get code => switch (failure) {
     ApiNetworkFailure.connectionRefused => 'connection_refused',
@@ -53,6 +77,8 @@ class ApiNetworkDiagnostic {
   Map<String, Object?> toDiagnosticFields() => {
     'reason': code,
     'stage': stage,
+    if (failure == ApiNetworkFailure.tls && tlsFailure != null)
+      'tls_reason': tlsFailure!.code,
     if (osErrorCode != null) 'os_error_code': osErrorCode,
     if (statusCode != null) 'http_status': statusCode,
     if (elapsedMilliseconds != null) 'elapsed_ms': elapsedMilliseconds,
@@ -100,6 +126,7 @@ ApiNetworkDiagnostic classifyApiNetworkFailure(
   var current = error;
   var failure = ApiNetworkFailure.network;
   int? osCode;
+  ApiTlsFailure? tlsFailure;
   for (var depth = 0; depth < 6; depth++) {
     if (current is DioException) {
       statusCode ??= current.response?.statusCode;
@@ -111,6 +138,9 @@ ApiNetworkDiagnostic classifyApiNetworkFailure(
         DioExceptionType.cancel => ApiNetworkFailure.cancelled,
         _ => failure,
       };
+      if (current.type == DioExceptionType.badCertificate) {
+        tlsFailure = ApiTlsFailure.certificateVerifyFailed;
+      }
       final nested = current.error;
       if (nested == null || identical(nested, current)) break;
       current = nested;
@@ -121,6 +151,7 @@ ApiNetworkDiagnostic classifyApiNetworkFailure(
     } else if (current is TlsException) {
       failure = ApiNetworkFailure.tls;
       osCode = current.osError?.errorCode;
+      tlsFailure = _classifyTlsFailure(current) ?? tlsFailure;
     } else if (current is SocketException) {
       osCode = current.osError?.errorCode;
       final message = current.message.toLowerCase();
@@ -153,5 +184,40 @@ ApiNetworkDiagnostic classifyApiNetworkFailure(
     elapsedMilliseconds: elapsedMilliseconds,
     endpointRef: endpoint == null ? null : apiDiagnosticEndpointRef(endpoint),
     attemptId: attemptId,
+    tlsFailure: failure == ApiNetworkFailure.tls ? tlsFailure : null,
   );
+}
+
+ApiTlsFailure? _classifyTlsFailure(TlsException error) {
+  final message = '${error.osError?.message ?? ''} ${error.message}'
+      .toLowerCase()
+      .replaceAll(RegExp('[_-]'), ' ');
+  if (message.contains('unable to get local issuer certificate') ||
+      message.contains('unable to get issuer certificate') ||
+      message.contains('unable to verify the first certificate') ||
+      message.contains('unable to verify first certificate') ||
+      message.contains('missing issuer')) {
+    return ApiTlsFailure.missingIssuer;
+  }
+  if (message.contains('not yet valid')) return ApiTlsFailure.notYetValid;
+  if (message.contains('expired')) return ApiTlsFailure.expired;
+  if (message.contains('hostname mismatch') ||
+      message.contains('host name mismatch') ||
+      message.contains('ip address mismatch') ||
+      message.contains('does not match hostname')) {
+    return ApiTlsFailure.hostnameMismatch;
+  }
+  if (message.contains('self signed') || message.contains('untrusted')) {
+    return ApiTlsFailure.untrusted;
+  }
+  if (message.contains('revoked')) return ApiTlsFailure.revoked;
+  if (message.contains('certificate verify failed') ||
+      message.contains('certificate verification failed') ||
+      message.contains('certificate validation failed')) {
+    return ApiTlsFailure.certificateVerifyFailed;
+  }
+  if (error is HandshakeException || message.contains('handshake')) {
+    return ApiTlsFailure.handshakeFailed;
+  }
+  return null;
 }

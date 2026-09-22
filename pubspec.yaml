@@ -14,6 +14,7 @@ dependencies:
   path_provider: ^2.1.5
   path: ^1.9.0
   shared_preferences: ^2.5.3
+  shared_preferences_platform_interface: ^2.4.2
   flutter_secure_storage: ^10.0.0
   window_manager:
     git:
@@ -113,6 +114,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/certificates/
     - assets/config/
     - assets/data/
     - assets/fonts/

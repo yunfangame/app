@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:animations/animations.dart';
 import 'package:dynamic_color/dynamic_color.dart';
@@ -406,7 +405,6 @@ class GlobalState {
     } else {
       window?.hide();
     }
-    await _handleFailedPreference();
     await _handlerDisclaimer();
     await _showCrashRecoveryTip();
     await _showCrashlyticsTip();
@@ -426,19 +424,6 @@ class GlobalState {
       dismissible: false,
       message: TextSpan(text: currentAppLocalizations.crashDetectedTip),
     );
-  }
-
-  Future<void> _handleFailedPreference() async {
-    if (await preferences.isInit) return;
-    final res = await showMessage(
-      title: currentAppLocalizations.tip,
-      message: TextSpan(text: currentAppLocalizations.cacheCorrupt),
-    );
-    if (res == true) {
-      final file = File(await appPath.sharedPreferencesPath);
-      await file.safeDelete();
-    }
-    await container.read(systemActionProvider.notifier).handleExit();
   }
 
   Future<bool> showDisclaimer() async {

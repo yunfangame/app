@@ -1,4 +1,8 @@
+import 'dart:io';
+
 import 'package:fl_clash/common/color.dart';
+import 'package:fl_clash/common/preferences_storage_error.dart';
+import 'package:fl_clash/common/startup.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -73,11 +77,32 @@ class InitLoadingScreen extends StatelessWidget {
   }
 }
 
-class InitErrorScreen extends StatelessWidget {
+class InitErrorScreen extends StatefulWidget {
   final Object error;
   final StackTrace stack;
+  final Future<void> Function(String details)? copyDetails;
 
-  const InitErrorScreen({super.key, required this.error, required this.stack});
+  const InitErrorScreen({
+    super.key,
+    required this.error,
+    required this.stack,
+    this.copyDetails,
+  });
+
+  @override
+  State<InitErrorScreen> createState() => _InitErrorScreenState();
+}
+
+class _InitErrorScreenState extends State<InitErrorScreen> {
+  bool _copying = false;
+
+  bool get _hasStorageError {
+    Object? cause = widget.error;
+    while (cause is StartupStageException) {
+      cause = cause.cause;
+    }
+    return cause is PreferenceStorageException;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -104,10 +129,12 @@ class InitErrorScreen extends StatelessWidget {
                     size: 32,
                   ),
                   const SizedBox(width: 12),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      '应用启动时遇到问题。请复制错误详情发送给客服，或按 ⌘Q 退出后重试。',
-                      style: TextStyle(
+                      _hasStorageError
+                          ? '本地配置无法读取或保存。请完全退出其他蜂窝客户端，检查磁盘剩余空间和配置文件的读写权限后重试。'
+                          : '应用启动时遇到问题。请完全退出客户端后重试；仍无法启动时，请复制错误详情发送给客服。',
+                      style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
                       ),
@@ -115,6 +142,10 @@ class InitErrorScreen extends StatelessWidget {
                   ),
                 ],
               ),
+              if (_hasStorageError) ...[
+                const SizedBox(height: 12),
+                const Text('本次启动已停止，以免在配置无法安全读写时覆盖原文件。请复制详情发送给客服协助排查。'),
+              ],
               const SizedBox(height: 24),
               _buildSectionLabel('错误详情'),
               Container(
@@ -126,7 +157,7 @@ class InitErrorScreen extends StatelessWidget {
                   border: Border.all(color: colorScheme.error.opacity50),
                 ),
                 child: SelectableText(
-                  error.toString(),
+                  widget.error.toString(),
                   style: TextStyle(
                     color: colorScheme.onErrorContainer,
                     fontWeight: FontWeight.w600,
@@ -146,11 +177,8 @@ class InitErrorScreen extends StatelessWidget {
                   border: Border.all(color: Colors.grey.opacity50),
                 ),
                 child: SelectableText(
-                  stack.toString(),
-                  style: const TextStyle(
-                    fontFamily: 'monospace', // Makes code easier to read
-                    fontSize: 12,
-                  ),
+                  widget.stack.toString(),
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
                 ),
               ),
               const SizedBox(height: 80),
@@ -159,8 +187,8 @@ class InitErrorScreen extends StatelessWidget {
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _copyToClipboard(context),
-        label: const Text('复制详情'),
+        onPressed: _copying ? null : _copyToClipboard,
+        label: Text(_copying ? '复制中…' : '复制详情'),
         icon: const Icon(Icons.copy),
         backgroundColor: colorScheme.error,
         foregroundColor: colorScheme.onError,
@@ -178,12 +206,34 @@ class InitErrorScreen extends StatelessWidget {
     );
   }
 
-  void _copyToClipboard(BuildContext context) {
-    final text = '=== ERROR ===\n$error\n\n=== STACK TRACE ===\n$stack';
-    Clipboard.setData(ClipboardData(text: text));
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('错误详情已复制'), duration: Duration(seconds: 2)),
-    );
+  Future<void> _copyToClipboard() async {
+    if (_copying) return;
+    setState(() => _copying = true);
+    try {
+      final text =
+          '=== 系统信息 ===\n${Platform.operatingSystem} ${Platform.operatingSystemVersion}'
+          '\n\n=== 错误详情 ===\n${widget.error}'
+          '\n\n=== 调用信息 ===\n${widget.stack}';
+      final copyDetails = widget.copyDetails;
+      if (copyDetails != null) {
+        await copyDetails(text);
+      } else {
+        await Clipboard.setData(ClipboardData(text: text));
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('错误详情已复制'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('复制失败，请手动选择并复制下方错误详情。')));
+    } finally {
+      if (mounted) setState(() => _copying = false);
+    }
   }
 }

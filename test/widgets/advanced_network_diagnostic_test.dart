@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/campus_network.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
@@ -177,7 +178,10 @@ Future<ProviderContainer> _pumpSettings(
           GlobalWidgetsLocalizations.delegate,
         ],
         supportedLocales: AppLocalizations.delegate.supportedLocales,
-        home: FengWoAdvancedSettingsView(networkDiagnosticRunner: runner),
+        home: FengWoAdvancedSettingsView(
+          networkDiagnosticRunner: runner,
+          campusNetworkConfigLoader: () async => const CampusNetworkConfig({}),
+        ),
       ),
     ),
   );
