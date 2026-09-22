@@ -141,10 +141,69 @@ class SystemAction extends _$SystemAction {
         .update((state) => state.copyWith(systemProxy: !state.systemProxy));
   }
 
-  void updateAutoLaunch() {
+  @protected
+  AutoLaunch? get autoLaunchService => autoLaunch;
+
+  @protected
+  Future<void> persistAutoLaunchPreference(bool enabled) async {
+    debouncer.cancel(FunctionTag.savePreferences);
+    final config = ref.read(configProvider);
+    final saved = await preferences.saveConfig(
+      config.copyWith(
+        appSettingProps: config.appSettingProps.copyWith(autoLaunch: enabled),
+      ),
+    );
+    if (!saved) throw const AutoLaunchException('persistenceFailed');
+  }
+
+  Future<void> refreshAutoLaunch() async {
+    final service = autoLaunchService;
+    if (service == null) throw const AutoLaunchException('unavailable');
+    final enabled = await service.isEnable;
+    if (!ref.mounted) return;
     ref
         .read(appSettingProvider.notifier)
-        .update((state) => state.copyWith(autoLaunch: !state.autoLaunch));
+        .update((state) => state.copyWith(autoLaunch: enabled));
+  }
+
+  Future<void> setAutoLaunch(bool enabled) async {
+    final service = autoLaunchService;
+    if (service == null) throw const AutoLaunchException('unavailable');
+    try {
+      await service.updateStatus(
+        enabled,
+        persist: (value) async {
+          if (!ref.mounted) throw const AutoLaunchException('unavailable');
+          await persistAutoLaunchPreference(value);
+          if (!ref.mounted) return;
+          ref
+              .read(appSettingProvider.notifier)
+              .update((state) => state.copyWith(autoLaunch: value));
+        },
+      );
+      commonPrint.event('autostart.changed', fields: {'enabled': enabled});
+    } on AutoLaunchException catch (error) {
+      commonPrint.event(
+        'autostart.failed',
+        fields: {'code': error.code, 'requested_enabled': enabled},
+      );
+      if (error.code == 'rollbackFailed' && ref.mounted) {
+        try {
+          await refreshAutoLaunch();
+        } catch (_) {}
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> updateAutoLaunch() async {
+    try {
+      final service = autoLaunchService;
+      if (service == null) throw const AutoLaunchException('unavailable');
+      await setAutoLaunch(!await service.isEnable);
+    } catch (_) {
+      globalState.showNotifier(currentAppLocalizations.autoLaunchFailed);
+    }
   }
 
   @protected

@@ -218,6 +218,19 @@ TEST(ProxyPlugin, DetailedStartAndStopRoundTripCurrentUserProxy) {
   EXPECT_FALSE(std::get<bool>(stop_map.at(EncodableValue("enabled"))));
 }
 
+TEST(ProxySettings, NormalizesWindowsIpv6LoopbackBypass) {
+  EXPECT_EQ(settings::NormalizeBypassList(L"localhost;::1;10.*"),
+            L"localhost;[::1];10.*");
+  EXPECT_EQ(settings::NormalizeBypassList(L"::1"), L"[::1]");
+  EXPECT_EQ(settings::NormalizeBypassList(L"; ::1 ;[::1];;"),
+            L"; [::1] ;[::1];;");
+  EXPECT_EQ(settings::NormalizeBypassList(L""), L"");
+  EXPECT_EQ(settings::NormalizeBypassList(L"<local>;*.lan;172.16.*"),
+            L"<local>;*.lan;172.16.*");
+  EXPECT_EQ(settings::NormalizeBypassList(L"[::1]:8080;example.com:443"),
+            L"[::1]:8080;example.com:443");
+}
+
 TEST(ProxySettings, InvalidParameterRetriesTypedAnsiOptions) {
   INTERNET_PER_CONN_OPTIONW options[3] = {};
   options[0].dwOption = INTERNET_PER_CONN_FLAGS;

@@ -163,6 +163,32 @@ begin
   Result := True;
 end;
 
+procedure RemoveOwnedAutoLaunch(RootKey: Integer; Name: String);
+var
+  Command, Expected: String;
+begin
+  if not RegQueryStringValue(RootKey,
+    'Software\Microsoft\Windows\CurrentVersion\Run', Name, Command) then Exit;
+  Expected := ExpandConstant('{app}\FengWo.exe');
+  if CompareText(RemoveQuotes(Trim(Command)), Expected) <> 0 then Exit;
+  if RegDeleteValue(RootKey, 'Software\Microsoft\Windows\CurrentVersion\Run', Name) then
+  begin
+    RegDeleteValue(RootKey,
+      'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run', Name);
+    RegDeleteValue(RootKey,
+      'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32', Name);
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep <> usPostUninstall then Exit;
+  RemoveOwnedAutoLaunch(HKCU64, 'FengWo');
+  RemoveOwnedAutoLaunch(HKCU64, 'FlClash');
+  RemoveOwnedAutoLaunch(HKCU32, 'FengWo');
+  RemoveOwnedAutoLaunch(HKCU32, 'FlClash');
+end;
+
 [Languages]
 {% for locale in LOCALES %}
 {% if locale.lang == 'en' %}Name: "english"; MessagesFile: "compiler:Default.isl"{% endif %}

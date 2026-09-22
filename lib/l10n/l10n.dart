@@ -1194,35 +1194,130 @@ class AppLocalizations {
     );
   }
 
-  /// `Auto launch`
-  String get autoLaunch {
-    return Intl.message('Auto launch', name: 'autoLaunch', desc: '', args: []);
+  /// `Startup settings`
+  String get startupSettings {
+    return Intl.message(
+      'Startup settings',
+      name: 'startupSettings',
+      desc: '',
+      args: [],
+    );
   }
 
-  /// `Follow the system self startup`
+  /// `Choose how FengWo starts on this device`
+  String get startupSettingsDesc {
+    return Intl.message(
+      'Choose how FengWo starts on this device',
+      name: 'startupSettingsDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Checking system startup settings…`
+  String get autoLaunchReading {
+    return Intl.message(
+      'Checking system startup settings…',
+      name: 'autoLaunchReading',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Applying startup settings…`
+  String get autoLaunchApplying {
+    return Intl.message(
+      'Applying startup settings…',
+      name: 'autoLaunchApplying',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unable to change startup settings. Check system permissions and try again.`
+  String get autoLaunchFailed {
+    return Intl.message(
+      'Unable to change startup settings. Check system permissions and try again.',
+      name: 'autoLaunchFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unable to read system startup settings. Retry before changing this option.`
+  String get autoLaunchReadFailed {
+    return Intl.message(
+      'Unable to read system startup settings. Retry before changing this option.',
+      name: 'autoLaunchReadFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The system did not confirm the change. Startup settings were not changed; please try again.`
+  String get autoLaunchVerificationFailed {
+    return Intl.message(
+      'The system did not confirm the change. Startup settings were not changed; please try again.',
+      name: 'autoLaunchVerificationFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unable to save startup settings. The previous setting was restored; please try again.`
+  String get autoLaunchPersistenceFailed {
+    return Intl.message(
+      'Unable to save startup settings. The previous setting was restored; please try again.',
+      name: 'autoLaunchPersistenceFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unable to restore the previous setting. Check startup apps in system settings.`
+  String get autoLaunchRollbackFailed {
+    return Intl.message(
+      'Unable to restore the previous setting. Check startup apps in system settings.',
+      name: 'autoLaunchRollbackFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Launch at startup`
+  String get autoLaunch {
+    return Intl.message(
+      'Launch at startup',
+      name: 'autoLaunch',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Start FengWo when you sign in to your computer. Off by default.`
   String get autoLaunchDesc {
     return Intl.message(
-      'Follow the system self startup',
+      'Start FengWo when you sign in to your computer. Off by default.',
       name: 'autoLaunchDesc',
       desc: '',
       args: [],
     );
   }
 
-  /// `SilentLaunch`
+  /// `Start in background`
   String get silentLaunch {
     return Intl.message(
-      'SilentLaunch',
+      'Start in background',
       name: 'silentLaunch',
       desc: '',
       args: [],
     );
   }
 
-  /// `Start in the background`
+  /// `Hide the main window on startup. Open it from the system tray.`
   String get silentLaunchDesc {
     return Intl.message(
-      'Start in the background',
+      'Hide the main window on startup. Open it from the system tray.',
       name: 'silentLaunchDesc',
       desc: '',
       args: [],

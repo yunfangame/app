@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/common.dart';
-import 'package:fl_clash/providers/config.dart';
+import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/widgets/widgets.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -70,24 +73,163 @@ class MinimizeItem extends ConsumerWidget {
   }
 }
 
-class AutoLaunchItem extends ConsumerWidget {
+class AutoLaunchItem extends ConsumerStatefulWidget {
   const AutoLaunchItem({super.key});
 
+  static bool get isSupported => switch (defaultTargetPlatform) {
+    TargetPlatform.windows ||
+    TargetPlatform.macOS ||
+    TargetPlatform.linux => true,
+    _ => false,
+  };
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final appLocalizations = context.appLocalizations;
+  ConsumerState<AutoLaunchItem> createState() => _AutoLaunchItemState();
+}
+
+class _AutoLaunchItemState extends ConsumerState<AutoLaunchItem> {
+  bool _refreshing = true;
+  bool _applying = false;
+  bool _readFailed = false;
+  String? _errorCode;
+
+  bool get _busy => _refreshing || _applying;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && AutoLaunchItem.isSupported) unawaited(_refresh());
+    });
+  }
+
+  Future<void> _refresh() async {
+    if (_applying) return;
+    setState(() {
+      _refreshing = true;
+      _errorCode = null;
+    });
+    try {
+      await ref.read(systemActionProvider.notifier).refreshAutoLaunch();
+      if (mounted) setState(() => _readFailed = false);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _readFailed = true;
+          _errorCode = error is AutoLaunchException ? error.code : 'readFailed';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  Future<void> _setEnabled(bool enabled) async {
+    if (_busy || _readFailed) return;
+    setState(() {
+      _applying = true;
+      _errorCode = null;
+    });
+    try {
+      await ref.read(systemActionProvider.notifier).setAutoLaunch(enabled);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _errorCode = error is AutoLaunchException
+              ? error.code
+              : 'changeFailed';
+          _readFailed =
+              _errorCode == 'readFailed' || _errorCode == 'rollbackFailed';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _applying = false);
+    }
+  }
+
+  String _errorText(BuildContext context) {
+    final l10n = context.appLocalizations;
+    return switch (_errorCode) {
+      'readFailed' => l10n.autoLaunchReadFailed,
+      'verificationFailed' => l10n.autoLaunchVerificationFailed,
+      'persistenceFailed' => l10n.autoLaunchPersistenceFailed,
+      'rollbackFailed' => l10n.autoLaunchRollbackFailed,
+      _ => l10n.autoLaunchFailed,
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!AutoLaunchItem.isSupported) return const SizedBox.shrink();
+    final l10n = context.appLocalizations;
     final autoLaunch = ref.watch(
       appSettingProvider.select((state) => state.autoLaunch),
     );
-    return ListItem.toggle(
-      title: Text(appLocalizations.autoLaunch),
-      subtitle: Text(appLocalizations.autoLaunchDesc),
-      value: autoLaunch,
-      onChanged: (bool value) {
-        ref
-            .read(appSettingProvider.notifier)
-            .update((state) => state.copyWith(autoLaunch: value));
-      },
+    final enabled = !_busy && !_readFailed;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ListItem(
+          title: Text(l10n.autoLaunch),
+          subtitle: Text(
+            _refreshing
+                ? l10n.autoLaunchReading
+                : _applying
+                ? l10n.autoLaunchApplying
+                : l10n.autoLaunchDesc,
+          ),
+          onTap: enabled ? () => _setEnabled(!autoLaunch) : null,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_busy) ...[
+                SizedBox.square(
+                  key: const ValueKey('auto-launch-progress'),
+                  dimension: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    semanticsLabel: _refreshing
+                        ? l10n.autoLaunchReading
+                        : l10n.autoLaunchApplying,
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Switch(
+                key: const ValueKey('auto-launch-switch'),
+                value: autoLaunch,
+                onChanged: enabled ? _setEnabled : null,
+              ),
+            ],
+          ),
+        ),
+        if (_errorCode != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    _errorText(context),
+                    key: const ValueKey('auto-launch-error'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+                if (_readFailed) ...[
+                  const SizedBox(width: 8),
+                  TextButton(
+                    key: const ValueKey('auto-launch-retry'),
+                    onPressed: _busy ? null : _refresh,
+                    child: Text(l10n.retry),
+                  ),
+                ],
+              ],
+            ),
+          ),
+      ],
     );
   }
 }

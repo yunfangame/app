@@ -368,8 +368,27 @@ class MessageLookup extends MessageLookupByLibrary {
     "autoCloseConnectionsDesc": MessageLookupByLibrary.simpleMessage(
       "手动切换节点后自动关闭已有连接",
     ),
-    "autoLaunch": MessageLookupByLibrary.simpleMessage("自启动"),
-    "autoLaunchDesc": MessageLookupByLibrary.simpleMessage("跟随系统自启动"),
+    "autoLaunch": MessageLookupByLibrary.simpleMessage("开机自启"),
+    "autoLaunchApplying": MessageLookupByLibrary.simpleMessage("正在应用启动设置…"),
+    "autoLaunchDesc": MessageLookupByLibrary.simpleMessage(
+      "登录系统后自动启动蜂窝加速器，默认关闭。",
+    ),
+    "autoLaunchFailed": MessageLookupByLibrary.simpleMessage(
+      "无法更改开机自启设置，请检查系统权限后重试。",
+    ),
+    "autoLaunchPersistenceFailed": MessageLookupByLibrary.simpleMessage(
+      "无法保存开机自启设置，已恢复之前的状态，请重试。",
+    ),
+    "autoLaunchReadFailed": MessageLookupByLibrary.simpleMessage(
+      "无法读取系统启动设置，请重试后再更改。",
+    ),
+    "autoLaunchReading": MessageLookupByLibrary.simpleMessage("正在读取系统启动设置…"),
+    "autoLaunchRollbackFailed": MessageLookupByLibrary.simpleMessage(
+      "无法恢复之前的设置，请在系统设置中检查启动应用。",
+    ),
+    "autoLaunchVerificationFailed": MessageLookupByLibrary.simpleMessage(
+      "系统未确认设置生效，开机自启设置未更改，请重试。",
+    ),
     "autoRefresh": MessageLookupByLibrary.simpleMessage("自动刷新"),
     "autoRenew": MessageLookupByLibrary.simpleMessage("自动续费"),
     "autoRun": MessageLookupByLibrary.simpleMessage("自动运行"),
@@ -1606,7 +1625,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "showPassword": MessageLookupByLibrary.simpleMessage("显示密码"),
     "shrink": MessageLookupByLibrary.simpleMessage("紧凑"),
     "silentLaunch": MessageLookupByLibrary.simpleMessage("静默启动"),
-    "silentLaunchDesc": MessageLookupByLibrary.simpleMessage("后台启动"),
+    "silentLaunchDesc": MessageLookupByLibrary.simpleMessage(
+      "启动时隐藏主窗口，可从系统托盘打开。",
+    ),
     "size": MessageLookupByLibrary.simpleMessage("尺寸"),
     "socksPort": MessageLookupByLibrary.simpleMessage("Socks端口"),
     "softwareUpdate": MessageLookupByLibrary.simpleMessage("软件更新"),
@@ -1635,6 +1656,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "startOptimization": MessageLookupByLibrary.simpleMessage("开始优选"),
     "startTest": MessageLookupByLibrary.simpleMessage("开始检测"),
     "startVpn": MessageLookupByLibrary.simpleMessage("正在启动VPN..."),
+    "startupSettings": MessageLookupByLibrary.simpleMessage("启动设置"),
+    "startupSettingsDesc": MessageLookupByLibrary.simpleMessage(
+      "设置此设备上的程序启动方式",
+    ),
     "status": MessageLookupByLibrary.simpleMessage("状态"),
     "statusDesc": MessageLookupByLibrary.simpleMessage("关闭后将使用系统DNS"),
     "stop": MessageLookupByLibrary.simpleMessage("暂停"),

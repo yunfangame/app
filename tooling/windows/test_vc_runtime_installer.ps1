@@ -42,6 +42,9 @@ $customMessages = @($template -split '\r?\n' | Where-Object { $_ -match '^(?:eng
 if (-not $customMessages) { throw 'The production English runtime messages were not found.' }
 
 $mockCode = $productionCode
+$autoLaunchPattern = '(?ms)^procedure RemoveOwnedAutoLaunch\(RootKey: Integer; Name: String\);\s*\r?\n.*?^end;'
+if ([regex]::Matches($mockCode, $autoLaunchPattern).Count -ne 1) { throw 'Production startup cleanup procedure was not found exactly once.' }
+$mockCode = [regex]::Replace($mockCode, $autoLaunchPattern, 'procedure RemoveOwnedAutoLaunch(RootKey: Integer; Name: String); begin RaiseException(''Unexpected startup cleanup during installer policy tests''); end;')
 $cleanupMocks = @{
     KillProcesses = 'procedure KillProcesses; begin TestKillCalls := TestKillCalls + 1; TestActions := TestActions + ''kill;''; end;'
     UnregisterHelperService = 'procedure UnregisterHelperService; begin TestUnregisterCalls := TestUnregisterCalls + 1; TestActions := TestActions + ''unregister;''; end;'

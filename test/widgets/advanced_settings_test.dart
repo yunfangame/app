@@ -49,6 +49,13 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('advanced-startup-card')),
+          switch (platform) {
+            TargetPlatform.android || TargetPlatform.iOS => findsNothing,
+            _ => findsOneWidget,
+          },
+        );
         final entry = find.byKey(const ValueKey('advanced-app-routing-tile'));
         if (platform == TargetPlatform.android) {
           expect(entry, findsOneWidget);
@@ -685,6 +692,9 @@ Future<CampusNetworkConfig> _loadTwoCampusLines() async {
 class _RoutingSystemAction extends SystemAction {
   @override
   Future<List<Package>> getPackages() async => [];
+
+  @override
+  Future<void> refreshAutoLaunch() async {}
 }
 
 class _TestApp extends StatelessWidget {
