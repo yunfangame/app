@@ -40,6 +40,7 @@ try {
     [void](Assert-Hidden 'Cookie: session=SECRETCOOKIE' @('SECRETCOOKIE'))
     [void](Assert-Hidden 'Set-Cookie: private=SECRETCOOKIE' @('SECRETCOOKIE'))
     [void](Assert-Hidden '{"access_token":"SECRETTOKEN", "password": "SECRET PASSWORD", "api-key":"SECRETKEY"}' @('SECRETTOKEN', 'SECRET PASSWORD', 'SECRETKEY'))
+    [void](Assert-Hidden '{\"cookie\":\"SECRETJSONCOOKIE\",\"url\":\"https:\/\/host.test\/pac?code=SECRETJSONQUERY\"}' @('SECRETJSONCOOKIE', 'SECRETJSONQUERY'))
     [void](Assert-Hidden 'username=SECRETUSER refresh_token=SECRETREFRESH x-goog-api-key: SECRETGOOGLEKEY' @('SECRETUSER', 'SECRETREFRESH', 'SECRETGOOGLEKEY'))
     $url = Assert-Hidden 'https://PRIVATEURLUSER:PRIVATEURLPASS@proxy.example.test:8443/proxy.pac?token=PRIVATEQUERY#PRIVATEFRAGMENT' @('PRIVATEURLUSER', 'PRIVATEURLPASS', 'PRIVATEQUERY', 'PRIVATEFRAGMENT')
     Assert-Condition ($url.Contains('proxy.example.test:8443/proxy.pac')) 'URL脱敏破坏主机、端口或路径'
@@ -61,6 +62,9 @@ try {
     Assert-Condition ($recordJson.Contains('line-1800')) '未保留最新日志行'
     Assert-Condition (-not $recordJson.Contains('line-1 ')) '未截掉旧日志'
     Assert-Condition ($before -eq (Get-FileHash -LiteralPath $logPath -Algorithm SHA256).Hash) '原始日志发生变化'
+    [IO.File]::WriteAllText($logPath, ('x' * 140000))
+    $partial = Read-ChromeLogTail $logPath '超长单行日志'
+    Assert-Condition ($partial['截取行数'] -eq 0) '不应输出无法完整脱敏的截断首行'
     $missing = Read-ChromeLogTail (Join-Path $tempRoot 'not-present.log') '不存在测试'
     Assert-Condition ($missing['状态'] -eq '不存在') '未正确记录不存在的日志'
     [IO.File]::WriteAllText($logPath, '')

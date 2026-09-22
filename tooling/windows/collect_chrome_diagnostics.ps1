@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 function Protect-DiagnosticText {
     param([AllowNull()][object]$Value)
     if ($null -eq $Value) { return '' }
-    $text = [string]$Value
+    $text = ([string]$Value).Replace('\/', '/').Replace('\"', '"')
     foreach ($path in @($env:USERPROFILE, $env:LOCALAPPDATA, $env:APPDATA)) {
         if (-not [string]::IsNullOrWhiteSpace($path)) {
             $text = [regex]::Replace($text, [regex]::Escape($path), '<用户目录>', 'IgnoreCase')
@@ -15,7 +15,7 @@ function Protect-DiagnosticText {
     $text = [regex]::Replace($text, '(?i)([a-z]:\\+(?:Users|Documents and Settings)\\+)[^\\\s"''<>]+', '$1<用户>')
     $text = [regex]::Replace($text, '(?im)(?:authorization|proxy-authorization|cookie|set-cookie)\s*:\s*[^\r\n]+', '<认证信息已隐藏>')
     $text = [regex]::Replace($text, '(?i)\b(?:Bearer|Basic)\s+[A-Za-z0-9_+/.=:-]+', '<认证信息已隐藏>')
-    $text = [regex]::Replace($text, '(?i)(["'']?(?:password|passwd|pwd|[a-z0-9_-]*token|api[-_]?key|x-goog-api-key|[a-z0-9_-]*secret|session[-_]?id|user[-_]?id|user[-_]?name|email)["'']?\s*[:=]\s*)(?:"[^"\r\n]*"|''[^''\r\n]*''|[^\s,;&}\]]+)', '$1<已隐藏>')
+    $text = [regex]::Replace($text, '(?i)(["'']?(?:password|passwd|pwd|[a-z0-9_-]*token|api[-_]?key|x-goog-api-key|[a-z0-9_-]*secret|session[-_]?id|user[-_]?id|user[-_]?name|email|(?:proxy[-_])?authorization|(?:set[-_])?cookie)["'']?\s*[:=]\s*)(?:"[^"\r\n]*"|''[^''\r\n]*''|[^\s,;&}\]]+)', '$1<已隐藏>')
     $text = [regex]::Replace($text, '(?i)https?://[^\s"''<>]+', [System.Text.RegularExpressions.MatchEvaluator]{
         param($match)
         try {
@@ -259,7 +259,7 @@ function Read-ChromeLogTail {
         }
         $text = [Text.Encoding]::UTF8.GetString($buffer, 0, $read)
         $lines = @($text -split '\r?\n')
-        if ($offset -gt 0 -and $lines.Count -gt 1) { $lines = @($lines | Select-Object -Skip 1) }
+        if ($offset -gt 0) { $lines = @($lines | Select-Object -Skip 1) }
         $lines = @($lines | Select-Object -Last 250 | ForEach-Object { Protect-DiagnosticText $_ })
         $record['状态'] = '已读取'
         $record['文件字节数'] = $length

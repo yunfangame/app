@@ -34,6 +34,17 @@ try {
     $proxyProcess = Start-Process python -ArgumentList @("$PSScriptRoot/chrome_probe_proxy.py", '--port', '17890', '--log', "$OutputDirectory/proxy.jsonl") -PassThru -RedirectStandardError "$OutputDirectory/proxy-stderr.txt"
     Start-Sleep -Seconds 2
     if ($proxyProcess.HasExited) { throw 'Local CONNECT proxy failed to start' }
+    $installer = "$OutputDirectory/ChromeSetup.exe"
+    $bootstrapArgs = @('--fail', '--silent', '--show-error', '--location', '--noproxy', '*', '--connect-timeout', '15', '--max-time', '90', '--output', $installer, $installerUrl)
+    $bootstrapProcess = Start-Process curl.exe -ArgumentList $bootstrapArgs -PassThru -RedirectStandardError "$OutputDirectory/bootstrap-stderr.txt" -RedirectStandardOutput "$OutputDirectory/bootstrap-stdout.txt"
+    $bootstrapHandle = $bootstrapProcess.Handle
+    if (-not $bootstrapProcess.WaitForExit(100000)) { & taskkill /PID $bootstrapProcess.Id /T /F | Out-Null; throw 'Direct bootstrap timed out' }
+    $report.bootstrap_exit_code = $bootstrapProcess.ExitCode
+    if ($bootstrapProcess.ExitCode -ne 0) { throw "Direct bootstrap download failed: $($bootstrapProcess.ExitCode)" }
+    $signature = Get-AuthenticodeSignature $installer
+    $report.installer_signature = @{status=$signature.Status.ToString(); subject=$signature.SignerCertificate.Subject; sha256=(Get-FileHash $installer -Algorithm SHA256).Hash; bytes=(Get-Item $installer).Length}
+    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Google LLC') { throw 'Official installer signature validation failed' }
+    $report.bootstrap_purpose = 'Verified direct bootstrap before applying proxy; does not count as proxy success'
     [ChromeNetworkProbe]::SetProxy($proxyValue, $bypassValue)
     $report.user_probe = Invoke-NetworkProbe
     $report.user_probe | ConvertTo-Json -Depth 8 | Set-Content "$OutputDirectory/user-probe.json"
@@ -54,28 +65,20 @@ try {
         $setups = Get-ChildItem (Split-Path $chrome.path) -Filter setup.exe -Recurse -ErrorAction SilentlyContinue
         foreach ($setup in $setups) {
             $uninstaller = Start-Process $setup.FullName -ArgumentList '--uninstall --system-level --force-uninstall' -PassThru
+            $uninstallerHandle = $uninstaller.Handle
             if (-not $uninstaller.WaitForExit(45000)) { & taskkill /PID $uninstaller.Id /T /F | Out-Null }
         }
     }
     $report.chrome_present_before_online_install = @($chromePaths | Where-Object { Test-Path $_ })
-    $installer = "$OutputDirectory/ChromeSetup.exe"
-    $downloadArgs = @('--fail', '--silent', '--show-error', '--location', '--connect-timeout', '15', '--max-time', '90', '--output', $installer)
+    $downloadArgs = @('--fail', '--silent', '--show-error', '--location', '--connect-timeout', '15', '--max-time', '60', '--output', "$OutputDirectory/bootstrap-through-proxy.exe")
     if ($Mode -ne 'direct') { $downloadArgs += @('--proxy', 'http://127.0.0.1:17890') }
     $curlProcess = Start-Process curl.exe -ArgumentList ($downloadArgs + @($installerUrl)) -PassThru -RedirectStandardError "$OutputDirectory/curl-stderr.txt" -RedirectStandardOutput "$OutputDirectory/curl-stdout.txt"
-    if (-not $curlProcess.WaitForExit(100000)) { & taskkill /PID $curlProcess.Id /T /F | Out-Null }
+    $curlHandle = $curlProcess.Handle
+    if (-not $curlProcess.WaitForExit(70000)) { & taskkill /PID $curlProcess.Id /T /F | Out-Null }
     $report.curl_download_exit_code = $curlProcess.ExitCode
-    if ($curlProcess.ExitCode -ne 0) {
-        $report.installer_download_fallback = 'direct_bootstrap_only_not_a_proxy_success'
-        $directArgs = @('--fail', '--silent', '--show-error', '--location', '--noproxy', '*', '--connect-timeout', '15', '--max-time', '90', '--output', $installer, $installerUrl)
-        $directProcess = Start-Process curl.exe -ArgumentList $directArgs -PassThru -RedirectStandardError "$OutputDirectory/curl-direct-stderr.txt" -RedirectStandardOutput "$OutputDirectory/curl-direct-stdout.txt"
-        if (-not $directProcess.WaitForExit(100000)) { & taskkill /PID $directProcess.Id /T /F | Out-Null }
-        if ($directProcess.ExitCode -ne 0) { throw "Direct bootstrap download failed: $($directProcess.ExitCode)" }
-    }
-    $signature = Get-AuthenticodeSignature $installer
-    $report.installer_signature = @{status=$signature.Status.ToString(); subject=$signature.SignerCertificate.Subject; sha256=(Get-FileHash $installer -Algorithm SHA256).Hash; bytes=(Get-Item $installer).Length}
-    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Google LLC') { throw 'Official installer signature validation failed' }
     $started = Get-Date
     $process = Start-Process $installer -ArgumentList '--install --silent --system --enable-logging --vmodule=*/chrome/updater/*=2' -PassThru
+    $installerHandle = $process.Handle
     $completed = $process.WaitForExit(210000)
     if (-not $completed) { & taskkill /PID $process.Id /T /F | Out-Null }
     $report.online_installer = @{completed=$completed; exit_code=if($completed){$process.ExitCode}else{$null}; elapsed_seconds=((Get-Date)-$started).TotalSeconds}
@@ -101,6 +104,7 @@ try {
     }
     $report.invalid_handle_matches = @(Get-ChildItem $logDirectory -File | Select-String -Pattern '80070006|INVALID_HANDLE|invalid handle' | ForEach-Object { @{file=$_.Filename; line=$_.LineNumber; text=$_.Line} })
     Remove-Item "$OutputDirectory/ChromeSetup.exe" -Force -ErrorAction SilentlyContinue
+    Remove-Item "$OutputDirectory/bootstrap-through-proxy.exe" -Force -ErrorAction SilentlyContinue
     $report.finished = (Get-Date).ToUniversalTime().ToString('o')
     $report | ConvertTo-Json -Depth 12 | Set-Content "$OutputDirectory/report.json"
     $report | ConvertTo-Json -Depth 12 | Write-Output
