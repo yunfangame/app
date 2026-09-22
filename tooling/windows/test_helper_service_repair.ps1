@@ -21,12 +21,23 @@ Add-Type @'
 using System;
 using System.Runtime.InteropServices;
 public static class FengWoScmTest {
+  public static int LastError { get; private set; }
   [DllImport("advapi32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
-  public static extern IntPtr OpenSCManagerW(string machine, string database, uint access);
+  private static extern IntPtr OpenSCManagerW(string machine, string database, uint access);
   [DllImport("advapi32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
-  public static extern IntPtr OpenServiceW(IntPtr manager, string name, uint access);
+  private static extern IntPtr OpenServiceW(IntPtr manager, string name, uint access);
   [DllImport("advapi32.dll", SetLastError = true)]
   public static extern bool CloseServiceHandle(IntPtr handle);
+  public static IntPtr OpenLocalManager() {
+    var handle = OpenSCManagerW(null, null, 1);
+    LastError = Marshal.GetLastWin32Error();
+    return handle;
+  }
+  public static IntPtr OpenHelperQueryHandle(IntPtr manager) {
+    var handle = OpenServiceW(manager, "FlClashHelperService", 4);
+    LastError = Marshal.GetLastWin32Error();
+    return handle;
+  }
 }
 '@
 
@@ -66,10 +77,10 @@ try {
   Install-Package
   Invoke-Helper -Command 'install'
   Assert-Service -State 'Running'
-  $manager = [FengWoScmTest]::OpenSCManagerW($null, $null, 1)
-  if ($manager -eq [IntPtr]::Zero) { throw 'Cannot open test service manager' }
-  $heldService = [FengWoScmTest]::OpenServiceW($manager, 'FlClashHelperService', 4)
-  if ($heldService -eq [IntPtr]::Zero) { throw 'Cannot retain a service query handle' }
+  $manager = [FengWoScmTest]::OpenLocalManager()
+  if ($manager -eq [IntPtr]::Zero) { throw "Cannot open test service manager (Win32 $([FengWoScmTest]::LastError))" }
+  $heldService = [FengWoScmTest]::OpenHelperQueryHandle($manager)
+  if ($heldService -eq [IntPtr]::Zero) { throw "Cannot retain a service query handle (Win32 $([FengWoScmTest]::LastError))" }
   Invoke-Helper -Command 'install'
   Assert-Service -State 'Running'
   $results.Add(@{ case = 'repair-with-external-service-handle'; passed = $true })
