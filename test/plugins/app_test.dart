@@ -40,6 +40,32 @@ void main() {
     expect(await App().didCrashOnPreviousExecution(), isFalse);
   });
 
+  for (final entry in {
+    'opened': AppUpdateInstallResult.opened,
+    'permissionRequired': AppUpdateInstallResult.permissionRequired,
+    'invalidPackage': AppUpdateInstallResult.invalidPackage,
+    'cancelled': AppUpdateInstallResult.cancelled,
+    'failed': AppUpdateInstallResult.failed,
+    'unexpected': AppUpdateInstallResult.failed,
+  }.entries) {
+    test('maps Android update installer result ${entry.key}', () async {
+      MethodCall? received;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            received = call;
+            return entry.key;
+          });
+      final outcome = await App().installUpdate(
+        '/cache/fengwo-app-updates/FengWo.apk',
+      );
+      expect(outcome, entry.value);
+      expect(received!.method, 'installUpdate');
+      expect(received!.arguments, {
+        'path': '/cache/fengwo-app-updates/FengWo.apk',
+      });
+    });
+  }
+
   test('requests every package icon from Android only once', () async {
     var iconCallCount = 0;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

@@ -20,6 +20,40 @@ void main() {
     expect(appUpdatePackageKeyForAbi(Abi.macosX64), 'macos-x64');
   });
 
+  test(
+    'Android uses its ABI package and does not fall back to desktop installers',
+    () async {
+      final manifest = _manifest(armVersion: '9.0.0', windowsVersion: '9.0.0');
+      final packages = manifest['packages'] as Map<String, Object?>;
+      packages['android-arm64-v8a'] = {
+        'enabled': true,
+        'version': '1.0.5',
+        'downloadUrl': 'https://house.example/FengWo-arm64.apk',
+        'releaseNotesHtml': '<p>Android update</p>',
+      };
+      packages['android-armeabi-v7a'] = {
+        'enabled': true,
+        'version': '1.0.6',
+        'downloadUrl': 'https://house.example/FengWo-armv7.apk',
+        'releaseNotesHtml': '<p>Android 32-bit update</p>',
+      };
+      final service = _service(
+        packageKey: 'android-arm64-v8a',
+        manifest: manifest,
+      );
+      final result = await service.discoverUpdate(currentVersion: '1.0.4');
+      expect(result.status, AppUpdateCheckStatus.available);
+      expect(result.release?.packageKey, 'android-arm64-v8a');
+      expect(result.release?.version, '1.0.5');
+      expect(result.release?.downloadUri.path, '/FengWo-arm64.apk');
+
+      packages.remove('android-arm64-v8a');
+      final missing = await service.discoverUpdate(currentVersion: '1.0.4');
+      expect(missing.status, AppUpdateCheckStatus.unavailable);
+      expect(missing.release, isNull);
+    },
+  );
+
   test('compares semantic versions and build numbers', () {
     expect(compareAppUpdateVersions('0.8.97', '0.8.96+2026081701'), 1);
     expect(compareAppUpdateVersions('v1.2.0', '1.1.99'), 1);
@@ -75,6 +109,49 @@ void main() {
         respectIgnored: false,
       ),
       isNotNull,
+    );
+    expect(
+      (await service.discoverUpdate(currentVersion: '0.8.96')).release,
+      isNotNull,
+    );
+  });
+
+  test('does not identify missing or disabled packages as latest', () async {
+    final service = _service(
+      packageKey: 'windows-arm64',
+      manifest: _manifest(armVersion: '1.0.5', windowsVersion: '1.0.5'),
+    );
+    final result = await service.discoverUpdate(currentVersion: '1.0.4');
+    expect(result.status, AppUpdateCheckStatus.unavailable);
+    expect(result.release, isNull);
+  });
+
+  test(
+    'rejects unsigned manifests when update signing keys are configured',
+    () async {
+      final service = AppUpdateService(
+        mainConfigLoader: () async => {'UpdateUrl': manifestUrl},
+        manifestLoader: (_) async =>
+            _manifest(armVersion: '1.0.5', windowsVersion: '1.0.5'),
+        packageKeyResolver: () => 'macos-arm64',
+        aesKey: 'test-key',
+        signingPublicKey: 'test-public-key',
+      );
+      await expectLater(
+        service.discoverUpdate(currentVersion: '1.0.4'),
+        throwsFormatException,
+      );
+    },
+  );
+
+  test('missing update configuration is unavailable', () async {
+    final service = AppUpdateService(
+      mainConfigLoader: () async => {},
+      packageKeyResolver: () => 'windows-x64',
+    );
+    await expectLater(
+      service.discoverUpdate(currentVersion: '1.0.4'),
+      throwsA(isA<AppUpdateUnavailableException>()),
     );
   });
 

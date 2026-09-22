@@ -1,4 +1,5 @@
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/campus_network.dart';
 import 'package:fl_clash/common/theme.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
@@ -490,33 +491,117 @@ void main() {
     },
   );
 
-  testWidgets('desktop resources route renders advanced settings', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1400, 1000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
-    globalState.container = container;
-    container.read(viewSizeProvider.notifier).value = const Size(1400, 1000);
-    container
-        .read(currentPageLabelProvider.notifier)
-        .toPage(PageLabel.resources);
-
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: const _TestApp(child: HomePage()),
-      ),
-    );
-    await tester.pump();
-
-    expect(find.byType(FengWoAdvancedSettingsView), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+  for (final size in [const Size(1400, 1000), const Size(390, 844)]) {
+    testWidgets('software update is reachable with linked badges at $size', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final service = AppUpdateService(
+        packageKeyResolver: () => 'android-arm64-v8a',
+        mainConfigLoader: () async => {
+          'UpdateUrl': 'https://example.com/update.json',
+        },
+        manifestLoader: (_) async => {
+          'Authentication': 'FengWo',
+          'format': 'fengwo-update',
+          'schemaVersion': 1,
+          'packages': {
+            'android-arm64-v8a': {
+              'enabled': true,
+              'version': '1.0.5',
+              'downloadUrl': 'https://example.com/FengWo.apk',
+            },
+          },
+        },
+      );
+      addTearDown(service.close);
+      final container = ProviderContainer(
+        overrides: [
+          appUpdateServiceProvider.overrideWithValue(service),
+          appUpdateCurrentVersionProvider.overrideWithValue('1.0.4+104'),
+          navigationItemsStateProvider.overrideWithValue(
+            NavigationItemsState(
+              value: [
+                NavigationItem(
+                  icon: const Icon(Icons.home),
+                  label: PageLabel.dashboard,
+                  builder: (_) => const SizedBox(),
+                ),
+                NavigationItem(
+                  icon: const Icon(Icons.settings),
+                  label: PageLabel.resources,
+                  builder: (_) => FengWoAdvancedSettingsView(
+                    campusNetworkConfigLoader: () async =>
+                        const CampusNetworkConfig({}),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      globalState.container = container;
+      container.read(viewSizeProvider.notifier).value = size;
+      await container.read(appUpdateProvider.notifier).check();
+      if (size.width > 500) {
+        container
+            .read(currentPageLabelProvider.notifier)
+            .toPage(PageLabel.resources);
+      }
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const _TestApp(child: HomePage()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      if (size.width <= 500) {
+        await tester.tap(
+          find.descendant(
+            of: find.byKey(const ValueKey('fengwo-mobile-business-menu')),
+            matching: find.byIcon(Icons.grid_view_rounded),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final entry = find.byKey(
+          const ValueKey('fengwo-mobile-mine-resources'),
+        );
+        await tester.ensureVisible(entry);
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: entry,
+            matching: find.byKey(const ValueKey('app-update-red-dot')),
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(entry);
+        await tester.pumpAndSettle();
+      }
+      expect(find.byType(FengWoAdvancedSettingsView), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('advanced-software-update-card')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('advanced-check-update')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('+104'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('software-update-badge')),
+          matching: find.byKey(const ValueKey('app-update-red-dot')),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets(
     'desktop navigation keeps arrow traversal after keyboard page changes',

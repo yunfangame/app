@@ -37,12 +37,13 @@ class AboutView extends StatelessWidget {
       separated: false,
       title: appLocalizations.more,
       items: [
-        ListItem(
-          title: Text(appLocalizations.checkUpdate),
-          onTap: () {
-            _checkUpdate(context);
-          },
-        ),
+        if (!system.isDesktop && !system.isAndroid)
+          ListItem(
+            title: Text(appLocalizations.checkUpdate),
+            onTap: () {
+              _checkUpdate(context);
+            },
+          ),
         ListItem(
           title: const Text('Telegram'),
           onTap: () {

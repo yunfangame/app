@@ -1235,5 +1235,85 @@
   "ticketCreated": "工单已提交",
   "ticketUnread": "有未读回复",
   "ticketRefresh": "刷新",
-  "registrationClosed": "当前已停止新用户注册"
+  "registrationClosed": "当前已停止新用户注册",
+  "softwareUpdate": "软件更新",
+  "appUpdateCurrentVersion": "当前版本 {version}",
+  "appUpdateChecking": "正在检查更新…",
+  "appUpdateAvailable": "发现新版本 {version}",
+  "appUpdateLatest": "{version} 已是最新版本",
+  "appUpdateFailed": "检查更新失败，请稍后重试。",
+  "appUpdateUnavailable": "暂时无法获取当前平台的更新信息，请稍后重试。",
+  "appUpdateDownload": "下载更新",
+  "appUpdateDownloading": "正在下载更新…",
+  "appUpdateVerifying": "正在校验下载文件…",
+  "appUpdateDownloadReady": "下载和校验已完成，可以安装更新。",
+  "appUpdateInstall": "安装更新",
+  "appUpdateCancelDownload": "取消下载",
+  "appUpdateDownloadCancelled": "下载已取消",
+  "appUpdateDownloadFailed": "下载失败，请检查网络后重试。",
+  "appUpdateChecksumMissing": "更新缺少文件校验信息，暂时无法下载，请联系客服。",
+  "appUpdateChecksumMismatch": "下载文件校验失败，请重新下载。",
+  "appUpdateInstallerOpenFailed": "无法打开安装程序，请重试。",
+  "appUpdateUnsupportedPackage": "暂不支持在软件内安装此更新包。",
+  "appUpdateInstalling": "正在打开安装程序…",
+  "appUpdateBackground": "后台下载",
+  "appUpdateRetry": "重试",
+  "appUpdateProgress": "{received} / {total}",
+  "appUpdateOpenFailed": "无法打开下载链接，请稍后重试。",
+  "appUpdateVersionSummary": "当前 {current}  →  最新 {latest}",
+  "appUpdateLater": "稍后提醒",
+  "appUpdateIgnoreVersion": "不再提示此版本",
+  "@appUpdateCurrentVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateAvailable": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateLatest": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateProgress": {
+    "placeholders": {
+      "received": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateVersionSummary": {
+    "placeholders": {
+      "current": {
+        "type": "String"
+      },
+      "latest": {
+        "type": "String"
+      }
+    }
+  },
+  "appUpdateInstallerOpened": "安装程序已打开，请按提示完成更新。",
+  "appUpdateDownloadDetails": "下载详情",
+  "appUpdateInstallPermissionRequired": "请允许安装来自此应用的软件，返回后点击“重试”继续安装。",
+  "appUpdateInstallCancelled": "已取消安装，可点击“重试”继续。",
+  "campusNetworkLineNumber": "穿透{index}线路",
+  "@campusNetworkLineNumber": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      }
+    }
+  }
 }

@@ -93,7 +93,7 @@ abstract class AppSettingProps with _$AppSettingProps {
     @Default(false) bool hidden,
     @Default(false) bool developerMode,
     @Default(false) bool campusNetworkEnabled,
-    @Default(CampusOperator.telecom) CampusOperator campusOperator,
+    @Default('telecom') String campusOperator,
     @Default({}) Map<String, Map<String, String>> campusHostsByOperator,
     @Default([]) List<ChainProxyConfig> chainProxies,
     String? activeChainProxyName,

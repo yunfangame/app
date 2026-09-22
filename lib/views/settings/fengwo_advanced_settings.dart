@@ -8,6 +8,7 @@ import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/widgets.dart';
+import 'package:fl_clash/widgets/app_update_controls.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -116,6 +117,9 @@ class _FengWoAdvancedSettingsViewState
     CampusNetworkConfig config,
   ) {
     return settings.copyWith(
+      campusNetworkEnabled:
+          settings.campusNetworkEnabled &&
+          availableCampusOperators(config.hostsByOperator).isNotEmpty,
       campusOperator: resolveCampusOperator(
         settings.campusOperator,
         config.hostsByOperator,
@@ -127,10 +131,10 @@ class _FengWoAdvancedSettingsViewState
   Future<void> _refreshCampusNetworkConfigOnEntry() async {
     if (_updatingCampusNetwork) return;
     setState(() => _updatingCampusNetwork = true);
-    final previous = ref.read(appSettingProvider);
     try {
       final config = await _loadCampusNetworkConfig();
       if (!mounted) return;
+      final previous = ref.read(appSettingProvider);
       final next = _applyCampusNetworkConfig(previous, config);
       ref.read(appSettingProvider.notifier).value = next;
       if (previous.campusNetworkEnabled && next != previous) {
@@ -148,16 +152,27 @@ class _FengWoAdvancedSettingsViewState
 
   Future<void> _setCampusNetworkEnabled(bool enabled) async {
     if (_updatingCampusNetwork) return;
-    final previous = ref.read(appSettingProvider);
     setState(() => _updatingCampusNetwork = true);
     try {
-      final refreshed = enabled
-          ? _applyCampusNetworkConfig(
-              previous,
-              await _loadCampusNetworkConfig(),
-            )
-          : previous;
+      final config = enabled ? await _loadCampusNetworkConfig() : null;
       if (!mounted) return;
+      final previous = ref.read(appSettingProvider);
+      final refreshed = config == null
+          ? previous
+          : _applyCampusNetworkConfig(previous, config);
+      if (enabled &&
+          availableCampusOperators(refreshed.campusHostsByOperator).isEmpty) {
+        ref.read(appSettingProvider.notifier).value = refreshed;
+        if (previous.campusNetworkEnabled) {
+          await _restartCoreForCampusNetwork();
+        }
+        if (mounted) {
+          context.showNotifier(
+            context.appLocalizations.campusNetworkApplyFailed,
+          );
+        }
+        return;
+      }
       final next = refreshed.copyWith(campusNetworkEnabled: enabled);
       ref.read(appSettingProvider.notifier).value = next;
       try {
@@ -198,9 +213,9 @@ class _FengWoAdvancedSettingsViewState
       previous.campusOperator,
       previous.campusHostsByOperator,
     );
-    final selected = await showDialog<CampusOperator>(
+    final selected = await showDialog<String>(
       context: context,
-      builder: (_) => OptionsDialog<CampusOperator>(
+      builder: (_) => OptionsDialog<String>(
         title: context.appLocalizations.campusNetworkLine,
         options: options,
         textBuilder: (operator) => _campusOperatorLabel(operator, options),
@@ -370,6 +385,8 @@ class _FengWoAdvancedSettingsViewState
                       if (!desktop) {
                         return Column(
                           children: [
+                            _buildUpdateCard(colors),
+                            const SizedBox(height: 16),
                             _buildProxyCard(colors),
                             const SizedBox(height: 16),
                             _buildIpv6Card(colors),
@@ -386,6 +403,8 @@ class _FengWoAdvancedSettingsViewState
                       }
                       return Column(
                         children: [
+                          _buildUpdateCard(colors),
+                          const SizedBox(height: 18),
                           IntrinsicHeight(
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -423,6 +442,14 @@ class _FengWoAdvancedSettingsViewState
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildUpdateCard(_AdvancedColors colors) {
+    return _AdvancedCard(
+      key: const ValueKey('advanced-software-update-card'),
+      colors: colors,
+      child: const AppUpdateSettingsContent(),
     );
   }
 
@@ -945,18 +972,10 @@ String _dnsModeLabel(DnsMode mode) {
   };
 }
 
-String _campusOperatorLabel(
-  CampusOperator operator, [
-  List<CampusOperator> available = CampusOperator.values,
-]) {
+String _campusOperatorLabel(String operator, List<String> available) {
   final l10n = currentAppLocalizations;
-  final candidates = available.isEmpty ? CampusOperator.values : available;
-  final index = candidates.indexOf(operator);
-  return switch (index) {
-    0 => l10n.campusNetworkLine1,
-    1 => l10n.campusNetworkLine2,
-    _ => l10n.campusNetworkLine3,
-  };
+  final index = available.indexOf(operator);
+  return index < 0 ? l10n.none : l10n.campusNetworkLineNumber(index + 1);
 }
 
 class _AdvancedHeader extends StatelessWidget {

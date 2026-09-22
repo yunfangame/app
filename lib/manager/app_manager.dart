@@ -7,6 +7,7 @@ import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/account/fengwo_tickets.dart';
 import 'package:fl_clash/widgets/animated_visibility.dart';
+import 'package:fl_clash/widgets/app_update_controls.dart';
 import 'package:fl_clash/widgets/fengwo_logout_button.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -377,11 +378,28 @@ class AppSidebarContainer extends ConsumerWidget {
                                                   child: e.icon,
                                                 )
                                               : e.icon,
-                                          label: Text(
-                                            fengWoNavigationLabel(e.label),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
+                                          label: e.label == PageLabel.resources
+                                              ? AppUpdateBadge(
+                                                  key: const ValueKey(
+                                                    'advanced-settings-update-badge',
+                                                  ),
+                                                  child: Text(
+                                                    fengWoNavigationLabel(
+                                                      e.label,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                )
+                                              : Text(
+                                                  fengWoNavigationLabel(
+                                                    e.label,
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
                                         ),
                                       )
                                       .toList(),

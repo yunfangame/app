@@ -62,6 +62,12 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     private val requestNotificationCallback = PendingCallback<Boolean>()
 
+    private val updateInstallCallback = PendingCallback<String>()
+
+    private var updateInstallRevision = 0L
+
+    private var pendingUpdateInstallRequestCode: Int? = null
+
     private var isRequestingNotificationPermission = false
 
     private val gson = Gson()
@@ -148,6 +154,10 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
                 result.success(openAppSettings())
             }
 
+            "installUpdate" -> {
+                handleInstallUpdate(call, result)
+            }
+
             "didCrashOnPreviousExecution" -> {
                 result.success(GlobalState.didCrashOnPreviousExecution())
             }
@@ -168,6 +178,51 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
             val path = GlobalState.application.packageManager.getPackageIconPath(packageName)
             result.success(path)
         }
+    }
+
+    private fun handleInstallUpdate(call: MethodCall, result: Result) {
+        val path = call.argument<String>("path")
+        if (path == null) {
+            result.success("invalidPackage")
+            return
+        }
+        if (updateInstallCallback.isPending) {
+            result.success("failed")
+            return
+        }
+        val revision = ++updateInstallRevision
+        updateInstallCallback.replace(result::success, supersededValue = "cancelled")
+        scope.launch(Dispatchers.IO) {
+            val installer = AppUpdateInstaller(GlobalState.application)
+            val file = runCatching { installer.validate(path) }.getOrNull()
+            onMainThread {
+                if (revision != updateInstallRevision || !updateInstallCallback.isPending) {
+                    return@onMainThread
+                }
+                if (file == null) {
+                    finishUpdateInstall("invalidPackage")
+                } else {
+                    val currentActivity = activity
+                    val immediate = if (currentActivity == null) {
+                        "failed"
+                    } else {
+                        val requestCode = UPDATE_INSTALL_REQUEST_CODE_START +
+                            (revision % UPDATE_INSTALL_REQUEST_CODE_COUNT).toInt()
+                        pendingUpdateInstallRequestCode = requestCode
+                        runCatching {
+                            installer.open(currentActivity, file, requestCode)
+                        }.getOrDefault("failed")
+                    }
+                    if (immediate != null) finishUpdateInstall(immediate)
+                }
+            }
+        }
+    }
+
+    private fun finishUpdateInstall(value: String) {
+        updateInstallRevision++
+        pendingUpdateInstallRequestCode = null
+        updateInstallCallback.resolve(value)
     }
 
     private fun initShortcuts(label: String) {
@@ -302,6 +357,7 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        finishUpdateInstall("failed")
         channel.setMethodCallHandler(null)
         scope.cancel()
         invokeVpnPrepareCallback(false)
@@ -337,6 +393,7 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
     }
 
     override fun onDetachedFromActivity() {
+        finishUpdateInstall("cancelled")
         channel.invokeMethod("exit", null)
         detachFromActivity()
         invokeVpnPrepareCallback(false)
@@ -344,6 +401,20 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
     }
 
     private fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
+        if (requestCode in UPDATE_INSTALL_REQUEST_CODE_START until
+            UPDATE_INSTALL_REQUEST_CODE_START + UPDATE_INSTALL_REQUEST_CODE_COUNT
+        ) {
+            if (requestCode == pendingUpdateInstallRequestCode) {
+                finishUpdateInstall(
+                    when (resultCode) {
+                        Activity.RESULT_OK -> "opened"
+                        Activity.RESULT_CANCELED -> "cancelled"
+                        else -> "failed"
+                    },
+                )
+            }
+            return true
+        }
         if (requestCode != VPN_PERMISSION_REQUEST_CODE) {
             return false
         }
@@ -367,5 +438,7 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
     private companion object {
         const val VPN_PERMISSION_REQUEST_CODE = 1001
         const val NOTIFICATION_PERMISSION_REQUEST_CODE = 1002
+        const val UPDATE_INSTALL_REQUEST_CODE_START = 41000
+        const val UPDATE_INSTALL_REQUEST_CODE_COUNT = 20000
     }
 }

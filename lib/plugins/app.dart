@@ -6,6 +6,14 @@ import 'package:fl_clash/models/models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+enum AppUpdateInstallResult {
+  opened,
+  permissionRequired,
+  invalidPackage,
+  cancelled,
+  failed,
+}
+
 class App {
   static App? _instance;
   late MethodChannel methodChannel;
@@ -59,6 +67,19 @@ class App {
   Future<bool> openFile(String path) async {
     return await methodChannel.invokeMethod<bool>('openFile', {'path': path}) ??
         false;
+  }
+
+  Future<AppUpdateInstallResult> installUpdate(String path) async {
+    final result = await methodChannel.invokeMethod<String>('installUpdate', {
+      'path': path,
+    });
+    return switch (result) {
+      'opened' => AppUpdateInstallResult.opened,
+      'permissionRequired' => AppUpdateInstallResult.permissionRequired,
+      'invalidPackage' => AppUpdateInstallResult.invalidPackage,
+      'cancelled' => AppUpdateInstallResult.cancelled,
+      _ => AppUpdateInstallResult.failed,
+    };
   }
 
   final Map<String, ImageProvider?> _packageIcons = {};

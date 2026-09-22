@@ -1235,5 +1235,85 @@
   "ticketCreated": "Ticket submitted",
   "ticketUnread": "Unread reply",
   "ticketRefresh": "Refresh",
-  "registrationClosed": "New account registration is currently closed."
+  "registrationClosed": "New account registration is currently closed.",
+  "softwareUpdate": "Software update",
+  "appUpdateCurrentVersion": "Current version {version}",
+  "appUpdateChecking": "Checking for updates…",
+  "appUpdateAvailable": "Version {version} is available",
+  "appUpdateLatest": "Version {version} is up to date",
+  "appUpdateFailed": "Could not check for updates. Please try again later.",
+  "appUpdateUnavailable": "Update information for this platform is temporarily unavailable. Please try again later.",
+  "appUpdateDownload": "Download update",
+  "appUpdateDownloading": "Downloading update…",
+  "appUpdateVerifying": "Verifying download…",
+  "appUpdateDownloadReady": "Download verified. The update is ready to install.",
+  "appUpdateInstall": "Install update",
+  "appUpdateCancelDownload": "Cancel download",
+  "appUpdateDownloadCancelled": "Download cancelled",
+  "appUpdateDownloadFailed": "The download failed. Please check your connection and retry.",
+  "appUpdateChecksumMissing": "This update is missing verification information and cannot be downloaded. Please contact support.",
+  "appUpdateChecksumMismatch": "The downloaded file did not pass verification. Please download it again.",
+  "appUpdateInstallerOpenFailed": "Could not open the installer. Please try again.",
+  "appUpdateUnsupportedPackage": "This update package is not supported for installation within the app.",
+  "appUpdateInstalling": "Opening the installer…",
+  "appUpdateBackground": "Download in background",
+  "appUpdateRetry": "Retry",
+  "appUpdateProgress": "{received} / {total}",
+  "appUpdateOpenFailed": "Could not open the download link. Please try again later.",
+  "appUpdateVersionSummary": "Current {current}  →  Latest {latest}",
+  "appUpdateLater": "Remind me later",
+  "appUpdateIgnoreVersion": "Skip this version",
+  "@appUpdateCurrentVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateAvailable": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateLatest": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateProgress": {
+    "placeholders": {
+      "received": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "@appUpdateVersionSummary": {
+    "placeholders": {
+      "current": {
+        "type": "String"
+      },
+      "latest": {
+        "type": "String"
+      }
+    }
+  },
+  "appUpdateInstallerOpened": "The installer is open. Follow its instructions to complete the update.",
+  "appUpdateDownloadDetails": "Download details",
+  "appUpdateInstallPermissionRequired": "Allow FengWo to install apps in system settings, then return here and retry installation.",
+  "appUpdateInstallCancelled": "Installation cancelled. Select “Retry” to continue.",
+  "campusNetworkLineNumber": "Route {index}",
+  "@campusNetworkLineNumber": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      }
+    }
+  }
 }

@@ -111,7 +111,7 @@ void main() {
       expect(restored.customUserAgent, '');
       expect(restored.skipGlobalModeConfirmation, false);
       expect(restored.campusNetworkEnabled, false);
-      expect(restored.campusOperator, CampusOperator.telecom);
+      expect(restored.campusOperator, 'telecom');
       expect(restored.campusHostsByOperator, isEmpty);
       expect(restored.testUrl, defaultTestUrl);
     });
@@ -136,7 +136,7 @@ void main() {
         customUserAgent: 'CustomUA/1.0',
         skipGlobalModeConfirmation: true,
         campusNetworkEnabled: true,
-        campusOperator: CampusOperator.mobile,
+        campusOperator: 'mobile',
         campusHostsByOperator: {
           'mobile': {'base.fengwo1688.cc': '120.233.118.84'},
         },
@@ -153,11 +153,34 @@ void main() {
       expect(restored.customUserAgent, 'CustomUA/1.0');
       expect(restored.skipGlobalModeConfirmation, true);
       expect(restored.campusNetworkEnabled, true);
-      expect(restored.campusOperator, CampusOperator.mobile);
+      expect(restored.campusOperator, 'mobile');
       expect(restored.campusHostsByOperator, {
         'mobile': {'base.fengwo1688.cc': '120.233.118.84'},
       });
     });
+
+    test(
+      'preserves legacy and arbitrary campus selections through storage',
+      () {
+        for (final line in ['telecom', 'unicom', 'mobile', 'route_5']) {
+          final json = {
+            'campusOperator': line,
+            'campusNetworkEnabled': true,
+            'campusHostsByOperator': {
+              line: {'campus.example': '192.0.2.5'},
+            },
+          };
+          final restored = AppSettingProps.safeFromJson(json);
+          expect(restored.campusOperator, line);
+          expect(restored.campusNetworkEnabled, isTrue);
+          final roundTripped = roundTrip(
+            () => restored.toJson(),
+            AppSettingProps.fromJson,
+          );
+          expect(roundTripped, restored);
+        }
+      },
+    );
 
     test('safeFromJson returns default on null', () {
       final result = AppSettingProps.safeFromJson(null);

@@ -6,6 +6,7 @@ import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/account/fengwo_tickets.dart';
 import 'package:fl_clash/widgets/widgets.dart';
+import 'package:fl_clash/widgets/app_update_controls.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -388,6 +389,20 @@ class _FengWoMobileNavigationBarState
                       final entry = entries[index];
                       final target = entry.pageLabel!;
                       final selected = target == _currentLabel;
+                      final label = Text(
+                        entry.label,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: sheetContext.textTheme.labelLarge?.copyWith(
+                          color: selected
+                              ? colors.onSecondaryContainer
+                              : colors.onSurface,
+                          fontWeight: selected
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                        ),
+                      );
                       return Material(
                         color: selected
                             ? colors.secondaryContainer
@@ -425,21 +440,15 @@ class _FengWoMobileNavigationBarState
                                         : colors.onSurfaceVariant,
                                   ),
                                 const SizedBox(height: 8),
-                                Text(
-                                  entry.label,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                  style: sheetContext.textTheme.labelLarge
-                                      ?.copyWith(
-                                        color: selected
-                                            ? colors.onSecondaryContainer
-                                            : colors.onSurface,
-                                        fontWeight: selected
-                                            ? FontWeight.w700
-                                            : FontWeight.w500,
-                                      ),
-                                ),
+                                if (target == PageLabel.resources)
+                                  AppUpdateBadge(
+                                    key: const ValueKey(
+                                      'mobile-advanced-settings-update-badge',
+                                    ),
+                                    child: label,
+                                  )
+                                else
+                                  label,
                               ],
                             ),
                           ),

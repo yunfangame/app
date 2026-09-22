@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/campus_network.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -231,7 +233,7 @@ void main() {
       globalState.container = container;
       container.read(viewSizeProvider.notifier).value = const Size(1280, 1000);
       container.read(appSettingProvider.notifier).value = const AppSettingProps(
-        campusOperator: CampusOperator.mobile,
+        campusOperator: 'mobile',
         campusHostsByOperator: {
           'telecom': {'base.fengwo1688.cc': '192.0.2.1'},
           'unicom': {'base.fengwo1688.cc': '192.0.2.2'},
@@ -253,7 +255,7 @@ void main() {
 
       final refreshed = container.read(appSettingProvider);
       expect(refreshed.campusHostsByOperator.keys, ['telecom', 'unicom']);
-      expect(refreshed.campusOperator, CampusOperator.telecom);
+      expect(refreshed.campusOperator, 'telecom');
 
       final lineTile = find.byKey(
         const ValueKey('advanced-campus-network-line-tile'),
@@ -266,9 +268,222 @@ void main() {
       final l10n = tester
           .element(find.byType(FengWoAdvancedSettingsView))
           .appLocalizations;
-      expect(find.text(l10n.campusNetworkLine1), findsWidgets);
-      expect(find.text(l10n.campusNetworkLine2), findsOneWidget);
-      expect(find.text(l10n.campusNetworkLine3), findsNothing);
+      expect(find.text(l10n.campusNetworkLineNumber(1)), findsWidgets);
+      expect(find.text(l10n.campusNetworkLineNumber(2)), findsOneWidget);
+      expect(find.text(l10n.campusNetworkLineNumber(3)), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'five remote campus lines render and the fifth can become active',
+    (tester) async {
+      var loads = 0;
+      var restarts = 0;
+      final container = await _pumpCampusSettings(
+        tester,
+        loadConfig: () async {
+          loads++;
+          return _campusConfig(5);
+        },
+        restartCore: () async => restarts++,
+      );
+      final campusSwitch = find.byKey(
+        const ValueKey('advanced-campus-network-switch'),
+      );
+      await tester.ensureVisible(campusSwitch);
+      await tester.pumpAndSettle();
+      await tester.tap(campusSwitch);
+      await tester.pumpAndSettle();
+      expect(loads, 2);
+      expect(restarts, 1);
+      expect(container.read(appSettingProvider).campusNetworkEnabled, isTrue);
+
+      final lineTile = find.byKey(
+        const ValueKey('advanced-campus-network-line-tile'),
+      );
+      await tester.ensureVisible(lineTile);
+      await tester.pumpAndSettle();
+      await tester.tap(lineTile);
+      await tester.pumpAndSettle();
+      final l10n = tester
+          .element(find.byType(FengWoAdvancedSettingsView))
+          .appLocalizations;
+      expect(find.text(l10n.campusNetworkLineNumber(4)), findsOneWidget);
+      expect(find.text(l10n.campusNetworkLineNumber(5)), findsOneWidget);
+      await tester.tap(find.text(l10n.campusNetworkLineNumber(5)));
+      await tester.pumpAndSettle();
+
+      expect(container.read(appSettingProvider).campusOperator, 'line_5');
+      expect(
+        container.read(appSettingProvider).campusHostsByOperator,
+        hasLength(5),
+      );
+      expect(restarts, 2);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final counts in [(5, 2), (2, 1)]) {
+    final (before, after) = counts;
+    testWidgets(
+      'shrinking $before campus lines to $after replaces a removed selection',
+      (tester) async {
+        var restarts = 0;
+        final container = await _pumpCampusSettings(
+          tester,
+          initial: AppSettingProps(
+            campusNetworkEnabled: true,
+            campusOperator: 'line_$before',
+            campusHostsByOperator: _campusConfig(before).hostsByOperator,
+          ),
+          loadConfig: () async => _campusConfig(after),
+          restartCore: () async => restarts++,
+        );
+        final settings = container.read(appSettingProvider);
+        expect(settings.campusOperator, 'line_1');
+        expect(settings.campusHostsByOperator, hasLength(after));
+        expect(settings.campusNetworkEnabled, isTrue);
+        expect(restarts, 1);
+
+        final lineTile = find.byKey(
+          const ValueKey('advanced-campus-network-line-tile'),
+        );
+        await tester.ensureVisible(lineTile);
+        await tester.pumpAndSettle();
+        await tester.tap(lineTile);
+        await tester.pumpAndSettle();
+        final l10n = tester
+            .element(find.byType(FengWoAdvancedSettingsView))
+            .appLocalizations;
+        expect(find.text(l10n.campusNetworkLineNumber(1)), findsWidgets);
+        for (var number = 2; number <= after; number++) {
+          expect(
+            find.text(l10n.campusNetworkLineNumber(number)),
+            findsOneWidget,
+          );
+        }
+        for (var number = after + 1; number <= before; number++) {
+          expect(find.text(l10n.campusNetworkLineNumber(number)), findsNothing);
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  for (final refreshOnEntry in [true, false]) {
+    testWidgets(
+      'campus refresh preserves settings changed while ${refreshOnEntry ? 'entering' : 'enabling'}',
+      (tester) async {
+        final response = Completer<CampusNetworkConfig>();
+        addTearDown(() {
+          if (!response.isCompleted) response.complete(_campusConfig(0));
+        });
+        var loads = 0;
+        final container = await _pumpCampusSettings(
+          tester,
+          loadConfig: () {
+            loads++;
+            if (refreshOnEntry || loads > 1) return response.future;
+            return Future.value(_campusConfig(2));
+          },
+        );
+        if (!refreshOnEntry) {
+          final campusSwitch = find.byKey(
+            const ValueKey('advanced-campus-network-switch'),
+          );
+          await tester.ensureVisible(campusSwitch);
+          await tester.pumpAndSettle();
+          await tester.tap(campusSwitch);
+          await tester.pump();
+        }
+
+        container
+            .read(appSettingProvider.notifier)
+            .update((settings) => settings.copyWith(closeConnections: true));
+        await tester.pump();
+        expect(container.read(appSettingProvider).closeConnections, isTrue);
+        response.complete(_campusConfig(2));
+        await tester.pumpAndSettle();
+
+        final settings = container.read(appSettingProvider);
+        expect(settings.closeConnections, isTrue);
+        expect(settings.campusHostsByOperator, hasLength(2));
+        expect(settings.campusNetworkEnabled, !refreshOnEntry);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets(
+    'an empty remote campus configuration clears cache and disables mode',
+    (tester) async {
+      var restarts = 0;
+      final container = await _pumpCampusSettings(
+        tester,
+        initial: AppSettingProps(
+          campusNetworkEnabled: true,
+          campusOperator: 'line_5',
+          campusHostsByOperator: _campusConfig(5).hostsByOperator,
+        ),
+        loadConfig: () async => _campusConfig(0),
+        restartCore: () async => restarts++,
+      );
+      final settings = container.read(appSettingProvider);
+      expect(settings.campusHostsByOperator, isEmpty);
+      expect(settings.campusOperator, isEmpty);
+      expect(settings.campusNetworkEnabled, isFalse);
+      expect(restarts, 1);
+
+      final lineTile = find.byKey(
+        const ValueKey('advanced-campus-network-line-tile'),
+      );
+      await tester.ensureVisible(lineTile);
+      await tester.pumpAndSettle();
+      final l10n = tester
+          .element(find.byType(FengWoAdvancedSettingsView))
+          .appLocalizations;
+      expect(
+        find.descendant(of: lineTile, matching: find.text(l10n.none)),
+        findsOneWidget,
+      );
+      await tester.tap(lineTile);
+      await tester.pumpAndSettle();
+      expect(find.byType(Dialog), findsNothing);
+      expect(find.text(l10n.campusNetworkLineNumber(1)), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'enabling with an empty refreshed campus config does not restore old lines',
+    (tester) async {
+      var loads = 0;
+      var restarts = 0;
+      final container = await _pumpCampusSettings(
+        tester,
+        loadConfig: () async => _campusConfig(++loads == 1 ? 5 : 0),
+        restartCore: () async => restarts++,
+      );
+      expect(
+        container.read(appSettingProvider).campusHostsByOperator,
+        hasLength(5),
+      );
+      final campusSwitch = find.byKey(
+        const ValueKey('advanced-campus-network-switch'),
+      );
+      await tester.ensureVisible(campusSwitch);
+      await tester.pumpAndSettle();
+      await tester.tap(campusSwitch);
+      await tester.pumpAndSettle();
+
+      final settings = container.read(appSettingProvider);
+      expect(loads, 2);
+      expect(restarts, 0);
+      expect(settings.campusHostsByOperator, isEmpty);
+      expect(settings.campusOperator, isEmpty);
+      expect(settings.campusNetworkEnabled, isFalse);
+      expect(tester.widget<Switch>(campusSwitch).value, isFalse);
       expect(tester.takeException(), isNull);
     },
   );
@@ -388,6 +603,54 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+}
+
+CampusNetworkConfig _campusConfig(int count) {
+  return CampusNetworkConfig.fromRemote({
+    'campusHostsByOperator': {
+      for (var index = 0; index < count; index++)
+        'line_${index + 1}': ['192.0.2.${index + 1} campus.example'],
+    },
+  });
+}
+
+Future<ProviderContainer> _pumpCampusSettings(
+  WidgetTester tester, {
+  required CampusNetworkConfigLoader loadConfig,
+  AppSettingProps initial = const AppSettingProps(),
+  CampusNetworkCoreRestarter? restartCore,
+}) async {
+  const size = Size(1280, 1000);
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  final container = ProviderContainer(
+    overrides: [
+      currentProfileProvider.overrideWithValue(null),
+      appUpdateCurrentVersionProvider.overrideWithValue(null),
+    ],
+  );
+  globalState.container = container;
+  container.read(viewSizeProvider.notifier).value = size;
+  container.read(appSettingProvider.notifier).value = initial;
+  addTearDown(() async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    container.dispose();
+  });
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: _TestApp(
+        child: FengWoAdvancedSettingsView(
+          campusNetworkConfigLoader: loadConfig,
+          campusNetworkCoreRestarter: restartCore ?? () async {},
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return container;
 }
 
 Future<CampusNetworkConfig> _loadTwoCampusLines() async {
