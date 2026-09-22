@@ -109,28 +109,6 @@ class FengWoGlobalAccountHeader extends StatelessWidget {
                 ),
                 SizedBox(width: tight ? 2 : (compact ? 4 : 10)),
                 if (!compact)
-                  Container(
-                    constraints: const BoxConstraints(maxWidth: 150),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 15,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: scheme.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Text(
-                      planName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: scheme.primary,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                SizedBox(width: compact ? 2 : 12),
-                if (!compact)
                   _GlobalHeaderIcon(
                     icon: Icons.translate_rounded,
                     compact: compact,

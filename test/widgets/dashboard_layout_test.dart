@@ -1878,7 +1878,7 @@ void main() {
         rate: 1,
         tags: const ['US'],
         isOnline: false,
-        rawData: const {},
+        rawData: const {'is_online': false},
       ),
     ];
     addTearDown(() => globalState.xboardNodes = const []);
@@ -2000,7 +2000,7 @@ void main() {
         rate: 1,
         tags: ['JP'],
         isOnline: true,
-        rawData: {},
+        rawData: {'is_online': true},
       ),
     ];
     addTearDown(() => globalState.xboardNodes = const []);

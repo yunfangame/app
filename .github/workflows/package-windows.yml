@@ -175,6 +175,11 @@ jobs:
             'test/common/xboard_login_persistence_test.dart',
             'test/common/xboard_credential_diagnostics_test.dart',
             'test/common/xboard_auth_test.dart',
+            'test/common/fengwo_node_country_test.dart',
+            'test/common/xboard_nodes_state_test.dart',
+            'test/widgets/reference_node_views_test.dart',
+            'test/widgets/dashboard_layout_test.dart',
+            'test/widgets/fengwo_global_account_header_test.dart',
             'test/common/crisp_support_test.dart',
             'test/pages/customer_service_test.dart',
             'test/pages/customer_service_session_test.dart',
@@ -390,7 +395,7 @@ jobs:
           $metadata = [ordered]@{
             version = (Get-Item build/windows/x64/runner/Release/FengWo.exe).VersionInfo.ProductVersion
             release_channel = 'stable'
-            fixes = @('windows_public_root_trust', 'preferences_atomic_save_and_recovery', 'upgrade_save_before_installer', 'windows_tun_service_repair', 'windows_winhttp_ipv6_bypass', 'windows_autostart_verified')
+            fixes = @('windows_public_root_trust', 'preferences_atomic_save_and_recovery', 'upgrade_save_before_installer', 'windows_tun_service_repair', 'windows_winhttp_ipv6_bypass', 'windows_autostart_verified', 'v2_node_metadata', 'country_tag_count', 'global_plan_badge_removed')
             source_branch = 'codex/desktop-upstream-0897-port'
             source_sha = $env:GITHUB_SHA
             source_ref = $env:GITHUB_REF

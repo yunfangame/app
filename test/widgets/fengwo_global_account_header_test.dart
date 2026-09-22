@@ -28,6 +28,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('下次套餐重置时间'), findsOneWidget);
+    expect(find.text('会员套餐'), findsNothing);
+    expect(find.textContaining('会员套餐 · '), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
