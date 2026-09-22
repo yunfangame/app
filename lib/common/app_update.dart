@@ -36,6 +36,19 @@ class AppUpdateRelease {
   final String? sha256;
 }
 
+enum AppUpdateCheckStatus { available, upToDate, unavailable }
+
+class AppUpdateCheckResult {
+  const AppUpdateCheckResult({required this.status, this.release});
+
+  final AppUpdateCheckStatus status;
+  final AppUpdateRelease? release;
+}
+
+class AppUpdateUnavailableException implements Exception {
+  const AppUpdateUnavailableException();
+}
+
 class AppUpdatePreferenceStore {
   AppUpdatePreferenceStore({
     Future<SharedPreferences> Function()? preferencesLoader,
@@ -89,17 +102,16 @@ class AppUpdateService {
   final String aesKey;
   final String signingPublicKey;
 
-  Future<AppUpdateRelease?> checkForUpdate({
+  Future<AppUpdateCheckResult> discoverUpdate({
     required String currentVersion,
-    bool respectIgnored = true,
   }) async {
     final packageKey = _packageKeyResolver();
-    if (packageKey == null) return null;
+    if (packageKey == null) throw const AppUpdateUnavailableException();
 
     final mainConfig = await _mainConfigLoader();
     final manifestUri = appUpdateManifestUriFromConfig(mainConfig);
     if (manifestUri == null) {
-      throw const FormatException('Update manifest URL is not configured');
+      throw const AppUpdateUnavailableException();
     }
     final payload = await (_manifestLoader ?? _loadManifest)(manifestUri);
     final decoded = await _decodeManifest(payload);
@@ -108,16 +120,36 @@ class AppUpdateService {
       packageKey: packageKey,
       manifestUri: manifestUri,
     );
-    if (release == null ||
-        compareAppUpdateVersions(release.version, currentVersion) <= 0) {
-      return null;
+    if (release == null) {
+      return const AppUpdateCheckResult(
+        status: AppUpdateCheckStatus.unavailable,
+      );
     }
-    if (respectIgnored &&
-        await _preferenceStore.isIgnored(packageKey, release.version)) {
+    if (compareAppUpdateVersions(release.version, currentVersion) <= 0) {
+      return const AppUpdateCheckResult(status: AppUpdateCheckStatus.upToDate);
+    }
+    return AppUpdateCheckResult(
+      status: AppUpdateCheckStatus.available,
+      release: release,
+    );
+  }
+
+  Future<AppUpdateRelease?> checkForUpdate({
+    required String currentVersion,
+    bool respectIgnored = true,
+  }) async {
+    final result = await discoverUpdate(currentVersion: currentVersion);
+    final release = result.release;
+    if (release != null && respectIgnored && await isIgnored(release)) {
       return null;
     }
     return release;
   }
+
+  Future<bool> isIgnored(AppUpdateRelease release) =>
+      _preferenceStore.isIgnored(release.packageKey, release.version);
+
+  void close() => _dio.close(force: true);
 
   Future<void> ignore(AppUpdateRelease release) =>
       _preferenceStore.ignore(release.packageKey, release.version);

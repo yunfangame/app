@@ -162,8 +162,6 @@ enum DnsMode {
   hosts,
 }
 
-enum CampusOperator { telecom, unicom, mobile }
-
 enum ExternalControllerStatus {
   @JsonValue('')
   close(''),

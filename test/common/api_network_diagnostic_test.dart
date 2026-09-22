@@ -68,6 +68,148 @@ void main() {
     expect(jsonEncode(tls.toDiagnosticFields()), isNot(contains('private')));
   });
 
+  test('retains nested BoringSSL issuer reason without raw TLS details', () {
+    final diagnostic = classifyApiNetworkFailure(
+      _dioError(
+        _dioError(
+          const HandshakeException(
+            'Handshake error in client for private.example '
+            'customer@example.com secret-password',
+            OSError(
+              'CERTIFICATE_VERIFY_FAILED: unable to get local issuer '
+              'certificate(handshake.cc:297) subject=private-certificate',
+              -1,
+            ),
+          ),
+        ),
+      ),
+      stage: 'login',
+    );
+    expect(diagnostic.failure, ApiNetworkFailure.tls);
+    expect(diagnostic.osErrorCode, -1);
+    expect(diagnostic.tlsFailure, ApiTlsFailure.missingIssuer);
+    expect(diagnostic.toDiagnosticFields(), {
+      'reason': 'tls',
+      'stage': 'login',
+      'tls_reason': 'missing_issuer',
+      'os_error_code': -1,
+    });
+    final serialized = jsonEncode(diagnostic.toDiagnosticFields());
+    for (final forbidden in [
+      'private',
+      'customer',
+      'example.com',
+      'secret',
+      'CERTIFICATE_VERIFY_FAILED',
+      'handshake.cc',
+      'subject=',
+    ]) {
+      expect(serialized, isNot(contains(forbidden)));
+    }
+  });
+
+  for (final entry in {
+    'unable to get issuer certificate': 'missing_issuer',
+    'unable to verify the first certificate': 'missing_issuer',
+    'CERTIFICATE_VERIFY_FAILED: certificate has expired': 'expired',
+    'CERT_HAS_EXPIRED': 'expired',
+    'CERTIFICATE_VERIFY_FAILED: certificate is not yet valid': 'not_yet_valid',
+    'CERTIFICATE_VERIFY_FAILED: Hostname mismatch': 'hostname_mismatch',
+    'IP address mismatch': 'hostname_mismatch',
+    'CERTIFICATE_VERIFY_FAILED: self-signed certificate': 'untrusted',
+    'SELF_SIGNED_CERT_IN_CHAIN': 'untrusted',
+    'CERTIFICATE_VERIFY_FAILED: certificate untrusted': 'untrusted',
+    'CERTIFICATE_VERIFY_FAILED: certificate revoked': 'revoked',
+    'CERTIFICATE_VERIFY_FAILED': 'certificate_verify_failed',
+    'certificate verification failed': 'certificate_verify_failed',
+    'TLS handshake failed': 'handshake_failed',
+  }.entries) {
+    for (final inOsError in [false, true]) {
+      test('classifies TLS reason ${entry.key} in OS error $inOsError', () {
+        final diagnostic = classifyApiNetworkFailure(
+          _dioError(
+            TlsException(
+              inOsError ? 'private TLS details' : entry.key,
+              inOsError ? OSError(entry.key, -1) : null,
+            ),
+          ),
+          stage: 'api_probe',
+        );
+        expect(diagnostic.failure, ApiNetworkFailure.tls);
+        expect(diagnostic.toDiagnosticFields()['tls_reason'], entry.value);
+      });
+    }
+  }
+
+  test('bad certificate and handshake types have safe fallback reasons', () {
+    final badCertificate = classifyApiNetworkFailure(
+      DioException(
+        requestOptions: RequestOptions(),
+        type: DioExceptionType.badCertificate,
+      ),
+      stage: 'login',
+    );
+    expect(badCertificate.failure, ApiNetworkFailure.tls);
+    expect(
+      badCertificate.toDiagnosticFields()['tls_reason'],
+      'certificate_verify_failed',
+    );
+    final handshake = classifyApiNetworkFailure(
+      const HandshakeException('private details'),
+      stage: 'login',
+    );
+    expect(handshake.toDiagnosticFields()['tls_reason'], 'handshake_failed');
+    final unknownTls = classifyApiNetworkFailure(
+      const TlsException('private details'),
+      stage: 'login',
+    );
+    expect(unknownTls.failure, ApiNetworkFailure.tls);
+    expect(unknownTls.toDiagnosticFields(), {
+      'reason': 'tls',
+      'stage': 'login',
+    });
+  });
+
+  test('HTTP precedence drops TLS reason while retaining OS evidence', () {
+    final request = RequestOptions();
+    final diagnostic = classifyApiNetworkFailure(
+      DioException(
+        requestOptions: request,
+        response: Response(requestOptions: request, statusCode: 403),
+        type: DioExceptionType.badCertificate,
+        error: _dioError(
+          const HandshakeException(
+            'Handshake error in client',
+            OSError(
+              'CERTIFICATE_VERIFY_FAILED: unable to get local issuer '
+              'certificate',
+              -1,
+            ),
+          ),
+        ),
+      ),
+      stage: 'login',
+    );
+    expect(diagnostic.failure, ApiNetworkFailure.http);
+    expect(diagnostic.statusCode, 403);
+    expect(diagnostic.osErrorCode, -1);
+    expect(diagnostic.tlsFailure, isNull);
+    expect(diagnostic.toDiagnosticFields(), {
+      'reason': 'http',
+      'stage': 'login',
+      'http_status': 403,
+      'os_error_code': -1,
+    });
+    expect(
+      const ApiNetworkDiagnostic(
+        failure: ApiNetworkFailure.http,
+        stage: 'login',
+        tlsFailure: ApiTlsFailure.expired,
+      ).toDiagnosticFields().containsKey('tls_reason'),
+      isFalse,
+    );
+  });
+
   test('recognizes DNS messages without a portable OS code', () {
     expect(
       classifyApiNetworkFailure(

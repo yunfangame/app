@@ -76,6 +76,49 @@ void main() {
       ),
       isNotNull,
     );
+    expect(
+      (await service.discoverUpdate(currentVersion: '0.8.96')).release,
+      isNotNull,
+    );
+  });
+
+  test('does not identify missing or disabled packages as latest', () async {
+    final service = _service(
+      packageKey: 'windows-arm64',
+      manifest: _manifest(armVersion: '1.0.5', windowsVersion: '1.0.5'),
+    );
+    final result = await service.discoverUpdate(currentVersion: '1.0.4');
+    expect(result.status, AppUpdateCheckStatus.unavailable);
+    expect(result.release, isNull);
+  });
+
+  test(
+    'rejects unsigned manifests when update signing keys are configured',
+    () async {
+      final service = AppUpdateService(
+        mainConfigLoader: () async => {'UpdateUrl': manifestUrl},
+        manifestLoader: (_) async =>
+            _manifest(armVersion: '1.0.5', windowsVersion: '1.0.5'),
+        packageKeyResolver: () => 'macos-arm64',
+        aesKey: 'test-key',
+        signingPublicKey: 'test-public-key',
+      );
+      await expectLater(
+        service.discoverUpdate(currentVersion: '1.0.4'),
+        throwsFormatException,
+      );
+    },
+  );
+
+  test('missing update configuration is unavailable', () async {
+    final service = AppUpdateService(
+      mainConfigLoader: () async => {},
+      packageKeyResolver: () => 'windows-x64',
+    );
+    await expectLater(
+      service.discoverUpdate(currentVersion: '1.0.4'),
+      throwsA(isA<AppUpdateUnavailableException>()),
+    );
   });
 
   test('requires HTTPS for manifest and installer URLs', () {

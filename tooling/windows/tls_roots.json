@@ -1,0 +1,23 @@
+{
+  "bundle_version": 1,
+  "scope": "Windows Dart default SecurityContext; append-only; no system certificate store changes",
+  "verified_on": "2026-09-22",
+  "roots": [
+    {
+      "subject": "Certum Trusted Network CA",
+      "asset": "assets/certificates/certum_trusted_network_ca.der",
+      "source": "https://repository.certum.pl/ctnca.cer",
+      "repository": "https://www.certum.eu/en/cert_expertise_root_certificates/",
+      "sha256_der": "5c58468d55f58e497e743982d2b50010b6d165374acf83a7d4a32db768c4408e",
+      "not_after": "2029-12-31T12:07:37Z"
+    },
+    {
+      "subject": "ISRG Root X1",
+      "asset": "assets/certificates/isrg_root_x1.der",
+      "source": "https://letsencrypt.org/certs/isrgrootx1.der",
+      "repository": "https://letsencrypt.org/certificates/",
+      "sha256_der": "96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6",
+      "not_after": "2035-06-04T11:04:38Z"
+    }
+  ]
+}

@@ -9,6 +9,7 @@ import 'package:rust_api/rust_api.dart';
 
 import 'application.dart';
 import 'common/common.dart';
+import 'common/windows_tls_trust.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,6 +25,29 @@ Future<void> main() async {
         })
       : null;
   try {
+    if (Platform.isWindows) {
+      try {
+        final rootCount = await runStartupStage<int>(
+          stage: '准备安全连接',
+          timeout: const Duration(seconds: 5),
+          operation: windowsTlsTrust.initialize,
+          onStart: (stage) => startupStage.value = '$stage…',
+        );
+        unawaited(
+          diagnosticLog.record(
+            'tls.trust.initialized',
+            fields: {'supplemental_roots': rootCount, 'bundle_version': 1},
+          ),
+        );
+      } catch (error) {
+        unawaited(
+          diagnosticLog.record(
+            'tls.trust.failed',
+            fields: {'error_type': error.runtimeType.toString()},
+          ),
+        );
+      }
+    }
     if (system.isDesktop) {
       await runStartupStage<void>(
         stage: '加载本地组件',

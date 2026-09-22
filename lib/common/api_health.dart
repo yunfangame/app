@@ -619,6 +619,7 @@ class ApiHealthService {
         stage: transport.stage,
         statusCode: transport.statusCode,
         osErrorCode: transport.osErrorCode,
+        tlsFailure: transport.tlsFailure,
         endpointRef: transport.endpointRef,
         elapsedMilliseconds: elapsedMilliseconds,
         attemptId: attemptId,
