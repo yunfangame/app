@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('direct', 'upstream', 'current', 'current_no_ipv6')][string]$Mode,
+    [ValidateSet('direct', 'upstream', 'current', 'current_no_ipv6', 'bracket')][string]$Mode,
     [string]$OutputDirectory,
     [switch]$ProbeOnly
 )
@@ -9,7 +9,7 @@ New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 Add-Type -Path "$PSScriptRoot/chrome_winhttp_probe.cs"
 $proxyValue = if ($Mode -eq 'direct') { $null } else { '127.0.0.1:17890' }
 $proxyCases = Get-Content "$PSScriptRoot/chrome_proxy_cases.json" -Raw | ConvertFrom-Json
-$bypassValue = if ($Mode -eq 'direct') { '' } else { $proxyCases.$Mode -join ';' }
+$bypassValue = if ($Mode -eq 'direct') { '' } elseif ($Mode -eq 'bracket') { ($proxyCases.current | ForEach-Object { if ($_ -eq '::1') { '[::1]' } else { $_ } }) -join ';' } else { $proxyCases.$Mode -join ';' }
 $installerUrl = 'https://dl.google.com/tag/s/appguid%3D%7B8A69D345-D564-463C-AFF1-A69D9E530F96%7D%26appname%3DGoogle%2520Chrome%26needsadmin%3Dtrue%26ap%3Dx64-stable/update2/installers/ChromeSetup.exe'
 function Invoke-NetworkProbe {
     $results = @()

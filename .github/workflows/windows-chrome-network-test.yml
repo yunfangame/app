@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        proxy: [direct, upstream, current, current_no_ipv6]
+        proxy: ${{ fromJSON(contains(github.event.head_commit.message, '[bracket-install]') && '["bracket"]' || '["direct","upstream","current","current_no_ipv6"]') }}
     steps:
       - uses: actions/checkout@v4
         with:
