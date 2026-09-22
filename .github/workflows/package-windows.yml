@@ -83,6 +83,11 @@ jobs:
           flutter test test/windows_runtime_bundle_test.dart --reporter expanded
           if ($LASTEXITCODE -ne 0) { throw 'Windows packaging tests failed' }
 
+      - name: Test Windows auto launch uninstall callbacks
+        shell: pwsh
+        run: |
+          ./tooling/windows/test_autostart_uninstall.ps1 -OutputDirectory "$env:RUNNER_TEMP/autostart-uninstall-verification"
+
       - name: Apply pinned Core patches
         shell: pwsh
         run: |
@@ -425,5 +430,15 @@ jobs:
             ${{ runner.temp }}/upgrade-verification/*
             ${{ runner.temp }}/helper-repair-verification/*
             ${{ runner.temp }}/autostart-verification/*
+            ${{ runner.temp }}/autostart-uninstall-verification/*.json
+            ${{ runner.temp }}/autostart-uninstall-verification/*.log
             ${{ runner.temp }}/proxy-winhttp-regression.txt
           if-no-files-found: warn
+
+      - name: Retain installer for failed verification diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fengwo-windows-failed-verification
+          path: dist/*windows*.exe
+          if-no-files-found: ignore
