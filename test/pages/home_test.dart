@@ -1,4 +1,5 @@
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/campus_network.dart';
 import 'package:fl_clash/common/theme.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
@@ -499,7 +500,7 @@ void main() {
     },
   );
 
-  testWidgets('desktop resources route renders advanced settings', (
+  testWidgets('desktop advanced settings and navigation show update badges', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1400, 1000);
@@ -507,7 +508,49 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final container = ProviderContainer();
+    final updateService = AppUpdateService(
+      packageKeyResolver: () => 'windows-x64',
+      mainConfigLoader: () async => {
+        'UpdateUrl': 'https://example.com/update.json',
+      },
+      manifestLoader: (_) async => {
+        'Authentication': 'FengWo',
+        'format': 'fengwo-update',
+        'schemaVersion': 1,
+        'packages': {
+          'windows-x64': {
+            'enabled': true,
+            'version': '1.0.5',
+            'downloadUrl': 'https://example.com/FengWo.exe',
+          },
+        },
+      },
+    );
+    addTearDown(updateService.close);
+    final container = ProviderContainer(
+      overrides: [
+        appUpdateServiceProvider.overrideWithValue(updateService),
+        navigationItemsStateProvider.overrideWithValue(
+          NavigationItemsState(
+            value: [
+              NavigationItem(
+                icon: const Icon(Icons.space_dashboard),
+                label: PageLabel.dashboard,
+                builder: (_) => const SizedBox(),
+              ),
+              NavigationItem(
+                icon: const Icon(Icons.tune),
+                label: PageLabel.resources,
+                builder: (_) => FengWoAdvancedSettingsView(
+                  campusNetworkConfigLoader: () async =>
+                      const CampusNetworkConfig({}),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
     addTearDown(container.dispose);
     globalState.container = container;
     container.read(viewSizeProvider.notifier).value = const Size(1400, 1000);
@@ -521,9 +564,27 @@ void main() {
         child: const _TestApp(child: HomePage()),
       ),
     );
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.byType(FengWoAdvancedSettingsView), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('advanced-software-update-card')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('advanced-settings-update-badge')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('app-update-red-dot')), findsNWidgets(2));
+    expect(find.text('v1.0.2'), findsOneWidget);
+    expect(find.byKey(const ValueKey('desktop-check-update')), findsNothing);
+    expect(
+      find.ancestor(
+        of: find.byKey(const Key('desktop-package-version')),
+        matching: find.byType(TextButton),
+      ),
+      findsNothing,
+    );
     expect(tester.takeException(), isNull);
   });
 

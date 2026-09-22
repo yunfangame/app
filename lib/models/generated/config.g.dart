@@ -33,52 +33,52 @@ const _$ChainProxyProtocolEnumMap = {
   ChainProxyProtocol.http: 'http',
 };
 
-_AppSettingProps _$AppSettingPropsFromJson(
-  Map<String, dynamic> json,
-) => _AppSettingProps(
-  locale: json['locale'] as String?,
-  dashboardWidgets: json['dashboardWidgets'] == null
-      ? defaultDashboardWidgets
-      : dashboardWidgetsSafeFormJson(json['dashboardWidgets'] as List?),
-  onlyStatisticsProxy: json['onlyStatisticsProxy'] as bool? ?? false,
-  autoLaunch: json['autoLaunch'] as bool? ?? false,
-  silentLaunch: json['silentLaunch'] as bool? ?? false,
-  autoRun: json['autoRun'] as bool? ?? false,
-  openLogs: json['openLogs'] as bool? ?? false,
-  closeConnections: json['closeConnections'] as bool? ?? false,
-  testUrl: json['testUrl'] as String? ?? defaultTestUrl,
-  isAnimateToPage: json['isAnimateToPage'] as bool? ?? true,
-  autoCheckUpdate: json['autoCheckUpdate'] as bool? ?? true,
-  showLabel: json['showLabel'] as bool? ?? false,
-  disclaimerAccepted: json['disclaimerAccepted'] as bool? ?? false,
-  crashlyticsTip: json['crashlyticsTip'] as bool? ?? false,
-  crashlytics: json['crashlytics'] as bool? ?? false,
-  minimizeOnExit: json['minimizeOnExit'] as bool? ?? true,
-  hidden: json['hidden'] as bool? ?? false,
-  developerMode: json['developerMode'] as bool? ?? false,
-  campusNetworkEnabled: json['campusNetworkEnabled'] as bool? ?? false,
-  campusOperator:
-      $enumDecodeNullable(_$CampusOperatorEnumMap, json['campusOperator']) ??
-      CampusOperator.telecom,
-  campusHostsByOperator:
-      (json['campusHostsByOperator'] as Map<String, dynamic>?)?.map(
-        (k, e) => MapEntry(k, Map<String, String>.from(e as Map)),
-      ) ??
-      const {},
-  chainProxies:
-      (json['chainProxies'] as List<dynamic>?)
-          ?.map((e) => ChainProxyConfig.fromJson(e as Map<String, dynamic>))
-          .toList() ??
-      const [],
-  activeChainProxyName: json['activeChainProxyName'] as String?,
-  restoreStrategy:
-      $enumDecodeNullable(_$RestoreStrategyEnumMap, json['restoreStrategy']) ??
-      RestoreStrategy.compatible,
-  showTrayTitle: json['showTrayTitle'] as bool? ?? true,
-  customUserAgent: json['customUserAgent'] as String? ?? '',
-  skipGlobalModeConfirmation:
-      json['skipGlobalModeConfirmation'] as bool? ?? false,
-);
+_AppSettingProps _$AppSettingPropsFromJson(Map<String, dynamic> json) =>
+    _AppSettingProps(
+      locale: json['locale'] as String?,
+      dashboardWidgets: json['dashboardWidgets'] == null
+          ? defaultDashboardWidgets
+          : dashboardWidgetsSafeFormJson(json['dashboardWidgets'] as List?),
+      onlyStatisticsProxy: json['onlyStatisticsProxy'] as bool? ?? false,
+      autoLaunch: json['autoLaunch'] as bool? ?? false,
+      silentLaunch: json['silentLaunch'] as bool? ?? false,
+      autoRun: json['autoRun'] as bool? ?? false,
+      openLogs: json['openLogs'] as bool? ?? false,
+      closeConnections: json['closeConnections'] as bool? ?? false,
+      testUrl: json['testUrl'] as String? ?? defaultTestUrl,
+      isAnimateToPage: json['isAnimateToPage'] as bool? ?? true,
+      autoCheckUpdate: json['autoCheckUpdate'] as bool? ?? true,
+      showLabel: json['showLabel'] as bool? ?? false,
+      disclaimerAccepted: json['disclaimerAccepted'] as bool? ?? false,
+      crashlyticsTip: json['crashlyticsTip'] as bool? ?? false,
+      crashlytics: json['crashlytics'] as bool? ?? false,
+      minimizeOnExit: json['minimizeOnExit'] as bool? ?? true,
+      hidden: json['hidden'] as bool? ?? false,
+      developerMode: json['developerMode'] as bool? ?? false,
+      campusNetworkEnabled: json['campusNetworkEnabled'] as bool? ?? false,
+      campusOperator: json['campusOperator'] as String? ?? 'telecom',
+      campusHostsByOperator:
+          (json['campusHostsByOperator'] as Map<String, dynamic>?)?.map(
+            (k, e) => MapEntry(k, Map<String, String>.from(e as Map)),
+          ) ??
+          const {},
+      chainProxies:
+          (json['chainProxies'] as List<dynamic>?)
+              ?.map((e) => ChainProxyConfig.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      activeChainProxyName: json['activeChainProxyName'] as String?,
+      restoreStrategy:
+          $enumDecodeNullable(
+            _$RestoreStrategyEnumMap,
+            json['restoreStrategy'],
+          ) ??
+          RestoreStrategy.compatible,
+      showTrayTitle: json['showTrayTitle'] as bool? ?? true,
+      customUserAgent: json['customUserAgent'] as String? ?? '',
+      skipGlobalModeConfirmation:
+          json['skipGlobalModeConfirmation'] as bool? ?? false,
+    );
 
 Map<String, dynamic> _$AppSettingPropsToJson(_AppSettingProps instance) =>
     <String, dynamic>{
@@ -103,7 +103,7 @@ Map<String, dynamic> _$AppSettingPropsToJson(_AppSettingProps instance) =>
       'hidden': instance.hidden,
       'developerMode': instance.developerMode,
       'campusNetworkEnabled': instance.campusNetworkEnabled,
-      'campusOperator': _$CampusOperatorEnumMap[instance.campusOperator]!,
+      'campusOperator': instance.campusOperator,
       'campusHostsByOperator': instance.campusHostsByOperator,
       'chainProxies': instance.chainProxies,
       'activeChainProxyName': instance.activeChainProxyName,
@@ -112,12 +112,6 @@ Map<String, dynamic> _$AppSettingPropsToJson(_AppSettingProps instance) =>
       'customUserAgent': instance.customUserAgent,
       'skipGlobalModeConfirmation': instance.skipGlobalModeConfirmation,
     };
-
-const _$CampusOperatorEnumMap = {
-  CampusOperator.telecom: 'telecom',
-  CampusOperator.unicom: 'unicom',
-  CampusOperator.mobile: 'mobile',
-};
 
 const _$RestoreStrategyEnumMap = {
   RestoreStrategy.compatible: 'compatible',

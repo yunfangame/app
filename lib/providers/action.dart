@@ -21,6 +21,7 @@ import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/providers/actions/system_exit.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/app_update_dialog.dart';
+import 'package:fl_clash/widgets/app_update_download_dialog.dart';
 import 'package:fl_clash/widgets/windows_tun_progress.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

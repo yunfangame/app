@@ -10722,6 +10722,301 @@ class AppLocalizations {
       args: [],
     );
   }
+
+  /// `Software update`
+  String get softwareUpdate {
+    return Intl.message(
+      'Software update',
+      name: 'softwareUpdate',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Current version {version}`
+  String appUpdateCurrentVersion(String version) {
+    return Intl.message(
+      'Current version $version',
+      name: 'appUpdateCurrentVersion',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `Checking for updates…`
+  String get appUpdateChecking {
+    return Intl.message(
+      'Checking for updates…',
+      name: 'appUpdateChecking',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Version {version} is available`
+  String appUpdateAvailable(String version) {
+    return Intl.message(
+      'Version $version is available',
+      name: 'appUpdateAvailable',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `Version {version} is up to date`
+  String appUpdateLatest(String version) {
+    return Intl.message(
+      'Version $version is up to date',
+      name: 'appUpdateLatest',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `Could not check for updates. Please try again later.`
+  String get appUpdateFailed {
+    return Intl.message(
+      'Could not check for updates. Please try again later.',
+      name: 'appUpdateFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Update information for this platform is temporarily unavailable. Please try again later.`
+  String get appUpdateUnavailable {
+    return Intl.message(
+      'Update information for this platform is temporarily unavailable. Please try again later.',
+      name: 'appUpdateUnavailable',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Download update`
+  String get appUpdateDownload {
+    return Intl.message(
+      'Download update',
+      name: 'appUpdateDownload',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Downloading update…`
+  String get appUpdateDownloading {
+    return Intl.message(
+      'Downloading update…',
+      name: 'appUpdateDownloading',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Verifying download…`
+  String get appUpdateVerifying {
+    return Intl.message(
+      'Verifying download…',
+      name: 'appUpdateVerifying',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Download verified. The update is ready to install.`
+  String get appUpdateDownloadReady {
+    return Intl.message(
+      'Download verified. The update is ready to install.',
+      name: 'appUpdateDownloadReady',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Install update`
+  String get appUpdateInstall {
+    return Intl.message(
+      'Install update',
+      name: 'appUpdateInstall',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Cancel download`
+  String get appUpdateCancelDownload {
+    return Intl.message(
+      'Cancel download',
+      name: 'appUpdateCancelDownload',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Download cancelled`
+  String get appUpdateDownloadCancelled {
+    return Intl.message(
+      'Download cancelled',
+      name: 'appUpdateDownloadCancelled',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The download failed. Please check your connection and retry.`
+  String get appUpdateDownloadFailed {
+    return Intl.message(
+      'The download failed. Please check your connection and retry.',
+      name: 'appUpdateDownloadFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This update is missing verification information and cannot be downloaded. Please contact support.`
+  String get appUpdateChecksumMissing {
+    return Intl.message(
+      'This update is missing verification information and cannot be downloaded. Please contact support.',
+      name: 'appUpdateChecksumMissing',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The downloaded file did not pass verification. Please download it again.`
+  String get appUpdateChecksumMismatch {
+    return Intl.message(
+      'The downloaded file did not pass verification. Please download it again.',
+      name: 'appUpdateChecksumMismatch',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Could not open the installer. Please try again.`
+  String get appUpdateInstallerOpenFailed {
+    return Intl.message(
+      'Could not open the installer. Please try again.',
+      name: 'appUpdateInstallerOpenFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This update package is not supported for installation within the app.`
+  String get appUpdateUnsupportedPackage {
+    return Intl.message(
+      'This update package is not supported for installation within the app.',
+      name: 'appUpdateUnsupportedPackage',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Opening the installer…`
+  String get appUpdateInstalling {
+    return Intl.message(
+      'Opening the installer…',
+      name: 'appUpdateInstalling',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Download in background`
+  String get appUpdateBackground {
+    return Intl.message(
+      'Download in background',
+      name: 'appUpdateBackground',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Retry`
+  String get appUpdateRetry {
+    return Intl.message('Retry', name: 'appUpdateRetry', desc: '', args: []);
+  }
+
+  /// `{received} / {total}`
+  String appUpdateProgress(String received, String total) {
+    return Intl.message(
+      '$received / $total',
+      name: 'appUpdateProgress',
+      desc: '',
+      args: [received, total],
+    );
+  }
+
+  /// `Could not open the download link. Please try again later.`
+  String get appUpdateOpenFailed {
+    return Intl.message(
+      'Could not open the download link. Please try again later.',
+      name: 'appUpdateOpenFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Current {current}  →  Latest {latest}`
+  String appUpdateVersionSummary(String current, String latest) {
+    return Intl.message(
+      'Current $current  →  Latest $latest',
+      name: 'appUpdateVersionSummary',
+      desc: '',
+      args: [current, latest],
+    );
+  }
+
+  /// `Remind me later`
+  String get appUpdateLater {
+    return Intl.message(
+      'Remind me later',
+      name: 'appUpdateLater',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Skip this version`
+  String get appUpdateIgnoreVersion {
+    return Intl.message(
+      'Skip this version',
+      name: 'appUpdateIgnoreVersion',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The installer is open. Follow its instructions to complete the update.`
+  String get appUpdateInstallerOpened {
+    return Intl.message(
+      'The installer is open. Follow its instructions to complete the update.',
+      name: 'appUpdateInstallerOpened',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Download details`
+  String get appUpdateDownloadDetails {
+    return Intl.message(
+      'Download details',
+      name: 'appUpdateDownloadDetails',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Route {index}`
+  String campusNetworkLineNumber(int index) {
+    return Intl.message(
+      'Route $index',
+      name: 'campusNetworkLineNumber',
+      desc: '',
+      args: [index],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<AppLocalizations> {
