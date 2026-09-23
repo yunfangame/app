@@ -1370,5 +1370,37 @@
   "desktopProxyPortRange": "请输入 1024–49151 之间的整数端口",
   "desktopProxyPortUnchanged": "新端口不能与当前端口相同",
   "desktopProxyPortReserved": "该端口已用于其他本地监听服务，请选择其他端口",
-  "desktopProxyPortSaveRetry": "保存并重试"
+  "desktopProxyPortSaveRetry": "保存并重试",
+  "dnsAdvancedOptions": "DNS 高级选项",
+  "dnsAdvancedOptionsDescription": "编辑 Fake-IP 过滤，查看设置生效条件",
+  "dnsAdvancedLocalSettings": "这里编辑的是本机 DNS 设置。覆写开关和模式选择立即保存；过滤列表与范围在点击“保存”后更新。",
+  "dnsAdvancedLocalOverrideActive": "DNS 覆写已开启，本机 DNS 配置优先于订阅中的 DNS 配置。",
+  "dnsAdvancedLocalOverrideInactive": "DNS 覆写已关闭，通常优先使用订阅中的 DNS 配置；这里的修改仍会保存在本机。开启覆写后可固定使用这些设置。",
+  "dnsAdvancedCampusOverrideActive": "校园网模式正在强制覆写 DNS。校园网 hosts 配置生效期间，覆写开关由校园网模式管理。",
+  "dnsAdvancedFakeIpActive": "本机 DNS 配置使用 Fake-IP，下方过滤列表与范围会用于此配置。",
+  "dnsAdvancedFakeIpInactive": "当前模式不是 Fake-IP。过滤列表与范围会保存，但在此模式下不生效；可在上方主动选择 fake-ip。",
+  "dnsAdvancedDnsDisabled": "本机配置中的 DNS 已关闭，启用后才能使用这些设置。",
+  "dnsAdvancedEnableDns": "启用本机 DNS",
+  "dnsAdvancedFilterDescription": "命中过滤的域名会解析为真实 IP，而不是 Fake-IP。这不等于直连（DIRECT）；连接走直连还是代理，仍由分流规则决定。",
+  "dnsAdvancedLocalFiltersHint": "应用还会保留 localhost、*.local、*.lan 等局域网过滤项。清空这里的列表不会移除这些内置项。",
+  "dnsAdvancedFilterEditingHint": "每行一个域名或通配符，例如 *.example.com。通过增删整行编辑列表；保存时去除空行和完全重复项，并保留已有的高级条目。",
+  "dnsAdvancedSavedFiltersCount": "已保存 {count} 项",
+  "dnsAdvancedFilterEmpty": "暂无自定义过滤项",
+  "dnsAdvancedRangeDescription": "这是 Fake-IP 使用的虚拟 IPv4 地址池，不是代理地址或服务器地址。默认 198.18.0.1/16，通常无需修改；需要避免地址冲突时再调整。",
+  "dnsAdvancedRangeInvalid": "请输入前缀为 0–29 的 IPv4 CIDR，例如 198.18.0.1/16；地址池过小会导致核心无法启动。",
+  "@dnsAdvancedSavedFiltersCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dnsAdvancedFilterInvalid": "过滤项格式有误：{entry}。请填写域名、完整标签通配符、geosite:名称 或 rule-set:名称，不要填网址或空格。",
+  "@dnsAdvancedFilterInvalid": {
+    "placeholders": {
+      "entry": {
+        "type": "String"
+      }
+    }
+  }
 }

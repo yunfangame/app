@@ -1370,5 +1370,37 @@
   "desktopProxyPortRange": "Enter a whole-number port from 1024 to 49151",
   "desktopProxyPortUnchanged": "Choose a port different from the current port",
   "desktopProxyPortReserved": "This port is assigned to another local listener. Choose another port",
-  "desktopProxyPortSaveRetry": "Save and retry"
+  "desktopProxyPortSaveRetry": "Save and retry",
+  "dnsAdvancedOptions": "Advanced DNS options",
+  "dnsAdvancedOptionsDescription": "Edit Fake-IP filters and view when they apply",
+  "dnsAdvancedLocalSettings": "These are this device’s DNS settings. Override and mode changes are saved immediately. Filter and range edits are applied only when you select Save.",
+  "dnsAdvancedLocalOverrideActive": "DNS override is on. The local DNS configuration takes priority over subscription DNS.",
+  "dnsAdvancedLocalOverrideInactive": "DNS override is off. Subscription DNS normally takes priority; edits here are still saved locally. Enable override to always use these settings.",
+  "dnsAdvancedCampusOverrideActive": "Campus network mode is applying DNS override. The override switch is managed by campus network mode while its hosts configuration is active.",
+  "dnsAdvancedFakeIpActive": "The local DNS configuration uses Fake-IP. The filters and range below apply to it.",
+  "dnsAdvancedFakeIpInactive": "The selected mode is not Fake-IP. Filters and range are saved but do not apply in this mode. Select fake-ip above to use them.",
+  "dnsAdvancedDnsDisabled": "DNS is disabled in the local configuration. Enable it to use these settings.",
+  "dnsAdvancedEnableDns": "Enable local DNS",
+  "dnsAdvancedFilterDescription": "Matching domains resolve to real IP addresses instead of Fake-IP addresses. This does not set DIRECT routing: routing rules still decide whether a connection uses a proxy.",
+  "dnsAdvancedLocalFiltersHint": "The app also keeps local network exceptions such as localhost, *.local and *.lan. Clearing this list does not remove those built-in exceptions.",
+  "dnsAdvancedFilterEditingHint": "One domain or wildcard per line, such as *.example.com. Add or remove lines to edit the list. Blank lines and exact duplicates are removed on Save; existing advanced entries are preserved.",
+  "dnsAdvancedSavedFiltersCount": "Saved entries: {count}",
+  "dnsAdvancedFilterEmpty": "No custom filter entries",
+  "dnsAdvancedRangeDescription": "This is the virtual IPv4 address pool used by Fake-IP, not a proxy or server address. The default is 198.18.0.1/16. Change it only if you need to avoid an address conflict.",
+  "dnsAdvancedRangeInvalid": "Enter an IPv4 CIDR with a prefix from 0 to 29, such as 198.18.0.1/16. Smaller pools cannot start the core.",
+  "@dnsAdvancedSavedFiltersCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dnsAdvancedFilterInvalid": "Invalid filter: {entry}. Use a domain, a whole-label wildcard, geosite:name or rule-set:name; omit URLs and spaces.",
+  "@dnsAdvancedFilterInvalid": {
+    "placeholders": {
+      "entry": {
+        "type": "String"
+      }
+    }
+  }
 }

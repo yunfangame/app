@@ -1370,5 +1370,37 @@
   "desktopProxyPortRange": "1024～49151 の整数のポート番号を入力してください",
   "desktopProxyPortUnchanged": "現在とは異なるポートを指定してください",
   "desktopProxyPortReserved": "このポートは他のローカル待ち受けサービスに割り当てられています。別のポートを選んでください",
-  "desktopProxyPortSaveRetry": "保存して再試行"
+  "desktopProxyPortSaveRetry": "保存して再試行",
+  "dnsAdvancedOptions": "DNS の詳細設定",
+  "dnsAdvancedOptionsDescription": "Fake-IP フィルターと適用条件を確認・編集",
+  "dnsAdvancedLocalSettings": "この端末の DNS 設定です。上書きスイッチとモードの変更は即座に保存されます。フィルターと範囲の変更は「保存」を押すと反映されます。",
+  "dnsAdvancedLocalOverrideActive": "DNS の上書きが有効です。端末の DNS 設定がサブスクリプションの設定より優先されます。",
+  "dnsAdvancedLocalOverrideInactive": "DNS の上書きは無効です。通常はサブスクリプションの DNS が優先されますが、ここでの編集内容は端末に保存されます。常にこの設定を使うには上書きを有効にしてください。",
+  "dnsAdvancedCampusOverrideActive": "学内ネットワークモードが DNS の上書きを適用しています。hosts 設定の適用中は、このモードが上書きスイッチを管理します。",
+  "dnsAdvancedFakeIpActive": "端末の DNS 設定で Fake-IP を使用しています。以下のフィルターと範囲がこの設定に適用されます。",
+  "dnsAdvancedFakeIpInactive": "現在のモードは Fake-IP ではありません。フィルターと範囲は保存されますが適用されません。使用するには上で fake-ip を選択してください。",
+  "dnsAdvancedDnsDisabled": "端末の設定で DNS が無効になっています。これらの設定を使用するには有効にしてください。",
+  "dnsAdvancedEnableDns": "端末の DNS を有効にする",
+  "dnsAdvancedFilterDescription": "一致するドメインは Fake-IP ではなく実際の IP アドレスに名前解決されます。これは DIRECT 接続の指定ではありません。直接接続かプロキシ経由かはルーティングルールで決まります。",
+  "dnsAdvancedLocalFiltersHint": "localhost、*.local、*.lan などのローカルネットワーク用の例外も維持されます。この一覧を空にしても、組み込みの例外は削除されません。",
+  "dnsAdvancedFilterEditingHint": "1 行につきドメインまたはワイルドカードを 1 つ入力します（例：*.example.com）。行の追加・削除で編集できます。保存時に空行と完全な重複を除去し、既存の高度な項目は保持します。",
+  "dnsAdvancedSavedFiltersCount": "保存済み：{count} 件",
+  "dnsAdvancedFilterEmpty": "カスタムフィルターはありません",
+  "dnsAdvancedRangeDescription": "Fake-IP が使用する仮想 IPv4 アドレスプールです。プロキシやサーバーのアドレスではありません。既定値は 198.18.0.1/16 です。アドレスの競合を避ける必要がある場合のみ変更してください。",
+  "dnsAdvancedRangeInvalid": "198.18.0.1/16 のように、プレフィックスが 0～29 の IPv4 CIDR を入力してください。プールが小さすぎるとコアを起動できません。",
+  "@dnsAdvancedSavedFiltersCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dnsAdvancedFilterInvalid": "フィルターの形式が無効です：{entry}。ドメイン、ラベル全体のワイルドカード、geosite:名前 または rule-set:名前 を入力し、URL や空白は含めないでください。",
+  "@dnsAdvancedFilterInvalid": {
+    "placeholders": {
+      "entry": {
+        "type": "String"
+      }
+    }
+  }
 }

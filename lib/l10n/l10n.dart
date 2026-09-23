@@ -11372,6 +11372,186 @@ class AppLocalizations {
       args: [],
     );
   }
+
+  /// `Advanced DNS options`
+  String get dnsAdvancedOptions {
+    return Intl.message(
+      'Advanced DNS options',
+      name: 'dnsAdvancedOptions',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Edit Fake-IP filters and view when they apply`
+  String get dnsAdvancedOptionsDescription {
+    return Intl.message(
+      'Edit Fake-IP filters and view when they apply',
+      name: 'dnsAdvancedOptionsDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `These are this device’s DNS settings. Override and mode changes are saved immediately. Filter and range edits are applied only when you select Save.`
+  String get dnsAdvancedLocalSettings {
+    return Intl.message(
+      'These are this device’s DNS settings. Override and mode changes are saved immediately. Filter and range edits are applied only when you select Save.',
+      name: 'dnsAdvancedLocalSettings',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `DNS override is on. The local DNS configuration takes priority over subscription DNS.`
+  String get dnsAdvancedLocalOverrideActive {
+    return Intl.message(
+      'DNS override is on. The local DNS configuration takes priority over subscription DNS.',
+      name: 'dnsAdvancedLocalOverrideActive',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `DNS override is off. Subscription DNS normally takes priority; edits here are still saved locally. Enable override to always use these settings.`
+  String get dnsAdvancedLocalOverrideInactive {
+    return Intl.message(
+      'DNS override is off. Subscription DNS normally takes priority; edits here are still saved locally. Enable override to always use these settings.',
+      name: 'dnsAdvancedLocalOverrideInactive',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Campus network mode is applying DNS override. The override switch is managed by campus network mode while its hosts configuration is active.`
+  String get dnsAdvancedCampusOverrideActive {
+    return Intl.message(
+      'Campus network mode is applying DNS override. The override switch is managed by campus network mode while its hosts configuration is active.',
+      name: 'dnsAdvancedCampusOverrideActive',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The local DNS configuration uses Fake-IP. The filters and range below apply to it.`
+  String get dnsAdvancedFakeIpActive {
+    return Intl.message(
+      'The local DNS configuration uses Fake-IP. The filters and range below apply to it.',
+      name: 'dnsAdvancedFakeIpActive',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The selected mode is not Fake-IP. Filters and range are saved but do not apply in this mode. Select fake-ip above to use them.`
+  String get dnsAdvancedFakeIpInactive {
+    return Intl.message(
+      'The selected mode is not Fake-IP. Filters and range are saved but do not apply in this mode. Select fake-ip above to use them.',
+      name: 'dnsAdvancedFakeIpInactive',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `DNS is disabled in the local configuration. Enable it to use these settings.`
+  String get dnsAdvancedDnsDisabled {
+    return Intl.message(
+      'DNS is disabled in the local configuration. Enable it to use these settings.',
+      name: 'dnsAdvancedDnsDisabled',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Enable local DNS`
+  String get dnsAdvancedEnableDns {
+    return Intl.message(
+      'Enable local DNS',
+      name: 'dnsAdvancedEnableDns',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Matching domains resolve to real IP addresses instead of Fake-IP addresses. This does not set DIRECT routing: routing rules still decide whether a connection uses a proxy.`
+  String get dnsAdvancedFilterDescription {
+    return Intl.message(
+      'Matching domains resolve to real IP addresses instead of Fake-IP addresses. This does not set DIRECT routing: routing rules still decide whether a connection uses a proxy.',
+      name: 'dnsAdvancedFilterDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The app also keeps local network exceptions such as localhost, *.local and *.lan. Clearing this list does not remove those built-in exceptions.`
+  String get dnsAdvancedLocalFiltersHint {
+    return Intl.message(
+      'The app also keeps local network exceptions such as localhost, *.local and *.lan. Clearing this list does not remove those built-in exceptions.',
+      name: 'dnsAdvancedLocalFiltersHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `One domain or wildcard per line, such as *.example.com. Add or remove lines to edit the list. Blank lines and exact duplicates are removed on Save; existing advanced entries are preserved.`
+  String get dnsAdvancedFilterEditingHint {
+    return Intl.message(
+      'One domain or wildcard per line, such as *.example.com. Add or remove lines to edit the list. Blank lines and exact duplicates are removed on Save; existing advanced entries are preserved.',
+      name: 'dnsAdvancedFilterEditingHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Saved entries: {count}`
+  String dnsAdvancedSavedFiltersCount(int count) {
+    return Intl.message(
+      'Saved entries: $count',
+      name: 'dnsAdvancedSavedFiltersCount',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `No custom filter entries`
+  String get dnsAdvancedFilterEmpty {
+    return Intl.message(
+      'No custom filter entries',
+      name: 'dnsAdvancedFilterEmpty',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This is the virtual IPv4 address pool used by Fake-IP, not a proxy or server address. The default is 198.18.0.1/16. Change it only if you need to avoid an address conflict.`
+  String get dnsAdvancedRangeDescription {
+    return Intl.message(
+      'This is the virtual IPv4 address pool used by Fake-IP, not a proxy or server address. The default is 198.18.0.1/16. Change it only if you need to avoid an address conflict.',
+      name: 'dnsAdvancedRangeDescription',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Enter an IPv4 CIDR with a prefix from 0 to 29, such as 198.18.0.1/16. Smaller pools cannot start the core.`
+  String get dnsAdvancedRangeInvalid {
+    return Intl.message(
+      'Enter an IPv4 CIDR with a prefix from 0 to 29, such as 198.18.0.1/16. Smaller pools cannot start the core.',
+      name: 'dnsAdvancedRangeInvalid',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Invalid filter: {entry}. Use a domain, a whole-label wildcard, geosite:name or rule-set:name; omit URLs and spaces.`
+  String dnsAdvancedFilterInvalid(String entry) {
+    return Intl.message(
+      'Invalid filter: $entry. Use a domain, a whole-label wildcard, geosite:name or rule-set:name; omit URLs and spaces.',
+      name: 'dnsAdvancedFilterInvalid',
+      desc: '',
+      args: [entry],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<AppLocalizations> {
