@@ -41,7 +41,9 @@ class GlobalState {
   XboardLoginResult? xboardSession;
   String? xboardRuleAccountKey;
   XboardGuestConfig? xboardGuestConfig;
-  List<XboardNodeData> xboardNodes = const [];
+  List<XboardNodeData> _xboardNodes = const [];
+  bool _xboardNodesFresh = false;
+  int _xboardNodesRequestRevision = 0;
   int _xboardSessionRevision = 0;
   Future<void> Function()? logoutXboard;
   Future<bool> Function()? enableOfflineMode;
@@ -52,6 +54,7 @@ class GlobalState {
   bool _xboardAnnouncementPromptPending = false;
   final offlineModeNotifier = ValueNotifier(false);
   final xboardSessionRevisionNotifier = ValueNotifier<int>(0);
+  final xboardNodesRevisionNotifier = ValueNotifier<int>(0);
   final xboardMarqueeController = XboardMarqueeController();
   final xboardTicketController = XboardTicketController();
 
@@ -60,6 +63,20 @@ class GlobalState {
   bool get isOfflineMode => offlineModeNotifier.value;
 
   int get xboardSessionRevision => _xboardSessionRevision;
+
+  List<XboardNodeData> get xboardNodes => _xboardNodes;
+
+  set xboardNodes(List<XboardNodeData> nodes) {
+    _replaceXboardNodes(nodes, fresh: true);
+  }
+
+  bool get xboardNodesStatusFresh => _xboardNodesFresh && !isOfflineMode;
+
+  void _replaceXboardNodes(List<XboardNodeData> nodes, {required bool fresh}) {
+    _xboardNodes = List.unmodifiable(nodes);
+    _xboardNodesFresh = fresh;
+    xboardNodesRevisionNotifier.value++;
+  }
 
   void setOfflineMode(bool value) {
     offlineModeNotifier.value = value;
@@ -79,6 +96,7 @@ class GlobalState {
   int activateXboardSession(
     XboardLoginResult session, {
     List<XboardNodeData> nodes = const [],
+    bool nodesStatusFresh = false,
     String? accountEmail,
     String? ruleAccountKey,
   }) {
@@ -88,7 +106,8 @@ class GlobalState {
         normalizeXboardRuleAccountKey(ruleAccountKey) ??
         xboardRuleAccountKeyForEmail(session.subscription.email) ??
         xboardRuleAccountKeyForEmail(accountEmail);
-    xboardNodes = List.unmodifiable(nodes);
+    _xboardNodesRequestRevision++;
+    _replaceXboardNodes(nodes, fresh: nodesStatusFresh);
     xboardSessionRevisionNotifier.value = _xboardSessionRevision;
     return _xboardSessionRevision;
   }
@@ -101,10 +120,35 @@ class GlobalState {
   bool setXboardNodesForSession(
     XboardLoginResult session,
     int revision,
-    List<XboardNodeData> nodes,
-  ) {
-    if (!isActiveXboardSession(session, revision)) return false;
-    xboardNodes = List.unmodifiable(nodes);
+    List<XboardNodeData> nodes, {
+    int? requestRevision,
+  }) {
+    if (!isActiveXboardSession(session, revision) ||
+        (requestRevision != null &&
+            requestRevision != _xboardNodesRequestRevision)) {
+      return false;
+    }
+    _replaceXboardNodes(nodes, fresh: true);
+    return true;
+  }
+
+  int? beginXboardNodesRefresh(XboardLoginResult session, int revision) {
+    if (!isActiveXboardSession(session, revision)) return null;
+    return ++_xboardNodesRequestRevision;
+  }
+
+  bool markXboardNodesStaleForSession(
+    XboardLoginResult session,
+    int revision, {
+    int? requestRevision,
+  }) {
+    if (!isActiveXboardSession(session, revision) ||
+        (requestRevision != null &&
+            requestRevision != _xboardNodesRequestRevision)) {
+      return false;
+    }
+    _xboardNodesFresh = false;
+    xboardNodesRevisionNotifier.value++;
     return true;
   }
 
@@ -113,7 +157,8 @@ class GlobalState {
     _xboardAnnouncementPromptPending = false;
     xboardSession = null;
     xboardRuleAccountKey = null;
-    xboardNodes = const [];
+    _xboardNodesRequestRevision++;
+    _replaceXboardNodes(const [], fresh: false);
     xboardSessionRevisionNotifier.value = _xboardSessionRevision;
   }
 

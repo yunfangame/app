@@ -775,7 +775,7 @@
   "paymentMethod": "支付方式",
   "paidAt": "支付时间",
   "personalCenter": "个人中心",
-  "realTimeConnections": "实时连接",
+  "realTimeConnections": "代理规则",
   "advancedSettings": "高级设置",
   "practicalTools": "实用工具",
   "loggedIn": "登录成功",
@@ -1069,7 +1069,7 @@
   "savedRulesAccountHint": "规则仅保存在此设备，退出登录后保留，同账号再次登录自动恢复",
   "savedRulesRequireProfile": "请先选择订阅，再添加或管理规则",
   "noSavedRules": "暂无已保存规则",
-  "noSavedRulesDescription": "可从实时连接添加规则，也可以在这里直接创建",
+  "noSavedRulesDescription": "可从当前连接添加规则，也可以在这里直接创建",
   "savedRulesLoadFailed": "已保存规则加载失败",
   "savedRulesLoadFailedDescription": "请检查本地订阅数据后重试",
   "savedRuleUpdated": "规则已修改并生效",
@@ -1346,5 +1346,29 @@
         "type": "int"
       }
     }
-  }
+  },
+  "desktopProxyFailureTitle": "代理启动失败",
+  "desktopProxySystemFailureTitle": "系统代理设置失败",
+  "desktopProxyAddressInUse": "当前监听端口已被其他程序占用。请关闭占用该端口的程序后重试，或更换端口。",
+  "desktopProxyListenerAccessDenied": "系统拒绝使用当前监听端口，可能与端口保留或安全策略有关。请检查系统限制，或尝试其他端口。",
+  "desktopProxyInvalidBindAddress": "监听地址格式无效，请检查代理配置中的绑定地址后重试。",
+  "desktopProxyAddressNotAvailable": "配置的监听地址在当前电脑上不可用。请检查网络连接和绑定地址后重试。",
+  "desktopProxyLocalPortUnavailable": "客户端未能连接到本地代理端口，尚不能确认是端口占用。请重试或导出日志排查，也可以尝试更换端口。",
+  "desktopProxySystemAccessDenied": "系统拒绝修改代理设置。请检查当前用户权限或系统管理策略后重试。",
+  "desktopProxySystemWriteFailed": "系统代理设置写入失败。请检查系统限制，或导出日志进一步排查。",
+  "desktopProxySystemReadbackFailed": "系统代理设置校验失败，实际设置与客户端请求不一致或无法读取。请检查是否有其他软件正在修改代理设置。",
+  "desktopProxySystemFailed": "系统代理设置未能完成。请重试；若仍然失败，请导出日志排查。",
+  "desktopProxyConfigurationFailed": "代理配置未能成功应用。请检查当前订阅和配置，或导出日志确认具体原因。",
+  "desktopProxyCurrentPort": "当前端口：{port}",
+  "@desktopProxyCurrentPort": {"placeholders": {"port": {"type": "int"}}},
+  "desktopProxyFailureCode": "错误代码：{code}",
+  "@desktopProxyFailureCode": {"placeholders": {"code": {"type": "String"}}},
+  "desktopProxyFailureLogsHint": "可查看或导出日志，将错误信息发给客服排查。",
+  "desktopProxyFailureLogs": "查看/导出日志",
+  "desktopProxyChangePort": "更换端口",
+  "desktopProxyPortHint": "请输入 1024–49151 之间的新端口，不能与其他本地监听端口重复。保存后将重新尝试连接。",
+  "desktopProxyPortRange": "请输入 1024–49151 之间的整数端口",
+  "desktopProxyPortUnchanged": "新端口不能与当前端口相同",
+  "desktopProxyPortReserved": "该端口已用于其他本地监听服务，请选择其他端口",
+  "desktopProxyPortSaveRetry": "保存并重试"
 }
