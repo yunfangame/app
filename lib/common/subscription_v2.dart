@@ -232,6 +232,7 @@ String _subscriptionDecryptionStage(Object? operation) => switch (operation) {
   'issue_ticket' => 'issue_ticket_decrypt',
   'redeem_ticket' => 'redeem_ticket_decrypt',
   'get_summary' => 'get_summary_decrypt',
+  'get_nodes' => 'get_nodes_decrypt',
   'reset_security' => 'reset_security_decrypt',
   'revoke_device' => 'revoke_device_decrypt',
   _ => 'unknown_response_decrypt',
@@ -518,6 +519,17 @@ class SubscriptionV2Client {
       endpoint: endpoint,
       userToken: userToken,
       operation: 'get_summary',
+    );
+  }
+
+  Future<Map<String, Object?>> fetchNodes({
+    required Uri endpoint,
+    required String userToken,
+  }) {
+    return _sendWithStoredCredential(
+      endpoint: endpoint,
+      userToken: userToken,
+      operation: 'get_nodes',
     );
   }
 

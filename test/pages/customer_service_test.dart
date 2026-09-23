@@ -1,10 +1,21 @@
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/pages/customer_service.dart';
+import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 void main() {
+  setUpAll(() {
+    globalState.packageInfo = PackageInfo(
+      appName: 'FengWo',
+      packageName: 'com.fengwo.app',
+      version: '1.0.6',
+      buildNumber: '2026092301',
+    );
+  });
+
   test('uses the configured Crisp workspace without exposing user data', () {
     expect(crispServiceUri.host, 'go.crisp.chat');
     expect(

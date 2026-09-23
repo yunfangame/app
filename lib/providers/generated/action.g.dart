@@ -40,9 +40,62 @@ final class CommonActionProvider extends $NotifierProvider<CommonAction, void> {
   }
 }
 
-String _$commonActionHash() => r'6b3ece4895a4109d473c831dde104cf328286fee';
+String _$commonActionHash() => r'8ef3fdebd3d226fad33111d8a114049aca3f37ef';
 
 abstract class _$CommonAction extends $Notifier<void> {
+  void build();
+  @$mustCallSuper
+  @override
+  WhenComplete runBuild() {
+    final ref = this.ref as $Ref<void, void>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<void, void>,
+              void,
+              Object?,
+              Object?
+            >;
+    return element.handleCreate(ref, build);
+  }
+}
+
+@ProviderFor(DesktopProxyAction)
+final desktopProxyActionProvider = DesktopProxyActionProvider._();
+
+final class DesktopProxyActionProvider
+    extends $NotifierProvider<DesktopProxyAction, void> {
+  DesktopProxyActionProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'desktopProxyActionProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$desktopProxyActionHash();
+
+  @$internal
+  @override
+  DesktopProxyAction create() => DesktopProxyAction();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(void value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<void>(value),
+    );
+  }
+}
+
+String _$desktopProxyActionHash() =>
+    r'63dc4ae31d71201835222cb672f94b40cbfda2e8';
+
+abstract class _$DesktopProxyAction extends $Notifier<void> {
   void build();
   @$mustCallSuper
   @override
@@ -91,7 +144,7 @@ final class SetupActionProvider extends $NotifierProvider<SetupAction, void> {
   }
 }
 
-String _$setupActionHash() => r'd7df7005d281c86953521aee5ae63558502323cb';
+String _$setupActionHash() => r'984670f3271d3f3f5eb8ae165ad7008a1d8f82d6';
 
 abstract class _$SetupAction extends $Notifier<void> {
   void build();

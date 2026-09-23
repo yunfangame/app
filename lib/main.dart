@@ -9,29 +9,12 @@ import 'package:rust_api/rust_api.dart';
 
 import 'application.dart';
 import 'common/common.dart';
+import 'common/windows_integrity.dart';
 import 'common/windows_tls_trust.dart';
 import 'common/windows_preferences.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (Platform.isWindows) {
-    installWindowsPreferencesStore(
-      store: WindowsPreferencesStore(
-        onDiagnostic: (error) {
-          unawaited(
-            diagnosticLog.record(
-              'preferences.backup_degraded',
-              fields: {
-                'operation': error.operation,
-                'diagnostic_code': error.code,
-                'error_type': error.cause.runtimeType.toString(),
-              },
-            ),
-          );
-        },
-      ),
-    );
-  }
   final startupStage = ValueNotifier<String>('正在准备运行环境…');
   runApp(InitLoadingScreen(stage: startupStage));
   await WidgetsBinding.instance.endOfFrame;
@@ -43,8 +26,31 @@ Future<void> main() async {
           }
         })
       : null;
+  WindowsIntegritySnapshot? windowsIntegrity;
   try {
     if (Platform.isWindows) {
+      windowsIntegrity = await runStartupStage<WindowsIntegritySnapshot?>(
+        stage: '检查 Windows 运行权限',
+        timeout: const Duration(seconds: 5),
+        operation: () async => verifyWindowsStartupIntegrity(),
+        onStart: (stage) => startupStage.value = '$stage…',
+      );
+      installWindowsPreferencesStore(
+        store: WindowsPreferencesStore(
+          onDiagnostic: (error) {
+            unawaited(
+              diagnosticLog.record(
+                'preferences.backup_degraded',
+                fields: {
+                  'operation': error.operation,
+                  'diagnostic_code': error.code,
+                  'error_type': error.cause.runtimeType.toString(),
+                },
+              ),
+            );
+          },
+        ),
+      );
       try {
         final rootCount = await runStartupStage<int>(
           stage: '准备安全连接',
@@ -87,6 +93,14 @@ Future<void> main() async {
       operation: () => globalState.init(version),
       onStart: (stage) => startupStage.value = '$stage…',
     );
+    if (windowsIntegrity != null) {
+      unawaited(
+        diagnosticLog.record(
+          'startup.windows_integrity_verified',
+          fields: windowsIntegrity.diagnosticFields,
+        ),
+      );
+    }
     startupActive = false;
     startupWindowFallback?.cancel();
     HttpOverrides.global = FlClashHttpOverrides();
@@ -103,18 +117,24 @@ Future<void> main() async {
   } catch (e, s) {
     startupActive = false;
     startupWindowFallback?.cancel();
-    unawaited(
-      diagnosticLog.record(
-        'startup.failed',
-        fields: {
-          'error_type': e.runtimeType.toString(),
-          if (e is StartupStageException) ...{
-            'stage': e.stage,
-            'cause_type': e.cause.runtimeType.toString(),
+    final cause = e is StartupStageException ? e.cause : e;
+    if (cause is WindowsIntegrityException) {
+      reportWindowsIntegrityFailure(cause);
+    } else {
+      unawaited(
+        diagnosticLog.record(
+          'startup.failed',
+          fields: {
+            'error_type': e.runtimeType.toString(),
+            if (windowsIntegrity != null) ...windowsIntegrity.diagnosticFields,
+            if (e is StartupStageException) ...{
+              'stage': e.stage,
+              'cause_type': e.cause.runtimeType.toString(),
+            },
           },
-        },
-      ),
-    );
+        ),
+      );
+    }
     runApp(
       MaterialApp(
         debugShowCheckedModeBanner: false,

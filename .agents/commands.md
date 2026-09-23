@@ -18,6 +18,27 @@ dart setup.dart windows
 dart setup.dart android
 ```
 
+macOS releases target macOS 12.0. Flutter 3.44.4 hard-codes native assets to
+macOS 13, and sqlite3 3.5.0 downloads a macOS 13 binary by default. Prepare a
+separate project worktree and a separate Flutter SDK copy before packaging:
+
+```bash
+python3 tooling/macos/prepare_macos12.py \
+  --build-root /absolute/path/to/isolated-worktree \
+  --flutter-sdk /absolute/path/to/flutter-3.44.4/flutter \
+  --sdk-copy /absolute/path/to/new-isolated-flutter
+```
+
+Run `flutter pub get` and `dart setup.dart macos --targets pkg` from the prepared
+worktree with the isolated SDK's `bin` first in `PATH`. Keep the existing release
+environment and secret-storage flags. The preparation pins and verifies SQLite
+3.53.3 source and adds its source-build hook only to the isolated worktree;
+never copy that hook block into the shared pubspec or other platform builds.
+Do not run `flutter clean` between preparation and building: the pinned SQLite
+source is under `.dart_tool/fengwo_macos12`. Packaging rejects any Mach-O slice
+whose minimum macOS version is later than 12.0. This binary check does not replace
+actual macOS 12 installation and runtime testing.
+
 Build only the Go core and skip Flutter packaging:
 
 ```bash
