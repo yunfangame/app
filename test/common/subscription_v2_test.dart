@@ -341,6 +341,69 @@ void main() {
     },
   );
 
+  test(
+    'node metadata uses a signed request with the stored account device',
+    () async {
+      final server = await _FakeSubscriptionV2Server.create();
+      final store = _MemorySubscriptionV2ValueStore();
+      final events = <Map<String, Object?>>[];
+      final endpoint = Uri.parse('https://api.example.com');
+      final client = SubscriptionV2Client(
+        apiHealthService: _healthService(server.config),
+        valueStore: store,
+        requester: server.request,
+        now: () => DateTime.utc(2026, 8, 31, 12),
+        random: Random(31),
+      );
+      final login = await client.secureLogin(
+        endpoint: endpoint,
+        email: 'gray@example.com',
+        password: 'correct-password',
+        appVersion: '1.0.5',
+      );
+      final restoredClient = SubscriptionV2Client(
+        apiHealthService: _healthService(server.config),
+        valueStore: store,
+        requester: server.request,
+        now: () => DateTime.utc(2026, 8, 31, 12),
+        random: Random(32),
+        diagnosticRecorder: (event, fields) =>
+            events.add({'event': event, ...fields}),
+      );
+      final metadata = await restoredClient.fetchNodes(
+        endpoint: endpoint,
+        userToken: login!.token,
+      );
+      expect((metadata['nodes']! as List).single, {
+        'id': 1,
+        'name': '测试节点',
+        'type': 'anytls',
+        'rate': 1,
+        'tags': ['HK', 'VIP'],
+        'is_online': true,
+        'last_check_at': 1788177600,
+      });
+      await expectLater(
+        restoredClient.fetchNodes(
+          endpoint: endpoint,
+          userToken: 'another-account',
+        ),
+        throwsA(
+          isA<SubscriptionV2Exception>().having(
+            (error) => error.code,
+            'code',
+            'device_not_registered',
+          ),
+        ),
+      );
+      expect(server.operations, ['login_device', 'get_nodes']);
+      expect(
+        events.any((event) => event['stage'] == 'get_nodes_decrypt'),
+        isTrue,
+      );
+    },
+  );
+
   test('secure login binds the device before returning credentials', () async {
     final server = await _FakeSubscriptionV2Server.create();
     final client = SubscriptionV2Client(
@@ -750,6 +813,24 @@ class _FakeSubscriptionV2Server {
     }
     if (operation == 'get_summary') {
       return {'status': 1, 'data': _summary};
+    }
+    if (operation == 'get_nodes') {
+      return {
+        'status': 1,
+        'data': {
+          'nodes': [
+            {
+              'id': 1,
+              'name': '测试节点',
+              'type': 'anytls',
+              'rate': 1,
+              'tags': ['HK', 'VIP'],
+              'is_online': true,
+              'last_check_at': 1788177600,
+            },
+          ],
+        },
+      };
     }
     if (operation == 'reset_security') {
       return {

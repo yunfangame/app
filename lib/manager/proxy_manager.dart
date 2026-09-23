@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/app_localizations.dart';
+import 'package:fl_clash/common/desktop_proxy_failure.dart';
 import 'package:fl_clash/common/macos_proxy_guard.dart';
 import 'package:fl_clash/common/print.dart';
 import 'package:fl_clash/common/proxy.dart';
@@ -247,12 +248,39 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
       ref.read(networkSettingProvider.notifier).value = currentNetworkSetting
           .copyWith(systemProxy: false);
     }
-    _showNotifier(
-      currentAppLocalizations.systemProxyApplyFailed(
-        result?.diagnosticCode ?? 'W-PROXY-09',
-      ),
-    );
-    await stopOperation;
+    ref.read(proxyStateProvider);
+    final failureRevision = _requestedRevision;
+    try {
+      await stopOperation;
+    } catch (error) {
+      commonPrint.event(
+        'system_proxy.failure_cleanup.failed',
+        fields: {'port': port, 'error_type': error.runtimeType.toString()},
+      );
+    }
+    if (!_isCurrent(failureRevision) ||
+        ref.read(networkSettingProvider).systemProxy ||
+        ref.read(patchClashConfigProvider).mixedPort != port ||
+        (shouldStopRunning &&
+            (ref.read(isStartProvider) ||
+                ref.read(connectionPendingProvider)))) {
+      return;
+    }
+    if (widget.notify != null) {
+      _showNotifier(
+        currentAppLocalizations.systemProxyApplyFailed(
+          result?.diagnosticCode ?? 'W-PROXY-09',
+        ),
+      );
+    } else if (result != null) {
+      unawaited(
+        ref
+            .read(desktopProxyActionProvider.notifier)
+            .reportFailure(
+              DesktopProxyFailure.fromSystemProxy(result, port: port),
+            ),
+      );
+    }
   }
 
   void _showNotifier(String message) {
@@ -376,6 +404,30 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
         });
   }
 
+  Future<bool> _scheduleProxyCleanup(int port, bool Function() isCancelled) {
+    ref.read(proxyStateProvider);
+    final revision = _requestedRevision;
+    final operation = _pendingUpdate.then((_) async {
+      if (!_isCurrent(revision) || isCancelled()) return false;
+      final result = await _proxyClient?.stopProxyDetailed(expectedPort: port);
+      commonPrint.event(
+        'system_proxy.recovery_cleanup.completed',
+        fields: {
+          'port': port,
+          if (result != null) ...result.toDiagnosticFields(),
+        },
+      );
+      return result?.success == true;
+    });
+    _pendingUpdate = operation.then<void>((_) {}).catchError((Object error) {
+      commonPrint.event(
+        'system_proxy.recovery_cleanup.failed',
+        fields: {'port': port, 'error_type': error.runtimeType.toString()},
+      );
+    });
+    return operation;
+  }
+
   void _scheduleStartupRepair(ProxyState proxyState) {
     final windowsGuard = _windowsProxyGuard;
     final macOSGuard = _macOSProxyGuard;
@@ -456,6 +508,9 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
     _isMacOS = widget.isMacOS ?? system.isMacOS;
     _windowsProxyGuard = widget.windowsProxyGuard;
     _macOSProxyGuard = widget.macOSProxyGuard;
+    if (_proxyClient != null) {
+      systemProxyCleanupSignal.attach(_scheduleProxyCleanup);
+    }
     if (_isWindows && _proxyClient != null) {
       _windowsProxyGuard ??= WindowsProxyGuard(
         inspector: _proxyClient.inspectProxy,
@@ -488,6 +543,7 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
     _requestedRevision++;
     _stopMacOSProxyGuard();
     if (_isWindows || _isMacOS) systemProxyRefreshSignal.detach();
+    if (_proxyClient != null) systemProxyCleanupSignal.detach();
     super.dispose();
   }
 

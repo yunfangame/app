@@ -6,6 +6,20 @@ import 'package:test/test.dart';
 import '../setup.dart' as setup;
 
 void main() {
+  const macosBuildVersions = '''
+/tmp/FengWo (architecture x86_64):
+Load command 11
+      cmd LC_BUILD_VERSION
+ platform MACOS
+    minos 12.0
+      sdk 26.5
+/tmp/FengWo (architecture arm64):
+Load command 11
+      cmd LC_BUILD_VERSION
+ platform MACOS
+    minos 12.0
+      sdk 26.5
+''';
   group('setup.dart', () {
     test('Windows Wi-Fi support loads wlanapi only when available', () {
       final source = File(
@@ -108,6 +122,74 @@ void main() {
       expect(setup.hasUniversalMacosArchitectures('x86_64 arm64'), isTrue);
       expect(setup.hasUniversalMacosArchitectures('arm64'), isFalse);
       expect(setup.hasUniversalMacosArchitectures('x86_64'), isFalse);
+    });
+
+    test('accepts binaries that both support macOS 12.0', () {
+      expect(
+        setup.supportsMacos12(
+          macosBuildVersions.replaceFirst('minos 12.0', 'minos 10.15'),
+        ),
+        isTrue,
+      );
+    });
+
+    test('rejects a newer minimum version in either architecture', () {
+      for (final version in ['12.0.1', '12.1', '13.0']) {
+        expect(
+          setup.supportsMacos12(
+            macosBuildVersions.replaceFirst('minos 12.0', 'minos $version'),
+          ),
+          isFalse,
+        );
+        expect(
+          setup.supportsMacos12(
+            macosBuildVersions.replaceRange(
+              macosBuildVersions.lastIndexOf('minos 12.0'),
+              macosBuildVersions.lastIndexOf('minos 12.0') + 10,
+              'minos $version',
+            ),
+          ),
+          isFalse,
+        );
+      }
+    });
+
+    test('rejects absent or incomplete deployment metadata', () {
+      expect(setup.supportsMacos12(''), isFalse);
+      expect(setup.supportsMacos12('minos 12.0\n'), isFalse);
+      expect(setup.supportsMacos12('sdk 12.0\nsdk 12.0\n'), isFalse);
+    });
+
+    test('rejects another platform or a duplicate architecture', () {
+      for (final replacement in ['IOS', 'MACCATALYST']) {
+        expect(
+          setup.supportsMacos12(
+            macosBuildVersions.replaceFirst(
+              'platform MACOS',
+              'platform $replacement',
+            ),
+          ),
+          isFalse,
+        );
+      }
+      expect(
+        setup.supportsMacos12(
+          macosBuildVersions.replaceFirst(
+            'architecture arm64',
+            'architecture x86_64',
+          ),
+        ),
+        isFalse,
+      );
+      expect(
+        setup.supportsMacos12(
+          macosBuildVersions.replaceFirst(
+            'minos 12.0',
+            'minos 12.0\n    minos 12.0',
+          ),
+        ),
+        isFalse,
+      );
     });
 
     test('Flutter build environment does not depend on Core SHA256', () {

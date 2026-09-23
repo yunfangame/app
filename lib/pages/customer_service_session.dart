@@ -35,6 +35,8 @@ class CustomerServiceSession extends ChangeNotifier {
   bool slow = false;
   bool failed = false;
 
+  Uri get _loadUri => crispSessionUri(uri, sessionToken: sessionToken);
+
   void _notify() {
     if (!_closed) notifyListeners();
   }
@@ -159,7 +161,7 @@ class CustomerServiceSession extends ChangeNotifier {
       }
       _configured = true;
       if (_closed) return;
-      await controller.loadRequest(uri);
+      await controller.loadRequest(_loadUri);
       if (kIsWeb) {
         ready = true;
         _slowTimer?.cancel();
@@ -182,8 +184,9 @@ class CustomerServiceSession extends ChangeNotifier {
   }
 
   Future<void> updateUser(CrispSupportUser user) async {
+    if (_closed || user.accountKey != _user.accountKey) return;
     _user = user;
-    if (!ready || _closed) return;
+    if (!ready) return;
     try {
       await controller.runJavaScript(user.updateScript);
     } catch (_) {
@@ -205,7 +208,7 @@ class CustomerServiceSession extends ChangeNotifier {
     }
     _startLoading();
     try {
-      await controller.loadRequest(uri);
+      await controller.loadRequest(_loadUri);
     } catch (_) {
       _markFailed();
     }

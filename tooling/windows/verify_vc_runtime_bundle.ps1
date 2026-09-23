@@ -35,6 +35,9 @@ function Assert-VcRuntimeBundle {
   if (-not [IO.File]::Exists((Join-Path $prerequisites 'vc_runtime_code.iss'))) {
     throw 'VC++ installer prerequisite logic is missing'
   }
+  if (-not [IO.File]::Exists((Join-Path $prerequisites 'install_integrity_code.iss'))) {
+    throw 'Windows install integrity logic is missing'
+  }
   Write-Output "VC++ runtime bundle verified ($Architecture, $($validated.Version))"
 }
 

@@ -35,6 +35,11 @@ if ([regex]::Matches($productionCode, [regex]::Escape($runtimeInclude)).Count -n
     throw 'The production runtime include was not found exactly once.'
 }
 $productionCode = $productionCode.Replace($runtimeInclude, $runtimeSource)
+$integrityInclude = '#include "{{SOURCE_DIR}}\prerequisites\install_integrity_code.iss"'
+if ([regex]::Matches($productionCode, [regex]::Escape($integrityInclude)).Count -ne 1) {
+    throw 'The production integrity include was not found exactly once.'
+}
+$productionCode = $productionCode.Replace($integrityInclude, "function EnsureFengWoInstallLocation: String; begin Result := ''; end;")
 if ($productionCode.Contains('{{') -or $productionCode -match '(?m)^#include') {
     throw 'The production Code section contains an unresolved template or include.'
 }
