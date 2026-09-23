@@ -560,6 +560,9 @@ class _WindowsSetup extends SetupAction {
   bool get requiresListenerReadiness => true;
 
   @override
+  bool get requiresWindowsTunAuthorization => true;
+
+  @override
   Future<void> prepareListenerProfile() async {
     events.add('config');
     if (!prepared.isCompleted) prepared.complete();
@@ -591,7 +594,7 @@ class _WindowsSetup extends SetupAction {
   }
 
   @override
-  void notifyListenerFailure(int port) => notifications++;
+  void notifyListenerFailure(int port, {Object? error}) => notifications++;
 
   @override
   void resetCoreTraffic() {}

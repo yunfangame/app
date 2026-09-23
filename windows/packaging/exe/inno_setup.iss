@@ -12,6 +12,8 @@ AppPublisherURL={{PUBLISHER_URL}}
 AppSupportURL={{PUBLISHER_URL}}
 AppUpdatesURL={{PUBLISHER_URL}}
 DefaultDirName={{INSTALL_DIR_NAME}}
+DisableDirPage=no
+UsePreviousAppDir=yes
 DisableProgramGroupPage=yes
 OutputDir=.
 OutputBaseFilename={{OUTPUT_BASE_FILENAME}}
@@ -25,6 +27,7 @@ ArchitecturesInstallIn64BitMode={{ARCH}}
 
 [Code]
 #include "{{SOURCE_DIR}}\prerequisites\vc_runtime_code.iss"
+#include "{{SOURCE_DIR}}\prerequisites\install_integrity_code.iss"
 
 type
   TFengWoServiceStatus = record
@@ -148,6 +151,8 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
+  Result := EnsureFengWoInstallLocation;
+  if Result <> '' then Exit;
   Result := EnsureVcRuntime(NeedsRestart);
   if Result <> '' then Exit;
   Result := StopHelperService;
@@ -221,6 +226,10 @@ Name: "chineseSimplified"; MessagesFile: {% if locale.file %}{{ locale.file }}{%
 {% endfor %}
 
 [CustomMessages]
+InstallIntegrityLow=This installation location has a Low integrity security label and would prevent FengWo from saving settings. Go Back and choose a normal local application folder, such as Program Files. Existing user data is preserved.%nLocation: %1
+InstallIntegrityReparse=This installation location uses a symbolic link or redirected folder. Go Back and choose a normal local application folder. Existing user data is preserved.%nLocation: %1
+InstallIntegrityAccess=The installation location cannot be safely checked or written. Go Back and choose another local application folder, or check its permissions and free disk space. Existing user data is preserved.%nLocation: %1%nDetails: %2
+InstallIntegrityPath=Choose a dedicated folder on a local drive rather than a drive root or a network path.%nLocation: %1
 HelperStopFailed=The previous network service is still busy (code %1). Close the old client and Services window, then retry. If it still fails, restart Windows and run the installer again.
 VcRuntimeInstalling=Installing Microsoft Visual C++ runtime. Please wait...
 VcRuntimeInvalid=The bundled Visual C++ runtime is missing or damaged. Download the complete installer again.
@@ -230,6 +239,10 @@ VcRuntimeVerifyFailed=Visual C++ runtime verification failed. Repair the install
 VcRuntimeRestart=Windows must restart to finish installing the Visual C++ runtime. Restart and run this installer again.
 {% for locale in LOCALES %}
 {% if locale.lang == 'zh' %}
+chineseSimplified.InstallIntegrityLow=此安装位置带有 Low（低完整性）安全标签，会导致蜂窝无法保存配置。请返回上一步，更换为 Program Files 等正常的本地安装目录。原有用户数据会保留。%n位置：%1
+chineseSimplified.InstallIntegrityReparse=此安装位置包含符号链接或重定向目录。请返回上一步，选择普通的本地安装目录。原有用户数据会保留。%n位置：%1
+chineseSimplified.InstallIntegrityAccess=无法安全检查或写入此安装位置。请返回上一步，更换本地安装目录，或检查该目录权限及磁盘空间。原有用户数据会保留。%n位置：%1%n详情：%2
+chineseSimplified.InstallIntegrityPath=请选择本地磁盘内独立的程序文件夹，不要选择磁盘根目录或网络路径。%n位置：%1
 chineseSimplified.HelperStopFailed=旧版网络服务尚未退出（错误码 %1）。请关闭旧客户端和服务管理窗口后重试；仍失败时，请重启 Windows 后再次安装。
 chineseSimplified.VcRuntimeInstalling=正在安装 Microsoft Visual C++ 运行库，请稍候……
 chineseSimplified.VcRuntimeInvalid=安装包中的 Visual C++ 运行库缺失或损坏，请重新下载完整安装包。
@@ -250,4 +263,4 @@ Source: "{{SOURCE_DIR}}\\*"; DestDir: "{app}"; Excludes: "prerequisites\*"; Flag
 Name: "{autoprograms}\\{{DISPLAY_NAME}}"; Filename: "{app}\\{{EXECUTABLE_NAME}}"; WorkingDir: "{app}"
 Name: "{autodesktop}\\{{DISPLAY_NAME}}"; Filename: "{app}\\{{EXECUTABLE_NAME}}"; WorkingDir: "{app}"; Tasks: desktopicon
 [Run]
-Filename: "{app}\\{{EXECUTABLE_NAME}}"; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{{DISPLAY_NAME}}}"; Check: CanLaunchAfterRuntime; Flags: {% if PRIVILEGES_REQUIRED == 'admin' %}runascurrentuser{% endif %} nowait postinstall skipifsilent
+Filename: "{app}\\{{EXECUTABLE_NAME}}"; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{{DISPLAY_NAME}}}"; Check: CanLaunchInstalledFengWo; Flags: {% if PRIVILEGES_REQUIRED == 'admin' %}runascurrentuser{% endif %} nowait postinstall skipifsilent

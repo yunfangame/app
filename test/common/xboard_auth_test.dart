@@ -531,6 +531,193 @@ void main() {
     },
   );
 
+  test(
+    'secure node metadata uses explicit credentials on a fresh service',
+    () async {
+      final endpoint = Uri.parse('https://api.example.com');
+      var legacyCalls = 0;
+      final service = XboardAuthService(
+        subscriptionV2Client: _FakeSubscriptionV2Client(
+          onNodes: (requestEndpoint, token) async {
+            expect(requestEndpoint, endpoint);
+            expect(token, 'secure-token');
+            return {
+              'nodes': [
+                {
+                  'id': 10,
+                  'name': '测试节点',
+                  'type': 'anytls',
+                  'rate': '1.5',
+                  'tags': ['HK', 'HK', 'VIP'],
+                  'is_online': 1,
+                },
+              ],
+            };
+          },
+        ),
+        nodesRequester: (_, _) async {
+          legacyCalls++;
+          throw StateError('Legacy nodes must not be called');
+        },
+      );
+      expect(service.currentSession, isNull);
+      final nodes = await service.fetchNodes(
+        endpoint: endpoint,
+        authData: 'Bearer legacy-session',
+        userToken: ' secure-token ',
+        secureSubscription: true,
+      );
+      expect(nodes.single.tags, ['HK', 'VIP']);
+      expect(nodes.single.rate, 1.5);
+      expect(nodes.single.isOnline, isTrue);
+      expect(legacyCalls, 0);
+    },
+  );
+
+  for (final code in [
+    'unknown_operation',
+    'device_not_registered',
+    'not_in_gray_allowlist',
+    'invalid_server_signature',
+  ]) {
+    test(
+      'secure node failure $code never falls back to legacy nodes',
+      () async {
+        var legacyCalls = 0;
+        final service = XboardAuthService(
+          subscriptionV2Client: _FakeSubscriptionV2Client(
+            onNodes: (_, _) async => throw SubscriptionV2Exception(code),
+          ),
+          nodesRequester: (_, _) async {
+            legacyCalls++;
+            return const XboardLoginResponse(
+              statusCode: 200,
+              data: {'data': []},
+            );
+          },
+        );
+        await expectLater(
+          service.fetchNodes(
+            endpoint: Uri.parse('https://api.example.com'),
+            authData: 'Bearer session',
+            userToken: 'secure-token',
+            secureSubscription: true,
+          ),
+          throwsA(isA<XboardAuthException>()),
+        );
+        expect(legacyCalls, 0);
+      },
+    );
+  }
+
+  test('secure nodes reject missing credentials before requesting', () async {
+    var requests = 0;
+    final service = XboardAuthService(
+      subscriptionV2Client: _FakeSubscriptionV2Client(
+        onNodes: (_, _) async {
+          requests++;
+          return {'nodes': []};
+        },
+      ),
+      nodesRequester: (_, _) async {
+        requests++;
+        return const XboardLoginResponse(statusCode: 200, data: {'data': []});
+      },
+    );
+    await expectLater(
+      service.fetchNodes(
+        endpoint: Uri.parse('https://api.example.com'),
+        authData: 'Bearer session',
+        userToken: ' ',
+        secureSubscription: true,
+      ),
+      throwsA(
+        isA<XboardAuthException>().having(
+          (error) => error.failure,
+          'failure',
+          XboardAuthFailure.authenticationRejected,
+        ),
+      ),
+    );
+    expect(requests, 0);
+  });
+
+  test('secure nodes distinguish an empty list from a missing list', () async {
+    for (final metadata in <Map<String, Object?>>[
+      {'nodes': []},
+      {},
+      {'nodes': null},
+      {'nodes': {}},
+      {
+        'nodes': [null],
+      },
+      {
+        'nodes': [{}],
+      },
+      {
+        'nodes': [
+          {'name': ' '},
+        ],
+      },
+      {
+        'nodes': [
+          {'name': '有效节点'},
+          null,
+        ],
+      },
+    ]) {
+      final service = XboardAuthService(
+        subscriptionV2Client: _FakeSubscriptionV2Client(
+          onNodes: (_, _) async => metadata,
+        ),
+      );
+      final result = service.fetchNodes(
+        endpoint: Uri.parse('https://api.example.com'),
+        authData: 'Bearer session',
+        userToken: 'secure-token',
+        secureSubscription: true,
+      );
+      if (metadata['nodes'] case final List nodes when nodes.isEmpty) {
+        expect(await result, isEmpty);
+      } else {
+        await expectLater(
+          result,
+          throwsA(
+            isA<XboardAuthException>().having(
+              (error) => error.failure,
+              'failure',
+              XboardAuthFailure.invalidResponse,
+            ),
+          ),
+        );
+      }
+    }
+  });
+
+  test('legacy node HTML errors retain their HTTP status', () async {
+    final service = XboardAuthService(
+      nodesRequester: (_, _) async => const XboardLoginResponse(
+        statusCode: 404,
+        data: '<html>Not found</html>',
+      ),
+    );
+    await expectLater(
+      service.fetchNodes(
+        endpoint: Uri.parse('https://api.example.com'),
+        authData: 'Bearer session',
+      ),
+      throwsA(
+        isA<XboardAuthException>()
+            .having((error) => error.statusCode, 'status', 404)
+            .having(
+              (error) => error.failure,
+              'failure',
+              XboardAuthFailure.unavailable,
+            ),
+      ),
+    );
+  });
+
   test('loads XBoard plans and billing prices', () async {
     final service = XboardAuthService(
       plansRequester: (endpoint, authData) async {
@@ -2028,6 +2215,7 @@ class _FakeSubscriptionV2Client extends SubscriptionV2Client {
     this.summary,
     this.onLogin,
     this.onSummary,
+    this.onNodes,
   });
 
   final SubscriptionV2Login? login;
@@ -2035,6 +2223,14 @@ class _FakeSubscriptionV2Client extends SubscriptionV2Client {
   final Map<String, Object?>? summary;
   final Future<SubscriptionV2Login?> Function(Uri endpoint)? onLogin;
   final Future<Map<String, Object?>> Function(Uri endpoint)? onSummary;
+  final Future<Map<String, Object?>> Function(Uri endpoint, String token)?
+  onNodes;
+
+  @override
+  Future<Map<String, Object?>> fetchNodes({
+    required Uri endpoint,
+    required String userToken,
+  }) async => onNodes!(endpoint, userToken);
 
   @override
   Future<SubscriptionV2Login?> secureLogin({
