@@ -7,6 +7,7 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/views/settings/fengwo_dns_advanced.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:fl_clash/widgets/app_update_controls.dart';
 import 'package:flutter/material.dart';
@@ -816,6 +817,20 @@ class _FengWoAdvancedSettingsViewState
             title: l10n.customDnsServers,
             subtitle: l10n.savedDnsServersCount(dns.nameserver.length),
             onTap: _editDnsServers,
+          ),
+          const SizedBox(height: 8),
+          _NavigationSettingTile(
+            key: const ValueKey('advanced-dns-options-tile'),
+            colors: colors,
+            icon: Icons.settings_outlined,
+            iconColor: colors.purple,
+            title: l10n.dnsAdvancedOptions,
+            subtitle: l10n.dnsAdvancedOptionsDescription,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const FengWoDnsAdvancedView(),
+              ),
+            ),
           ),
           const SizedBox(height: 12),
           Container(
