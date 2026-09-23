@@ -12,7 +12,7 @@ void main() {
   setUpAll(() => AppLocalizations.load(const Locale('zh', 'CN')));
 
   test('exposes only selected support data, never authentication secrets', () {
-    final user = CrispSupportUser.fromSession(_session());
+    final user = CrispSupportUser.fromSession(_session(), appVersion: '1.0.6');
     expect(user.email, 'customer@example.com');
     expect(user.data['plan'], '200G 月套餐');
     expect(user.data['traffic_used_bytes'], 3 * bytesPerGigabyte);
@@ -21,6 +21,7 @@ void main() {
     expect(user.data['traffic_used_gb'], '3.00');
     expect(user.data['device_limit'], 3);
     expect(user.data['expires_at'], '2030-01-01T00:00:00.000Z');
+    expect(user.data['app_version'], '1.0.6');
     final script = user.updateScript;
     for (final secret in [
       'AUTH_SECRET',
@@ -34,19 +35,22 @@ void main() {
   });
 
   test('anonymous support does not inherit a previous user or plan', () {
-    final user = CrispSupportUser.fromSession(null);
+    final user = CrispSupportUser.fromSession(null, appVersion: '1.0.6');
     expect(user.accountKey, 'guest');
     expect(user.email, isNull);
+    expect(user.summary, isNull);
+    expect(user.data['app_version'], '1.0.6');
     expect(user.data['logged_in'], false);
     expect(user.data.containsKey('plan'), false);
   });
 
   test('a logged-in customer gets a plain-text summary with no secrets', () {
-    final user = CrispSupportUser.fromSession(_session());
+    final user = CrispSupportUser.fromSession(_session(), appVersion: '1.0.6');
     expect(user.summary, contains('账号：customer@example.com'));
     expect(user.summary, contains('订阅套餐：200G 月套餐'));
     expect(user.summary, contains('已用流量：3.00 GB / 200.00 GB'));
     expect(user.summary, contains('剩余流量：197.00 GB'));
+    expect(user.summary, contains('客户端版本：v1.0.6'));
     for (final secret in [
       'AUTH_SECRET',
       'SUB_SECRET',
@@ -55,9 +59,15 @@ void main() {
     ]) {
       expect(user.summary, isNot(contains(secret)));
     }
-    expect(CrispSupportUser.fromSession(null).summary, isNull);
     expect(
-      CrispSupportUser.fromSession(_session(expires: null)).summary,
+      CrispSupportUser.fromSession(null, appVersion: '1.0.6').summary,
+      isNull,
+    );
+    expect(
+      CrispSupportUser.fromSession(
+        _session(expires: null),
+        appVersion: '1.0.6',
+      ).summary,
       contains('到期时间：不限时'),
     );
   });
@@ -67,23 +77,28 @@ void main() {
     debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
     try {
       expect(
-        CrispSupportUser.fromSession(_session(expires: null)).summary,
+        CrispSupportUser.fromSession(
+          _session(expires: null),
+          appVersion: '1.0.6',
+        ).summary,
         '【账号信息】\n'
         '账号：customer@example.com\n'
         '订阅套餐：200G 月套餐\n'
         '已用流量：3.00 GB / 200.00 GB\n'
         '剩余流量：197.00 GB\n'
         '到期时间：不限时\n'
-        '客户端：苹果桌面端（macOS）',
+        '客户端：苹果桌面端（macOS）\n'
+        '客户端版本：v1.0.6',
       );
       final missingProfile = CrispSupportUser.fromSession(
         _session(email: '', planName: null, expires: null),
+        appVersion: '1.0.6',
       );
       expect(missingProfile.summary, contains('账号：未知'));
       expect(missingProfile.summary, contains('订阅套餐：暂无有效套餐'));
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       expect(
-        CrispSupportUser.fromSession(_session()).summary,
+        CrispSupportUser.fromSession(_session(), appVersion: '1.0.5').summary,
         contains('客户端：安卓客户端'),
       );
     } finally {
@@ -92,10 +107,28 @@ void main() {
     }
   });
 
+  test('normalizes version prefixes and omits build metadata', () {
+    for (final version in [
+      '1.0.6',
+      'v1.0.6',
+      'V1.0.6',
+      ' V1.0.6+2026092301 ',
+    ]) {
+      final user = CrispSupportUser.fromSession(
+        _session(),
+        appVersion: version,
+      );
+      expect(user.summary, endsWith('客户端版本：v1.0.6'));
+      expect(user.data['app_version'], '1.0.6');
+      expect(user.updateScript, isNot(contains('2026092301')));
+    }
+  });
+
   test('API failover and subscription refresh retain the same account', () {
-    final first = CrispSupportUser.fromSession(_session());
+    final first = CrispSupportUser.fromSession(_session(), appVersion: '1.0.6');
     final second = CrispSupportUser.fromSession(
       _session(host: 'backup.example.com', email: 'CUSTOMER@example.com'),
+      appVersion: '1.0.6',
     );
     expect(first.accountKey, second.accountKey);
     expect(
@@ -103,6 +136,7 @@ void main() {
       isNot(
         CrispSupportUser.fromSession(
           _session(email: 'other@example.com'),
+          appVersion: '1.0.6',
         ).accountKey,
       ),
     );
@@ -111,6 +145,7 @@ void main() {
   test('handles unlimited time, exhausted traffic and offline snapshots', () {
     final user = CrispSupportUser.fromSession(
       _session(expires: null, total: bytesPerGigabyte),
+      appVersion: '1.0.6',
       offline: true,
     );
     expect(user.data['expires_at'], 'unlimited');
@@ -138,6 +173,43 @@ void main() {
       expect(first, isNot(second));
     },
   );
+
+  test('binds the session before loading while preserving embed options', () {
+    final uri = crispSessionUri(
+      crispServiceUri.replace(
+        queryParameters: {
+          ...crispServiceUri.queryParameters,
+          'locale': 'zh-cn',
+          'token_id': 'previous-account',
+          'crisp_sid': 'previous-session',
+          'session_merge': 'true',
+        },
+      ),
+      sessionToken: 'current-session-token',
+    );
+    expect(uri.origin, 'https://go.crisp.chat');
+    expect(uri.path, '/chat/embed/');
+    expect(uri.queryParameters, {
+      'website_id': crispWebsiteId,
+      'locale': 'zh-cn',
+      'token_id': 'current-session-token',
+      'session_merge': 'false',
+    });
+    expect(crispServiceUri.queryParameters.containsKey('token_id'), isFalse);
+  });
+
+  test('does not expose the support token to other URLs', () {
+    for (final value in [
+      'https://support.example.com/chat/embed/',
+      'https://go.crisp.chat/other/',
+      'https://go.crisp.chat:8443/chat/embed/',
+      'http://go.crisp.chat/chat/embed/',
+      'about:blank',
+    ]) {
+      final uri = Uri.parse(value);
+      expect(crispSessionUri(uri, sessionToken: 'private-token'), uri);
+    }
+  });
 }
 
 XboardLoginResult _session({

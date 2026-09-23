@@ -437,6 +437,49 @@ bool hasUniversalMacosArchitectures(String architectures) {
   return values.containsAll({'arm64', 'x86_64'});
 }
 
+bool supportsMacos12(String buildVersions) {
+  final headers = RegExp(
+    r'^.*\(architecture ([^)]+)\):\s*$',
+    multiLine: true,
+  ).allMatches(buildVersions).toList();
+  if (headers.length != 2 ||
+      !headers.map((match) => match.group(1)).toSet().containsAll({
+        'arm64',
+        'x86_64',
+      })) {
+    return false;
+  }
+  for (var index = 0; index < headers.length; index++) {
+    final end = index + 1 < headers.length
+        ? headers[index + 1].start
+        : buildVersions.length;
+    final block = buildVersions.substring(headers[index].end, end);
+    final platforms = RegExp(
+      r'^\s*platform\s+(\S+)\s*$',
+      multiLine: true,
+    ).allMatches(block).toList();
+    final versions = RegExp(
+      r'^\s*minos\s+(\d+(?:\.\d+)*)\s*$',
+      multiLine: true,
+    ).allMatches(block).toList();
+    if (platforms.length != 1 ||
+        platforms.single.group(1) != 'MACOS' ||
+        versions.length != 1) {
+      return false;
+    }
+    final version = versions.single
+        .group(1)!
+        .split('.')
+        .map(int.parse)
+        .toList();
+    if (version.first > 12 ||
+        (version.first == 12 && version.skip(1).any((part) => part != 0))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 Future<int> verifyUniversalMacosBuild(String rootDir) async {
   final releaseDirectory = Directory(
     p.join(rootDir, 'build', 'macos', 'Build', 'Products', 'Release'),
@@ -460,6 +503,7 @@ Future<int> verifyUniversalMacosBuild(String rootDir) async {
 
   var binaryCount = 0;
   final incomplete = <String>[];
+  final incompatible = <String>[];
   await for (final entity in appBundles.single.list(
     recursive: true,
     followLinks: false,
@@ -480,6 +524,15 @@ Future<int> verifyUniversalMacosBuild(String rootDir) async {
         !hasUniversalMacosArchitectures(lipoResult.stdout.toString())) {
       incomplete.add(p.relative(entity.path, from: appBundles.single.path));
     }
+    final deploymentResult = await Process.run('xcrun', [
+      'vtool',
+      '-show-build',
+      entity.path,
+    ]);
+    if (deploymentResult.exitCode != 0 ||
+        !supportsMacos12(deploymentResult.stdout.toString())) {
+      incompatible.add(p.relative(entity.path, from: appBundles.single.path));
+    }
   }
   if (binaryCount == 0) {
     throw StateError('No Mach-O binaries found in ${appBundles.single.path}');
@@ -488,6 +541,12 @@ Future<int> verifyUniversalMacosBuild(String rootDir) async {
     throw StateError(
       'macOS app is not Universal 2; incomplete binaries: '
       '${incomplete.join(', ')}',
+    );
+  }
+  if (incompatible.isNotEmpty) {
+    throw StateError(
+      'macOS 12 compatibility check failed: ${incompatible.join(', ')}. '
+      'Prepare an isolated build with tooling/macos/prepare_macos12.py.',
     );
   }
   return binaryCount;

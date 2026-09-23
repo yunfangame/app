@@ -1,7 +1,8 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/macos_proxy_guard.dart';
-import 'package:fl_clash/common/proxy.dart' show systemProxyRefreshSignal;
+import 'package:fl_clash/common/proxy.dart'
+    show systemProxyCleanupSignal, systemProxyRefreshSignal;
 import 'package:fl_clash/common/windows_proxy_guard.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
@@ -33,6 +34,12 @@ const _writeFailure = ProxyOperationResult(
   stage: 'registry_write',
   errorCode: 5,
 );
+const _stopFailure = ProxyOperationResult(
+  success: false,
+  operation: 'stop',
+  stage: 'registry_write',
+  errorCode: 5,
+);
 const _readbackFailure = ProxyOperationResult(
   success: false,
   operation: 'inspect',
@@ -50,8 +57,10 @@ const _fallbackPending = ProxyOperationResult(
 class _ProxyClient extends Proxy {
   final startPorts = <int>[];
   final stopPorts = <int?>[];
+  final events = <String>[];
   int inspections = 0;
   Future<ProxyOperationResult> Function(int port)? start;
+  Future<ProxyOperationResult> Function(int? port)? stop;
   Object? inspectionError;
   ProxyOperationResult inspection = _started;
 
@@ -61,13 +70,19 @@ class _ProxyClient extends Proxy {
     List<String> bypassDomain = const [],
   ]) async {
     startPorts.add(port);
-    return start?.call(port) ?? _started;
+    events.add('start:$port');
+    final result = await (start?.call(port) ?? Future.value(_started));
+    events.add('started:$port');
+    return result;
   }
 
   @override
   Future<ProxyOperationResult> stopProxyDetailed({int? expectedPort}) async {
     stopPorts.add(expectedPort);
-    return _stopped;
+    events.add('stop:$expectedPort');
+    final result = await (stop?.call(expectedPort) ?? Future.value(_stopped));
+    events.add('stopped:$expectedPort');
+    return result;
   }
 
   @override
@@ -365,7 +380,29 @@ void main() {
     expect(rig.client.startPorts, [7890, 7890]);
     expect(rig.container.read(runTimeProvider), 1);
     expect(rig.container.read(networkSettingProvider).systemProxy, isTrue);
-    expect(rig.notifications, hasLength(1));
+    expect(rig.notifications, isEmpty);
+  });
+
+  testWidgets('failed start still notifies when stopping the core throws', (
+    tester,
+  ) async {
+    final rig = _Rig();
+    final firstWrite = Completer<ProxyOperationResult>();
+    rig.client.start = (_) => firstWrite.future;
+    await rig.mount(tester);
+    await tester.pump();
+    final cleanup = Completer<void>();
+    rig.setup.stopCompletion = cleanup;
+
+    firstWrite.complete(_writeFailure);
+    await tester.pump();
+    expect(rig.setup.requests, [false]);
+    cleanup.completeError(StateError('core stop unavailable'));
+    await tester.pumpAndSettle();
+
+    expect(rig.container.read(runTimeProvider), isNull);
+    expect(rig.container.read(networkSettingProvider).systemProxy, isFalse);
+    expect(rig.notifications.single, contains('W-PROXY-03'));
   });
 
   testWidgets('late native failure cannot roll back a newer port request', (
@@ -505,6 +542,160 @@ void main() {
     expect(rig.client.inspections, greaterThanOrEqualTo(3));
     expect(rig.container.read(networkSettingProvider).systemProxy, isTrue);
   });
+
+  testWidgets(
+    'failed native disable still notifies without stopping the core',
+    (tester) async {
+      final rig = _Rig();
+      await rig.mount(tester);
+      await tester.pumpAndSettle();
+      rig.client.stop = (_) async => _stopFailure;
+
+      rig.container
+          .read(networkSettingProvider.notifier)
+          .update((state) => state.copyWith(systemProxy: false));
+      await tester.pumpAndSettle();
+
+      expect(rig.client.stopPorts, [7890]);
+      expect(rig.setup.requests, isEmpty);
+      expect(rig.container.read(runTimeProvider), 1);
+      expect(rig.container.read(networkSettingProvider).systemProxy, isFalse);
+      expect(rig.notifications, [
+        AppLocalizations.current.systemProxyDisableFailed(
+          _stopFailure.diagnosticCode,
+        ),
+      ]);
+    },
+  );
+
+  testWidgets(
+    'cancelled queued cleanup cannot stop an in-flight native apply',
+    (tester) async {
+      final rig = _Rig();
+      final write = Completer<ProxyOperationResult>();
+      rig.client.start = (_) => write.future;
+      await rig.mount(tester, isWindows: false, isMacOS: true);
+      await tester.pump();
+      expect(rig.client.events, ['start:7890']);
+      var cancelled = false;
+      final cleanup = systemProxyCleanupSignal.request(
+        7890,
+        isCancelled: () => cancelled,
+      );
+      await tester.pump();
+      expect(rig.client.stopPorts, isEmpty);
+
+      cancelled = true;
+      write.complete(_started);
+      await tester.pumpAndSettle();
+      await cleanup;
+
+      expect(rig.client.events, ['start:7890', 'started:7890']);
+      expect(rig.client.stopPorts, isEmpty);
+      expect(rig.container.read(networkSettingProvider).systemProxy, isTrue);
+      expect(rig.notifications, isEmpty);
+    },
+  );
+
+  testWidgets('newer proxy revision discards an older queued cleanup', (
+    tester,
+  ) async {
+    final rig = _Rig();
+    final firstWrite = Completer<ProxyOperationResult>();
+    rig.client.start = (port) =>
+        port == 7890 ? firstWrite.future : Future.value(_started);
+    await rig.mount(tester, isWindows: false, isMacOS: true);
+    await tester.pump();
+    final cleanup = systemProxyCleanupSignal.request(
+      7890,
+      isCancelled: () => false,
+    );
+    rig.container
+        .read(patchClashConfigProvider.notifier)
+        .update((state) => state.copyWith(mixedPort: 7891));
+    await tester.pump();
+
+    firstWrite.complete(_started);
+    await tester.pumpAndSettle();
+
+    expect(await cleanup, isFalse);
+    expect(rig.client.startPorts, [7890, 7891]);
+    expect(rig.client.stopPorts, isEmpty);
+    expect(rig.notifications, isEmpty);
+  });
+
+  testWidgets('new start waits for an active native cleanup to finish', (
+    tester,
+  ) async {
+    final rig = _Rig();
+    await rig.mount(tester, isWindows: false, isMacOS: true);
+    await tester.pumpAndSettle();
+    final stop = Completer<ProxyOperationResult>();
+    rig.client.stop = (_) => stop.future;
+    final cleanup = systemProxyCleanupSignal.request(
+      7890,
+      isCancelled: () => false,
+    );
+    await tester.pump();
+    expect(rig.client.events, ['start:7890', 'started:7890', 'stop:7890']);
+
+    await rig.setup.setRunning(false);
+    await tester.pump();
+    await rig.setup.setRunning(true);
+    await tester.pump();
+    expect(rig.client.startPorts, [7890]);
+    expect(rig.client.stopPorts, [7890]);
+
+    stop.complete(_stopped);
+    await tester.pumpAndSettle();
+    await cleanup;
+
+    expect(rig.client.events, [
+      'start:7890',
+      'started:7890',
+      'stop:7890',
+      'stopped:7890',
+      'start:7890',
+      'started:7890',
+    ]);
+    expect(rig.container.read(runTimeProvider), 1);
+    expect(rig.container.read(networkSettingProvider).systemProxy, isTrue);
+    expect(rig.notifications, isEmpty);
+  });
+
+  for (final throws in [false, true]) {
+    testWidgets('cleanup failure releases queue: throws=$throws', (
+      tester,
+    ) async {
+      final rig = _Rig();
+      await rig.mount(tester, isWindows: false, isMacOS: true);
+      await tester.pumpAndSettle();
+      rig.client.stop = (_) async {
+        if (throws) throw StateError('native cleanup unavailable');
+        return _stopFailure;
+      };
+      final cleanup = systemProxyCleanupSignal.request(
+        7890,
+        isCancelled: () => false,
+      );
+      final outcome = throws
+          ? expectLater(cleanup, throwsStateError)
+          : expectLater(cleanup, completion(isFalse));
+      await tester.pumpAndSettle();
+      await outcome;
+      expect(rig.client.stopPorts, [7890]);
+
+      rig.client.stop = null;
+      rig.container
+          .read(patchClashConfigProvider.notifier)
+          .update((state) => state.copyWith(mixedPort: 7891));
+      await tester.pumpAndSettle();
+
+      expect(rig.client.startPorts, [7890, 7891]);
+      expect(rig.container.read(runTimeProvider), 1);
+      expect(rig.container.read(networkSettingProvider).systemProxy, isTrue);
+    });
+  }
 
   testWidgets('macOS fallback stays armed while no primary network exists', (
     tester,

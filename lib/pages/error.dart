@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:fl_clash/common/color.dart';
 import 'package:fl_clash/common/preferences_storage_error.dart';
 import 'package:fl_clash/common/startup.dart';
+import 'package:fl_clash/common/windows_integrity.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -96,17 +97,21 @@ class InitErrorScreen extends StatefulWidget {
 class _InitErrorScreenState extends State<InitErrorScreen> {
   bool _copying = false;
 
-  bool get _hasStorageError {
+  Object? get _cause {
     Object? cause = widget.error;
     while (cause is StartupStageException) {
       cause = cause.cause;
     }
-    return cause is PreferenceStorageException;
+    return cause;
   }
+
+  bool get _hasStorageError => _cause is PreferenceStorageException;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final cause = _cause;
+    final integrityError = cause is WindowsIntegrityException ? cause : null;
 
     return Scaffold(
       appBar: AppBar(
@@ -131,9 +136,10 @@ class _InitErrorScreenState extends State<InitErrorScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      _hasStorageError
-                          ? '本地配置无法读取或保存。请完全退出其他蜂窝客户端，检查磁盘剩余空间和配置文件的读写权限后重试。'
-                          : '应用启动时遇到问题。请完全退出客户端后重试；仍无法启动时，请复制错误详情发送给客服。',
+                      integrityError?.guidance ??
+                          (_hasStorageError
+                              ? '本地配置无法读取或保存。请完全退出其他蜂窝客户端，检查磁盘剩余空间和配置文件的读写权限后重试。'
+                              : '应用启动时遇到问题。请完全退出客户端后重试；仍无法启动时，请复制错误详情发送给客服。'),
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
@@ -145,6 +151,10 @@ class _InitErrorScreenState extends State<InitErrorScreen> {
               if (_hasStorageError) ...[
                 const SizedBox(height: 12),
                 const Text('本次启动已停止，以免在配置无法安全读写时覆盖原文件。请复制详情发送给客服协助排查。'),
+              ],
+              if (integrityError != null) ...[
+                const SizedBox(height: 12),
+                Text(integrityError.recovery),
               ],
               const SizedBox(height: 24),
               _buildSectionLabel('错误详情'),

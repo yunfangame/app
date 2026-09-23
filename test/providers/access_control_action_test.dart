@@ -382,6 +382,9 @@ class _AccessControlSetupAction extends SetupAction {
   bool get requiresListenerReadiness => false;
 
   @override
+  bool get requiresWindowsTunAuthorization => false;
+
+  @override
   Future<bool> persistAccessControlConfig(Config config) async {
     events.add('persist');
     saved.add(config);
