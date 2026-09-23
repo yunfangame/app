@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/fengwo_node_country.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
@@ -106,8 +107,33 @@ Group? _currentDashboardGroup(WidgetRef ref, Profile? profile) {
   return rawGroups.getGroup(visibleGroup.name) ?? visibleGroup;
 }
 
-class FengWoDesktopDashboard extends ConsumerWidget {
+class FengWoDesktopDashboard extends ConsumerStatefulWidget {
   const FengWoDesktopDashboard({super.key});
+
+  @override
+  ConsumerState<FengWoDesktopDashboard> createState() =>
+      _FengWoDesktopDashboardState();
+}
+
+class _FengWoDesktopDashboardState
+    extends ConsumerState<FengWoDesktopDashboard> {
+  @override
+  void initState() {
+    super.initState();
+    globalState.xboardNodesRevisionNotifier.addListener(_metadataChanged);
+    globalState.offlineModeNotifier.addListener(_metadataChanged);
+  }
+
+  @override
+  void dispose() {
+    globalState.xboardNodesRevisionNotifier.removeListener(_metadataChanged);
+    globalState.offlineModeNotifier.removeListener(_metadataChanged);
+    super.dispose();
+  }
+
+  void _metadataChanged() {
+    if (mounted) setState(() {});
+  }
 
   String _currentNode(Group? group, Profile? profile) {
     if (group == null) return '';
@@ -117,7 +143,7 @@ class FengWoDesktopDashboard extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final l10n = context.appLocalizations;
     final colors = _DashboardColors.of(context);
     final isStart = ref.watch(isStartProvider);
@@ -166,14 +192,9 @@ class FengWoDesktopDashboard extends ConsumerWidget {
     final totalNodeCount = xboardNodes.isEmpty
         ? currentGroup?.all.length ?? 0
         : xboardNodes.length;
-    final countryCount = xboardNodes.isEmpty
-        ? currentGroup?.all
-                  .map((proxy) => fengWoNodeCountryCode(proxy.name))
-                  .whereType<String>()
-                  .toSet()
-                  .length ??
-              0
-        : xboardTagCount(xboardNodes);
+    final countryCount = fengWoCountryCodesFromTags(
+      xboardNodes.expand((node) => node.tags),
+    ).length;
     return Material(
       color: colors.background,
       child: LayoutBuilder(
@@ -242,7 +263,8 @@ class FengWoDesktopDashboard extends ConsumerWidget {
                                         )
                                         .proxyName,
                                     globalState.xboardNodes,
-                                    statusAvailable: !globalState.isOfflineMode,
+                                    statusAvailable:
+                                        globalState.xboardNodesStatusFresh,
                                   ),
                                   traffic: traffic,
                                   trafficHistory: trafficHistory,
@@ -405,7 +427,7 @@ class _HeroPanel extends ConsumerWidget {
                         .watch(realSelectedProxyStateProvider(proxy.name))
                         .proxyName,
                     globalState.xboardNodes,
-                    statusAvailable: !globalState.isOfflineMode,
+                    statusAvailable: globalState.xboardNodesStatusFresh,
                   ),
                 ),
               )
@@ -569,9 +591,6 @@ class _ModeSelector extends ConsumerWidget {
       patchClashConfigProvider.select((config) => config.mode),
     );
     final tunEnabled = ref.watch(tunActiveProvider);
-    final systemProxyEnabled = ref.watch(
-      networkSettingProvider.select((settings) => settings.systemProxy),
-    );
     final skipGlobalModeConfirmation = ref.watch(
       appSettingProvider.select((state) => state.skipGlobalModeConfirmation),
     );
@@ -621,15 +640,6 @@ class _ModeSelector extends ConsumerWidget {
             label: l10n.tun,
             selected: tunEnabled,
             onTap: () => ref.read(systemActionProvider.notifier).updateTun(),
-          ),
-          _ModeItem(
-            key: const ValueKey('fengwo-desktop-system-proxy'),
-            colors: colors,
-            icon: Icons.lan_outlined,
-            label: l10n.systemProxy,
-            selected: systemProxyEnabled,
-            onTap: () =>
-                ref.read(systemActionProvider.notifier).updateSystemProxy(),
           ),
         ],
       ),
@@ -1347,7 +1357,7 @@ class _GlobalNetworkPanel extends ConsumerWidget {
                         .watch(realSelectedProxyStateProvider(proxy.name))
                         .proxyName,
                     globalState.xboardNodes,
-                    statusAvailable: !globalState.isOfflineMode,
+                    statusAvailable: globalState.xboardNodesStatusFresh,
                   ),
                 );
               })

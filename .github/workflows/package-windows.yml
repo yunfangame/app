@@ -49,6 +49,18 @@ jobs:
             [System.Text.UTF8Encoding]::new($false)
           )
 
+      - name: Download verified online v1.0.5 upgrade baseline
+        shell: pwsh
+        run: |
+          $baseline = Join-Path $env:RUNNER_TEMP 'fengwo-baseline-1.0.5.exe'
+          Invoke-WebRequest -Uri 'https://picture.sansen.tech/fengwo-windows-amd64-setup.exe' -OutFile $baseline
+          $hash = (Get-FileHash -LiteralPath $baseline -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -cne '784a11df8ee27805dc8b280275bcbde8f85363dd360a55497604707ea937746e') { throw 'The online v1.0.5 baseline changed; refusing an unverified upgrade test' }
+          $tokens = $null
+          $parseErrors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile("$PWD/tooling/windows/test_installed_upgrade.ps1", [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { throw ($parseErrors | Out-String) }
+
       - name: Get dependencies
         run: flutter pub get
 
@@ -111,6 +123,16 @@ jobs:
         shell: pwsh
         run: |
           $tests = @(
+            'test/common/fengwo_node_country_test.dart',
+            'test/common/xboard_nodes_state_test.dart',
+            'test/widgets/reference_node_views_test.dart',
+            'test/widgets/dashboard_layout_test.dart',
+            'test/widgets/fengwo_global_account_header_test.dart',
+            'test/common/desktop_proxy_failure_test.dart',
+            'test/providers/desktop_connect_proxy_test.dart',
+            'test/providers/desktop_proxy_recovery_test.dart',
+            'test/widgets/desktop_proxy_failure_dialog_test.dart',
+            'test/widgets/desktop_mode_hit_test.dart',
             'test/core/controller_test.dart',
             'test/core/protocol_contract_test.dart',
             'test/views/proxies/common_test.dart',
@@ -362,7 +384,7 @@ jobs:
         shell: pwsh
         run: |
           $installer = Get-ChildItem dist -Filter '*windows*.exe' -File | Select-Object -First 1
-          ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/upgrade-verification"
+          ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/upgrade-verification" -PreviousInstallerPath "$env:RUNNER_TEMP/fengwo-baseline-1.0.5.exe" -ExpectedPreviousVersion '1.0.5'
 
       - name: Verify installed helper service repair and overwrite
         shell: pwsh
@@ -390,7 +412,7 @@ jobs:
           $metadata = [ordered]@{
             version = (Get-Item build/windows/x64/runner/Release/FengWo.exe).VersionInfo.ProductVersion
             release_channel = 'stable'
-            fixes = @('windows_public_root_trust', 'preferences_atomic_save_and_recovery', 'upgrade_save_before_installer', 'windows_tun_service_repair', 'windows_winhttp_ipv6_bypass', 'windows_autostart_verified')
+            fixes = @('windows_public_root_trust', 'preferences_atomic_save_and_recovery', 'upgrade_save_before_installer', 'windows_tun_service_repair', 'windows_winhttp_ipv6_bypass', 'windows_autostart_verified', 'v2_node_country_tag_count', 'global_header_plan_badge_removed', 'desktop_connect_auto_system_proxy', 'desktop_proxy_port_recovery', 'online_1_0_5_overwrite_upgrade')
             source_branch = 'codex/desktop-upstream-0897-port'
             source_sha = $env:GITHUB_SHA
             source_ref = $env:GITHUB_REF

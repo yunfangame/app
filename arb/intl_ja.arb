@@ -1346,5 +1346,29 @@
         "type": "int"
       }
     }
-  }
+  },
+  "desktopProxyFailureTitle": "プロキシを起動できません",
+  "desktopProxySystemFailureTitle": "システムプロキシの設定に失敗しました",
+  "desktopProxyAddressInUse": "待ち受けポートは別のプログラムに使用されています。そのプログラムを終了して再試行するか、別のポートを選択してください。",
+  "desktopProxyListenerAccessDenied": "システムが待ち受けポートへのアクセスを拒否しました。予約済みポートやセキュリティポリシーが原因の可能性があります。システムの制限を確認するか、別のポートをお試しください。",
+  "desktopProxyInvalidBindAddress": "待ち受けアドレスの形式が無効です。プロキシ設定のバインドアドレスを確認して再試行してください。",
+  "desktopProxyAddressNotAvailable": "設定された待ち受けアドレスはこのコンピューターで利用できません。ネットワーク接続とバインドアドレスを確認して再試行してください。",
+  "desktopProxyLocalPortUnavailable": "ローカルプロキシポートに接続できませんでした。ポートの競合とはまだ判断できません。再試行するかログをエクスポートしてください。別のポートも試せます。",
+  "desktopProxySystemAccessDenied": "システムがプロキシ設定の変更を拒否しました。ユーザー権限や管理ポリシーを確認して再試行してください。",
+  "desktopProxySystemWriteFailed": "システムプロキシ設定を保存できませんでした。システムの制限を確認するか、診断用ログをエクスポートしてください。",
+  "desktopProxySystemReadbackFailed": "システムプロキシ設定を検証できませんでした。要求した設定と異なるか、読み取れません。別のプログラムがプロキシ設定を変更していないか確認してください。",
+  "desktopProxySystemFailed": "システムプロキシの設定が完了しませんでした。再試行し、解決しない場合はログをエクスポートしてください。",
+  "desktopProxyConfigurationFailed": "プロキシ設定を適用できませんでした。現在の購読と設定を確認するか、ログをエクスポートして原因を調べてください。",
+  "desktopProxyCurrentPort": "現在のポート：{port}",
+  "@desktopProxyCurrentPort": {"placeholders": {"port": {"type": "int"}}},
+  "desktopProxyFailureCode": "エラーコード：{code}",
+  "@desktopProxyFailureCode": {"placeholders": {"code": {"type": "String"}}},
+  "desktopProxyFailureLogsHint": "ログを表示またはエクスポートし、エラーの詳細をサポートにお送りいただけます。",
+  "desktopProxyFailureLogs": "ログを表示・エクスポート",
+  "desktopProxyChangePort": "ポートを変更",
+  "desktopProxyPortHint": "1024～49151 の範囲で、他のローカル待ち受けポートと重複しない新しいポートを入力してください。保存後に接続を再試行します。",
+  "desktopProxyPortRange": "1024～49151 の整数のポート番号を入力してください",
+  "desktopProxyPortUnchanged": "現在とは異なるポートを指定してください",
+  "desktopProxyPortReserved": "このポートは他のローカル待ち受けサービスに割り当てられています。別のポートを選んでください",
+  "desktopProxyPortSaveRetry": "保存して再試行"
 }

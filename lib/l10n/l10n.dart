@@ -11152,6 +11152,226 @@ class AppLocalizations {
       args: [index],
     );
   }
+
+  /// `Proxy could not start`
+  String get desktopProxyFailureTitle {
+    return Intl.message(
+      'Proxy could not start',
+      name: 'desktopProxyFailureTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `System proxy setup failed`
+  String get desktopProxySystemFailureTitle {
+    return Intl.message(
+      'System proxy setup failed',
+      name: 'desktopProxySystemFailureTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Another program is using the listening port. Close that program and retry, or choose another port.`
+  String get desktopProxyAddressInUse {
+    return Intl.message(
+      'Another program is using the listening port. Close that program and retry, or choose another port.',
+      name: 'desktopProxyAddressInUse',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The system denied access to the listening port. A reserved port or security policy may be responsible. Check system restrictions or try another port.`
+  String get desktopProxyListenerAccessDenied {
+    return Intl.message(
+      'The system denied access to the listening port. A reserved port or security policy may be responsible. Check system restrictions or try another port.',
+      name: 'desktopProxyListenerAccessDenied',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The listening address is invalid. Check the bind address in the proxy configuration and retry.`
+  String get desktopProxyInvalidBindAddress {
+    return Intl.message(
+      'The listening address is invalid. Check the bind address in the proxy configuration and retry.',
+      name: 'desktopProxyInvalidBindAddress',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The configured listening address is unavailable on this computer. Check the network connection and bind address, then retry.`
+  String get desktopProxyAddressNotAvailable {
+    return Intl.message(
+      'The configured listening address is unavailable on this computer. Check the network connection and bind address, then retry.',
+      name: 'desktopProxyAddressNotAvailable',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The client could not reach the local proxy port. This does not confirm a port conflict. Retry or export logs for diagnosis; you can also try another port.`
+  String get desktopProxyLocalPortUnavailable {
+    return Intl.message(
+      'The client could not reach the local proxy port. This does not confirm a port conflict. Retry or export logs for diagnosis; you can also try another port.',
+      name: 'desktopProxyLocalPortUnavailable',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The system denied changes to proxy settings. Check user permissions or system management policies and retry.`
+  String get desktopProxySystemAccessDenied {
+    return Intl.message(
+      'The system denied changes to proxy settings. Check user permissions or system management policies and retry.',
+      name: 'desktopProxySystemAccessDenied',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `System proxy settings could not be saved. Check system restrictions or export logs for diagnosis.`
+  String get desktopProxySystemWriteFailed {
+    return Intl.message(
+      'System proxy settings could not be saved. Check system restrictions or export logs for diagnosis.',
+      name: 'desktopProxySystemWriteFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `System proxy verification failed: settings differ from the requested values or could not be read. Check whether another program is changing proxy settings.`
+  String get desktopProxySystemReadbackFailed {
+    return Intl.message(
+      'System proxy verification failed: settings differ from the requested values or could not be read. Check whether another program is changing proxy settings.',
+      name: 'desktopProxySystemReadbackFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `System proxy setup did not complete. Retry, or export logs if the problem persists.`
+  String get desktopProxySystemFailed {
+    return Intl.message(
+      'System proxy setup did not complete. Retry, or export logs if the problem persists.',
+      name: 'desktopProxySystemFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The proxy configuration could not be applied. Check the current subscription and configuration, or export logs to identify the cause.`
+  String get desktopProxyConfigurationFailed {
+    return Intl.message(
+      'The proxy configuration could not be applied. Check the current subscription and configuration, or export logs to identify the cause.',
+      name: 'desktopProxyConfigurationFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Current port: {port}`
+  String desktopProxyCurrentPort(int port) {
+    return Intl.message(
+      'Current port: $port',
+      name: 'desktopProxyCurrentPort',
+      desc: '',
+      args: [port],
+    );
+  }
+
+  /// `Error code: {code}`
+  String desktopProxyFailureCode(String code) {
+    return Intl.message(
+      'Error code: $code',
+      name: 'desktopProxyFailureCode',
+      desc: '',
+      args: [code],
+    );
+  }
+
+  /// `View or export logs and share the error details with support.`
+  String get desktopProxyFailureLogsHint {
+    return Intl.message(
+      'View or export logs and share the error details with support.',
+      name: 'desktopProxyFailureLogsHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `View/export logs`
+  String get desktopProxyFailureLogs {
+    return Intl.message(
+      'View/export logs',
+      name: 'desktopProxyFailureLogs',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Change port`
+  String get desktopProxyChangePort {
+    return Intl.message(
+      'Change port',
+      name: 'desktopProxyChangePort',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Enter a new port from 1024 to 49151 that is not used by another local listener. Saving will retry the connection.`
+  String get desktopProxyPortHint {
+    return Intl.message(
+      'Enter a new port from 1024 to 49151 that is not used by another local listener. Saving will retry the connection.',
+      name: 'desktopProxyPortHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Enter a whole-number port from 1024 to 49151`
+  String get desktopProxyPortRange {
+    return Intl.message(
+      'Enter a whole-number port from 1024 to 49151',
+      name: 'desktopProxyPortRange',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Choose a port different from the current port`
+  String get desktopProxyPortUnchanged {
+    return Intl.message(
+      'Choose a port different from the current port',
+      name: 'desktopProxyPortUnchanged',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This port is assigned to another local listener. Choose another port`
+  String get desktopProxyPortReserved {
+    return Intl.message(
+      'This port is assigned to another local listener. Choose another port',
+      name: 'desktopProxyPortReserved',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Save and retry`
+  String get desktopProxyPortSaveRetry {
+    return Intl.message(
+      'Save and retry',
+      name: 'desktopProxyPortSaveRetry',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<AppLocalizations> {

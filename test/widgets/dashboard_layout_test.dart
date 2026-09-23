@@ -513,12 +513,15 @@ void main() {
     expect(find.byKey(const ValueKey('fengwo-power-button')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('fengwo-desktop-system-proxy')),
-      findsOneWidget,
+      findsNothing,
     );
-
-    await tester.tap(find.byKey(const ValueKey('fengwo-desktop-system-proxy')));
-    await tester.pump();
-    expect(container.read(networkSettingProvider).systemProxy, isFalse);
+    final l10n = tester
+        .element(find.byType(FengWoDesktopDashboard))
+        .appLocalizations;
+    expect(find.text(l10n.systemProxy), findsNothing);
+    expect(find.text(l10n.rule), findsOneWidget);
+    expect(find.text(l10n.global), findsOneWidget);
+    expect(find.text(l10n.tun), findsOneWidget);
 
     final action =
         container.read(setupActionProvider.notifier) as _RecordingSetupAction;
@@ -778,6 +781,14 @@ void main() {
     final l10n = tester
         .element(find.byType(FengWoMobileDashboard))
         .appLocalizations;
+    expect(
+      find.byKey(const ValueKey('fengwo-mobile-system-proxy')),
+      findsNothing,
+    );
+    expect(find.text(l10n.systemProxy), findsNothing);
+    expect(find.text(l10n.rule), findsOneWidget);
+    expect(find.text(l10n.global), findsOneWidget);
+    expect(find.text(l10n.tun), findsOneWidget);
     expect(find.text(nodeName), findsWidgets);
     expect(find.text(l10n.referenceDelayValue(128)), findsOneWidget);
     expect(
@@ -1878,7 +1889,7 @@ void main() {
         rate: 1,
         tags: const ['US'],
         isOnline: false,
-        rawData: const {},
+        rawData: const {'is_online': false},
       ),
     ];
     addTearDown(() => globalState.xboardNodes = const []);
@@ -2000,7 +2011,7 @@ void main() {
         rate: 1,
         tags: ['JP'],
         isOnline: true,
-        rawData: {},
+        rawData: {'is_online': true},
       ),
     ];
     addTearDown(() => globalState.xboardNodes = const []);

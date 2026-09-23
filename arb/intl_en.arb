@@ -1346,5 +1346,29 @@
         "type": "int"
       }
     }
-  }
+  },
+  "desktopProxyFailureTitle": "Proxy could not start",
+  "desktopProxySystemFailureTitle": "System proxy setup failed",
+  "desktopProxyAddressInUse": "Another program is using the listening port. Close that program and retry, or choose another port.",
+  "desktopProxyListenerAccessDenied": "The system denied access to the listening port. A reserved port or security policy may be responsible. Check system restrictions or try another port.",
+  "desktopProxyInvalidBindAddress": "The listening address is invalid. Check the bind address in the proxy configuration and retry.",
+  "desktopProxyAddressNotAvailable": "The configured listening address is unavailable on this computer. Check the network connection and bind address, then retry.",
+  "desktopProxyLocalPortUnavailable": "The client could not reach the local proxy port. This does not confirm a port conflict. Retry or export logs for diagnosis; you can also try another port.",
+  "desktopProxySystemAccessDenied": "The system denied changes to proxy settings. Check user permissions or system management policies and retry.",
+  "desktopProxySystemWriteFailed": "System proxy settings could not be saved. Check system restrictions or export logs for diagnosis.",
+  "desktopProxySystemReadbackFailed": "System proxy verification failed: settings differ from the requested values or could not be read. Check whether another program is changing proxy settings.",
+  "desktopProxySystemFailed": "System proxy setup did not complete. Retry, or export logs if the problem persists.",
+  "desktopProxyConfigurationFailed": "The proxy configuration could not be applied. Check the current subscription and configuration, or export logs to identify the cause.",
+  "desktopProxyCurrentPort": "Current port: {port}",
+  "@desktopProxyCurrentPort": {"placeholders": {"port": {"type": "int"}}},
+  "desktopProxyFailureCode": "Error code: {code}",
+  "@desktopProxyFailureCode": {"placeholders": {"code": {"type": "String"}}},
+  "desktopProxyFailureLogsHint": "View or export logs and share the error details with support.",
+  "desktopProxyFailureLogs": "View/export logs",
+  "desktopProxyChangePort": "Change port",
+  "desktopProxyPortHint": "Enter a new port from 1024 to 49151 that is not used by another local listener. Saving will retry the connection.",
+  "desktopProxyPortRange": "Enter a whole-number port from 1024 to 49151",
+  "desktopProxyPortUnchanged": "Choose a port different from the current port",
+  "desktopProxyPortReserved": "This port is assigned to another local listener. Choose another port",
+  "desktopProxyPortSaveRetry": "Save and retry"
 }

@@ -352,6 +352,9 @@ class _TestSetupAction extends SetupAction {
   bool get requiresListenerReadiness => true;
 
   @override
+  bool get requiresWindowsTunAuthorization => true;
+
+  @override
   Future<bool> isTunServiceReady() async => true;
 
   @override
