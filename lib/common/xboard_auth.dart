@@ -924,17 +924,43 @@ class XboardAuthService {
   Future<List<XboardNodeData>> fetchNodes({
     required Uri endpoint,
     required String authData,
+    String? userToken,
+    bool secureSubscription = false,
   }) async {
+    if (secureSubscription) {
+      final normalizedToken = userToken?.trim() ?? '';
+      if (normalizedToken.isEmpty) {
+        throw XboardAuthException(
+          failure: XboardAuthFailure.authenticationRejected,
+          message: '本地安全订阅凭证不完整，请重新登录',
+          endpoint: endpoint,
+        );
+      }
+      try {
+        final metadata = await (_subscriptionV2Client ?? SubscriptionV2Client())
+            .fetchNodes(endpoint: endpoint, userToken: normalizedToken);
+        return _parseNodesSuccess(endpoint, {
+          'data': metadata['nodes'],
+        }, rejectInvalidNodes: true);
+      } on SubscriptionV2Exception catch (error) {
+        throw _mapSubscriptionV2Error(error, endpoint);
+      }
+    }
     final requestEndpoint = buildXboardServerFetchUri(endpoint);
     final response = await (_nodesRequester ?? _requestNodes)(
       requestEndpoint,
       authData,
     );
-    final body = _decodeResponseMap(response.data, apiName: '节点接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
+      final body = _decodeResponseMap(response.data, apiName: '节点接口');
       return _parseNodesSuccess(requestEndpoint, body);
     }
-    final message = _responseMessage(body);
+    String? message;
+    try {
+      message = _responseMessage(
+        _decodeResponseMap(response.data, apiName: '节点接口'),
+      );
+    } on XboardAuthException catch (_) {}
     if (response.statusCode == 401 || response.statusCode == 403) {
       throw XboardAuthException(
         failure: XboardAuthFailure.authenticationRejected,
@@ -3363,8 +3389,9 @@ XboardSubscriptionData _parseSubscriptionSuccess(
 
 List<XboardNodeData> _parseNodesSuccess(
   Uri endpoint,
-  Map<String, Object?> response,
-) {
+  Map<String, Object?> response, {
+  bool rejectInvalidNodes = false,
+}) {
   final rawData = response['data'];
   if (rawData is! List) {
     throw XboardAuthException(
@@ -3375,7 +3402,16 @@ List<XboardNodeData> _parseNodesSuccess(
   }
   final nodes = <XboardNodeData>[];
   for (final rawNode in rawData) {
-    if (rawNode is! Map) continue;
+    if (rawNode is! Map || _asString(rawNode['name']) == null) {
+      if (rejectInvalidNodes) {
+        throw XboardAuthException(
+          failure: XboardAuthFailure.invalidResponse,
+          message: '节点接口响应包含无效节点',
+          endpoint: endpoint,
+        );
+      }
+      continue;
+    }
     final data = rawNode.map((key, value) => MapEntry(key.toString(), value));
     final name = _asString(data['name']);
     if (name == null) continue;

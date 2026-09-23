@@ -1,4 +1,5 @@
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/fengwo_node_country.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
@@ -27,10 +28,10 @@ class FengWoNodeStatusView extends ConsumerStatefulWidget {
 class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
   final _nodesScrollController = ScrollController();
   late final XboardAuthService _xboardAuthService;
-  List<XboardNodeData> _xboardNodes = const [];
+  List<XboardNodeData> get _xboardNodes => globalState.xboardNodes;
   final Set<String> _testingNodes = {};
   bool _loadingXboardNodes = false;
-  bool _xboardStatusFresh = false;
+  bool get _xboardStatusFresh => globalState.xboardNodesStatusFresh;
   bool _testingAll = false;
   bool _refreshingSubscription = false;
 
@@ -38,15 +39,21 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
   void initState() {
     super.initState();
     _xboardAuthService = widget.authService ?? XboardAuthService();
-    _xboardNodes = globalState.xboardNodes;
-    _xboardStatusFresh = _xboardNodes.isNotEmpty;
+    globalState.xboardNodesRevisionNotifier.addListener(_metadataChanged);
+    globalState.offlineModeNotifier.addListener(_metadataChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadXboardNodes());
   }
 
   @override
   void dispose() {
+    globalState.xboardNodesRevisionNotifier.removeListener(_metadataChanged);
+    globalState.offlineModeNotifier.removeListener(_metadataChanged);
     _nodesScrollController.dispose();
     super.dispose();
+  }
+
+  void _metadataChanged() {
+    if (mounted) setState(() {});
   }
 
   Group? _currentGroup(List<Group> groups, Profile? profile) {
@@ -65,41 +72,39 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
   }
 
   Future<void> _loadXboardNodes([XboardLoginResult? activeSession]) async {
-    if (globalState.isOfflineMode) {
-      if (mounted) setState(() => _xboardNodes = globalState.xboardNodes);
-      return;
-    }
+    if (globalState.isOfflineMode) return;
     final session = activeSession ?? globalState.xboardSession;
     if (session == null || _loadingXboardNodes) return;
     final sessionRevision = globalState.xboardSessionRevision;
+    final requestRevision = globalState.beginXboardNodesRefresh(
+      session,
+      sessionRevision,
+    );
+    if (requestRevision == null) return;
     if (mounted) setState(() => _loadingXboardNodes = true);
     try {
       final nodes = await _xboardAuthService.fetchNodes(
         endpoint: session.endpoint,
         authData: session.authData,
+        userToken: session.token,
+        secureSubscription: session.secureSubscription,
       );
       if (!globalState.setXboardNodesForSession(
         session,
         sessionRevision,
         nodes,
+        requestRevision: requestRevision,
       )) {
         return;
-      }
-      if (mounted) {
-        setState(() {
-          _xboardNodes = nodes;
-          _xboardStatusFresh = true;
-        });
       }
     } catch (error, stackTrace) {
-      if (!globalState.setXboardNodesForSession(
+      if (!globalState.markXboardNodesStaleForSession(
         session,
         sessionRevision,
-        const [],
+        requestRevision: requestRevision,
       )) {
         return;
       }
-      if (mounted) setState(() => _xboardStatusFresh = false);
       commonPrint.log(
         'load XBoard nodes failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
@@ -114,11 +119,15 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
     setState(() => _testingAll = true);
     try {
       await _loadXboardNodes();
-      final metadata = _matchXboardNodes(nodes, _xboardNodes);
       final testableNodes = nodes
           .where(
             (proxy) =>
-                !_xboardStatusFresh || metadata[proxy.name]?.isOnline != false,
+                resolveXboardNodeDisplayStatus(
+                  proxy.name,
+                  _xboardNodes,
+                  statusAvailable: _xboardStatusFresh,
+                ) !=
+                XboardNodeDisplayStatus.offline,
           )
           .toList(growable: false);
       await delayTest(testableNodes, group.testUrl);
@@ -141,12 +150,6 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
     try {
       final refreshed = await refresh();
       if (!mounted) return;
-      if (refreshed) {
-        setState(() {
-          _xboardNodes = globalState.xboardNodes;
-          _xboardStatusFresh = _xboardNodes.isNotEmpty;
-        });
-      }
       context.showNotifier(
         refreshed
             ? context.appLocalizations.nodeUpdateSuccess
@@ -167,8 +170,14 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
 
   Future<void> _testNode(Group group, Proxy proxy) async {
     if (_testingAll || _testingNodes.contains(proxy.name)) return;
-    final metadata = _matchXboardNodes([proxy], _xboardNodes)[proxy.name];
-    if (_xboardStatusFresh && metadata?.isOnline == false) return;
+    if (resolveXboardNodeDisplayStatus(
+          proxy.name,
+          _xboardNodes,
+          statusAvailable: _xboardStatusFresh,
+        ) ==
+        XboardNodeDisplayStatus.offline) {
+      return;
+    }
     setState(() => _testingNodes.add(proxy.name));
     try {
       await proxyDelayTest(proxy, group.testUrl);
@@ -255,8 +264,6 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
       for (final proxy in nodes)
         proxy.name: _resolveNodeStatus(
           measuredDelay: measuredDelays[proxy.name],
-          metadata: nodeMetadata[proxy.name],
-          xboardStatusFresh: _xboardStatusFresh,
           isTesting: _testingNodes.contains(proxy.name),
           backendStatus: backendStatuses[proxy.name]!,
         ),
@@ -281,7 +288,9 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
     final onlineCount = nodeStatuses.values
         .where((status) => status.countsAsAvailable)
         .length;
-    final countryCount = _xboardTagCount(_xboardNodes);
+    final countryCount = fengWoCountryCodesFromTags(
+      _xboardNodes.expand((node) => node.tags),
+    ).length;
     final availability = nodes.isEmpty ? 0.0 : onlineCount / nodes.length;
     final colors = _NodeStatusColors.of(context);
     final canRefreshSubscription =
@@ -727,6 +736,7 @@ class _NodeDistributionPanel extends StatelessWidget {
                 child: _NodeStat(
                   colors: colors,
                   icon: Icons.public_rounded,
+                  key: const ValueKey('fengwo-node-status-country-count'),
                   label: context.appLocalizations.countriesAndRegions,
                   value: '$countryCount',
                   compact: compact,
@@ -806,6 +816,7 @@ class _NodeStat extends StatelessWidget {
   final bool compact;
 
   const _NodeStat({
+    super.key,
     required this.colors,
     required this.icon,
     required this.label,
@@ -1340,8 +1351,6 @@ class _NodePresentationStatus {
 
 _NodePresentationStatus _resolveNodeStatus({
   required int? measuredDelay,
-  required XboardNodeData? metadata,
-  required bool xboardStatusFresh,
   required bool isTesting,
   required XboardNodeDisplayStatus backendStatus,
 }) {
@@ -1351,7 +1360,7 @@ _NodePresentationStatus _resolveNodeStatus({
       backendStatus: backendStatus,
     );
   }
-  if (xboardStatusFresh && metadata?.isOnline == false) {
+  if (backendStatus == XboardNodeDisplayStatus.offline) {
     return const _NodePresentationStatus(
       state: _NodeConnectivityState.backendOffline,
     );
@@ -1365,7 +1374,7 @@ _NodePresentationStatus _resolveNodeStatus({
       delay: measuredDelay,
     );
   }
-  if (xboardStatusFresh && metadata?.isOnline == true) {
+  if (backendStatus == XboardNodeDisplayStatus.online) {
     return const _NodePresentationStatus(
       state: _NodeConnectivityState.backendOnlineUntested,
     );
@@ -1398,10 +1407,6 @@ Map<String, XboardNodeData> _matchXboardNodes(
     if (metadata != null) matches[proxy.name] = metadata;
   }
   return matches;
-}
-
-int _xboardTagCount(List<XboardNodeData> nodes) {
-  return xboardTagCount(nodes);
 }
 
 String? _countryCodeFromTags(List<String> tags) {

@@ -1563,7 +1563,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "quickFill": MessageLookupByLibrary.simpleMessage("クイック入力"),
     "rainbowScheme": MessageLookupByLibrary.simpleMessage("レインボー"),
     "reachable": MessageLookupByLibrary.simpleMessage("接続可能"),
-    "realTimeConnections": MessageLookupByLibrary.simpleMessage("リアルタイム接続"),
+    "realTimeConnections": MessageLookupByLibrary.simpleMessage("プロキシルール"),
     "realTimeConnectionsSubtitle": MessageLookupByLibrary.simpleMessage(
       "現在の接続を確認し、カスタム振り分けルールを管理します",
     ),

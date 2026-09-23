@@ -11,6 +11,7 @@ import 'package:fl_clash/views/dashboard/dashboard.dart';
 import 'package:fl_clash/views/dashboard/fengwo_desktop_dashboard.dart';
 import 'package:fl_clash/views/dashboard/fengwo_mobile_dashboard.dart';
 import 'package:fl_clash/views/dashboard/fengwo_node_selector.dart';
+import 'package:fl_clash/views/dashboard/widgets/dashboard_node_entry.dart';
 import 'package:fl_clash/views/proxies/fengwo_node_status.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -289,8 +290,25 @@ void main() {
               ),
             )
             .appLocalizations;
+        final metrics = find.byKey(
+          ValueKey(
+            mobile
+                ? 'fengwo-mobile-node-card'
+                : 'fengwo-desktop-connection-scroll',
+          ),
+        );
         expect(
-          find.text(mobile ? l10n.referenceDelayValue(350) : '350'),
+          find.descendant(
+            of: metrics,
+            matching: find.text(mobile ? l10n.referenceDelayValue(350) : '350'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byType(DashboardNodeEntry),
+            matching: find.text('350 ms'),
+          ),
           findsOneWidget,
         );
         expect(
@@ -305,7 +323,9 @@ void main() {
           ]) {
             expect(
               tester
-                  .renderObject<RenderParagraph>(find.text(text))
+                  .renderObject<RenderParagraph>(
+                    find.descendant(of: metrics, matching: find.text(text)),
+                  )
                   .didExceedMaxLines,
               isFalse,
               reason: '$locale: $text',
@@ -427,12 +447,31 @@ void main() {
                 : mobile
                 ? l10n.referenceDelayValue(measured)
                 : '$measured';
-            expect(find.text(mainText), findsOneWidget);
+            final metricText = find.descendant(
+              of: find.byKey(
+                ValueKey(
+                  mobile
+                      ? 'fengwo-mobile-node-card'
+                      : 'fengwo-desktop-connection-scroll',
+                ),
+              ),
+              matching: find.text(mainText),
+            );
+            expect(metricText, findsOneWidget);
             expect(
               tester
-                  .renderObject<RenderParagraph>(find.text(mainText))
+                  .renderObject<RenderParagraph>(metricText)
                   .didExceedMaxLines,
               isFalse,
+            );
+            expect(
+              find.descendant(
+                of: find.byType(DashboardNodeEntry),
+                matching: find.text(
+                  measured < 0 ? l10n.timeout : '$measured ms',
+                ),
+              ),
+              findsOneWidget,
             );
             if (mobile || measured > 0) {
               expect(
@@ -760,7 +799,20 @@ void main() {
         .element(find.byType(FengWoMobileDashboard))
         .appLocalizations;
     expect(find.text(nodeName), findsWidgets);
-    expect(find.text(l10n.referenceDelayValue(128)), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(DashboardNodeEntry),
+        matching: find.text('128 ms'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('fengwo-mobile-node-card')),
+        matching: find.text(l10n.referenceDelayValue(128)),
+      ),
+      findsOneWidget,
+    );
     expect(
       container.read(
         delayProvider(proxyName: nodeName, testUrl: group.testUrl),
@@ -812,7 +864,7 @@ void main() {
 
     expect(action.runningRequests, [true]);
 
-    final switchNode = find.byKey(const ValueKey('fengwo-mobile-switch-node'));
+    final switchNode = find.byType(DashboardNodeEntry);
     await tester.ensureVisible(switchNode);
     await tester.tap(switchNode);
     await tester.pump();
@@ -1133,15 +1185,7 @@ void main() {
         expect(find.text(ruleNode), findsWidgets);
         expect(find.text(globalNode), findsNothing);
 
-        final switchNode = mobile
-            ? find.byKey(const ValueKey('fengwo-mobile-switch-node'))
-            : find.widgetWithText(
-                TextButton,
-                tester
-                    .element(find.byType(FengWoDesktopDashboard))
-                    .appLocalizations
-                    .switchNode,
-              );
+        final switchNode = find.byType(DashboardNodeEntry);
         await tester.ensureVisible(switchNode);
         await tester.tap(switchNode);
         await tester.pump();
@@ -1156,6 +1200,121 @@ void main() {
         expect(
           find.descendant(of: selector, matching: find.text(ruleNode)),
           findsWidgets,
+        );
+        expect(tester.takeException(), null);
+      },
+    );
+  }
+
+  for (final mobile in [false, true]) {
+    testWidgets(
+      '${mobile ? 'mobile' : 'desktop'} node entry opens the existing selector and keeps it open after selection',
+      (tester) async {
+        final size = mobile ? const Size(393, 800) : const Size(1440, 900);
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        const firstNode = '香港专线 HK 01';
+        const secondNode = '新加坡专线 SG 02';
+        const group = Group(
+          name: '优选线路',
+          type: GroupType.Selector,
+          hidden: false,
+          now: firstNode,
+          all: [
+            Proxy(name: firstNode, type: 'ss'),
+            Proxy(name: secondNode, type: 'ss'),
+          ],
+        );
+        final profile = Profile(
+          id: 1,
+          autoUpdateDuration: Duration.zero,
+          currentGroupName: group.name,
+          selectedMap: {group.name: firstNode},
+        );
+        final container = ProviderContainer(
+          overrides: [
+            profilesProvider.overrideWith(() => _TestProfiles([profile])),
+            currentProfileIdProvider.overrideWithBuild((_, _) => profile.id),
+            groupsProvider.overrideWithValue([group]),
+            currentGroupsStateProvider.overrideWithValue(
+              const GroupsState(value: [group]),
+            ),
+            proxiesActionProvider.overrideWith(_RecordingProxiesAction.new),
+          ],
+        );
+        addTearDown(container.dispose);
+        addTearDown(globalState.clearXboardSession);
+        globalState.container = container;
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: _TestApp(
+              platform: mobile ? TargetPlatform.android : TargetPlatform.macOS,
+              child: mobile
+                  ? const FengWoMobileDashboard()
+                  : const FengWoDesktopDashboard(),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final entry = find.byType(DashboardNodeEntry);
+        final l10n = tester.element(entry).appLocalizations;
+        expect(entry, findsOneWidget);
+        expect(find.text(l10n.currentNode), findsOneWidget);
+        expect(find.text(l10n.switchNode), findsNothing);
+        expect(
+          find.descendant(of: entry, matching: find.text(firstNode)),
+          findsOneWidget,
+        );
+        expect(
+          tester.getRect(entry).bottom,
+          lessThanOrEqualTo(tester.getRect(find.text(l10n.rule)).top),
+        );
+        await tester.ensureVisible(entry);
+        await tester.tap(entry);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        final selector = find.byType(FengWoNodeSelectorView);
+        expect(selector, findsOneWidget);
+        expect(
+          find.descendant(of: selector, matching: find.byType(TextField)),
+          findsOneWidget,
+        );
+        await tester.tap(
+          find.descendant(of: selector, matching: find.text(secondNode)),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(selector, findsOneWidget);
+        expect(
+          container.read(currentProfileProvider)?.selectedMap[group.name],
+          secondNode,
+        );
+        expect(
+          (container.read(proxiesActionProvider.notifier)
+                  as _RecordingProxiesAction)
+              .selections,
+          [(group.name, secondNode)],
+        );
+        await tester.tap(
+          find.descendant(
+            of: selector,
+            matching: find.byIcon(Icons.close_rounded),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(selector, findsNothing);
+        expect(
+          find.descendant(of: entry, matching: find.text(secondNode)),
+          findsOneWidget,
         );
         expect(tester.takeException(), null);
       },
@@ -1861,7 +2020,7 @@ void main() {
         rate: 1,
         tags: const ['US'],
         isOnline: false,
-        rawData: const {},
+        rawData: const {'is_online': false},
       ),
     ];
     addTearDown(() => globalState.xboardNodes = const []);
@@ -1962,7 +2121,7 @@ void main() {
         rate: 1,
         tags: ['JP'],
         isOnline: true,
-        rawData: {},
+        rawData: {'is_online': true},
       ),
     ];
     addTearDown(() => globalState.xboardNodes = const []);
@@ -2389,6 +2548,15 @@ class _RecordingSetupAction extends SetupAction {
         .read(patchClashConfigProvider.notifier)
         .update((config) => config.copyWith(mode: mode));
     return ModeSwitchResult.switched;
+  }
+}
+
+class _RecordingProxiesAction extends ProxiesAction {
+  final selections = <(String, String)>[];
+
+  @override
+  void changeProxyDebounce(String groupName, String proxyName) {
+    selections.add((groupName, proxyName));
   }
 }
 

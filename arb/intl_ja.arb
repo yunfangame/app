@@ -766,7 +766,7 @@
   "paymentMethod": "支払い方法",
   "paidAt": "支払い日時",
   "personalCenter": "アカウント",
-  "realTimeConnections": "リアルタイム接続",
+  "realTimeConnections": "プロキシルール",
   "advancedSettings": "詳細設定",
   "practicalTools": "ユーティリティ",
   "loggedIn": "ログイン済み",

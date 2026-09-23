@@ -8,6 +8,7 @@ import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/dashboard/fengwo_desktop_dashboard.dart';
+import 'package:fl_clash/views/dashboard/fengwo_mobile_dashboard.dart';
 import 'package:fl_clash/views/dashboard/fengwo_node_selector.dart';
 import 'package:fl_clash/views/proxies/card.dart';
 import 'package:fl_clash/views/proxies/fengwo_node_status.dart';
@@ -211,6 +212,119 @@ void main() {
     });
   }
 
+  testWidgets(
+    'mobile metadata refresh preserves delay and the compact layout',
+    (tester) async {
+      final session = _session('mobile');
+      final revision = globalState.activateXboardSession(session);
+      await pumpView(
+        tester,
+        size: const Size(393, 800),
+        delays: {'Node A': 86},
+        child: const FengWoMobileDashboard(),
+      );
+      final card = find.byKey(const ValueKey('fengwo-mobile-node-card'));
+      void expectMobileLayout() {
+        expect(card, findsOneWidget);
+        expect(
+          find.descendant(of: card, matching: find.text('86 ms')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('fengwo-mobile-world-map-card')),
+          findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+      }
+
+      expectMobileLayout();
+      globalState.setXboardNodesForSession(session, revision, [
+        _backendNode(false),
+      ]);
+      await tester.pump();
+      expectMobileLayout();
+      globalState.markXboardNodesStaleForSession(session, revision);
+      await tester.pump();
+      expectMobileLayout();
+      globalState.setOfflineMode(true);
+      await tester.pump();
+      expectMobileLayout();
+      globalState.setOfflineMode(false);
+      await tester.pump();
+      expectMobileLayout();
+      await tester.pumpWidget(const SizedBox.shrink());
+      globalState.setXboardNodesForSession(session, revision, const []);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final surface in ['node status', 'desktop dashboard']) {
+    for (final hasTags in [false, true]) {
+      testWidgets('$surface counts only distinct region tags: $hasTags', (
+        tester,
+      ) async {
+        await pumpView(
+          tester,
+          size: const Size(1440, 1000),
+          delays: {'香港 01': 40, 'HK 02': 45, 'Japan 01': 60},
+          backendNodes: [
+            XboardNodeData(
+              name: '香港 01',
+              type: 'ss',
+              rate: 1,
+              tags: hasTags ? [' HK ', 'VIP', '专线'] : [],
+              isOnline: true,
+              rawData: const {},
+            ),
+            XboardNodeData(
+              name: 'HK 02',
+              type: 'ss',
+              rate: 1,
+              tags: hasTags ? ['hk', '解锁'] : [],
+              isOnline: true,
+              rawData: const {},
+            ),
+            XboardNodeData(
+              name: 'Japan 01',
+              type: 'ss',
+              rate: 1,
+              tags: hasTags ? ['US', 'us', 'ZZ'] : [],
+              isOnline: true,
+              rawData: const {},
+            ),
+          ],
+          child: surface == 'node status'
+              ? const FengWoNodeStatusView()
+              : const FengWoDesktopDashboard(),
+        );
+        final count = hasTags ? 2 : 0;
+        if (surface == 'node status') {
+          final statistic = find.byKey(
+            const ValueKey('fengwo-node-status-country-count'),
+          );
+          expect(statistic, findsOneWidget);
+          expect(
+            find.descendant(of: statistic, matching: find.text('$count')),
+            findsOneWidget,
+          );
+        } else {
+          final statistic = find.byKey(
+            const ValueKey('fengwo-desktop-network-country-count'),
+          );
+          final l10n = tester
+              .element(find.byType(FengWoDesktopDashboard))
+              .appLocalizations;
+          expect(
+            tester.widget<Text>(statistic).data,
+            l10n.countriesCount(count),
+          );
+        }
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
   for (final sample
       in <(String, List<XboardNodeData>, bool, XboardNodeDisplayStatus)>[
         ('online', [_backendNode(true)], false, XboardNodeDisplayStatus.online),
@@ -390,7 +504,9 @@ void main() {
     );
   }
 
-  testWidgets('node status clears failed fresh backend cache', (tester) async {
+  testWidgets('node status retains metadata after failed status refresh', (
+    tester,
+  ) async {
     final request = Completer<XboardLoginResponse>();
     globalState.activateXboardSession(_session('active'));
     await pumpView(
@@ -408,11 +524,126 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(globalState.xboardNodes, isEmpty);
+    expect(globalState.xboardNodes.single.name, 'Node A');
+    expect(globalState.xboardNodesStatusFresh, isFalse);
     expect(find.text(currentAppLocalizations.nodeStatusUnknown), findsWidgets);
     expect(find.text(currentAppLocalizations.nodeBackendOnline), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('node status forwards secure session credentials', (
+    tester,
+  ) async {
+    final service = _CapturingNodesService();
+    final session = _session('secure-token', secureSubscription: true);
+    globalState.activateXboardSession(session);
+    await pumpView(
+      tester,
+      delays: {'Node A': null},
+      child: FengWoNodeStatusView(authService: service),
+    );
+    await tester.pump();
+    expect(service.endpoint, session.endpoint);
+    expect(service.authData, session.authData);
+    expect(service.userToken, session.token);
+    expect(service.secureSubscription, isTrue);
+    expect(globalState.xboardNodes, isEmpty);
+    expect(globalState.xboardNodesStatusFresh, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('missing online metadata stays unknown and can be tested', (
+    tester,
+  ) async {
+    await pumpView(
+      tester,
+      delays: {'Node A': null},
+      backendNodes: [
+        const XboardNodeData(
+          name: 'Node A',
+          type: 'ss',
+          rate: 1,
+          tags: ['HK'],
+          isOnline: false,
+          rawData: {},
+        ),
+      ],
+      child: const FengWoNodeStatusView(),
+    );
+    expect(find.text(currentAppLocalizations.nodeStatusUnknown), findsWidgets);
+    expect(find.text(currentAppLocalizations.nodeBackendOffline), findsNothing);
+    final button = tester.widget<IconButton>(
+      find.descendant(
+        of: find.byKey(const ValueKey('fengwo-node-row-Node A')),
+        matching: find.byType(IconButton),
+      ),
+    );
+    expect(button.onPressed, isNotNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final surface in ['node status', 'desktop dashboard']) {
+    testWidgets('$surface reacts to metadata without proxy provider changes', (
+      tester,
+    ) async {
+      final session = _session('current');
+      final revision = globalState.activateXboardSession(session);
+      await pumpView(
+        tester,
+        size: const Size(1440, 1000),
+        delays: {'Node A': null},
+        offlineMode: true,
+        child: surface == 'node status'
+            ? const FengWoNodeStatusView()
+            : const FengWoDesktopDashboard(),
+      );
+      void expectCount(int count) {
+        final statistic = find.byKey(
+          ValueKey(
+            surface == 'node status'
+                ? 'fengwo-node-status-country-count'
+                : 'fengwo-desktop-network-country-count',
+          ),
+        );
+        if (surface == 'node status') {
+          expect(
+            find.descendant(of: statistic, matching: find.text('$count')),
+            findsOneWidget,
+          );
+        } else {
+          expect(
+            tester.widget<Text>(statistic).data,
+            currentAppLocalizations.countriesCount(count),
+          );
+        }
+      }
+
+      expectCount(0);
+      final nodes = [
+        const XboardNodeData(
+          name: 'Node A',
+          type: 'ss',
+          rate: 1,
+          tags: ['HK', 'us', 'hk', 'VIP'],
+          isOnline: true,
+          rawData: {'is_online': true},
+        ),
+      ];
+      globalState.setXboardNodesForSession(session, revision, nodes);
+      await tester.pump();
+      expectCount(2);
+      globalState.markXboardNodesStaleForSession(session, revision);
+      await tester.pump();
+      expectCount(2);
+      globalState.setXboardNodesForSession(session, revision, const []);
+      await tester.pump();
+      expectCount(0);
+      globalState.activateXboardSession(_session('next-account'));
+      await tester.pump();
+      expectCount(0);
+      expect(tester.takeException(), isNull);
+    });
+  }
 }
 
 XboardNodeData _backendNode(Object? status, {String name = 'Node A'}) {
@@ -426,13 +657,14 @@ XboardNodeData _backendNode(Object? status, {String name = 'Node A'}) {
   );
 }
 
-XboardLoginResult _session(String token) {
+XboardLoginResult _session(String token, {bool secureSubscription = false}) {
   final endpoint = Uri.parse('https://api.example.com');
   return XboardLoginResult(
     endpoint: endpoint,
     token: token,
     authData: token,
     isAdmin: false,
+    secureSubscription: secureSubscription,
     subscription: XboardSubscriptionData(
       endpoint: endpoint,
       subscribeUrl: Uri.parse('https://api.example.com/subscribe/$token'),
@@ -442,6 +674,27 @@ XboardLoginResult _session(String token) {
       rawData: const {},
     ),
   );
+}
+
+class _CapturingNodesService extends XboardAuthService {
+  Uri? endpoint;
+  String? authData;
+  String? userToken;
+  bool? secureSubscription;
+
+  @override
+  Future<List<XboardNodeData>> fetchNodes({
+    required Uri endpoint,
+    required String authData,
+    String? userToken,
+    bool secureSubscription = false,
+  }) async {
+    this.endpoint = endpoint;
+    this.authData = authData;
+    this.userToken = userToken;
+    this.secureSubscription = secureSubscription;
+    return const [];
+  }
 }
 
 class _TestApp extends StatelessWidget {

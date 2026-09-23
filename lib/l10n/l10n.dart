@@ -6343,10 +6343,10 @@ class AppLocalizations {
     return Intl.message('Account', name: 'personalCenter', desc: '', args: []);
   }
 
-  /// `Live connections`
+  /// `Proxy rules`
   String get realTimeConnections {
     return Intl.message(
-      'Live connections',
+      'Proxy rules',
       name: 'realTimeConnections',
       desc: '',
       args: [],

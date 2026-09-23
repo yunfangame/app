@@ -184,12 +184,17 @@ class ApplicationState extends ConsumerState<Application> {
     );
   }
 
-  Future<void> _loadXboardNodes(
+  Future<bool> _loadXboardNodes(
     XboardLoginResult session, {
     bool ignoreOfflineMode = false,
   }) async {
-    if (globalState.isOfflineMode && !ignoreOfflineMode) return;
+    if (globalState.isOfflineMode && !ignoreOfflineMode) return false;
     final revision = globalState.xboardSessionRevision;
+    final requestRevision = globalState.beginXboardNodesRefresh(
+      session,
+      revision,
+    );
+    if (requestRevision == null) return false;
     commonPrint.event(
       'subscription.nodes.fetch.started',
       fields: {'session_revision': revision},
@@ -198,24 +203,39 @@ class ApplicationState extends ConsumerState<Application> {
       final nodes = await _xboardAuthService.fetchNodes(
         endpoint: session.endpoint,
         authData: session.authData,
+        userToken: session.token,
+        secureSubscription: session.secureSubscription,
       );
-      if (!globalState.setXboardNodesForSession(session, revision, nodes)) {
+      if (!globalState.setXboardNodesForSession(
+        session,
+        revision,
+        nodes,
+        requestRevision: requestRevision,
+      )) {
         commonPrint.event(
           'subscription.nodes.fetch.discarded',
           fields: {'session_revision': revision},
         );
-        return;
+        return false;
       }
       commonPrint.event(
         'subscription.nodes.fetch.succeeded',
         fields: {'node_count': nodes.length, 'session_revision': revision},
       );
-      await _xboardSessionStorage.saveOfflineCache(
-        session: session,
-        nodes: nodes,
-      );
-      if (!globalState.isActiveXboardSession(session, revision)) return;
-      _offlineAvailable = true;
+      try {
+        await _xboardSessionStorage.saveOfflineCache(
+          session: session,
+          nodes: nodes,
+        );
+        if (!globalState.isActiveXboardSession(session, revision)) return false;
+        _offlineAvailable = true;
+      } catch (error, stackTrace) {
+        commonPrint.log(
+          'cache XBoard nodes failed: $error, $stackTrace',
+          logLevel: LogLevel.warning,
+        );
+      }
+      return globalState.isActiveXboardSession(session, revision);
     } catch (error, stackTrace) {
       commonPrint.event(
         'subscription.nodes.fetch.failed',
@@ -225,11 +245,16 @@ class ApplicationState extends ConsumerState<Application> {
           'session_revision': revision,
         },
       );
-      globalState.setXboardNodesForSession(session, revision, const []);
+      globalState.markXboardNodesStaleForSession(
+        session,
+        revision,
+        requestRevision: requestRevision,
+      );
       commonPrint.log(
         'load XBoard nodes failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
+      return false;
     }
   }
 
@@ -438,7 +463,7 @@ class ApplicationState extends ConsumerState<Application> {
   ) async {
     try {
       await Future.wait<void>([
-        _loadXboardNodes(session, ignoreOfflineMode: true),
+        _loadXboardNodes(session, ignoreOfflineMode: true).then<void>((_) {}),
         _syncSubscriptionProfile(session).then<void>((_) {}),
       ]);
       if (!mounted ||
@@ -915,10 +940,10 @@ class ApplicationState extends ConsumerState<Application> {
         final updatedRevision = globalState.activateXboardSession(
           updatedSession,
           nodes: globalState.xboardNodes,
+          nodesStatusFresh: globalState.xboardNodesStatusFresh,
         );
-        if (refreshNodeMetadata) {
-          await _loadXboardNodes(updatedSession);
-        }
+        final nodesRefreshed =
+            !refreshNodeMetadata || await _loadXboardNodes(updatedSession);
         if (!globalState.isActiveXboardSession(
           updatedSession,
           updatedRevision,
@@ -946,7 +971,8 @@ class ApplicationState extends ConsumerState<Application> {
           );
         }
         await _syncSubscriptionProfile(updatedSession);
-        return true;
+        return nodesRefreshed &&
+            globalState.isActiveXboardSession(updatedSession, updatedRevision);
       } catch (error, stackTrace) {
         lastError = error;
         lastStackTrace = stackTrace;

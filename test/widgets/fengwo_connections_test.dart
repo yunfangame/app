@@ -143,7 +143,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Live connections'), findsWidgets);
+    expect(find.text('Proxy rules'), findsWidgets);
     expect(find.text('clerk.openrouter.ai:443'), findsOneWidget);
     expect(find.text('Manual select'), findsOneWidget);
     expect(find.text('Connected'), findsOneWidget);

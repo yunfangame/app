@@ -1,11 +1,13 @@
 import 'dart:math' as math;
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/fengwo_node_country.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/dashboard/fengwo_node_selector.dart';
+import 'package:fl_clash/views/dashboard/widgets/dashboard_node_entry.dart';
 import 'package:fl_clash/views/dashboard/widgets/dashboard_subscription_refresh_button.dart';
 import 'package:fl_clash/views/dashboard/widgets/global_mode_confirmation.dart';
 import 'package:fl_clash/views/proxies/common.dart';
@@ -106,8 +108,33 @@ Group? _currentDashboardGroup(WidgetRef ref, Profile? profile) {
   return rawGroups.getGroup(visibleGroup.name) ?? visibleGroup;
 }
 
-class FengWoDesktopDashboard extends ConsumerWidget {
+class FengWoDesktopDashboard extends ConsumerStatefulWidget {
   const FengWoDesktopDashboard({super.key});
+
+  @override
+  ConsumerState<FengWoDesktopDashboard> createState() =>
+      _FengWoDesktopDashboardState();
+}
+
+class _FengWoDesktopDashboardState
+    extends ConsumerState<FengWoDesktopDashboard> {
+  @override
+  void initState() {
+    super.initState();
+    globalState.xboardNodesRevisionNotifier.addListener(_metadataChanged);
+    globalState.offlineModeNotifier.addListener(_metadataChanged);
+  }
+
+  @override
+  void dispose() {
+    globalState.xboardNodesRevisionNotifier.removeListener(_metadataChanged);
+    globalState.offlineModeNotifier.removeListener(_metadataChanged);
+    super.dispose();
+  }
+
+  void _metadataChanged() {
+    if (mounted) setState(() {});
+  }
 
   String _currentNode(Group? group, Profile? profile) {
     if (group == null) return '';
@@ -117,7 +144,7 @@ class FengWoDesktopDashboard extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final l10n = context.appLocalizations;
     final colors = _DashboardColors.of(context);
     final isStart = ref.watch(isStartProvider);
@@ -166,115 +193,104 @@ class FengWoDesktopDashboard extends ConsumerWidget {
     final totalNodeCount = xboardNodes.isEmpty
         ? currentGroup?.all.length ?? 0
         : xboardNodes.length;
-    final countryCount = xboardNodes.isEmpty
-        ? currentGroup?.all
-                  .map((proxy) => fengWoNodeCountryCode(proxy.name))
-                  .whereType<String>()
-                  .toSet()
-                  .length ??
-              0
-        : xboardTagCount(xboardNodes);
+    final countryCount = fengWoCountryCodesFromTags(
+      xboardNodes.expand((node) => node.tags),
+    ).length;
     return Material(
       color: colors.background,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final panelHeight = (constraints.maxHeight * 0.45).clamp(
-            330.0,
-            620.0,
-          );
-          return ClipRRect(
-            borderRadius: const BorderRadius.only(
-              bottomLeft: Radius.circular(34),
-            ),
-            child: ColoredBox(
-              color: colors.contentBackground,
-              child: Column(
-                children: [
-                  FengWoMarqueeBar(
-                    controller: globalState.xboardMarqueeController,
-                    margin: const EdgeInsets.fromLTRB(30, 12, 30, 0),
-                    onMessageTap: (message) => openFengWoMarqueeMessage(
-                      context: context,
-                      ref: ref,
-                      controller: globalState.xboardMarqueeController,
-                      message: message,
-                    ),
-                  ),
-                  Expanded(
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: _HeroPanel(
-                            colors: colors,
-                            isStart: isStart,
-                            hasProfile: profiles.isNotEmpty,
-                            nodeCount: totalNodeCount,
-                            reservedBottom: panelHeight + 24,
-                            onToggle: profiles.isEmpty
-                                ? null
-                                : () => ref
-                                      .read(commonActionProvider.notifier)
-                                      .toggleRunning(),
-                          ),
+          final contentHeight = math.max(constraints.maxHeight, 720.0);
+          final panelHeight = (contentHeight * 0.42).clamp(290.0, 570.0);
+          return SingleChildScrollView(
+            key: const ValueKey('fengwo-desktop-dashboard-scroll'),
+            child: SizedBox(
+              height: contentHeight,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(34),
+                ),
+                child: ColoredBox(
+                  color: colors.contentBackground,
+                  child: Column(
+                    children: [
+                      FengWoMarqueeBar(
+                        controller: globalState.xboardMarqueeController,
+                        margin: const EdgeInsets.fromLTRB(30, 12, 30, 0),
+                        onMessageTap: (message) => openFengWoMarqueeMessage(
+                          context: context,
+                          ref: ref,
+                          controller: globalState.xboardMarqueeController,
+                          message: message,
                         ),
-                        Positioned(
-                          left: 30,
-                          right: 30,
-                          bottom: 24,
-                          height: panelHeight,
-                          child: Row(
-                            children: [
-                              Expanded(
-                                flex: 47,
-                                child: _ConnectionStatusPanel(
-                                  colors: colors,
-                                  isStart: isStart,
-                                  nodeName: nodeName,
-                                  delay: delay,
-                                  connectionDelay: connectionDelay,
-                                  standardDelay: standardDelay,
-                                  backendStatus: resolveXboardNodeDisplayStatus(
-                                    ref
-                                        .watch(
-                                          realSelectedProxyStateProvider(
-                                            rawNodeName,
-                                          ),
-                                        )
-                                        .proxyName,
-                                    globalState.xboardNodes,
-                                    statusAvailable: !globalState.isOfflineMode,
+                      ),
+                      Expanded(
+                        child: Stack(
+                          children: [
+                            Positioned.fill(
+                              child: _HeroPanel(
+                                colors: colors,
+                                isStart: isStart,
+                                hasProfile: profiles.isNotEmpty,
+                                nodeCount: totalNodeCount,
+                                nodeName: nodeName,
+                                delay: delay,
+                                onOpenNodes: () =>
+                                    FengWoNodeSelector.show(context),
+                                reservedBottom: panelHeight + 24,
+                                onToggle: profiles.isEmpty
+                                    ? null
+                                    : () => ref
+                                          .read(commonActionProvider.notifier)
+                                          .toggleRunning(),
+                              ),
+                            ),
+                            Positioned(
+                              left: 30,
+                              right: 30,
+                              bottom: 24,
+                              height: panelHeight,
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    flex: 47,
+                                    child: _ConnectionStatusPanel(
+                                      colors: colors,
+                                      isStart: isStart,
+                                      delay: delay,
+                                      connectionDelay: connectionDelay,
+                                      standardDelay: standardDelay,
+                                      traffic: traffic,
+                                      trafficHistory: trafficHistory,
+                                      subscription: subscription,
+                                      onRefresh: currentGroup == null
+                                          ? null
+                                          : () => delayTest(
+                                              currentGroup.all,
+                                              currentGroup.testUrl,
+                                            ),
+                                    ),
                                   ),
-                                  traffic: traffic,
-                                  trafficHistory: trafficHistory,
-                                  subscription: subscription,
-                                  onOpenNodes: () =>
-                                      FengWoNodeSelector.show(context),
-                                  onRefresh: currentGroup == null
-                                      ? null
-                                      : () => delayTest(
-                                          currentGroup.all,
-                                          currentGroup.testUrl,
-                                        ),
-                                ),
+                                  const SizedBox(width: 18),
+                                  Expanded(
+                                    flex: 53,
+                                    child: _GlobalNetworkPanel(
+                                      colors: colors,
+                                      nodeName: nodeName,
+                                      isStart: isStart,
+                                      ipInfo: ipInfo,
+                                      countryCount: countryCount,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 18),
-                              Expanded(
-                                flex: 53,
-                                child: _GlobalNetworkPanel(
-                                  colors: colors,
-                                  nodeName: nodeName,
-                                  isStart: isStart,
-                                  ipInfo: ipInfo,
-                                  countryCount: countryCount,
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           );
@@ -361,6 +377,9 @@ class _HeroPanel extends ConsumerWidget {
   final bool isStart;
   final bool hasProfile;
   final int nodeCount;
+  final String nodeName;
+  final int? delay;
+  final VoidCallback onOpenNodes;
   final double reservedBottom;
   final VoidCallback? onToggle;
 
@@ -369,6 +388,9 @@ class _HeroPanel extends ConsumerWidget {
     required this.isStart,
     required this.hasProfile,
     required this.nodeCount,
+    required this.nodeName,
+    required this.delay,
+    required this.onOpenNodes,
     required this.reservedBottom,
     required this.onToggle,
   });
@@ -405,7 +427,7 @@ class _HeroPanel extends ConsumerWidget {
                         .watch(realSelectedProxyStateProvider(proxy.name))
                         .proxyName,
                     globalState.xboardNodes,
-                    statusAvailable: !globalState.isOfflineMode,
+                    statusAvailable: globalState.xboardNodesStatusFresh,
                   ),
                 ),
               )
@@ -441,43 +463,53 @@ class _HeroPanel extends ConsumerWidget {
             bottom: reservedBottom + 12,
             child: Align(
               alignment: Alignment.topCenter,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Column(
-                  children: [
-                    _PowerButton(
-                      colors: colors,
-                      isStart: isStart,
-                      pending: pending,
-                      suspended: suspended,
-                      onTap: onToggle,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      suspended
-                          ? l10n.suspended
-                          : pending
-                          ? l10n.connecting
-                          : isStart
-                          ? l10n.connected
-                          : l10n.disconnected,
-                      style: TextStyle(
-                        color: isStart ? colors.success : colors.muted,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
+              child: Column(
+                children: [
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: _PowerButton(
+                        colors: colors,
+                        isStart: isStart,
+                        pending: pending,
+                        suspended: suspended,
+                        onTap: onToggle,
                       ),
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      hasProfile
-                          ? utils.getTimeText(runTime)
-                          : l10n.proxiesEmpty,
-                      style: TextStyle(color: colors.muted, fontSize: 12),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    suspended
+                        ? l10n.suspended
+                        : pending
+                        ? l10n.connecting
+                        : isStart
+                        ? l10n.connected
+                        : l10n.disconnected,
+                    style: TextStyle(
+                      color: isStart ? colors.success : colors.muted,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
                     ),
-                    const SizedBox(height: 8),
-                    _ModeSelector(colors: colors),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    hasProfile ? utils.getTimeText(runTime) : l10n.proxiesEmpty,
+                    style: TextStyle(color: colors.muted, fontSize: 12),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: 400,
+                    child: DashboardNodeEntry(
+                      key: const ValueKey('fengwo-desktop-node-entry'),
+                      nodeName: nodeName,
+                      delay: delay,
+                      onTap: onOpenNodes,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _ModeSelector(colors: colors),
+                ],
               ),
             ),
           ),
@@ -686,29 +718,23 @@ class _ModeItem extends StatelessWidget {
 class _ConnectionStatusPanel extends StatelessWidget {
   final _DashboardColors colors;
   final bool isStart;
-  final String nodeName;
   final int? delay;
   final int? connectionDelay;
   final int? standardDelay;
-  final XboardNodeDisplayStatus backendStatus;
   final Traffic traffic;
   final List<Traffic> trafficHistory;
   final XboardSubscriptionData? subscription;
-  final VoidCallback onOpenNodes;
   final VoidCallback? onRefresh;
 
   const _ConnectionStatusPanel({
     required this.colors,
     required this.isStart,
-    required this.nodeName,
     required this.delay,
     required this.connectionDelay,
     required this.standardDelay,
-    required this.backendStatus,
     required this.traffic,
     required this.trafficHistory,
     required this.subscription,
-    required this.onOpenNodes,
     required this.onRefresh,
   });
 
@@ -754,47 +780,6 @@ class _ConnectionStatusPanel extends StatelessWidget {
                   _StatusPill(colors: colors, connected: isStart),
                 ],
               ),
-              const SizedBox(height: 11),
-              Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: colors.primarySoft,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(Icons.public_rounded, color: colors.primary),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          l10n.currentNode,
-                          style: TextStyle(color: colors.muted, fontSize: 12),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          nodeName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: colors.text,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: onOpenNodes,
-                    child: Text(l10n.switchNode),
-                  ),
-                ],
-              ),
               const SizedBox(height: 12),
               SubscriptionPlanActionBar(
                 key: const ValueKey('fengwo-desktop-traffic-plan-actions'),
@@ -805,7 +790,7 @@ class _ConnectionStatusPanel extends StatelessWidget {
               SizedBox(
                 height: math.max(
                   240 * MediaQuery.textScalerOf(context).scale(13) / 13,
-                  panelConstraints.maxHeight - 205,
+                  panelConstraints.maxHeight - 140,
                 ),
                 child: LayoutBuilder(
                   builder: (context, constraints) {
@@ -1349,7 +1334,7 @@ class _GlobalNetworkPanel extends ConsumerWidget {
                         .watch(realSelectedProxyStateProvider(proxy.name))
                         .proxyName,
                     globalState.xboardNodes,
-                    statusAvailable: !globalState.isOfflineMode,
+                    statusAvailable: globalState.xboardNodesStatusFresh,
                   ),
                 );
               })

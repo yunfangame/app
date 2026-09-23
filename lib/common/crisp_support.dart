@@ -16,6 +16,22 @@ const crispServiceUrl =
 
 final crispServiceUri = Uri.parse(crispServiceUrl);
 
+Uri crispSessionUri(Uri uri, {required String sessionToken}) {
+  if (uri.scheme != 'https' ||
+      uri.origin != crispServiceUri.origin ||
+      uri.path != crispServiceUri.path) {
+    return uri;
+  }
+  final parameters = {...uri.queryParameters}..remove('crisp_sid');
+  return uri.replace(
+    queryParameters: {
+      ...parameters,
+      'token_id': sessionToken,
+      'session_merge': 'false',
+    },
+  );
+}
+
 String createCrispSessionToken() {
   final random = Random.secure();
   return base64UrlEncode(List<int>.generate(32, (_) => random.nextInt(256)));
@@ -31,11 +47,17 @@ class CrispSupportUser {
 
   factory CrispSupportUser.fromSession(
     XboardLoginResult? session, {
+    required String appVersion,
     bool offline = false,
   }) {
     final subscription = session?.subscription;
     final email = subscription?.email?.trim();
     final hasEmail = email != null && email.isNotEmpty;
+    final version = appVersion
+        .trim()
+        .replaceFirst(RegExp(r'^[vV]'), '')
+        .split('+')
+        .first;
     return CrispSupportUser(
       accountKey: session == null
           ? 'guest'
@@ -45,10 +67,11 @@ class CrispSupportUser {
       email: hasEmail ? email : null,
       summary: subscription == null
           ? null
-          : _chineseAccountSummary(subscription),
+          : _chineseAccountSummary(subscription, appVersion: version),
       data: {
         'logged_in': session != null,
         'platform': defaultTargetPlatform.name,
+        'app_version': version,
         'offline_mode': offline,
         if (subscription != null) ...{
           'plan': subscription.plan?.name ?? '',
@@ -86,7 +109,10 @@ class CrispSupportUser {
 ''';
 }
 
-String _chineseAccountSummary(XboardSubscriptionData subscription) {
+String _chineseAccountSummary(
+  XboardSubscriptionData subscription, {
+  required String appVersion,
+}) {
   final email = subscription.email?.trim();
   final plan = subscription.plan?.name?.trim();
   final expiresAt = subscription.expiresAt;
@@ -109,6 +135,7 @@ String _chineseAccountSummary(XboardSubscriptionData subscription) {
     '剩余流量：${subscription.remainingGb.toStringAsFixed(2)} GB',
     '到期时间：$expiry',
     '客户端：$platform',
+    '客户端版本：v$appVersion',
   ].join('\n');
 }
 
@@ -116,7 +143,9 @@ String crispBootstrapScript({required String sessionToken}) =>
     '''
 (() => {
   if (location.origin !== 'https://go.crisp.chat' ||
-      location.pathname !== '/chat/embed/' || window.fengwoSupportStarted) return;
+      location.pathname !== '/chat/embed/' ||
+      new URL(location.href).searchParams.get('token_id') !== ${jsonEncode(sessionToken)} ||
+      window.fengwoSupportStarted) return;
   window.fengwoSupportStarted = true;
   window.fengwoSupportBound = false;
   const started = Date.now();
@@ -128,15 +157,16 @@ String crispBootstrapScript({required String sessionToken}) =>
     const crisp = window.\$crisp;
     if (!crisp || typeof crisp.get !== 'function') return;
     clearInterval(watch);
-    window.CRISP_TOKEN_ID = ${jsonEncode(sessionToken)};
-    window.CRISP_RUNTIME_CONFIG.session_merge = false;
-    crisp.push(['on', 'session:loaded', () => {
-      crisp.push(['off', 'session:loaded']);
+    const markReady = () => {
+      if (window.fengwoSupportBound) return;
+      const identifier = crisp.get('session:identifier');
+      if (typeof identifier !== 'string' || !identifier) return;
+      window.fengwoSupportSessionId = identifier;
       window.fengwoSupportBound = true;
       window.FengwoSupportReady.postMessage('ready');
-    }]);
-    crisp.push(['do', 'session:reset']);
-    crisp.push(['do', 'chat:open']);
+    };
+    crisp.push(['on', 'session:loaded', markReady]);
+    markReady();
   }, 50);
 })();
 ''';
@@ -148,7 +178,19 @@ const crispSummaryBridgeScript = r'''
   let pending = null;
   let sent = false;
   window.$crisp.push(['on', 'message:sent', (message) => {
-    if (pending && message.type === 'text' && message.content === pending) {
+    if (!message || message.from !== 'user') return;
+    const content = message.content;
+    if (message.type === 'text'
+        ? typeof content !== 'string' || !content.trim()
+        : !content || typeof content !== 'object' || !Object.keys(content).length) return;
+    if (pending?.attempted && message.type === 'text' && message.content === pending.text) {
+      const current = window.fengwoSupportProfile;
+      if (!window.fengwoSupportBound ||
+          window.$crisp.get('session:identifier') !== pending.sessionId ||
+          current?.data?.logged_in !== true || current.email !== pending.email) {
+        pending = null;
+        return;
+      }
       sent = true;
       pending = null;
       window.$crisp.push(['set', 'session:data', [[['support_summary_sent', true]]]]);
@@ -159,14 +201,32 @@ const crispSummaryBridgeScript = r'''
     const persisted = window.$crisp.get('session:data', 'support_summary_sent');
     if (sent || pending || persisted === true || persisted === 'true' ||
         !window.fengwoSupportBound || profile?.data?.logged_in !== true ||
-        !profile.summary || message.from === 'operator') return;
-    pending = profile.summary;
-    try {
-      window.$crisp.push(['do', 'message:send', ['text', pending]]);
-    } catch (_) {
-      pending = null;
-      window.FengwoSupportReady.postMessage('summary_failed');
-    }
+        typeof profile.summary !== 'string' || !profile.summary.trim()) return;
+    const sessionId = window.$crisp.get('session:identifier');
+    if (typeof sessionId !== 'string' || !sessionId) return;
+    const attempt = { sessionId, email: profile.email, attempted: false, text: null };
+    pending = attempt;
+    setTimeout(() => {
+      if (pending !== attempt) return;
+      const current = window.fengwoSupportProfile;
+      const persisted = window.$crisp.get('session:data', 'support_summary_sent');
+      if (sent || !window.fengwoSupportBound ||
+          window.$crisp.get('session:identifier') !== attempt.sessionId ||
+          current?.data?.logged_in !== true || current.email !== attempt.email ||
+          typeof current.summary !== 'string' || !current.summary.trim() ||
+          persisted === true || persisted === 'true') {
+        pending = null;
+        return;
+      }
+      attempt.text = current.summary;
+      attempt.attempted = true;
+      try {
+        window.$crisp.push(['do', 'message:send', ['text', attempt.text]]);
+      } catch (_) {
+        pending = null;
+        window.FengwoSupportReady.postMessage('summary_failed');
+      }
+    }, 0);
   }]);
 })();
 ''';

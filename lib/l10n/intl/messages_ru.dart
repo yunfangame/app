@@ -1924,7 +1924,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "quickFill": MessageLookupByLibrary.simpleMessage("Быстрое заполнение"),
     "rainbowScheme": MessageLookupByLibrary.simpleMessage("Радужные"),
     "reachable": MessageLookupByLibrary.simpleMessage("Доступен"),
-    "realTimeConnections": MessageLookupByLibrary.simpleMessage("Соединения"),
+    "realTimeConnections": MessageLookupByLibrary.simpleMessage(
+      "Правила прокси",
+    ),
     "realTimeConnectionsSubtitle": MessageLookupByLibrary.simpleMessage(
       "Просмотр активных подключений и управление правилами маршрутизации",
     ),

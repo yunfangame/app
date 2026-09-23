@@ -1852,9 +1852,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "quickFill": MessageLookupByLibrary.simpleMessage("Quick fill"),
     "rainbowScheme": MessageLookupByLibrary.simpleMessage("Rainbow"),
     "reachable": MessageLookupByLibrary.simpleMessage("Reachable"),
-    "realTimeConnections": MessageLookupByLibrary.simpleMessage(
-      "Live connections",
-    ),
+    "realTimeConnections": MessageLookupByLibrary.simpleMessage("Proxy rules"),
     "realTimeConnectionsSubtitle": MessageLookupByLibrary.simpleMessage(
       "View active network connections and manage custom routing rules",
     ),

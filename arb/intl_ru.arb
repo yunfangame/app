@@ -766,7 +766,7 @@
   "paymentMethod": "Способ оплаты",
   "paidAt": "Время оплаты",
   "personalCenter": "Аккаунт",
-  "realTimeConnections": "Соединения",
+  "realTimeConnections": "Правила прокси",
   "advancedSettings": "Расширенные",
   "practicalTools": "Утилиты",
   "loggedIn": "Вход выполнен",

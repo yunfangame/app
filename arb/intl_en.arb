@@ -766,7 +766,7 @@
   "paymentMethod": "Payment method",
   "paidAt": "Paid at",
   "personalCenter": "Account",
-  "realTimeConnections": "Live connections",
+  "realTimeConnections": "Proxy rules",
   "advancedSettings": "Advanced",
   "practicalTools": "Utilities",
   "loggedIn": "Signed in",

@@ -1110,7 +1110,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "noResolveHostname": MessageLookupByLibrary.simpleMessage("不解析主机名"),
     "noSavedRules": MessageLookupByLibrary.simpleMessage("暂无已保存规则"),
     "noSavedRulesDescription": MessageLookupByLibrary.simpleMessage(
-      "可从实时连接添加规则，也可以在这里直接创建",
+      "可从当前连接添加规则，也可以在这里直接创建",
     ),
     "noSuccessfulLogin": MessageLookupByLibrary.simpleMessage("尚未产生成功登录"),
     "noTrafficRecords": MessageLookupByLibrary.simpleMessage("本月暂无流量记录"),
@@ -1363,7 +1363,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "quickFill": MessageLookupByLibrary.simpleMessage("一键填入"),
     "rainbowScheme": MessageLookupByLibrary.simpleMessage("彩虹"),
     "reachable": MessageLookupByLibrary.simpleMessage("可连接"),
-    "realTimeConnections": MessageLookupByLibrary.simpleMessage("实时连接"),
+    "realTimeConnections": MessageLookupByLibrary.simpleMessage("代理规则"),
     "realTimeConnectionsSubtitle": MessageLookupByLibrary.simpleMessage(
       "查看当前网络连接并管理自定义分流规则",
     ),

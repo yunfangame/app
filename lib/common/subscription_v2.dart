@@ -429,6 +429,17 @@ class SubscriptionV2Client {
     );
   }
 
+  Future<Map<String, Object?>> fetchNodes({
+    required Uri endpoint,
+    required String userToken,
+  }) {
+    return _sendWithStoredCredential(
+      endpoint: endpoint,
+      userToken: userToken,
+      operation: 'get_nodes',
+    );
+  }
+
   Future<void> resetSecurity({
     required Uri endpoint,
     required String userToken,
@@ -575,6 +586,9 @@ class SubscriptionV2Client {
         requestId: requestId,
         shared: shared,
         response: response,
+        stage: payload['op'] == 'get_nodes'
+            ? 'get_nodes_decrypt'
+            : 'config_decrypt',
       );
     } on SubscriptionV2Exception catch (error) {
       throw error.withRequestRef(requestRef);
@@ -591,8 +605,8 @@ class SubscriptionV2Client {
     required String requestId,
     required SecretKey shared,
     required Map<String, Object?> response,
+    String stage = 'config_decrypt',
   }) async {
-    const String stage = 'config_decrypt';
     _recordSubscriptionV2Stage(stage);
     try {
       if (response['v'] != _subscriptionV2Version ||
