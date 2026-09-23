@@ -86,7 +86,7 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
       }
     });
     ref.listenManual(suspendProvider, (prev, next) {
-      if (system.isWindows && prev != next) {
+      if ((system.isWindows || system.isMacOS) && prev != next) {
         unawaited(ref.read(setupActionProvider.notifier).refreshSuspension());
         return;
       }

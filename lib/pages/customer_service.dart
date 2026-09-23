@@ -108,6 +108,7 @@ class CustomerServiceSheet {
 
 CrispSupportUser _currentSupportUser() => CrispSupportUser.fromSession(
   globalState.xboardSession,
+  appVersion: globalState.packageInfo.version,
   offline: globalState.isOfflineMode,
 );
 

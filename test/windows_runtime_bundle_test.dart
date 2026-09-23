@@ -44,6 +44,10 @@ void main() {
       await File('windows/packaging/vc_runtime.cmake').readAsString(),
     );
     await write('windows/packaging/exe/vc_runtime_code.iss', 'runtime logic');
+    await write(
+      'windows/packaging/exe/install_integrity_code.iss',
+      'integrity logic',
+    );
     await write('.dart_tool/windows_runtime/x64/vc_runtime.iss', 'metadata');
     await write('.dart_tool/windows_runtime/x64/vc_redist.exe', 'installer');
     for (final name in [
@@ -109,6 +113,7 @@ include(windows/packaging/vc_runtime.cmake)
           'prerequisites/vc_redist.exe',
           'prerequisites/vc_runtime.iss',
           'prerequisites/vc_runtime_code.iss',
+          'prerequisites/install_integrity_code.iss',
         ]) {
           expect(
             File(p.join(root.path, config, relativePath)).existsSync(),

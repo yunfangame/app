@@ -33,6 +33,7 @@ function Write-Fixture {
   $defines = "#define VcRuntimeArchitecture `"x64`"`n#define VcRuntimeMinimumVersion `"14.50.35719.0`"`n#define VcRuntimeInstallerSHA256 `"$hash`"`n"
   [IO.File]::WriteAllText((Join-Path $fixture 'prerequisites/vc_runtime.iss'), $defines)
   [IO.File]::WriteAllText((Join-Path $fixture 'prerequisites/vc_runtime_code.iss'), 'fixture')
+  [IO.File]::WriteAllText((Join-Path $fixture 'prerequisites/install_integrity_code.iss'), 'fixture')
 }
 
 function Assert-BundleRejected {
@@ -78,6 +79,9 @@ try {
   Write-Fixture
   [IO.File]::Delete((Join-Path $fixture 'prerequisites/vc_runtime_code.iss'))
   Assert-BundleRejected 'logic is missing'
+  Write-Fixture
+  [IO.File]::Delete((Join-Path $fixture 'prerequisites/install_integrity_code.iss'))
+  Assert-BundleRejected 'Windows install integrity logic is missing'
   Write-Output 'VC++ runtime bundle verification tests passed'
 } finally {
   [IO.Directory]::Delete($fixture, $true)

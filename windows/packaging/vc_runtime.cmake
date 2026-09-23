@@ -30,7 +30,9 @@ install(FILES
   CONFIGURATIONS Profile Release
   COMPONENT Runtime
   OPTIONAL)
-install(FILES "${CMAKE_CURRENT_LIST_DIR}/exe/vc_runtime_code.iss"
+install(FILES
+  "${CMAKE_CURRENT_LIST_DIR}/exe/vc_runtime_code.iss"
+  "${CMAKE_CURRENT_LIST_DIR}/exe/install_integrity_code.iss"
   DESTINATION "${INSTALL_BUNDLE_LIB_DIR}/prerequisites"
   CONFIGURATIONS Profile Release
   COMPONENT Runtime)

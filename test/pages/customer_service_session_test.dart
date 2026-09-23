@@ -1,10 +1,14 @@
 import 'dart:async';
 
+import 'package:fl_clash/common/xboard_auth.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/pages/customer_service.dart';
+import 'package:fl_clash/state.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:webview_platform_interface/webview_platform_interface.dart';
 
 void main() {
@@ -12,9 +16,62 @@ void main() {
   final uri = crispServiceUri;
   const user = CrispSupportUser(accountKey: 'user-a');
 
+  setUpAll(() {
+    globalState.packageInfo = PackageInfo(
+      appName: 'FengWo',
+      packageName: 'com.fengwo.app',
+      version: 'V1.0.5+2026092301',
+      buildNumber: '2026092301',
+    );
+  });
+
   setUp(() {
     platform = _WebViewPlatform();
     WebViewPlatform.instance = platform;
+  });
+
+  testWidgets('support uses the running Android package version', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    final previousSession = globalState.xboardSession;
+    globalState.xboardSession = XboardLoginResult(
+      endpoint: Uri.https('api.example.com'),
+      token: 'LOGIN_SECRET',
+      authData: 'AUTH_SECRET',
+      isAdmin: false,
+      rawData: const {},
+      subscription: XboardSubscriptionData(
+        endpoint: Uri.https('api.example.com'),
+        subscribeUrl: Uri.https('api.example.com', '/subscribe'),
+        email: 'customer@example.com',
+        uploadBytes: 0,
+        downloadBytes: 0,
+        transferEnableBytes: bytesPerGigabyte,
+        rawData: const {},
+      ),
+    );
+    try {
+      await _show(tester, null);
+      final controller = platform.controllers.single;
+      controller.channel!.onMessageReceived(
+        const JavaScriptMessage(message: 'ready'),
+      );
+      await tester.pump();
+      final script = controller.scripts.last;
+      expect(script, contains('客户端：安卓客户端'));
+      expect(script, contains('客户端版本：v1.0.5'));
+      expect(script, contains('"app_version":"1.0.5"'));
+      expect(script, isNot(contains('1.0.6')));
+      expect(script, isNot(contains('2026092301')));
+      expect(script, isNot(contains('LOGIN_SECRET')));
+      expect(script, isNot(contains('AUTH_SECRET')));
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      globalState.xboardSession = previousSession;
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   testWidgets('reopening retains the page without another network load', (
@@ -31,7 +88,9 @@ void main() {
       await _show(tester, second);
       expect(second, same(first));
       expect(platform.controllers, hasLength(1));
-      expect(platform.controllers.single.requests, [uri]);
+      expect(platform.controllers.single.requests, [
+        _expectedUri(first.sessionToken),
+      ]);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       cache.clear();
@@ -56,6 +115,9 @@ void main() {
       expect(second.sessionToken, first.sessionToken);
       await tester.pump();
       expect(platform.controllers, hasLength(2));
+      expect(platform.controllers.last.requests, [
+        _expectedUri(first.sessionToken),
+      ]);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       cache.clear();
@@ -76,6 +138,9 @@ void main() {
       expect(second, isNot(same(first)));
       expect(second.sessionToken, isNot(first.sessionToken));
       expect(platform.controllers.first.closes, 1);
+      expect(platform.controllers[1].requests, [
+        _expectedUri(second.sessionToken),
+      ]);
       final third = cache.acquire(
         Uri.parse('https://support.example.com'),
         user: const CrispSupportUser(accountKey: 'user-b'),
@@ -83,6 +148,9 @@ void main() {
       await tester.pump();
       expect(third, isNot(same(second)));
       expect(platform.controllers[1].closes, 1);
+      expect(platform.controllers[2].requests, [
+        Uri.parse('https://support.example.com'),
+      ]);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       cache.clear();
@@ -137,7 +205,10 @@ void main() {
         await tester.pump(const Duration(seconds: 13));
         await tester.tap(find.byKey(const Key('customer-service-retry')));
         await tester.pump();
-        expect(platform.controllers.single.requests, [uri, uri]);
+        expect(platform.controllers.single.requests, [
+          _expectedUri(session.sessionToken),
+          _expectedUri(session.sessionToken),
+        ]);
         expect(session.slow, isFalse);
         await tester.pumpWidget(const SizedBox.shrink());
       } finally {
@@ -180,7 +251,10 @@ void main() {
         await session.reload();
         await tester.pump();
         expect(session.failed, isFalse);
-        expect(platform.controllers.single.requests, [uri, uri]);
+        expect(platform.controllers.single.requests, [
+          _expectedUri(session.sessionToken),
+          _expectedUri(session.sessionToken),
+        ]);
         await tester.pumpWidget(const SizedBox.shrink());
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
@@ -203,7 +277,10 @@ void main() {
       platform.controllers.single.failLoad = false;
       await session.reload();
       expect(session.failed, isFalse);
-      expect(platform.controllers.single.requests, [uri, uri]);
+      expect(platform.controllers.single.requests, [
+        _expectedUri(session.sessionToken),
+        _expectedUri(session.sessionToken),
+      ]);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       await session.close();
@@ -224,7 +301,9 @@ void main() {
       platform.failInitialization = false;
       await session.reload();
       expect(session.failed, isFalse);
-      expect(platform.controllers.single.requests, [uri]);
+      expect(platform.controllers.single.requests, [
+        _expectedUri(session.sessionToken),
+      ]);
     } finally {
       await session.close();
       await tester.pump();
@@ -253,7 +332,9 @@ void main() {
       );
       await tester.pump();
       expect(second, same(first));
-      expect(platform.controllers.single.requests, [uri]);
+      expect(platform.controllers.single.requests, [
+        _expectedUri(first.sessionToken),
+      ]);
       expect(platform.controllers.single.scripts.last, contains('new-plan'));
       expect(platform.controllers.single.scripts.last, contains('12345'));
     } finally {
@@ -281,9 +362,47 @@ void main() {
     await tester.pump(const Duration(seconds: 13));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'profile updates cannot bind a different account to the open chat',
+    (tester) async {
+      final session = CustomerServiceSession(
+        uri,
+        sessionToken: 'test-token',
+        user: user,
+      );
+      try {
+        await tester.pump();
+        final controller = platform.controllers.single;
+        controller.channel!.onMessageReceived(
+          const JavaScriptMessage(message: 'ready'),
+        );
+        await tester.pump();
+        final scriptCount = controller.scripts.length;
+        await session.updateUser(
+          const CrispSupportUser(
+            accountKey: 'user-b',
+            email: 'other@example.com',
+            summary: 'other account',
+          ),
+        );
+        expect(controller.scripts, hasLength(scriptCount));
+        expect(controller.requests, [_expectedUri('test-token')]);
+      } finally {
+        await session.close();
+        await tester.pump();
+      }
+    },
+  );
 }
 
-Future<void> _show(WidgetTester tester, CustomerServiceSession session) async {
+Uri _expectedUri(String token) => Uri.https('go.crisp.chat', '/chat/embed/', {
+  'website_id': crispWebsiteId,
+  'session_merge': 'false',
+  'token_id': token,
+});
+
+Future<void> _show(WidgetTester tester, CustomerServiceSession? session) async {
   await tester.pumpWidget(
     MaterialApp(
       locale: const Locale('zh', 'CN'),
@@ -296,7 +415,7 @@ Future<void> _show(WidgetTester tester, CustomerServiceSession session) async {
       supportedLocales: AppLocalizations.delegate.supportedLocales,
       home: Scaffold(
         body: CustomerServiceView(
-          serviceUrl: session.uri.toString(),
+          serviceUrl: session?.uri.toString() ?? crispServiceUrl,
           session: session,
         ),
       ),

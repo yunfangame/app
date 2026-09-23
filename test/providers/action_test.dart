@@ -2327,6 +2327,9 @@ class _AuthorizationSetupAction extends SetupAction {
   @override
   bool get requiresListenerReadiness => false;
 
+  @override
+  bool get requiresWindowsTunAuthorization => false;
+
   final List<AuthorizeCode> authorizationResults;
   int authorizationRequestCount = 0;
 
@@ -2346,6 +2349,9 @@ class _WindowsAuthorizationFailureSetupAction extends SetupAction {
 
   @override
   bool get requiresListenerReadiness => true;
+
+  @override
+  bool get requiresWindowsTunAuthorization => true;
 
   @override
   Future<bool> isTunServiceReady() async => true;
@@ -2372,7 +2378,7 @@ class _WindowsAuthorizationFailureSetupAction extends SetupAction {
   void resetCoreTraffic() {}
 
   @override
-  void notifyListenerFailure(int port) {}
+  void notifyListenerFailure(int port, {Object? error}) {}
 
   @override
   Future<void> recoverStableCoreConfiguration(
@@ -2390,6 +2396,9 @@ class _ProfileTimeoutSetupAction extends SetupAction {
 
   @override
   bool get requiresListenerReadiness => false;
+
+  @override
+  bool get requiresWindowsTunAuthorization => false;
 
   @override
   Duration get configurationPreparationTimeout =>
@@ -2418,6 +2427,9 @@ class _ProfileGuardSetupAction extends SetupAction {
 
   @override
   bool get requiresListenerReadiness => false;
+
+  @override
+  bool get requiresWindowsTunAuthorization => false;
 
   @override
   Future<bool> requestAdmin(bool enableTun) async => true;
@@ -2459,6 +2471,9 @@ final _startupProfileFailure = StateError('startup profile failure');
 class _RaceSetupAction extends SetupAction {
   @override
   bool get requiresListenerReadiness => false;
+
+  @override
+  bool get requiresWindowsTunAuthorization => false;
 
   int applyProfileDebounceCount = 0;
   int resetCoreTrafficCount = 0;
