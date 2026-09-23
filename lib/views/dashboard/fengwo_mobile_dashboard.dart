@@ -6,6 +6,7 @@ import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/dashboard/fengwo_desktop_dashboard.dart';
 import 'package:fl_clash/views/dashboard/fengwo_node_selector.dart';
+import 'package:fl_clash/views/dashboard/widgets/dashboard_node_entry.dart';
 import 'package:fl_clash/views/dashboard/widgets/dashboard_subscription_refresh_button.dart';
 import 'package:fl_clash/views/dashboard/widgets/global_mode_confirmation.dart';
 import 'package:fl_clash/views/proxies/common.dart';
@@ -72,6 +73,11 @@ class FengWoMobileDashboard extends ConsumerWidget {
             ),
           );
     final delay = connectionDelay ?? standardDelay ?? fallbackDelay;
+    final backendStatus = resolveXboardNodeDisplayStatus(
+      ref.watch(realSelectedProxyStateProvider(rawNodeName)).proxyName,
+      globalState.xboardNodes,
+      statusAvailable: !globalState.isOfflineMode,
+    );
     final traffic = ref.watch(trafficsProvider).list.safeLast(const Traffic());
     final ipInfo = ref.watch(
       networkDetectionProvider.select((state) => state.originIpInfo),
@@ -172,6 +178,14 @@ class FengWoMobileDashboard extends ConsumerWidget {
                   hasProfile: profiles.isNotEmpty,
                 ),
                 const SizedBox(height: 16),
+                DashboardNodeEntry(
+                  key: const ValueKey('fengwo-mobile-node-entry'),
+                  nodeName: nodeName,
+                  delay: delay,
+                  unavailable: backendStatus == XboardNodeDisplayStatus.offline,
+                  onTap: () => FengWoNodeSelector.show(context),
+                ),
+                const SizedBox(height: 14),
                 _MobileModeSelector(colors: colors),
                 const SizedBox(height: 14),
                 _MobileWorldMapCard(
@@ -186,18 +200,9 @@ class FengWoMobileDashboard extends ConsumerWidget {
                 _MobileNodeCard(
                   colors: colors,
                   isStart: isStart,
-                  nodeName: nodeName,
                   delay: delay,
                   connectionDelay: connectionDelay,
                   standardDelay: standardDelay,
-                  backendStatus: resolveXboardNodeDisplayStatus(
-                    ref
-                        .watch(realSelectedProxyStateProvider(rawNodeName))
-                        .proxyName,
-                    globalState.xboardNodes,
-                    statusAvailable: !globalState.isOfflineMode,
-                  ),
-                  onOpenNodes: () => FengWoNodeSelector.show(context),
                   onRefresh: currentGroup == null
                       ? null
                       : () => delayTest(currentGroup.all, currentGroup.testUrl),
@@ -642,9 +647,6 @@ class _MobileModeSelector extends ConsumerWidget {
     final tunEnabled = ref.watch(
       patchClashConfigProvider.select((config) => config.tun.enable),
     );
-    final systemProxyEnabled = ref.watch(
-      networkSettingProvider.select((settings) => settings.systemProxy),
-    );
     final skipGlobalModeConfirmation = ref.watch(
       appSettingProvider.select((state) => state.skipGlobalModeConfirmation),
     );
@@ -688,18 +690,6 @@ class _MobileModeSelector extends ConsumerWidget {
               onTap: () => ref.read(systemActionProvider.notifier).updateTun(),
             ),
           ),
-          if (system.isDesktop)
-            Expanded(
-              child: _MobileModeItem(
-                key: const ValueKey('fengwo-mobile-system-proxy'),
-                colors: colors,
-                icon: Icons.lan_outlined,
-                label: l10n.systemProxy,
-                selected: systemProxyEnabled,
-                onTap: () =>
-                    ref.read(systemActionProvider.notifier).updateSystemProxy(),
-              ),
-            ),
         ],
       ),
     );
@@ -850,23 +840,17 @@ class _MobileWorldMapCard extends StatelessWidget {
 class _MobileNodeCard extends StatelessWidget {
   final _MobileDashboardColors colors;
   final bool isStart;
-  final String nodeName;
   final int? delay;
   final int? connectionDelay;
   final int? standardDelay;
-  final XboardNodeDisplayStatus backendStatus;
-  final VoidCallback onOpenNodes;
   final VoidCallback? onRefresh;
 
   const _MobileNodeCard({
     required this.colors,
     required this.isStart,
-    required this.nodeName,
     required this.delay,
     required this.connectionDelay,
     required this.standardDelay,
-    required this.backendStatus,
-    required this.onOpenNodes,
     required this.onRefresh,
   });
 
@@ -919,91 +903,56 @@ class _MobileNodeCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Container(
-                width: 39,
-                height: 39,
-                decoration: BoxDecoration(
-                  color: colors.primarySoft,
-                  borderRadius: BorderRadius.circular(12),
+          Tooltip(
+            message: l10n.referenceDelayExplanation,
+            child: Row(
+              children: [
+                Container(
+                  width: 39,
+                  height: 39,
+                  decoration: BoxDecoration(
+                    color: colors.primarySoft,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.speed_rounded, color: colors.primary),
                 ),
-                child: Icon(Icons.public_rounded, color: colors.primary),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      l10n.currentNode,
-                      style: TextStyle(color: colors.muted, fontSize: 11),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      nodeName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: colors.text,
-                        fontWeight: FontWeight.w800,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        connectionDelay == null
+                            ? l10n.referenceStandardizedDelay
+                            : l10n.referenceConnectionDelay,
+                        style: TextStyle(color: colors.muted, fontSize: 11),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 6),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 144),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Tooltip(
-                      message: l10n.referenceDelayExplanation,
-                      child: Text(
+                      const SizedBox(height: 3),
+                      Text(
                         delayText,
-                        maxLines: 2,
-                        textAlign: TextAlign.end,
-                        overflow: TextOverflow.ellipsis,
+                        key: const ValueKey('fengwo-mobile-connection-delay'),
                         style: TextStyle(
                           color: delayColor,
-                          fontSize: 11,
+                          fontSize: 20,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                    ),
-                    if (connectionDelay != null && standardDelay != null)
-                      Text(
-                        '${l10n.referenceStandardizedDelay} $standardDetail',
-                        key: const ValueKey('fengwo-mobile-standardized-delay'),
-                        maxLines: 2,
-                        textAlign: TextAlign.end,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: colors.muted, fontSize: 9),
-                      ),
-                    TextButton(
-                      key: const ValueKey('fengwo-mobile-switch-node'),
-                      style: TextButton.styleFrom(
-                        minimumSize: Size.zero,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 4,
-                        ),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      onPressed: onOpenNodes,
-                      child: Text(
-                        l10n.switchNode,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                if (connectionDelay != null && standardDelay != null) ...[
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      '${l10n.referenceStandardizedDelay} $standardDetail',
+                      key: const ValueKey('fengwo-mobile-standardized-delay'),
+                      textAlign: TextAlign.end,
+                      style: TextStyle(color: colors.muted, fontSize: 11),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         ],
       ),

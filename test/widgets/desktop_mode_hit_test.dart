@@ -59,16 +59,24 @@ void main() {
       );
       await tester.pump();
 
-      final systemProxy = find.byKey(
-        const ValueKey('fengwo-desktop-system-proxy'),
+      final entryRect = tester.getRect(
+        find.byKey(const ValueKey('fengwo-desktop-node-entry')),
       );
-      await tester.tap(systemProxy);
-      await tester.pump();
-      expect(container.read(networkSettingProvider).systemProxy, isFalse);
+      expect(entryRect.width, greaterThanOrEqualTo(350));
+      expect(entryRect.height, greaterThanOrEqualTo(60));
+
+      expect(
+        find.byKey(const ValueKey('fengwo-desktop-system-proxy')),
+        findsNothing,
+      );
 
       final l10n = tester
           .element(find.byType(FengWoDesktopDashboard))
           .appLocalizations;
+      expect(find.text(l10n.systemProxy), findsNothing);
+      expect(find.text(l10n.rule), findsOneWidget);
+      expect(find.text(l10n.global), findsOneWidget);
+      expect(find.text(l10n.tun), findsOneWidget);
       await tester.tap(find.text(l10n.tun));
       await tester.pump();
       expect(container.read(patchClashConfigProvider).tun.enable, isTrue);

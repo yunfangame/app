@@ -8,9 +8,17 @@ class CommonAction extends _$CommonAction {
   @override
   void build() {}
 
+  @protected
+  bool get enablesSystemProxyOnConnect => system.isDesktop;
+
   void toggleRunning() {
     final running =
         !ref.read(isStartProvider) && !ref.read(connectionPendingProvider);
+    if (running && enablesSystemProxyOnConnect) {
+      ref
+          .read(networkSettingProvider.notifier)
+          .update((state) => state.copyWith(systemProxy: true));
+    }
     ref
         .read(setupActionProvider.notifier)
         .setRunning(running, initialize: running && !ref.read(initProvider));
