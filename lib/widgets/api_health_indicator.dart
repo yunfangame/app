@@ -27,6 +27,7 @@ class ApiHealthControl extends StatefulWidget {
     this.buttonBackgroundColor,
     this.buttonBorderColor,
     this.onExportLogs,
+    this.compact = false,
   });
 
   final ApiHealthService? service;
@@ -35,6 +36,7 @@ class ApiHealthControl extends StatefulWidget {
   final Color? buttonBackgroundColor;
   final Color? buttonBorderColor;
   final Future<bool> Function()? onExportLogs;
+  final bool compact;
 
   @override
   State<ApiHealthControl> createState() => _ApiHealthControlState();
@@ -113,6 +115,7 @@ class _ApiHealthControlState extends State<ApiHealthControl> {
       message: _tooltip(context),
       child: _ApiHealthStatusButton(
         key: const Key('api-health-status-button'),
+        compact: widget.compact,
         color: _statusColor,
         foregroundColor: widget.foregroundColor ?? Colors.white,
         backgroundColor:
@@ -562,6 +565,7 @@ class _ApiHealthStatusButton extends StatefulWidget {
     required this.pulse,
     required this.checking,
     required this.onPressed,
+    required this.compact,
   });
 
   final Color color;
@@ -571,6 +575,7 @@ class _ApiHealthStatusButton extends StatefulWidget {
   final bool pulse;
   final bool checking;
   final VoidCallback onPressed;
+  final bool compact;
 
   @override
   State<_ApiHealthStatusButton> createState() => _ApiHealthStatusButtonState();
@@ -619,7 +624,7 @@ class _ApiHealthStatusButtonState extends State<_ApiHealthStatusButton>
       icon: Stack(
         clipBehavior: Clip.none,
         children: [
-          const Icon(Icons.dns_outlined, size: 29),
+          Icon(Icons.dns_outlined, size: widget.compact ? 24 : 29),
           Positioned(
             right: -3,
             bottom: -3,
@@ -657,7 +662,7 @@ class _ApiHealthStatusButtonState extends State<_ApiHealthStatusButton>
       color: widget.foregroundColor,
       style: IconButton.styleFrom(
         backgroundColor: widget.backgroundColor,
-        fixedSize: const Size(58, 58),
+        fixedSize: Size.square(widget.compact ? 48 : 58),
         shape: RoundedRectangleBorder(
           side: BorderSide(color: widget.borderColor),
           borderRadius: BorderRadius.circular(16),

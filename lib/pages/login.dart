@@ -1,6 +1,7 @@
 import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/widgets/api_network_diagnostic_text.dart';
+import 'package:fl_clash/widgets/fengwo_mobile_auth_layout.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -358,6 +359,16 @@ class _LoginPageState extends State<LoginPage> {
                             _showPendingMessage,
                         topPadding: showBrandPanel ? 28 : 104,
                         showCompactBrand: !showBrandPanel,
+                        mobileToolbar: showBrandPanel
+                            ? null
+                            : _MobileLoginToolbar(
+                                onLanguagePressed: widget.onLanguagePressed,
+                                onThemePressed: widget.onThemePressed,
+                                onSupportPressed: widget.onSupportPressed,
+                                configuredLocale: widget.configuredLocale,
+                                apiHealthService: widget.apiHealthService,
+                                onExportLogs: widget.onExportLogs,
+                              ),
                       ),
                     ),
                   ],
@@ -376,23 +387,6 @@ class _LoginPageState extends State<LoginPage> {
                         buttonBackgroundColor:
                             context.colorScheme.surfaceContainerHighest,
                         buttonBorderColor: context.colorScheme.outlineVariant,
-                      ),
-                    ),
-                  ),
-                ),
-              if (!showBrandPanel)
-                Positioned.fill(
-                  child: SafeArea(
-                    minimum: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                    child: Align(
-                      alignment: Alignment.topCenter,
-                      child: _MobileLoginToolbar(
-                        onLanguagePressed: widget.onLanguagePressed,
-                        onThemePressed: widget.onThemePressed,
-                        onSupportPressed: widget.onSupportPressed,
-                        configuredLocale: widget.configuredLocale,
-                        apiHealthService: widget.apiHealthService,
-                        onExportLogs: widget.onExportLogs,
                       ),
                     ),
                   ),
@@ -514,8 +508,8 @@ class _MobileLoginToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foregroundColor = context.colorScheme.onSurfaceVariant;
-    final backgroundColor = context.colorScheme.surfaceContainerHighest;
+    const foregroundColor = Colors.white;
+    final backgroundColor = Colors.white.withValues(alpha: 0.12);
     final isDefaultLocale = (configuredLocale ?? '').isEmpty;
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -525,7 +519,8 @@ class _MobileLoginToolbar extends StatelessWidget {
             key: const Key('login-language-button'),
             tooltip: context.appLocalizations.language,
             icon: Icons.translate_rounded,
-            iconSize: isDefaultLocale ? 24 : 28,
+            iconSize: isDefaultLocale ? 22 : 24,
+            compact: true,
             foregroundColor: foregroundColor,
             backgroundColor: backgroundColor,
             onPressed: () => onLanguagePressed(buttonContext),
@@ -536,6 +531,8 @@ class _MobileLoginToolbar extends StatelessWidget {
           builder: (buttonContext) => _BrandActionButton(
             tooltip: context.appLocalizations.theme,
             icon: Icons.palette_outlined,
+            compact: true,
+            iconSize: 24,
             badge: true,
             foregroundColor: foregroundColor,
             backgroundColor: backgroundColor,
@@ -547,6 +544,8 @@ class _MobileLoginToolbar extends StatelessWidget {
           builder: (buttonContext) => _BrandActionButton(
             tooltip: context.appLocalizations.onlineSupport,
             icon: Icons.headset_mic_outlined,
+            compact: true,
+            iconSize: 24,
             foregroundColor: foregroundColor,
             backgroundColor: backgroundColor,
             onPressed: () => onSupportPressed(buttonContext),
@@ -558,7 +557,8 @@ class _MobileLoginToolbar extends StatelessWidget {
           onExportLogs: onExportLogs,
           foregroundColor: foregroundColor,
           buttonBackgroundColor: backgroundColor,
-          buttonBorderColor: context.colorScheme.outlineVariant,
+          buttonBorderColor: Colors.white.withValues(alpha: 0.16),
+          compact: true,
         ),
       ],
     );
@@ -576,6 +576,7 @@ class _BrandActionButton extends StatelessWidget {
     this.iconSize = 30,
     this.foregroundColor,
     this.backgroundColor,
+    this.compact = false,
   });
 
   final String tooltip;
@@ -586,6 +587,7 @@ class _BrandActionButton extends StatelessWidget {
   final double iconSize;
   final Color? foregroundColor;
   final Color? backgroundColor;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -603,7 +605,7 @@ class _BrandActionButton extends StatelessWidget {
             color: resolvedForegroundColor,
             style: IconButton.styleFrom(
               backgroundColor: resolvedBackgroundColor,
-              fixedSize: const Size(58, 58),
+              fixedSize: Size.square(compact ? 48 : 58),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
@@ -679,6 +681,7 @@ class _LoginFormPanel extends StatelessWidget {
     required this.onForgotPassword,
     required this.topPadding,
     required this.showCompactBrand,
+    this.mobileToolbar,
   });
 
   final String appVersion;
@@ -708,32 +711,41 @@ class _LoginFormPanel extends StatelessWidget {
   final VoidCallback onForgotPassword;
   final double topPadding;
   final bool showCompactBrand;
+  final Widget? mobileToolbar;
 
   @override
   Widget build(BuildContext context) {
     final appLocalizations = context.appLocalizations;
-    final colorScheme = context.colorScheme;
+    final colorScheme = showCompactBrand
+        ? fengWoMobileAuthColorScheme(context.colorScheme)
+        : context.colorScheme;
     final displayVersion = appVersion.replaceFirst(RegExp(r'^[vV]'), '');
     return ColoredBox(
       color: colorScheme.surface,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final scrollable = networkFailure != null;
-          final horizontalPadding = scrollable && constraints.maxWidth < 420
+          final scrollable = showCompactBrand || networkFailure != null;
+          final horizontalPadding = showCompactBrand
+              ? 0.0
+              : scrollable && constraints.maxWidth < 420
               ? 10.0
               : 40.0;
-          final formWidth = (constraints.maxWidth - horizontalPadding * 2)
-              .clamp(scrollable ? 0.0 : 300.0, 620.0);
+          final formWidth =
+              (constraints.maxWidth -
+                      (showCompactBrand ? 72 : horizontalPadding * 2))
+                  .clamp(scrollable ? 0.0 : 300.0, 620.0);
           return Padding(
             padding: EdgeInsets.fromLTRB(
               horizontalPadding,
-              topPadding,
+              showCompactBrand ? 0 : topPadding,
               horizontalPadding,
-              28,
+              showCompactBrand ? 0 : 28,
             ),
             child: Center(
               child: _LoginFormViewport(
                 scrollable: scrollable,
+                mobileToolbar: mobileToolbar,
+                appVersion: displayVersion,
                 child: SizedBox(
                   width: formWidth,
                   child: Form(
@@ -746,30 +758,36 @@ class _LoginFormPanel extends StatelessWidget {
                       children: [
                         Text(
                           key: const Key('login-page-title'),
-                          showCompactBrand ? '蜂窝加速器' : appLocalizations.login,
+                          appLocalizations.login,
                           style: TextStyle(
                             color: colorScheme.primary,
-                            fontSize: 46,
+                            fontSize: showCompactBrand ? 26 : 46,
                             height: 1.1,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'V$displayVersion',
-                          key: const Key('login-page-version'),
-                          style: TextStyle(
-                            color: colorScheme.onSurfaceVariant,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w400,
+                        if (!showCompactBrand) ...[
+                          const SizedBox(height: 16),
+                          Text(
+                            'V$displayVersion',
+                            key: const Key('login-page-version'),
+                            style: TextStyle(
+                              color: colorScheme.onSurfaceVariant,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w400,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 42),
+                        ],
+                        SizedBox(height: showCompactBrand ? 22 : 42),
                         _FieldLabel(
+                          compact: showCompactBrand,
                           label: appLocalizations.email,
                           child: TextFormField(
                             key: const Key('login-email-field'),
                             controller: emailController,
+                            style: showCompactBrand
+                                ? const TextStyle(fontSize: 16)
+                                : null,
                             readOnly: isSubmitting,
                             focusNode: emailFocusNode,
                             keyboardType: TextInputType.emailAddress,
@@ -796,12 +814,16 @@ class _LoginFormPanel extends StatelessWidget {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 28),
+                        SizedBox(height: showCompactBrand ? 18 : 28),
                         _FieldLabel(
+                          compact: showCompactBrand,
                           label: appLocalizations.password,
                           child: TextFormField(
                             key: const Key('login-password-field'),
                             controller: passwordController,
+                            style: showCompactBrand
+                                ? const TextStyle(fontSize: 16)
+                                : null,
                             readOnly: isSubmitting,
                             focusNode: passwordFocusNode,
                             obscureText: obscurePassword,
@@ -836,15 +858,16 @@ class _LoginFormPanel extends StatelessWidget {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        SizedBox(height: showCompactBrand ? 12 : 24),
                         _LoginOptions(
+                          dense: showCompactBrand,
                           compact: formWidth < 420,
                           rememberMe: rememberMe,
                           autoLogin: autoLogin,
                           onRememberChanged: onRememberChanged,
                           onAutoLoginChanged: onAutoLoginChanged,
                         ),
-                        const SizedBox(height: 44),
+                        SizedBox(height: showCompactBrand ? 18 : 44),
                         if (networkFailure != null) ...[
                           Container(
                             key: const Key('login-network-failure'),
@@ -915,23 +938,27 @@ class _LoginFormPanel extends StatelessWidget {
                             isSubmitting
                                 ? appLocalizations.loggingIn
                                 : appLocalizations.login,
-                            style: const TextStyle(
-                              fontSize: 22,
+                            style: TextStyle(
+                              fontSize: showCompactBrand ? 18 : 22,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                           style: FilledButton.styleFrom(
                             backgroundColor: colorScheme.primary,
                             foregroundColor: colorScheme.onPrimary,
-                            minimumSize: const Size.fromHeight(76),
+                            minimumSize: Size.fromHeight(
+                              showCompactBrand ? 54 : 76,
+                            ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
                             ),
-                            elevation: 4,
-                            shadowColor: Colors.black.withValues(alpha: 0.28),
+                            elevation: showCompactBrand ? 1 : 4,
+                            shadowColor: colorScheme.primary.withValues(
+                              alpha: 0.28,
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 14),
+                        SizedBox(height: showCompactBrand ? 10 : 14),
                         OutlinedButton.icon(
                           key: const Key('login-offline-button'),
                           onPressed: offlineAvailable && !isOpeningOffline
@@ -951,7 +978,9 @@ class _LoginFormPanel extends StatelessWidget {
                                 : appLocalizations.offlineEntryUnavailable,
                           ),
                           style: OutlinedButton.styleFrom(
-                            minimumSize: const Size.fromHeight(58),
+                            minimumSize: Size.fromHeight(
+                              showCompactBrand ? 46 : 58,
+                            ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
                             ),
@@ -968,9 +997,10 @@ class _LoginFormPanel extends StatelessWidget {
                             ),
                           ),
                         ],
-                        const SizedBox(height: 24),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        SizedBox(height: showCompactBrand ? 14 : 24),
+                        Wrap(
+                          alignment: WrapAlignment.spaceBetween,
+                          runSpacing: 4,
                           children: [
                             TextButton.icon(
                               onPressed: onRegister,
@@ -1010,28 +1040,46 @@ class _LoginFormPanel extends StatelessWidget {
   }) {
     return InputDecoration(
       hintText: hintText,
-      hintStyle: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 20),
+      hintStyle: TextStyle(
+        color: colorScheme.onSurfaceVariant,
+        fontSize: showCompactBrand ? 15 : 20,
+      ),
       prefixIcon: Icon(
         prefixIcon,
         color: colorScheme.onSurfaceVariant,
-        size: 28,
+        size: showCompactBrand ? 22 : 28,
       ),
-      prefixIconConstraints: const BoxConstraints(minWidth: 62),
+      prefixIconConstraints: BoxConstraints(
+        minWidth: showCompactBrand ? 48 : 62,
+      ),
       suffixIcon: suffixIcon,
       filled: true,
-      fillColor: colorScheme.surface,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 23),
+      fillColor: showCompactBrand
+          ? colorScheme.surfaceContainerLow
+          : colorScheme.surface,
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: showCompactBrand ? 14 : 20,
+        vertical: showCompactBrand ? 16 : 23,
+      ),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(color: colorScheme.outline, width: 1.5),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: colorScheme.outline, width: 1.5),
+        borderSide: BorderSide(
+          color: showCompactBrand
+              ? colorScheme.outlineVariant
+              : colorScheme.outline,
+          width: showCompactBrand ? 1 : 1.5,
+        ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: colorScheme.primary, width: 3),
+        borderSide: BorderSide(
+          color: colorScheme.primary,
+          width: showCompactBrand ? 2 : 3,
+        ),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
@@ -1046,13 +1094,29 @@ class _LoginFormPanel extends StatelessWidget {
 }
 
 class _LoginFormViewport extends StatelessWidget {
-  const _LoginFormViewport({required this.scrollable, required this.child});
+  const _LoginFormViewport({
+    required this.scrollable,
+    required this.appVersion,
+    this.mobileToolbar,
+    required this.child,
+  });
 
   final bool scrollable;
+  final String appVersion;
+  final Widget? mobileToolbar;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
+    final toolbar = mobileToolbar;
+    if (toolbar != null) {
+      return FengWoMobileAuthLayout(
+        pageId: 'login',
+        toolbar: toolbar,
+        appVersion: appVersion,
+        child: child,
+      );
+    }
     return scrollable
         ? SingleChildScrollView(child: child)
         : FittedBox(fit: BoxFit.scaleDown, child: child);
@@ -1060,9 +1124,14 @@ class _LoginFormViewport extends StatelessWidget {
 }
 
 class _FieldLabel extends StatelessWidget {
-  const _FieldLabel({required this.label, required this.child});
+  const _FieldLabel({
+    required this.label,
+    this.compact = false,
+    required this.child,
+  });
 
   final String label;
+  final bool compact;
   final Widget child;
 
   @override
@@ -1074,11 +1143,11 @@ class _FieldLabel extends StatelessWidget {
           label,
           style: TextStyle(
             color: context.colorScheme.onSurface,
-            fontSize: 21,
+            fontSize: compact ? 14 : 21,
             fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 12),
+        SizedBox(height: compact ? 8 : 12),
         child,
       ],
     );
@@ -1092,9 +1161,11 @@ class _LoginOptions extends StatelessWidget {
     required this.autoLogin,
     required this.onRememberChanged,
     required this.onAutoLoginChanged,
+    this.dense = false,
   });
 
   final bool compact;
+  final bool dense;
   final bool rememberMe;
   final bool autoLogin;
   final ValueChanged<bool> onRememberChanged;
@@ -1103,15 +1174,25 @@ class _LoginOptions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final remember = _LoginCheckbox(
+      dense: dense,
       label: context.appLocalizations.rememberMe,
       value: rememberMe,
       onChanged: onRememberChanged,
     );
     final automatic = _LoginCheckbox(
+      dense: dense,
       label: context.appLocalizations.automaticLogin,
       value: autoLogin,
       onChanged: onAutoLoginChanged,
     );
+    if (dense) {
+      return Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        spacing: 12,
+        runSpacing: 4,
+        children: [remember, automatic],
+      );
+    }
     if (compact) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1134,11 +1215,13 @@ class _LoginCheckbox extends StatelessWidget {
     required this.label,
     required this.value,
     required this.onChanged,
+    this.dense = false,
   });
 
   final String label;
   final bool value;
   final ValueChanged<bool> onChanged;
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
@@ -1146,11 +1229,12 @@ class _LoginCheckbox extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       onTap: () => onChanged(!value),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+        padding: EdgeInsets.symmetric(vertical: dense ? 0 : 4),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Checkbox(
+              visualDensity: dense ? VisualDensity.compact : null,
               value: value,
               onChanged: (next) => onChanged(next ?? false),
               activeColor: context.colorScheme.primary,
@@ -1160,12 +1244,14 @@ class _LoginCheckbox extends StatelessWidget {
                 borderRadius: BorderRadius.circular(3),
               ),
             ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                color: context.colorScheme.onSurfaceVariant,
-                fontSize: 18,
+            SizedBox(width: dense ? 2 : 6),
+            Flexible(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: context.colorScheme.onSurfaceVariant,
+                  fontSize: dense ? 14 : 18,
+                ),
               ),
             ),
           ],

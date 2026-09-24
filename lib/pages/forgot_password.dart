@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/widgets/brand_logo.dart';
+import 'package:fl_clash/widgets/fengwo_mobile_auth_layout.dart';
 import 'package:flutter/material.dart';
 
 class ForgotPasswordFormData {
@@ -280,274 +281,288 @@ class _ForgotPasswordFormPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.appLocalizations;
-    final colorScheme = context.colorScheme;
-    return ColoredBox(
-      color: colorScheme.surface,
-      child: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final horizontalPadding = showCompactHeader ? 24.0 : 48.0;
-            final formWidth = (constraints.maxWidth - horizontalPadding * 2)
-                .clamp(300.0, 620.0);
-            return Padding(
-              padding: EdgeInsets.fromLTRB(
-                horizontalPadding,
-                showCompactHeader ? 16 : 32,
-                horizontalPadding,
-                28,
-              ),
-              child: Center(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: SizedBox(
-                    width: formWidth,
-                    child: Form(
-                      key: formKey,
-                      autovalidateMode: submitted
-                          ? AutovalidateMode.onUserInteraction
-                          : AutovalidateMode.disabled,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (showCompactHeader) ...[
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: IconButton(
-                                key: const Key(
-                                  'forgot-password-mobile-back-button',
-                                ),
-                                tooltip: MaterialLocalizations.of(
-                                  context,
-                                ).backButtonTooltip,
-                                onPressed: onBack,
-                                icon: const Icon(Icons.arrow_back_rounded),
-                                style: IconButton.styleFrom(
-                                  backgroundColor:
-                                      colorScheme.surfaceContainerHighest,
-                                  fixedSize: const Size(48, 48),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 18),
-                          ],
-                          Text(
-                            l10n.forgotPasswordTitle,
-                            key: const Key('forgot-password-page-title'),
-                            style: TextStyle(
-                              color: colorScheme.primary,
-                              fontSize: showCompactHeader ? 38 : 46,
-                              height: 1.1,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            l10n.forgotPasswordSubtitle,
-                            style: TextStyle(
-                              color: colorScheme.onSurfaceVariant,
-                              fontSize: showCompactHeader ? 18 : 21,
-                            ),
-                          ),
-                          const SizedBox(height: 30),
-                          _ForgotPasswordFieldLabel(
-                            label: l10n.email,
-                            child: TextFormField(
-                              key: emailFieldKey,
-                              controller: emailController,
-                              keyboardType: TextInputType.emailAddress,
-                              textInputAction: TextInputAction.next,
-                              autofillHints: const [AutofillHints.email],
-                              validator: (value) {
-                                final email = value?.trim() ?? '';
-                                if (email.isEmpty) {
-                                  return l10n.enterEmailAddress;
-                                }
-                                if (!RegExp(
-                                  r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-                                ).hasMatch(email)) {
-                                  return l10n.invalidEmail;
-                                }
-                                return null;
-                              },
-                              decoration: _forgotPasswordInputDecoration(
-                                colorScheme: colorScheme,
-                                hintText: l10n.enterEmailAddress,
-                                prefixIcon: Icons.mail_outline_rounded,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 18),
-                          _ForgotPasswordFieldLabel(
-                            label: l10n.emailVerificationCode,
-                            child: TextFormField(
-                              key: const Key(
-                                'forgot-password-verification-field',
-                              ),
-                              controller: verificationController,
-                              textInputAction: TextInputAction.next,
-                              validator: (value) =>
-                                  value == null || value.trim().isEmpty
-                                  ? l10n.enterVerificationCode
-                                  : null,
-                              decoration: _forgotPasswordInputDecoration(
-                                colorScheme: colorScheme,
-                                hintText: l10n.enterVerificationCode,
-                                prefixIcon: Icons.shield_outlined,
-                                suffixIcon: Padding(
-                                  padding: const EdgeInsets.only(right: 2),
-                                  child: FilledButton.tonal(
-                                    key: const Key(
-                                      'forgot-password-send-code-button',
-                                    ),
-                                    onPressed:
-                                        isSendingCode || secondsRemaining > 0
-                                        ? null
-                                        : onSendVerificationCode,
-                                    child: Text(
-                                      isSendingCode
-                                          ? l10n.sendingVerificationCode
-                                          : secondsRemaining > 0
-                                          ? '${secondsRemaining}s'
-                                          : l10n.sendVerificationCode,
-                                    ),
+    final colorScheme = showCompactHeader
+        ? fengWoMobileAuthColorScheme(context.colorScheme)
+        : context.colorScheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final formWidth = (constraints.maxWidth - (showCompactHeader ? 72 : 96))
+            .clamp(showCompactHeader ? 0.0 : 300.0, 620.0);
+        final form = SizedBox(
+          width: formWidth,
+          child: Form(
+            key: formKey,
+            autovalidateMode: submitted
+                ? AutovalidateMode.onUserInteraction
+                : AutovalidateMode.disabled,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  l10n.forgotPasswordTitle,
+                  key: const Key('forgot-password-page-title'),
+                  style: TextStyle(
+                    color: colorScheme.primary,
+                    fontSize: showCompactHeader ? 26 : 46,
+                    height: 1.1,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  l10n.forgotPasswordSubtitle,
+                  style: TextStyle(
+                    color: colorScheme.onSurfaceVariant,
+                    fontSize: showCompactHeader ? 14 : 21,
+                  ),
+                ),
+                SizedBox(height: showCompactHeader ? 18 : 30),
+                _ForgotPasswordFieldLabel(
+                  compact: showCompactHeader,
+                  label: l10n.email,
+                  child: TextFormField(
+                    style: showCompactHeader
+                        ? const TextStyle(fontSize: 16)
+                        : null,
+                    key: emailFieldKey,
+                    controller: emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.next,
+                    autofillHints: const [AutofillHints.email],
+                    validator: (value) {
+                      final email = value?.trim() ?? '';
+                      if (email.isEmpty) {
+                        return l10n.enterEmailAddress;
+                      }
+                      if (!RegExp(
+                        r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+                      ).hasMatch(email)) {
+                        return l10n.invalidEmail;
+                      }
+                      return null;
+                    },
+                    decoration: _forgotPasswordInputDecoration(
+                      colorScheme: colorScheme,
+                      compact: showCompactHeader,
+                      hintText: l10n.enterEmailAddress,
+                      prefixIcon: Icons.mail_outline_rounded,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _ForgotPasswordFieldLabel(
+                  compact: showCompactHeader,
+                  label: l10n.emailVerificationCode,
+                  child: TextFormField(
+                    style: showCompactHeader
+                        ? const TextStyle(fontSize: 16)
+                        : null,
+                    key: const Key('forgot-password-verification-field'),
+                    controller: verificationController,
+                    textInputAction: TextInputAction.next,
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? l10n.enterVerificationCode
+                        : null,
+                    decoration: _forgotPasswordInputDecoration(
+                      colorScheme: colorScheme,
+                      compact: showCompactHeader,
+                      hintText: l10n.enterVerificationCode,
+                      prefixIcon: Icons.shield_outlined,
+                      suffixIcon: Padding(
+                        padding: const EdgeInsets.only(right: 2),
+                        child: FilledButton.tonal(
+                          style: showCompactHeader
+                              ? FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
                                   ),
-                                ),
-                                suffixIconConstraints: const BoxConstraints(
-                                  minWidth: 108,
-                                  minHeight: 48,
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (secondsRemaining > 0) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              l10n.verificationEmailSent,
-                              key: const Key(
-                                'forgot-password-email-delivery-hint',
-                              ),
-                              style: TextStyle(
-                                color: colorScheme.onSurfaceVariant,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 18),
-                          _ForgotPasswordFieldLabel(
-                            label: l10n.newPassword,
-                            child: TextFormField(
-                              key: const Key('forgot-password-new-field'),
-                              controller: passwordController,
-                              obscureText: obscurePassword,
-                              textInputAction: TextInputAction.done,
-                              autofillHints: const [AutofillHints.newPassword],
-                              onFieldSubmitted: (_) => onResetPassword(),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return l10n.enterNewPassword;
-                                }
-                                if (value.length < 8) {
-                                  return l10n.passwordTooShort;
-                                }
-                                return null;
-                              },
-                              decoration: _forgotPasswordInputDecoration(
-                                colorScheme: colorScheme,
-                                hintText: l10n.enterNewPassword,
-                                prefixIcon: Icons.lock_outline_rounded,
-                                suffixIcon: IconButton(
-                                  tooltip: obscurePassword
-                                      ? l10n.showPassword
-                                      : l10n.hidePassword,
-                                  onPressed: onTogglePassword,
-                                  icon: Icon(
-                                    obscurePassword
-                                        ? Icons.visibility_outlined
-                                        : Icons.visibility_off_outlined,
-                                    color: colorScheme.primary,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 30),
-                          FilledButton.icon(
-                            key: const Key('forgot-password-submit-button'),
-                            onPressed: isResetting ? null : onResetPassword,
-                            iconAlignment: IconAlignment.end,
-                            icon: isResetting
-                                ? const SizedBox.square(
-                                    dimension: 22,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2.5,
-                                    ),
-                                  )
-                                : const Icon(
-                                    Icons.lock_reset_rounded,
-                                    size: 26,
-                                  ),
-                            label: Text(
-                              isResetting
-                                  ? l10n.resettingPassword
-                                  : l10n.resetPasswordAction,
-                              style: const TextStyle(
-                                fontSize: 21,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size.fromHeight(70),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              elevation: 4,
-                              shadowColor: Colors.black.withValues(alpha: 0.28),
-                            ),
-                          ),
-                          const SizedBox(height: 18),
-                          Wrap(
-                            alignment: WrapAlignment.center,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              Text(
-                                l10n.rememberedPassword,
-                                style: TextStyle(
-                                  color: colorScheme.onSurfaceVariant,
-                                  fontSize: 17,
-                                ),
-                              ),
-                              TextButton(
-                                key: const Key('forgot-password-back-to-login'),
-                                onPressed: onBack,
-                                child: Text(
-                                  l10n.backToLogin,
-                                  style: const TextStyle(
-                                    fontSize: 17,
+                                  textStyle: const TextStyle(
+                                    fontSize: 12,
                                     fontWeight: FontWeight.w600,
                                   ),
-                                ),
-                              ),
-                            ],
+                                  minimumSize: const Size(0, 40),
+                                )
+                              : null,
+                          key: const Key('forgot-password-send-code-button'),
+                          onPressed: isSendingCode || secondsRemaining > 0
+                              ? null
+                              : onSendVerificationCode,
+                          child: Text(
+                            isSendingCode
+                                ? l10n.sendingVerificationCode
+                                : secondsRemaining > 0
+                                ? '${secondsRemaining}s'
+                                : l10n.sendVerificationCode,
                           ),
-                        ],
+                        ),
+                      ),
+                      suffixIconConstraints: const BoxConstraints(
+                        minWidth: 108,
+                        minHeight: 48,
                       ),
                     ),
                   ),
                 ),
+                if (secondsRemaining > 0) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    l10n.verificationEmailSent,
+                    key: const Key('forgot-password-email-delivery-hint'),
+                    style: TextStyle(
+                      color: colorScheme.onSurfaceVariant,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 18),
+                _ForgotPasswordFieldLabel(
+                  compact: showCompactHeader,
+                  label: l10n.newPassword,
+                  child: TextFormField(
+                    style: showCompactHeader
+                        ? const TextStyle(fontSize: 16)
+                        : null,
+                    key: const Key('forgot-password-new-field'),
+                    controller: passwordController,
+                    obscureText: obscurePassword,
+                    textInputAction: TextInputAction.done,
+                    autofillHints: const [AutofillHints.newPassword],
+                    onFieldSubmitted: (_) => onResetPassword(),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return l10n.enterNewPassword;
+                      }
+                      if (value.length < 8) {
+                        return l10n.passwordTooShort;
+                      }
+                      return null;
+                    },
+                    decoration: _forgotPasswordInputDecoration(
+                      colorScheme: colorScheme,
+                      compact: showCompactHeader,
+                      hintText: l10n.enterNewPassword,
+                      prefixIcon: Icons.lock_outline_rounded,
+                      suffixIcon: IconButton(
+                        tooltip: obscurePassword
+                            ? l10n.showPassword
+                            : l10n.hidePassword,
+                        onPressed: onTogglePassword,
+                        icon: Icon(
+                          obscurePassword
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                          color: colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(height: showCompactHeader ? 18 : 30),
+                FilledButton.icon(
+                  key: const Key('forgot-password-submit-button'),
+                  onPressed: isResetting ? null : onResetPassword,
+                  iconAlignment: IconAlignment.end,
+                  icon: isResetting
+                      ? const SizedBox.square(
+                          dimension: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        )
+                      : const Icon(Icons.lock_reset_rounded, size: 26),
+                  label: Text(
+                    isResetting
+                        ? l10n.resettingPassword
+                        : l10n.resetPasswordAction,
+                    style: TextStyle(
+                      fontSize: showCompactHeader ? 18 : 21,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  style: FilledButton.styleFrom(
+                    minimumSize: Size.fromHeight(showCompactHeader ? 54 : 70),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: showCompactHeader ? 1 : 4,
+                    shadowColor: Colors.black.withValues(alpha: 0.28),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      l10n.rememberedPassword,
+                      style: TextStyle(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: showCompactHeader ? 14 : 17,
+                      ),
+                    ),
+                    TextButton(
+                      key: const Key('forgot-password-back-to-login'),
+                      onPressed: onBack,
+                      child: Text(
+                        l10n.backToLogin,
+                        style: TextStyle(
+                          fontSize: showCompactHeader ? 14 : 17,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+        if (showCompactHeader) {
+          return FengWoMobileAuthLayout(
+            pageId: 'forgot-password',
+            toolbar: Align(
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                key: const Key('forgot-password-mobile-back-button'),
+                tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+                onPressed: onBack,
+                icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white.withValues(alpha: 0.12),
+                  fixedSize: const Size(48, 48),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
               ),
-            );
-          },
-        ),
-      ),
+            ),
+            child: form,
+          );
+        }
+        return ColoredBox(
+          color: colorScheme.surface,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(48, 32, 48, 28),
+              child: Center(
+                child: FittedBox(fit: BoxFit.scaleDown, child: form),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
 
 class _ForgotPasswordFieldLabel extends StatelessWidget {
-  const _ForgotPasswordFieldLabel({required this.label, required this.child});
+  const _ForgotPasswordFieldLabel({
+    required this.label,
+    this.compact = false,
+    required this.child,
+  });
 
   final String label;
+  final bool compact;
   final Widget child;
 
   @override
@@ -559,7 +574,7 @@ class _ForgotPasswordFieldLabel extends StatelessWidget {
           label,
           style: TextStyle(
             color: context.colorScheme.onSurface,
-            fontSize: 18,
+            fontSize: compact ? 14 : 18,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -574,26 +589,42 @@ InputDecoration _forgotPasswordInputDecoration({
   required ColorScheme colorScheme,
   required String hintText,
   required IconData prefixIcon,
+  bool compact = false,
   Widget? suffixIcon,
   BoxConstraints? suffixIconConstraints,
 }) {
   final border = OutlineInputBorder(
     borderRadius: BorderRadius.circular(16),
-    borderSide: BorderSide(color: colorScheme.outline, width: 1.5),
+    borderSide: BorderSide(
+      color: compact ? colorScheme.outlineVariant : colorScheme.outline,
+      width: compact ? 1 : 1.5,
+    ),
   );
   return InputDecoration(
     hintText: hintText,
-    hintStyle: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 18),
-    prefixIcon: Icon(prefixIcon, size: 28),
+    hintStyle: TextStyle(
+      color: colorScheme.onSurfaceVariant,
+      fontSize: compact ? 15 : 18,
+    ),
+    prefixIcon: Icon(prefixIcon, size: compact ? 22 : 28),
+    prefixIconConstraints: compact ? const BoxConstraints(minWidth: 48) : null,
     suffixIcon: suffixIcon,
     suffixIconConstraints: suffixIconConstraints,
     filled: true,
-    fillColor: colorScheme.surfaceContainerLowest,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 19),
+    fillColor: compact
+        ? colorScheme.surfaceContainerLow
+        : colorScheme.surfaceContainerLowest,
+    contentPadding: EdgeInsets.symmetric(
+      horizontal: compact ? 14 : 18,
+      vertical: compact ? 16 : 19,
+    ),
     border: border,
     enabledBorder: border,
     focusedBorder: border.copyWith(
-      borderSide: BorderSide(color: colorScheme.primary, width: 2.4),
+      borderSide: BorderSide(
+        color: colorScheme.primary,
+        width: compact ? 2 : 2.4,
+      ),
     ),
     errorBorder: border.copyWith(
       borderSide: BorderSide(color: colorScheme.error, width: 1.8),

@@ -40,16 +40,21 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('login-network-failure')), findsNothing);
+      await tester.ensureVisible(find.byKey(const Key('login-submit-button')));
       await tester.tap(find.byKey(const Key('login-submit-button')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('login-network-failure')), findsOneWidget);
       expect(find.textContaining('联网权限被拒绝'), findsOneWidget);
       expect(find.textContaining('尚不能确定是哪个软件导致'), findsOneWidget);
       expect(find.textContaining('secret.invalid'), findsNothing);
+      await tester.ensureVisible(find.byKey(const Key('login-export-logs')));
       await tester.tap(find.byKey(const Key('login-export-logs')));
       await tester.pumpAndSettle();
       expect(exports, 1);
       expect(find.text('导出成功'), findsOneWidget);
+      await tester.ensureVisible(
+        find.byKey(const Key('login-api-diagnostics')),
+      );
       await tester.tap(find.byKey(const Key('login-api-diagnostics')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('api-health-dialog')), findsOneWidget);
@@ -63,6 +68,7 @@ void main() {
       );
       await tester.tap(find.byKey(const Key('api-health-dialog-close')));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('login-submit-button')));
       await tester.tap(find.byKey(const Key('login-submit-button')));
       await tester.pumpAndSettle();
       expect(attempts, 2);

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/fengwo_mobile_theme.dart';
 import 'package:fl_clash/common/login_routing_coordinator.dart';
 import 'package:fl_clash/common/xboard_account_rules.dart';
 import 'package:fl_clash/common/xboard_login_persistence.dart';
@@ -17,6 +18,7 @@ import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/tools.dart';
 import 'package:fl_clash/widgets/xboard_marquee_host.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -1131,7 +1133,14 @@ class ApplicationState extends ConsumerState<Application> {
     required Brightness brightness,
     int? primaryColor,
   }) {
-    return ref.read(genColorSchemeProvider(brightness));
+    return fengWoMobileColorScheme(
+      colorScheme: ref.read(genColorSchemeProvider(brightness)),
+      platform: system.isAndroid
+          ? TargetPlatform.android
+          : defaultTargetPlatform,
+      useBrandColor: primaryColor == defaultPrimaryColor,
+      schemeVariant: ref.read(themeSettingProvider).schemeVariant,
+    );
   }
 
   @override

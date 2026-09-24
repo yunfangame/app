@@ -115,7 +115,7 @@ void main() {
       find.byKey(const Key('register-mobile-back-button')),
       findsOneWidget,
     );
-    expect(find.byType(SingleChildScrollView), findsNothing);
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
     await tester.tap(find.byKey(const Key('register-mobile-back-button')));
     await tester.pump();
 
@@ -278,11 +278,78 @@ void main() {
     expect(routeResult?.email, 'fengwo@qq.com');
     expect(routeResult?.password, 'secret123');
   });
+
+  testWidgets(
+    'register form remains reachable with a keyboard and large text',
+    (tester) async {
+      _useMobileSize(tester);
+      tester.view.physicalSize = const Size(320, 568);
+      RegisterFormData? submitted;
+      String? sentEmail;
+      var wentBack = false;
+      await tester.pumpWidget(
+        _testApp(
+          textScale: 1.4,
+          onBack: () => wentBack = true,
+          onSendVerificationCode: (email) async => sentEmail = email,
+          onRegister: (data) async => submitted = data,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('register-mobile-brand-lockup')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 240);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('register-mobile-brand-lockup')),
+        findsNothing,
+      );
+      final fields = find.byType(TextFormField);
+      final values = [
+        'smalluser',
+        '123456',
+        'secret123',
+        'secret123',
+        'invite-code',
+      ];
+      for (var index = 0; index < values.length; index++) {
+        await tester.ensureVisible(fields.at(index));
+        await tester.enterText(fields.at(index), values[index]);
+        await tester.pumpAndSettle();
+      }
+      final sendCode = find.byKey(const Key('register-send-code-button'));
+      await tester.ensureVisible(sendCode);
+      await tester.tap(sendCode);
+      await tester.pump();
+      expect(sentEmail, 'smalluser@qq.com');
+      expect(find.text('60s'), findsOneWidget);
+      final submit = find.byKey(const Key('register-submit-button'));
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pump();
+      expect(submitted?.email, 'smalluser@qq.com');
+      expect(submitted?.emailCode, '123456');
+      expect(submitted?.password, 'secret123');
+      final back = find.byKey(const Key('register-mobile-back-button'));
+      expect(back.hitTestable(), findsOneWidget);
+      await tester.tap(back);
+      await tester.pump();
+      expect(wentBack, isTrue);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 }
 
 Widget _testApp({
   XboardGuestConfig? config,
   VoidCallback? onBack,
+  double textScale = 1,
   Future<void> Function(RegisterFormData data)? onRegister,
   Future<void> Function(String email)? onSendVerificationCode,
 }) {
@@ -295,6 +362,12 @@ Widget _testApp({
       GlobalWidgetsLocalizations.delegate,
     ],
     supportedLocales: AppLocalizations.delegate.supportedLocales,
+    builder: (context, child) => MediaQuery(
+      data: MediaQuery.of(
+        context,
+      ).copyWith(textScaler: TextScaler.linear(textScale)),
+      child: child!,
+    ),
     home: RegisterPage(
       config: config ?? _guestConfig(),
       onBack: onBack,

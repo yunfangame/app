@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/widgets/brand_logo.dart';
+import 'package:fl_clash/widgets/fengwo_mobile_auth_layout.dart';
 import 'package:flutter/material.dart';
 
 class RegisterFormData {
@@ -344,344 +345,375 @@ class _RegisterFormPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.appLocalizations;
-    final colorScheme = context.colorScheme;
-    return ColoredBox(
-      color: colorScheme.surface,
-      child: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final horizontalPadding = showCompactHeader ? 24.0 : 48.0;
-            final formWidth = (constraints.maxWidth - horizontalPadding * 2)
-                .clamp(300.0, 620.0);
-            return Padding(
-              padding: EdgeInsets.fromLTRB(
-                horizontalPadding,
-                showCompactHeader ? 16 : 32,
-                horizontalPadding,
-                28,
-              ),
-              child: Center(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: SizedBox(
-                    width: formWidth,
-                    child: Form(
-                      key: formKey,
-                      autovalidateMode: submitted
-                          ? AutovalidateMode.onUserInteraction
-                          : AutovalidateMode.disabled,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (showCompactHeader) ...[
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: IconButton(
-                                key: const Key('register-mobile-back-button'),
-                                tooltip: MaterialLocalizations.of(
-                                  context,
-                                ).backButtonTooltip,
-                                onPressed: onBack,
-                                icon: const Icon(Icons.arrow_back_rounded),
-                                style: IconButton.styleFrom(
-                                  backgroundColor:
-                                      colorScheme.surfaceContainerHighest,
-                                  fixedSize: const Size(48, 48),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 18),
-                          ],
-                          Text(
-                            l10n.createAccountTitle,
-                            key: const Key('register-page-title'),
-                            style: TextStyle(
-                              color: colorScheme.primary,
-                              fontSize: showCompactHeader ? 38 : 46,
-                              height: 1.1,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            l10n.createAccountSubtitle,
-                            style: TextStyle(
-                              color: colorScheme.onSurfaceVariant,
-                              fontSize: showCompactHeader ? 18 : 21,
-                            ),
-                          ),
-                          const SizedBox(height: 28),
-                          _RegisterFieldLabel(
-                            label: l10n.email,
-                            child: TextFormField(
-                              key: emailFieldKey,
-                              controller: emailController,
-                              keyboardType: TextInputType.emailAddress,
-                              textInputAction: TextInputAction.next,
-                              autofillHints: const [AutofillHints.email],
-                              validator: (value) {
-                                final account = value?.trim() ?? '';
-                                if (account.isEmpty) return l10n.enterEmail;
-                                if (!RegExp(r'^[^@\s]+$').hasMatch(account)) {
-                                  return l10n.invalidEmailAccount;
-                                }
-                                return null;
-                              },
-                              decoration: _registerInputDecoration(
-                                colorScheme: colorScheme,
-                                hintText: l10n.enterEmail,
-                                prefixIcon: Icons.mail_outline_rounded,
-                                suffixIcon: Padding(
-                                  padding: const EdgeInsets.only(right: 12),
-                                  child: DropdownButtonHideUnderline(
-                                    child: DropdownButton<String>(
-                                      key: const Key(
-                                        'register-email-domain-dropdown',
-                                      ),
-                                      value: emailDomain,
-                                      isDense: true,
-                                      isExpanded: true,
-                                      borderRadius: BorderRadius.circular(14),
-                                      onChanged: onEmailDomainChanged,
-                                      items: emailDomains
-                                          .map(
-                                            (domain) => DropdownMenuItem(
-                                              value: domain,
-                                              child: Text(
-                                                domain,
-                                                style: const TextStyle(
-                                                  fontSize: 16,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            ),
-                                          )
-                                          .toList(),
-                                    ),
-                                  ),
-                                ),
-                                suffixIconConstraints: const BoxConstraints(
-                                  minWidth: 130,
-                                  maxWidth: 170,
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (isEmailVerify) ...[
-                            const SizedBox(height: 18),
-                            _RegisterFieldLabel(
-                              label: l10n.emailVerificationCode,
-                              child: TextFormField(
-                                key: const Key('register-verification-field'),
-                                controller: verificationController,
-                                textInputAction: TextInputAction.next,
-                                validator: (value) =>
-                                    value == null || value.trim().isEmpty
-                                    ? l10n.enterVerificationCode
-                                    : null,
-                                decoration: _registerInputDecoration(
-                                  colorScheme: colorScheme,
-                                  hintText: l10n.enterVerificationCode,
-                                  prefixIcon: Icons.shield_outlined,
-                                  suffixIcon: Padding(
-                                    padding: const EdgeInsets.only(right: 2),
-                                    child: FilledButton.tonal(
-                                      key: const Key(
-                                        'register-send-code-button',
-                                      ),
-                                      onPressed:
-                                          isSendingCode || secondsRemaining > 0
-                                          ? null
-                                          : onSendVerificationCode,
-                                      child: Text(
-                                        isSendingCode
-                                            ? l10n.sendingVerificationCode
-                                            : secondsRemaining > 0
-                                            ? '${secondsRemaining}s'
-                                            : l10n.sendVerificationCode,
+    final colorScheme = showCompactHeader
+        ? fengWoMobileAuthColorScheme(context.colorScheme)
+        : context.colorScheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final formWidth = (constraints.maxWidth - (showCompactHeader ? 72 : 96))
+            .clamp(showCompactHeader ? 0.0 : 300.0, 620.0);
+        final form = SizedBox(
+          width: formWidth,
+          child: Form(
+            key: formKey,
+            autovalidateMode: submitted
+                ? AutovalidateMode.onUserInteraction
+                : AutovalidateMode.disabled,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  l10n.createAccountTitle,
+                  key: const Key('register-page-title'),
+                  style: TextStyle(
+                    color: colorScheme.primary,
+                    fontSize: showCompactHeader ? 26 : 46,
+                    height: 1.1,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  l10n.createAccountSubtitle,
+                  style: TextStyle(
+                    color: colorScheme.onSurfaceVariant,
+                    fontSize: showCompactHeader ? 14 : 21,
+                  ),
+                ),
+                SizedBox(height: showCompactHeader ? 18 : 28),
+                _RegisterFieldLabel(
+                  compact: showCompactHeader,
+                  label: l10n.email,
+                  child: TextFormField(
+                    style: showCompactHeader
+                        ? const TextStyle(fontSize: 16)
+                        : null,
+                    key: emailFieldKey,
+                    controller: emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.next,
+                    autofillHints: const [AutofillHints.email],
+                    validator: (value) {
+                      final account = value?.trim() ?? '';
+                      if (account.isEmpty) return l10n.enterEmail;
+                      if (!RegExp(r'^[^@\s]+$').hasMatch(account)) {
+                        return l10n.invalidEmailAccount;
+                      }
+                      return null;
+                    },
+                    decoration: _registerInputDecoration(
+                      colorScheme: colorScheme,
+                      compact: showCompactHeader,
+                      hintText: l10n.enterEmail,
+                      prefixIcon: Icons.mail_outline_rounded,
+                      suffixIcon: Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            key: const Key('register-email-domain-dropdown'),
+                            value: emailDomain,
+                            isDense: true,
+                            isExpanded: true,
+                            borderRadius: BorderRadius.circular(14),
+                            onChanged: onEmailDomainChanged,
+                            items: emailDomains
+                                .map(
+                                  (domain) => DropdownMenuItem(
+                                    value: domain,
+                                    child: Text(
+                                      domain,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: showCompactHeader ? 14 : 16,
+                                        fontWeight: FontWeight.w600,
                                       ),
                                     ),
                                   ),
-                                  suffixIconConstraints: const BoxConstraints(
-                                    minWidth: 108,
-                                    minHeight: 48,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            if (secondsRemaining > 0) ...[
-                              const SizedBox(height: 8),
-                              Text(
-                                l10n.verificationEmailSent,
-                                key: const Key('register-email-delivery-hint'),
-                                style: TextStyle(
-                                  color: colorScheme.onSurfaceVariant,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ],
-                          ],
-                          const SizedBox(height: 18),
-                          _RegisterFieldLabel(
-                            label: l10n.password,
-                            child: TextFormField(
-                              key: const Key('register-password-field'),
-                              controller: passwordController,
-                              obscureText: obscurePassword,
-                              textInputAction: TextInputAction.next,
-                              autofillHints: const [AutofillHints.newPassword],
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return l10n.enterPassword;
-                                }
-                                if (value.length < 8) {
-                                  return l10n.passwordTooShort;
-                                }
-                                return null;
-                              },
-                              decoration: _registerInputDecoration(
-                                colorScheme: colorScheme,
-                                hintText: l10n.enterPassword,
-                                prefixIcon: Icons.lock_outline_rounded,
-                                suffixIcon: IconButton(
-                                  tooltip: obscurePassword
-                                      ? l10n.showPassword
-                                      : l10n.hidePassword,
-                                  onPressed: onTogglePassword,
-                                  icon: Icon(
-                                    obscurePassword
-                                        ? Icons.visibility_outlined
-                                        : Icons.visibility_off_outlined,
-                                    color: colorScheme.primary,
-                                  ),
-                                ),
-                              ),
-                            ),
+                                )
+                                .toList(),
                           ),
-                          const SizedBox(height: 18),
-                          _RegisterFieldLabel(
-                            label: l10n.confirmPassword,
-                            child: TextFormField(
-                              key: const Key('register-confirm-password-field'),
-                              controller: confirmPasswordController,
-                              obscureText: obscurePassword,
-                              textInputAction: TextInputAction.next,
-                              autofillHints: const [AutofillHints.newPassword],
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return l10n.enterConfirmPassword;
-                                }
-                                if (value != passwordController.text) {
-                                  return l10n.passwordsDoNotMatch;
-                                }
-                                return null;
-                              },
-                              decoration: _registerInputDecoration(
-                                colorScheme: colorScheme,
-                                hintText: l10n.enterConfirmPassword,
-                                prefixIcon: Icons.lock_reset_rounded,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 18),
-                          _RegisterFieldLabel(
-                            label: isInviteForce
-                                ? l10n.invitationCode
-                                : l10n.invitationCodeOptional,
-                            child: TextFormField(
-                              key: const Key('register-invitation-field'),
-                              controller: invitationController,
-                              textInputAction: TextInputAction.next,
-                              validator: (value) {
-                                if (isInviteForce &&
-                                    (value == null || value.trim().isEmpty)) {
-                                  return l10n.invitationCodeRequired;
-                                }
-                                return null;
-                              },
-                              decoration: _registerInputDecoration(
-                                colorScheme: colorScheme,
-                                hintText: l10n.enterInvitationCode,
-                                prefixIcon: Icons.redeem_outlined,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 28),
-                          FilledButton.icon(
-                            key: const Key('register-submit-button'),
-                            onPressed: isRegistering ? null : onRegister,
-                            iconAlignment: IconAlignment.end,
-                            icon: isRegistering
-                                ? const SizedBox.square(
-                                    dimension: 22,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2.5,
-                                    ),
-                                  )
-                                : const Icon(
-                                    Icons.person_add_alt_1_rounded,
-                                    size: 25,
-                                  ),
-                            label: Text(
-                              l10n.registerAction,
-                              style: const TextStyle(
-                                fontSize: 21,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size.fromHeight(70),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              elevation: 4,
-                              shadowColor: Colors.black.withValues(alpha: 0.28),
-                            ),
-                          ),
-                          const SizedBox(height: 18),
-                          Wrap(
-                            alignment: WrapAlignment.center,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              Text(
-                                l10n.alreadyHaveAccount,
-                                style: TextStyle(
-                                  color: colorScheme.onSurfaceVariant,
-                                  fontSize: 17,
-                                ),
-                              ),
-                              TextButton(
-                                key: const Key('register-back-to-login'),
-                                onPressed: onBack,
-                                child: Text(
-                                  l10n.backToLogin,
-                                  style: const TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                        ),
+                      ),
+                      suffixIconConstraints: BoxConstraints(
+                        minWidth: showCompactHeader ? 100 : 130,
+                        maxWidth: showCompactHeader ? formWidth * 0.5 : 170,
                       ),
                     ),
                   ),
                 ),
+                if (isEmailVerify) ...[
+                  const SizedBox(height: 18),
+                  _RegisterFieldLabel(
+                    compact: showCompactHeader,
+                    label: l10n.emailVerificationCode,
+                    child: TextFormField(
+                      style: showCompactHeader
+                          ? const TextStyle(fontSize: 16)
+                          : null,
+                      key: const Key('register-verification-field'),
+                      controller: verificationController,
+                      textInputAction: TextInputAction.next,
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
+                          ? l10n.enterVerificationCode
+                          : null,
+                      decoration: _registerInputDecoration(
+                        colorScheme: colorScheme,
+                        compact: showCompactHeader,
+                        hintText: l10n.enterVerificationCode,
+                        prefixIcon: Icons.shield_outlined,
+                        suffixIcon: Padding(
+                          padding: const EdgeInsets.only(right: 2),
+                          child: FilledButton.tonal(
+                            style: showCompactHeader
+                                ? FilledButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                    ),
+                                    textStyle: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    minimumSize: const Size(0, 40),
+                                  )
+                                : null,
+                            key: const Key('register-send-code-button'),
+                            onPressed: isSendingCode || secondsRemaining > 0
+                                ? null
+                                : onSendVerificationCode,
+                            child: Text(
+                              isSendingCode
+                                  ? l10n.sendingVerificationCode
+                                  : secondsRemaining > 0
+                                  ? '${secondsRemaining}s'
+                                  : l10n.sendVerificationCode,
+                            ),
+                          ),
+                        ),
+                        suffixIconConstraints: const BoxConstraints(
+                          minWidth: 108,
+                          minHeight: 48,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (secondsRemaining > 0) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      l10n.verificationEmailSent,
+                      key: const Key('register-email-delivery-hint'),
+                      style: TextStyle(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ],
+                const SizedBox(height: 18),
+                _RegisterFieldLabel(
+                  compact: showCompactHeader,
+                  label: l10n.password,
+                  child: TextFormField(
+                    style: showCompactHeader
+                        ? const TextStyle(fontSize: 16)
+                        : null,
+                    key: const Key('register-password-field'),
+                    controller: passwordController,
+                    obscureText: obscurePassword,
+                    textInputAction: TextInputAction.next,
+                    autofillHints: const [AutofillHints.newPassword],
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return l10n.enterPassword;
+                      }
+                      if (value.length < 8) {
+                        return l10n.passwordTooShort;
+                      }
+                      return null;
+                    },
+                    decoration: _registerInputDecoration(
+                      colorScheme: colorScheme,
+                      compact: showCompactHeader,
+                      hintText: l10n.enterPassword,
+                      prefixIcon: Icons.lock_outline_rounded,
+                      suffixIcon: IconButton(
+                        tooltip: obscurePassword
+                            ? l10n.showPassword
+                            : l10n.hidePassword,
+                        onPressed: onTogglePassword,
+                        icon: Icon(
+                          obscurePassword
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                          color: colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _RegisterFieldLabel(
+                  compact: showCompactHeader,
+                  label: l10n.confirmPassword,
+                  child: TextFormField(
+                    style: showCompactHeader
+                        ? const TextStyle(fontSize: 16)
+                        : null,
+                    key: const Key('register-confirm-password-field'),
+                    controller: confirmPasswordController,
+                    obscureText: obscurePassword,
+                    textInputAction: TextInputAction.next,
+                    autofillHints: const [AutofillHints.newPassword],
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return l10n.enterConfirmPassword;
+                      }
+                      if (value != passwordController.text) {
+                        return l10n.passwordsDoNotMatch;
+                      }
+                      return null;
+                    },
+                    decoration: _registerInputDecoration(
+                      colorScheme: colorScheme,
+                      compact: showCompactHeader,
+                      hintText: l10n.enterConfirmPassword,
+                      prefixIcon: Icons.lock_reset_rounded,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _RegisterFieldLabel(
+                  compact: showCompactHeader,
+                  label: isInviteForce
+                      ? l10n.invitationCode
+                      : l10n.invitationCodeOptional,
+                  child: TextFormField(
+                    style: showCompactHeader
+                        ? const TextStyle(fontSize: 16)
+                        : null,
+                    key: const Key('register-invitation-field'),
+                    controller: invitationController,
+                    textInputAction: TextInputAction.next,
+                    validator: (value) {
+                      if (isInviteForce &&
+                          (value == null || value.trim().isEmpty)) {
+                        return l10n.invitationCodeRequired;
+                      }
+                      return null;
+                    },
+                    decoration: _registerInputDecoration(
+                      colorScheme: colorScheme,
+                      compact: showCompactHeader,
+                      hintText: l10n.enterInvitationCode,
+                      prefixIcon: Icons.redeem_outlined,
+                    ),
+                  ),
+                ),
+                SizedBox(height: showCompactHeader ? 18 : 28),
+                FilledButton.icon(
+                  key: const Key('register-submit-button'),
+                  onPressed: isRegistering ? null : onRegister,
+                  iconAlignment: IconAlignment.end,
+                  icon: isRegistering
+                      ? const SizedBox.square(
+                          dimension: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        )
+                      : const Icon(Icons.person_add_alt_1_rounded, size: 25),
+                  label: Text(
+                    l10n.registerAction,
+                    style: TextStyle(
+                      fontSize: showCompactHeader ? 18 : 21,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  style: FilledButton.styleFrom(
+                    minimumSize: Size.fromHeight(showCompactHeader ? 54 : 70),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: showCompactHeader ? 1 : 4,
+                    shadowColor: Colors.black.withValues(alpha: 0.28),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      l10n.alreadyHaveAccount,
+                      style: TextStyle(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: showCompactHeader ? 14 : 17,
+                      ),
+                    ),
+                    TextButton(
+                      key: const Key('register-back-to-login'),
+                      onPressed: onBack,
+                      child: Text(
+                        l10n.backToLogin,
+                        style: TextStyle(
+                          fontSize: showCompactHeader ? 14 : 17,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+        if (showCompactHeader) {
+          return FengWoMobileAuthLayout(
+            pageId: 'register',
+            toolbar: Align(
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                key: const Key('register-mobile-back-button'),
+                tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+                onPressed: onBack,
+                icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white.withValues(alpha: 0.12),
+                  fixedSize: const Size(48, 48),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
               ),
-            );
-          },
-        ),
-      ),
+            ),
+            child: form,
+          );
+        }
+        return ColoredBox(
+          color: colorScheme.surface,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(48, 32, 48, 28),
+              child: Center(
+                child: FittedBox(fit: BoxFit.scaleDown, child: form),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
 
 class _RegisterFieldLabel extends StatelessWidget {
-  const _RegisterFieldLabel({required this.label, required this.child});
+  const _RegisterFieldLabel({
+    required this.label,
+    this.compact = false,
+    required this.child,
+  });
 
   final String label;
+  final bool compact;
   final Widget child;
 
   @override
@@ -693,7 +725,7 @@ class _RegisterFieldLabel extends StatelessWidget {
           label,
           style: TextStyle(
             color: context.colorScheme.onSurface,
-            fontSize: 18,
+            fontSize: compact ? 14 : 18,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -708,26 +740,42 @@ InputDecoration _registerInputDecoration({
   required ColorScheme colorScheme,
   required String hintText,
   required IconData prefixIcon,
+  bool compact = false,
   Widget? suffixIcon,
   BoxConstraints? suffixIconConstraints,
 }) {
   final border = OutlineInputBorder(
     borderRadius: BorderRadius.circular(16),
-    borderSide: BorderSide(color: colorScheme.outline, width: 1.5),
+    borderSide: BorderSide(
+      color: compact ? colorScheme.outlineVariant : colorScheme.outline,
+      width: compact ? 1 : 1.5,
+    ),
   );
   return InputDecoration(
     hintText: hintText,
-    hintStyle: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 18),
-    prefixIcon: Icon(prefixIcon, size: 28),
+    hintStyle: TextStyle(
+      color: colorScheme.onSurfaceVariant,
+      fontSize: compact ? 15 : 18,
+    ),
+    prefixIcon: Icon(prefixIcon, size: compact ? 22 : 28),
+    prefixIconConstraints: compact ? const BoxConstraints(minWidth: 48) : null,
     suffixIcon: suffixIcon,
     suffixIconConstraints: suffixIconConstraints,
     filled: true,
-    fillColor: colorScheme.surfaceContainerLowest,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 19),
+    fillColor: compact
+        ? colorScheme.surfaceContainerLow
+        : colorScheme.surfaceContainerLowest,
+    contentPadding: EdgeInsets.symmetric(
+      horizontal: compact ? 14 : 18,
+      vertical: compact ? 16 : 19,
+    ),
     border: border,
     enabledBorder: border,
     focusedBorder: border.copyWith(
-      borderSide: BorderSide(color: colorScheme.primary, width: 2.4),
+      borderSide: BorderSide(
+        color: colorScheme.primary,
+        width: compact ? 2 : 2.4,
+      ),
     ),
     errorBorder: border.copyWith(
       borderSide: BorderSide(color: colorScheme.error, width: 1.8),

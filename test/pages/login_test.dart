@@ -626,14 +626,18 @@ void main() {
     expect(find.byTooltip('在线客服'), findsOneWidget);
     expect(find.byKey(const Key('api-health-status-button')), findsOneWidget);
     expect(find.byKey(const Key('api-health-refresh-button')), findsNothing);
-    expect(find.text('蜂窝加速器'), findsOneWidget);
+    expect(
+      find.byKey(const Key('login-mobile-brand-lockup')),
+      findsOneWidget,
+    );
     final title = tester.widget<Text>(
       find.byKey(const Key('login-page-title')),
     );
-    expect(title.data, '蜂窝加速器');
+    expect(title.data, '登录');
     expect(find.text('V0.8.96'), findsOneWidget);
     expect(find.text('欢迎回来,请登录您的账号'), findsNothing);
 
+    await tester.ensureVisible(find.byKey(const Key('login-submit-button')));
     await tester.tap(find.byKey(const Key('login-submit-button')));
     await tester.pump();
     expect(tester.takeException(), isNull);

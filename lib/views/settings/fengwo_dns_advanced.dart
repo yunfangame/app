@@ -134,13 +134,22 @@ class _FengWoDnsAdvancedViewState extends ConsumerState<FengWoDnsAdvancedView> {
                           key: const ValueKey('dns-advanced-status'),
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: scheme.surfaceContainerHighest,
+                            color: desktop
+                                ? scheme.surfaceContainerHighest
+                                : scheme.primaryContainer,
                             borderRadius: BorderRadius.circular(14),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Text(status),
+                              Text(
+                                status,
+                                style: TextStyle(
+                                  color: desktop
+                                      ? null
+                                      : scheme.onPrimaryContainer,
+                                ),
+                              ),
                               if (!dnsEnabled) ...[
                                 const SizedBox(height: 8),
                                 Text(l10n.dnsAdvancedDnsDisabled),
@@ -216,8 +225,15 @@ class _FengWoDnsAdvancedViewState extends ConsumerState<FengWoDnsAdvancedView> {
                         const SizedBox(height: 14),
                         Align(
                           alignment: AlignmentDirectional.centerStart,
-                          child: FilledButton.tonalIcon(
+                          child: FilledButton.icon(
                             key: const ValueKey('dns-advanced-filter-edit'),
+                            style: desktop
+                                ? FilledButton.styleFrom(
+                                    backgroundColor: scheme.secondaryContainer,
+                                    foregroundColor:
+                                        scheme.onSecondaryContainer,
+                                  )
+                                : null,
                             onPressed: _editFilters,
                             icon: const Icon(Icons.edit_outlined),
                             label: Text(l10n.edit),
