@@ -54,6 +54,16 @@ class AppLocalizations {
     return Localizations.of<AppLocalizations>(context, AppLocalizations);
   }
 
+  /// `The internal helper service port {port} is occupied by another program. Close the conflicting program and its helper service, then retry, or export logs for support. Changing the proxy port or authorizing again will not release this port.`
+  String tunHelperPortInUse(int port) {
+    return Intl.message(
+      'The internal helper service port $port is occupied by another program. Close the conflicting program and its helper service, then retry, or export logs for support. Changing the proxy port or authorizing again will not release this port.',
+      name: 'tunHelperPortInUse',
+      desc: '',
+      args: [port],
+    );
+  }
+
   /// `API diagnostics`
   String get apiDiagnostics {
     return Intl.message(

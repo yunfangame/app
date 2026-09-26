@@ -168,11 +168,14 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m68(count) => "全 ${count} 件";
 
-  static String m69(ip) => "IP ${ip} からこのアカウントに再びログインできるようになります。";
+  static String m69(port) =>
+      "内部補助サービスのポート ${port} は別のプログラムに使用されています。競合するプログラムとその補助サービスを終了して再試行するか、ログをエクスポートしてサポートに連絡してください。プロキシポートの変更や再承認では、このポートは解放されません。";
 
-  static String m70(label) => "${label}はURLである必要があります";
+  static String m70(ip) => "IP ${ip} からこのアカウントに再びログインできるようになります。";
 
-  static String m71(count) => "${count}年前";
+  static String m71(label) => "${label}はURLである必要があります";
+
+  static String m72(count) => "${count}年前";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -2264,6 +2267,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "tunFailureHelp": MessageLookupByLibrary.simpleMessage(
       "仮想アダプターを無効にしました。詳細はエクスポートしたログで確認できます。再承認するか、対応アプリ用にシステムプロキシを選択してください。",
     ),
+    "tunHelperPortInUse": m69,
     "tunPermissionDenied": MessageLookupByLibrary.simpleMessage(
       "仮想アダプターを作成する権限がありません。",
     ),
@@ -2307,7 +2311,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "turnOn": MessageLookupByLibrary.simpleMessage("オン"),
     "twoYearBilling": MessageLookupByLibrary.simpleMessage("2年"),
     "unblockLoginIp": MessageLookupByLibrary.simpleMessage("解除"),
-    "unblockLoginIpMessage": m69,
+    "unblockLoginIpMessage": m70,
     "unblockLoginIpTitle": MessageLookupByLibrary.simpleMessage(
       "この IP の制限を解除しますか？",
     ),
@@ -2333,7 +2337,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "uploaded": MessageLookupByLibrary.simpleMessage("アップロード済み"),
     "url": MessageLookupByLibrary.simpleMessage("URL"),
     "urlDesc": MessageLookupByLibrary.simpleMessage("URL経由でプロファイルを取得"),
-    "urlTip": m70,
+    "urlTip": m71,
     "useHosts": MessageLookupByLibrary.simpleMessage("ホストを使用"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage("システムホストを使用"),
     "usedTrafficLabel": MessageLookupByLibrary.simpleMessage("使用済み"),
@@ -2394,7 +2398,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "送信するとシステム内にチケットが作成され、管理者が内容を確認して処理します。",
     ),
     "yearlyBilling": MessageLookupByLibrary.simpleMessage("年払い"),
-    "yearsAgo": m71,
+    "yearsAgo": m72,
     "zh_CN": MessageLookupByLibrary.simpleMessage("簡体字中国語"),
     "zoomIn": MessageLookupByLibrary.simpleMessage("拡大"),
     "zoomOut": MessageLookupByLibrary.simpleMessage("縮小"),

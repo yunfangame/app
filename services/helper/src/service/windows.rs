@@ -142,7 +142,11 @@ fn run_windows_service() -> Result<()> {
                 .context("report helper service running")
         },
     ));
-    let exit_code = u32::from(service_result.is_err());
+    let exit_code = service_result
+        .as_ref()
+        .err()
+        .map(command_exit_code)
+        .unwrap_or(0) as u32;
     let status_result = status_handle.set_service_status(service_status(
         ServiceState::Stopped,
         ServiceControlAccept::empty(),
@@ -201,6 +205,13 @@ fn install_service() -> Result<()> {
     };
     if let Err(error) = service.start::<&OsStr>(&[]) {
         if !has_error_code(&error, ERROR_SERVICE_ALREADY_RUNNING) {
+            if has_error_code(&error, ERROR_PROCESS_ABORTED) {
+                if let Ok(status) = service.query_status() {
+                    if let Some(error) = stopped_service_error(&status) {
+                        return Err(error).context("start helper service");
+                    }
+                }
+            }
             return Err(error).context("start helper service");
         }
     }
@@ -315,18 +326,7 @@ fn wait_for_running(service: &Service) -> Result<()> {
         match state {
             ServiceState::Running => return Ok(()),
             ServiceState::Stopped => {
-                let code = match status.exit_code {
-                    ServiceExitCode::Win32(code) if code > 1 && code <= i32::MAX as u32 => {
-                        code as i32
-                    }
-                    _ => ERROR_PROCESS_ABORTED,
-                };
-                return Err(std::io::Error::from_raw_os_error(code)).with_context(|| {
-                    format!(
-                        "helper service stopped during startup: {:?}",
-                        status.exit_code
-                    )
-                });
+                return Err(stopped_service_error(&status).unwrap());
             }
             _ => {}
         }
@@ -340,6 +340,22 @@ fn wait_for_running(service: &Service) -> Result<()> {
         }
         sleep(SERVICE_POLL_INTERVAL);
     }
+}
+
+fn stopped_service_error(status: &ServiceStatus) -> Option<anyhow::Error> {
+    if status.current_state != ServiceState::Stopped {
+        return None;
+    }
+    let code = match status.exit_code {
+        ServiceExitCode::Win32(code) if code > 1 && code <= i32::MAX as u32 => code as i32,
+        _ => ERROR_PROCESS_ABORTED,
+    };
+    Some(
+        anyhow::Error::from(std::io::Error::from_raw_os_error(code)).context(format!(
+            "helper service stopped during startup: {:?}",
+            status.exit_code
+        )),
+    )
 }
 
 pub fn command_exit_code(error: &anyhow::Error) -> i32 {
@@ -412,7 +428,7 @@ mod tests {
 
     #[test]
     fn installation_errors_preserve_the_underlying_windows_code() {
-        for code in [5, 1053, 1067, 1072] {
+        for code in [5, 1053, 1067, 1072, 10048] {
             let error = anyhow::Error::from(windows_service::Error::Winapi(
                 std::io::Error::from_raw_os_error(code),
             ))
@@ -420,5 +436,30 @@ mod tests {
             assert_eq!(command_exit_code(&error), code);
         }
         assert_eq!(command_exit_code(&anyhow::anyhow!("unknown failure")), 1);
+    }
+
+    #[test]
+    fn service_startup_failure_preserves_the_stopped_status_error() {
+        for (exit_code, expected) in [(0, 1067), (1, 1067), (5, 5), (10048, 10048)] {
+            let status = service_status(
+                ServiceState::Stopped,
+                ServiceControlAccept::empty(),
+                0,
+                Duration::default(),
+                exit_code,
+            );
+            assert_eq!(
+                command_exit_code(&stopped_service_error(&status).unwrap()),
+                expected
+            );
+        }
+        let status = service_status(
+            ServiceState::Running,
+            ServiceControlAccept::STOP,
+            0,
+            Duration::default(),
+            0,
+        );
+        assert!(stopped_service_error(&status).is_none());
     }
 }

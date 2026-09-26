@@ -180,12 +180,15 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m68(count) => "${count} orders";
 
-  static String m69(ip) =>
+  static String m69(port) =>
+      "The internal helper service port ${port} is occupied by another program. Close the conflicting program and its helper service, then retry, or export logs for support. Changing the proxy port or authorizing again will not release this port.";
+
+  static String m70(ip) =>
       "IP ${ip} will be able to log in to this account again.";
 
-  static String m70(label) => "${label} must be a url";
+  static String m71(label) => "${label} must be a url";
 
-  static String m71(count) =>
+  static String m72(count) =>
       "${Intl.plural(count, one: '1 year ago', other: '${count} years ago')}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
@@ -2662,6 +2665,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "tunFailureHelp": MessageLookupByLibrary.simpleMessage(
       "The virtual adapter has been turned off. The failure details are recorded in the exported logs. Retry authorization, or choose system proxy for applications that support it.",
     ),
+    "tunHelperPortInUse": m69,
     "tunPermissionDenied": MessageLookupByLibrary.simpleMessage(
       "Permission to create the virtual adapter was denied.",
     ),
@@ -2713,7 +2717,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "turnOn": MessageLookupByLibrary.simpleMessage("Turn On"),
     "twoYearBilling": MessageLookupByLibrary.simpleMessage("2 years"),
     "unblockLoginIp": MessageLookupByLibrary.simpleMessage("Unblock"),
-    "unblockLoginIpMessage": m69,
+    "unblockLoginIpMessage": m70,
     "unblockLoginIpTitle": MessageLookupByLibrary.simpleMessage(
       "Unblock this IP?",
     ),
@@ -2743,7 +2747,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "urlDesc": MessageLookupByLibrary.simpleMessage(
       "Obtain profile through URL",
     ),
-    "urlTip": m70,
+    "urlTip": m71,
     "useHosts": MessageLookupByLibrary.simpleMessage("Use hosts"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage("Use system hosts"),
     "usedTrafficLabel": MessageLookupByLibrary.simpleMessage("Used"),
@@ -2822,7 +2826,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "A support ticket will be created in the system for an administrator to process.",
     ),
     "yearlyBilling": MessageLookupByLibrary.simpleMessage("Yearly"),
-    "yearsAgo": m71,
+    "yearsAgo": m72,
     "zh_CN": MessageLookupByLibrary.simpleMessage("Simplified Chinese"),
     "zoomIn": MessageLookupByLibrary.simpleMessage("Zoom in"),
     "zoomOut": MessageLookupByLibrary.simpleMessage("Zoom out"),

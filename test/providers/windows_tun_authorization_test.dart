@@ -115,6 +115,23 @@ void main() {
     expect(container.read(windowsTunReadyProvider), isFalse);
   });
 
+  test(
+    'port conflicts explain the service port and keep TUN disabled',
+    () async {
+      action.failure = TunFailure.installerExit(10048);
+
+      expect(await action.repairTunService(), isFalse);
+      expect(container.read(patchClashConfigProvider).tun.enable, isFalse);
+      expect(container.read(windowsTunReadyProvider), isFalse);
+      expect(action.notifications, ['helper_port_in_use']);
+      final message = action.describeTunFailure('helper_port_in_use');
+      expect(message, contains('47906'));
+      expect(message, contains('被其他程序占用'));
+      expect(message, contains('重复授权无法释放此端口'));
+      expect(message, isNot(contains('请尝试重启电脑')));
+    },
+  );
+
   for (final code in [1, 1053, 1067, 1072]) {
     test(
       'failed service repair $code explains restart and retains diagnosis',

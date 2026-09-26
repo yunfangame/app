@@ -343,6 +343,33 @@ void main() {
     expect(await client.readiness(), WindowsHelperReadiness.notReady);
   });
 
+  test(
+    'foreign legacy helper response reports an occupied service port',
+    () async {
+      final client = _client(
+        _ResponseAdapter(
+          (_) => ResponseBody.fromString(
+            '2024125',
+            HttpStatus.ok,
+            headers: {
+              Headers.contentTypeHeader: ['text/plain'],
+            },
+          ),
+        ),
+      );
+
+      expect(await client.readiness(), WindowsHelperReadiness.portInUse);
+    },
+  );
+
+  test('default endpoint is isolated from the legacy helper port', () {
+    final endpoint = Uri.parse(WindowsHelperClient().baseUrl);
+
+    expect(endpoint.host, '127.0.0.1');
+    expect(endpoint.port, helperPort);
+    expect(endpoint.port, isNot(47890));
+  });
+
   test('ping rejects a Helper with the wrong protocol', () async {
     final client = _client(
       _ResponseAdapter(

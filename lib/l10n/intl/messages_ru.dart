@@ -179,11 +179,14 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m68(count) => "Заказов: ${count}";
 
-  static String m69(ip) => "С IP ${ip} снова можно будет войти в этот аккаунт.";
+  static String m69(port) =>
+      "Порт внутренней вспомогательной службы ${port} занят другой программой. Закройте конфликтующую программу и её службу, затем повторите попытку или экспортируйте журналы для поддержки. Изменение порта прокси или повторная авторизация не освободят этот порт.";
 
-  static String m70(label) => "${label} должен быть URL";
+  static String m70(ip) => "С IP ${ip} снова можно будет войти в этот аккаунт.";
 
-  static String m71(count) =>
+  static String m71(label) => "${label} должен быть URL";
+
+  static String m72(count) =>
       "${Intl.plural(count, one: '${count} год назад', few: '${count} года назад', many: '${count} лет назад', other: '${count} года назад')}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
@@ -2770,6 +2773,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "tunFailureHelp": MessageLookupByLibrary.simpleMessage(
       "Виртуальный адаптер выключен. Подробности записаны в экспортируемые журналы. Повторите авторизацию или выберите системный прокси для поддерживающих его приложений.",
     ),
+    "tunHelperPortInUse": m69,
     "tunPermissionDenied": MessageLookupByLibrary.simpleMessage(
       "Нет прав на создание виртуального адаптера.",
     ),
@@ -2825,7 +2829,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "turnOn": MessageLookupByLibrary.simpleMessage("Включить"),
     "twoYearBilling": MessageLookupByLibrary.simpleMessage("2 года"),
     "unblockLoginIp": MessageLookupByLibrary.simpleMessage("Разблокировать"),
-    "unblockLoginIpMessage": m69,
+    "unblockLoginIpMessage": m70,
     "unblockLoginIpTitle": MessageLookupByLibrary.simpleMessage(
       "Разблокировать этот IP?",
     ),
@@ -2859,7 +2863,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "urlDesc": MessageLookupByLibrary.simpleMessage(
       "Получить профиль через URL",
     ),
-    "urlTip": m70,
+    "urlTip": m71,
     "useHosts": MessageLookupByLibrary.simpleMessage("Использовать hosts"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage(
       "Использовать системные hosts",
@@ -2940,7 +2944,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "В системе будет создана заявка, которую обработает администратор.",
     ),
     "yearlyBilling": MessageLookupByLibrary.simpleMessage("Год"),
-    "yearsAgo": m71,
+    "yearsAgo": m72,
     "zh_CN": MessageLookupByLibrary.simpleMessage("Упрощенный китайский"),
     "zoomIn": MessageLookupByLibrary.simpleMessage("Увеличить"),
     "zoomOut": MessageLookupByLibrary.simpleMessage("Уменьшить"),

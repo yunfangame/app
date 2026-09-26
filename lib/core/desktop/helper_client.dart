@@ -14,7 +14,7 @@ import 'launcher.dart';
 import 'model.dart';
 import 'process_probe.dart';
 
-enum WindowsHelperReadiness { ready, notReady, manifestMissing }
+enum WindowsHelperReadiness { ready, notReady, manifestMissing, portInUse }
 
 final class HelperStartResponse {
   final String sessionId;
@@ -69,8 +69,6 @@ final class WindowsHelperClient {
        _expectedHelperPath = expectedHelperPath ?? _defaultHelperPath,
        _readCoreSha256 = readCoreSha256 ?? _readBundledCoreSha256;
 
-  // The bundled manifest.json is a fixed build artifact; a usable value is read
-  // once. An empty result means it is unusable now, so the Helper is skipped.
   Future<String> _readCoreSha256Once() async {
     final cached = _coreSha256Cache;
     if (cached != null) {
@@ -88,7 +86,6 @@ final class WindowsHelperClient {
     return coreSha256;
   }
 
-  // The Helper protocol is loopback-only; never route it through a proxy.
   static Dio _createLoopbackDio() {
     return Dio()
       ..httpClientAdapter = IOHttpClientAdapter(
@@ -161,7 +158,9 @@ final class WindowsHelperClient {
     }
     if (protocolVersion != helperProtocolVersion) {
       _logPingFailure('helper protocol mismatch: $protocolVersion', logFailure);
-      return WindowsHelperReadiness.notReady;
+      return protocolVersion == null
+          ? WindowsHelperReadiness.portInUse
+          : WindowsHelperReadiness.notReady;
     }
     final matches = p.Context(
       style: p.Style.windows,
@@ -211,7 +210,11 @@ final class WindowsHelperClient {
     if (enabled) {
       commonPrint.event(
         'windows.helper.readiness.failed',
-        fields: {'stage': 'service_preflight', 'reason': message},
+        fields: {
+          'stage': 'service_preflight',
+          'reason': message,
+          'helper_port': Uri.parse(baseUrl).port,
+        },
       );
     }
   }

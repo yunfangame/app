@@ -2398,6 +2398,7 @@ class SetupAction extends _$SetupAction {
       'service_pending_delete' => l10n.tunServicePendingDelete,
       'service_timeout' => l10n.tunServiceTimeout,
       'service_exited' => l10n.tunServiceExited,
+      'helper_port_in_use' => l10n.tunHelperPortInUse(helperPort),
       'security_policy_blocked' => l10n.tunSecurityBlocked,
       'activation_failed' => l10n.tunActivationFailed,
       _ => l10n.tunAdapterFailed,
@@ -2416,7 +2417,7 @@ class SetupAction extends _$SetupAction {
     return [
       reason,
       if (suggestRestart) l10n.tunRestartComputerHelp,
-      l10n.tunFailureHelp,
+      if (code != 'helper_port_in_use') l10n.tunFailureHelp,
       '[$code]',
     ].join('\n\n');
   }
@@ -2445,7 +2446,9 @@ class SetupAction extends _$SetupAction {
                 ),
                 TextButton(
                   onPressed: () => Navigator.pop(context, 'retry'),
-                  child: Text(l10n.tunRetry),
+                  child: Text(
+                    code == 'helper_port_in_use' ? l10n.retry : l10n.tunRetry,
+                  ),
                 ),
               ],
             ),

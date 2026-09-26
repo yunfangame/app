@@ -405,6 +405,10 @@ it never hashes the Core. Protocol version 6 uses 32-character lowercase-hex ses
 - `POST /stop` validates `{sessionId}` and only stops the matching managed Core. A session mismatch is HTTP 409.
 - `GET /logs` exposes the bounded recent Helper/Core stderr buffer with `no-store` caching.
 
-All endpoints bind only to `127.0.0.1:47890` and do not use request-token authentication. Lifecycle safety comes from the
+All endpoints bind only to `127.0.0.1:47906` and do not use request-token authentication. Lifecycle safety comes from the
 fixed executable/hash, strict pipe namespace, session-scoped stop contract, and Dart-side peer-PID verification. When the
 Helper service itself shuts down, it unconditionally stops the Core process it owns.
+
+Windows Helper uses the FengWo port 47906, leaving the legacy 47890 endpoint untouched for other clients.
+A listener bind failure retains its OS error through service status and installer exit; error 10048 is presented as
+a helper-port conflict instead of a generic authorization failure. The SCM service name remains unchanged for overwrite upgrades.

@@ -26,10 +26,20 @@ class TunFailure implements Exception {
       1053 => 'service_timeout',
       1067 => 'service_exited',
       1072 => 'service_pending_delete',
+      10048 => 'helper_port_in_use',
       _ => 'installer_failed',
     },
     osErrorCode: switch (exitCode) {
-      2 || 3 || 5 || 577 || 1053 || 1067 || 1072 || 1223 || 1275 => exitCode,
+      2 ||
+      3 ||
+      5 ||
+      577 ||
+      1053 ||
+      1067 ||
+      1072 ||
+      1223 ||
+      1275 ||
+      10048 => exitCode,
       _ => null,
     },
     installerExitCode: exitCode,

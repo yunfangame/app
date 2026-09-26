@@ -60,7 +60,7 @@ jobs:
           $baseline = Join-Path $env:RUNNER_TEMP 'fengwo-baseline-1.0.6.exe'
           Invoke-WebRequest -Uri 'https://picture.sansen.tech/fengwo-windows-amd64-setup.exe' -OutFile $baseline
           $hash = (Get-FileHash -LiteralPath $baseline -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -cne '8348f841564b0a3e86b041df2c84ecca0ef33bd0d48fe48632253a5a8bde9dd9') { throw 'The online v1.0.6 baseline changed; refusing an unverified overwrite test' }
+          if ($hash -cne 'd3b75feaa534f6822bd15e5262a6f263962af2e23ba8d8a9b6a4e21930006423') { throw 'The online v1.0.6 baseline changed; refusing an unverified overwrite test' }
           $tokens = $null
           $parseErrors = $null
           $null = [System.Management.Automation.Language.Parser]::ParseFile("$PWD/tooling/windows/test_installed_upgrade.ps1", [ref]$tokens, [ref]$parseErrors)
@@ -157,6 +157,7 @@ jobs:
             'test/widgets/desktop_proxy_failure_dialog_test.dart',
             'test/widgets/desktop_mode_hit_test.dart',
             'test/core/controller_test.dart',
+            'test/core/desktop/',
             'test/core/protocol_contract_test.dart',
             'test/views/proxies/common_test.dart',
             'test/common/task_test.dart',
@@ -436,7 +437,7 @@ jobs:
           $metadata = [ordered]@{
             version = (Get-Item build/windows/x64/runner/Release/FengWo.exe).VersionInfo.ProductVersion
             release_channel = 'stable'
-            fixes = @('windows_public_root_trust', 'preferences_atomic_save_and_recovery', 'upgrade_save_before_installer', 'windows_tun_service_repair', 'windows_winhttp_ipv6_bypass', 'windows_autostart_verified', 'v2_node_country_tag_count', 'global_header_plan_badge_removed', 'desktop_connect_auto_system_proxy', 'desktop_proxy_port_recovery', 'online_1_0_6_overwrite_upgrade', 'crisp_single_session_chinese_profile_and_version', 'dashboard_node_entry_original_selector', 'proxy_rules_navigation', 'windows_install_directory_choice', 'windows_integrity_install_guard', 'windows_integrity_startup_diagnostics', 'advanced_dns_fake_ip_settings', 'account_subscription_routing_memory', 'startup_disclaimer_removed')
+            fixes = @('windows_public_root_trust', 'preferences_atomic_save_and_recovery', 'upgrade_save_before_installer', 'windows_tun_service_repair', 'windows_winhttp_ipv6_bypass', 'windows_autostart_verified', 'v2_node_country_tag_count', 'global_header_plan_badge_removed', 'desktop_connect_auto_system_proxy', 'desktop_proxy_port_recovery', 'online_1_0_6_overwrite_upgrade', 'crisp_single_session_chinese_profile_and_version', 'dashboard_node_entry_original_selector', 'proxy_rules_navigation', 'windows_install_directory_choice', 'windows_integrity_install_guard', 'windows_integrity_startup_diagnostics', 'advanced_dns_fake_ip_settings', 'account_subscription_routing_memory', 'startup_disclaimer_removed', 'windows_helper_dedicated_port', 'windows_helper_port_conflict_diagnostics')
             source_branch = 'codex/desktop-upstream-0897-port'
             source_sha = $env:GITHUB_SHA
             source_ref = $env:GITHUB_REF

@@ -12,6 +12,7 @@ void main() {
     1072: 'service_pending_delete',
     1223: 'authorization_cancelled',
     1275: 'security_policy_blocked',
+    10048: 'helper_port_in_use',
   }.entries) {
     test('installer exit ${entry.key} preserves the Windows cause', () {
       final failure = TunFailure.installerExit(entry.key);

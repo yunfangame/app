@@ -291,6 +291,12 @@ class Windows {
         return AuthorizeCode.none;
       case WindowsHelperReadiness.manifestMissing:
         throw const TunFailure('preflight', 'manifest_missing');
+      case WindowsHelperReadiness.portInUse:
+        throw const TunFailure(
+          'service_preflight',
+          'helper_port_in_use',
+          cause: 'helper endpoint 127.0.0.1:$helperPort',
+        );
       case WindowsHelperReadiness.notReady:
         break;
     }

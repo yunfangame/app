@@ -162,11 +162,14 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m68(count) => "共 ${count} 个订单";
 
-  static String m69(ip) => "解除后，IP ${ip} 可以再次登录此账号。";
+  static String m69(port) =>
+      "内部辅助服务端口 ${port} 被其他程序占用。请退出冲突程序及其辅助服务后重试，或导出日志联系客服。修改代理端口或重复授权无法释放此端口。";
 
-  static String m70(label) => "${label}必须为URL";
+  static String m70(ip) => "解除后，IP ${ip} 可以再次登录此账号。";
 
-  static String m71(count) => "${count} 年前";
+  static String m71(label) => "${label}必须为URL";
+
+  static String m72(count) => "${count} 年前";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -1972,6 +1975,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "tunFailureHelp": MessageLookupByLibrary.simpleMessage(
       "虚拟网卡已关闭，失败详情已写入日志。可以重新授权重试；也可以选择系统代理，供支持系统代理的应用使用。",
     ),
+    "tunHelperPortInUse": m69,
     "tunPermissionDenied": MessageLookupByLibrary.simpleMessage(
       "没有创建虚拟网卡所需的权限，请允许管理员授权。",
     ),
@@ -2013,7 +2017,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "turnOn": MessageLookupByLibrary.simpleMessage("开启"),
     "twoYearBilling": MessageLookupByLibrary.simpleMessage("两年付"),
     "unblockLoginIp": MessageLookupByLibrary.simpleMessage("解除"),
-    "unblockLoginIpMessage": m69,
+    "unblockLoginIpMessage": m70,
     "unblockLoginIpTitle": MessageLookupByLibrary.simpleMessage("解除这个 IP 的限制？"),
     "unbound": MessageLookupByLibrary.simpleMessage("未绑定"),
     "undo": MessageLookupByLibrary.simpleMessage("撤销"),
@@ -2035,7 +2039,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "uploaded": MessageLookupByLibrary.simpleMessage("已上传"),
     "url": MessageLookupByLibrary.simpleMessage("URL"),
     "urlDesc": MessageLookupByLibrary.simpleMessage("通过URL获取配置文件"),
-    "urlTip": m70,
+    "urlTip": m71,
     "useHosts": MessageLookupByLibrary.simpleMessage("使用Hosts"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage("使用系统Hosts"),
     "usedTrafficLabel": MessageLookupByLibrary.simpleMessage("已使用"),
@@ -2088,7 +2092,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "提交后将在系统内自动创建工单，管理员将根据工单内容处理。",
     ),
     "yearlyBilling": MessageLookupByLibrary.simpleMessage("年付"),
-    "yearsAgo": m71,
+    "yearsAgo": m72,
     "zh_CN": MessageLookupByLibrary.simpleMessage("中文简体"),
     "zoomIn": MessageLookupByLibrary.simpleMessage("放大"),
     "zoomOut": MessageLookupByLibrary.simpleMessage("缩小"),

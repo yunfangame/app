@@ -1,3 +1,4 @@
+use anyhow::Context;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -8,6 +9,7 @@ use std::fs::{File, OpenOptions};
 use std::future::pending;
 use std::future::Future;
 use std::io::{BufRead, Error, Read};
+use std::net::SocketAddr;
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
@@ -20,7 +22,7 @@ use warp::{Filter, Rejection, Reply};
 #[cfg(windows)]
 use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
 
-const LISTEN_PORT: u16 = 47890;
+const LISTEN_PORT: u16 = 47906;
 const CORE_PIPE_PREFIX: &str = r"\\.\pipe\FlClashCore_";
 const PROTOCOL_VERSION_HEADER: &str = "x-flclash-helper-protocol";
 const PROTOCOL_VERSION: &str = "6";
@@ -539,9 +541,7 @@ where
         anyhow::bail!("expected Core SHA256 is empty");
     }
 
-    let (_, server) = warp::serve(routes())
-        .try_bind_with_graceful_shutdown(([127, 0, 0, 1], LISTEN_PORT), shutdown)
-        .map_err(|error| anyhow::anyhow!("bind helper server: {error}"))?;
+    let server = bind_service_server(([127, 0, 0, 1], LISTEN_PORT).into(), shutdown)?;
     on_started()?;
     server.await;
     let mut managed = MANAGED_CORE.lock().unwrap();
@@ -554,12 +554,41 @@ where
     Ok(())
 }
 
+fn bind_service_server(
+    address: SocketAddr,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> anyhow::Result<impl Future<Output = ()> + 'static> {
+    let (_, server) = warp::serve(routes())
+        .try_bind_with_graceful_shutdown(address, shutdown)
+        .context("bind helper server")?;
+    Ok(server)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
 
     static PROCESS_STATE: Mutex<()> = Mutex::new(());
+
+    #[tokio::test]
+    async fn binding_an_occupied_port_preserves_the_os_error() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let error = match bind_service_server(address, std::future::pending()) {
+            Ok(_) => panic!("helper bound an occupied port"),
+            Err(error) => error,
+        };
+        let io_error = error
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<std::io::Error>())
+            .expect("bind failure must retain the underlying OS error");
+        assert_eq!(io_error.kind(), std::io::ErrorKind::AddrInUse);
+        assert!(io_error.raw_os_error().is_some());
+        #[cfg(windows)]
+        assert_eq!(io_error.raw_os_error(), Some(10048));
+        assert!(std::net::TcpStream::connect(address).is_ok());
+    }
 
     fn lock_process_state() -> std::sync::MutexGuard<'static, ()> {
         PROCESS_STATE
