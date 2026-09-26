@@ -247,7 +247,6 @@ class MessageLookup extends MessageLookupByLibrary {
     "advancedSettingsSubtitle": MessageLookupByLibrary.simpleMessage(
       "Настройте поведение VPN и параметры сети",
     ),
-    "agree": MessageLookupByLibrary.simpleMessage("Согласен"),
     "allGeodataUpdated": MessageLookupByLibrary.simpleMessage(
       "Все ресурсы геоданных обновлены",
     ),
@@ -892,12 +891,6 @@ class MessageLookup extends MessageLookupByLibrary {
     "disableProxy": MessageLookupByLibrary.simpleMessage("Остановить"),
     "disableUDP": MessageLookupByLibrary.simpleMessage("Отключить UDP"),
     "disabled": MessageLookupByLibrary.simpleMessage("Отключено"),
-    "disclaimer": MessageLookupByLibrary.simpleMessage(
-      "Отказ от ответственности",
-    ),
-    "disclaimerDesc": MessageLookupByLibrary.simpleMessage(
-      "Это программное обеспечение используется только в некоммерческих целях, таких как учебные обмены и научные исследования. Запрещено использовать это программное обеспечение в коммерческих целях. Любая коммерческая деятельность, если таковая имеется, не имеет отношения к этому программному обеспечению.",
-    ),
     "disconnected": MessageLookupByLibrary.simpleMessage("Отключено"),
     "discoverNewVersion": MessageLookupByLibrary.simpleMessage(
       "Обнаружена новая версия",

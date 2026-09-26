@@ -116,6 +116,25 @@ void main() {
       expect(restored.testUrl, defaultTestUrl);
     });
 
+    test('legacy disclaimer flags do not reset saved app settings', () {
+      for (final accepted in [false, true]) {
+        final restored = AppSettingProps.safeFromJson({
+          'disclaimerAccepted': accepted,
+          'locale': 'zh_CN',
+          'autoLaunch': true,
+          'testUrl': 'https://custom.test',
+          'campusNetworkEnabled': true,
+          'campusOperator': 'route_5',
+        });
+        expect(restored.locale, 'zh_CN');
+        expect(restored.autoLaunch, isTrue);
+        expect(restored.testUrl, 'https://custom.test');
+        expect(restored.campusNetworkEnabled, isTrue);
+        expect(restored.campusOperator, 'route_5');
+        expect(restored.toJson().containsKey('disclaimerAccepted'), isFalse);
+      }
+    });
+
     test('migrates previous default latency URLs', () {
       for (final previous in [
         'http://www.gstatic.com/generate_204',

@@ -36,13 +36,9 @@ class LoginRoutingAttempt {
 }
 
 class LoginRoutingCoordinator {
-  LoginRoutingCoordinator({
-    required void Function() resetToRule,
-    required void Function() cancelSelection,
-  }) : _resetToRule = resetToRule,
-       _cancelSelection = cancelSelection;
+  LoginRoutingCoordinator({required void Function() cancelSelection})
+    : _cancelSelection = cancelSelection;
 
-  final void Function() _resetToRule;
   final void Function() _cancelSelection;
   LoginRoutingAttempt? _active;
   bool _disposed = false;
@@ -50,7 +46,6 @@ class LoginRoutingCoordinator {
   LoginRoutingAttempt begin({required bool Function() isSessionCurrent}) {
     if (_disposed) throw StateError('login_routing_disposed');
     cancel();
-    _resetToRule();
     return _active = LoginRoutingAttempt(isSessionCurrent);
   }
 

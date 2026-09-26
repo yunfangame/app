@@ -51,6 +51,8 @@ class SetupAction extends _$SetupAction {
   Mode get requestedMode =>
       _pendingMode ?? ref.read(patchClashConfigProvider).mode;
 
+  int get manualModeRevision => _modeChangeRevision;
+
   bool get _isRunning => _startTime != null && _startTime!.isBeforeNow;
 
   bool get hasPendingAccessControlReconnect => _accessControlReconnectNeeded;
