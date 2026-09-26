@@ -23,8 +23,8 @@ $expectedVersion = $versionLine[0].Matches[0].Groups[1].Value
 $appIdLine = @(Select-String -LiteralPath (Join-Path $repositoryDirectory 'windows/packaging/exe/make_config.yaml') -Pattern '^app_id:\s*([A-Fa-f0-9-]+)\s*$')
 if ($appIdLine.Count -ne 1) { throw 'Expected exactly one installer AppId' }
 $expectedAppId = $appIdLine[0].Matches[0].Groups[1].Value
-if ($PreviousInstallerPath -and [version]$ExpectedPreviousVersion -ge [version]$expectedVersion) {
-  throw 'The baseline version must be older than the version being packaged'
+if ($PreviousInstallerPath -and [version]$ExpectedPreviousVersion -gt [version]$expectedVersion) {
+  throw 'The baseline version must not be newer than the version being packaged'
 }
 $installDirectory = Join-Path $env:RUNNER_TEMP 'fengwo-overwrite-test'
 $savedDirectory = Join-Path $env:RUNNER_TEMP ('fengwo-profile-before-upgrade-' + [Guid]::NewGuid())
