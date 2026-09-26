@@ -206,8 +206,6 @@ class GlobalState {
       .read(patchClashConfigProvider.select((state) => state.globalUa))
       .takeFirstValid([packageInfo.ua]);
 
-  BuildContext get _context => navigatorKey.currentContext!;
-
   Future<ProviderContainer> _initData(int version) async {
     packageInfo = await PackageInfo.fromPlatform();
     var config = await migration.run();
@@ -469,7 +467,6 @@ class GlobalState {
     } else {
       window?.show();
     }
-    await _handlerDisclaimer();
     await _showCrashRecoveryTip();
     await _showCrashlyticsTip();
     await container.read(coreActionProvider.notifier).startCore();
@@ -490,31 +487,6 @@ class GlobalState {
     );
   }
 
-  Future<bool> showDisclaimer() async {
-    return await showCommonDialog<bool>(
-          dismissible: false,
-          child: CommonDialog(
-            title: currentAppLocalizations.disclaimer,
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(_context).pop<bool>(false);
-                },
-                child: Text(currentAppLocalizations.exit),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.of(_context).pop<bool>(true);
-                },
-                child: Text(currentAppLocalizations.agree),
-              ),
-            ],
-            child: Text(currentAppLocalizations.disclaimerDesc),
-          ),
-        ) ??
-        false;
-  }
-
   Future<void> _showCrashlyticsTip() async {
     if (!system.isAndroid) return;
     if (container.read(
@@ -530,21 +502,6 @@ class GlobalState {
     container
         .read(appSettingProvider.notifier)
         .update((state) => state.copyWith(crashlyticsTip: true));
-  }
-
-  Future<void> _handlerDisclaimer() async {
-    if (container.read(
-      appSettingProvider.select((state) => state.disclaimerAccepted),
-    )) {
-      return;
-    }
-    final isDisclaimerAccepted = await showDisclaimer();
-    if (!isDisclaimerAccepted) {
-      await container.read(systemActionProvider.notifier).handleExit();
-    }
-    container
-        .read(appSettingProvider.notifier)
-        .update((state) => state.copyWith(disclaimerAccepted: true));
   }
 }
 

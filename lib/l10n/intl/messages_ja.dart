@@ -223,7 +223,6 @@ class MessageLookup extends MessageLookupByLibrary {
     "advancedSettingsSubtitle": MessageLookupByLibrary.simpleMessage(
       "VPN の動作とネットワーク設定をカスタマイズします",
     ),
-    "agree": MessageLookupByLibrary.simpleMessage("同意"),
     "allGeodataUpdated": MessageLookupByLibrary.simpleMessage(
       "すべての地理データを更新しました",
     ),
@@ -813,10 +812,6 @@ class MessageLookup extends MessageLookupByLibrary {
     "disableProxy": MessageLookupByLibrary.simpleMessage("停止"),
     "disableUDP": MessageLookupByLibrary.simpleMessage("UDPを無効化"),
     "disabled": MessageLookupByLibrary.simpleMessage("無効"),
-    "disclaimer": MessageLookupByLibrary.simpleMessage("免責事項"),
-    "disclaimerDesc": MessageLookupByLibrary.simpleMessage(
-      "本ソフトウェアは学習交流や科学研究などの非営利目的でのみ使用されます。商用利用は厳禁です。いかなる商用活動も本ソフトウェアとは無関係です。",
-    ),
     "disconnected": MessageLookupByLibrary.simpleMessage("切断済み"),
     "discoverNewVersion": MessageLookupByLibrary.simpleMessage("新バージョンを発見"),
     "dnsAdvancedCampusOverrideActive": MessageLookupByLibrary.simpleMessage(

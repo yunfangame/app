@@ -253,7 +253,6 @@ class MessageLookup extends MessageLookupByLibrary {
     "advancedSettingsSubtitle": MessageLookupByLibrary.simpleMessage(
       "Customize VPN behavior and network parameters for your connection",
     ),
-    "agree": MessageLookupByLibrary.simpleMessage("Agree"),
     "allGeodataUpdated": MessageLookupByLibrary.simpleMessage(
       "All geodata resources have been updated",
     ),
@@ -953,10 +952,6 @@ class MessageLookup extends MessageLookupByLibrary {
     "disableProxy": MessageLookupByLibrary.simpleMessage("Stop"),
     "disableUDP": MessageLookupByLibrary.simpleMessage("Disable UDP"),
     "disabled": MessageLookupByLibrary.simpleMessage("Disabled"),
-    "disclaimer": MessageLookupByLibrary.simpleMessage("Disclaimer"),
-    "disclaimerDesc": MessageLookupByLibrary.simpleMessage(
-      "This software is only used for non-commercial purposes such as learning exchanges and scientific research. It is strictly prohibited to use this software for commercial purposes. Any commercial activity, if any, has nothing to do with this software.",
-    ),
     "disconnected": MessageLookupByLibrary.simpleMessage("Disconnected"),
     "discoverNewVersion": MessageLookupByLibrary.simpleMessage(
       "Discover the new version",

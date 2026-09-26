@@ -215,7 +215,6 @@ class MessageLookup extends MessageLookupByLibrary {
     "advancedSettingsSubtitle": MessageLookupByLibrary.simpleMessage(
       "自定义 VPN 行为与网络参数，打造专属连接体验",
     ),
-    "agree": MessageLookupByLibrary.simpleMessage("同意"),
     "allGeodataUpdated": MessageLookupByLibrary.simpleMessage("全部地理数据已更新"),
     "allPlans": MessageLookupByLibrary.simpleMessage("全部"),
     "allRemainingTraffic": MessageLookupByLibrary.simpleMessage("其余所有流量"),
@@ -723,10 +722,6 @@ class MessageLookup extends MessageLookupByLibrary {
     "disableProxy": MessageLookupByLibrary.simpleMessage("停止"),
     "disableUDP": MessageLookupByLibrary.simpleMessage("禁用UDP"),
     "disabled": MessageLookupByLibrary.simpleMessage("已停用"),
-    "disclaimer": MessageLookupByLibrary.simpleMessage("免责声明"),
-    "disclaimerDesc": MessageLookupByLibrary.simpleMessage(
-      "本软件仅供学习交流、科研等非商业性质的用途，严禁将本软件用于商业目的。如有任何商业行为，均与本软件无关。",
-    ),
     "disconnected": MessageLookupByLibrary.simpleMessage("已断开"),
     "discoverNewVersion": MessageLookupByLibrary.simpleMessage("发现新版本"),
     "dnsAdvancedCampusOverrideActive": MessageLookupByLibrary.simpleMessage(

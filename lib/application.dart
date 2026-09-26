@@ -6,6 +6,8 @@ import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/application_bootstrap.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/login_routing_coordinator.dart';
+import 'package:fl_clash/common/saved_node_selection.dart';
+import 'package:fl_clash/common/xboard_routing_store.dart';
 import 'package:fl_clash/common/system_dns.dart';
 import 'package:fl_clash/common/xboard_login_persistence.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -73,70 +75,192 @@ class ApplicationState extends ConsumerState<Application> {
   int? _authenticationBootstrapSessionRevision;
   final _managedProfileSources = <String>{};
 
+  final _routingStore = XboardRoutingStore();
+  XboardLoginResult? _routingMemorySession;
+  int? _routingMemoryProfileId;
+  String? _routingMemoryProfileUrl;
+  Future<XboardRoutingSnapshot?>? _pendingRoutingSnapshot;
+  Mode? _loginRoutingInitialMode;
+  int _loginRoutingManualRevision = 0;
+  int _loginRoutingModeRevision = 0;
+  bool _routingPersistencePaused = false;
+
+  bool get _routingHasManualIntent =>
+      ref.read(proxiesActionProvider.notifier).manualSelectionRevision !=
+          _loginRoutingManualRevision ||
+      ref.read(setupActionProvider.notifier).manualModeRevision !=
+          _loginRoutingModeRevision;
+
+  void _scheduleRoutingSave() {
+    scheduleMicrotask(() {
+      if (mounted && !_logoutInProgress) _saveRoutingSelection();
+    });
+  }
+
+  void _saveRoutingSelection() {
+    if (!mounted || _routingPersistencePaused && !_routingHasManualIntent) {
+      return;
+    }
+    final session = _routingMemorySession;
+    final activeSession = globalState.xboardSession;
+    final profile = ref.read(currentProfileProvider);
+    if (session == null ||
+        activeSession == null ||
+        profile == null ||
+        profile.id != _routingMemoryProfileId ||
+        profile.url != _routingMemoryProfileUrl ||
+        XboardRoutingStore.scopeKey(session) == null ||
+        XboardRoutingStore.scopeKey(session) !=
+            XboardRoutingStore.scopeKey(activeSession)) {
+      return;
+    }
+    final snapshot = XboardRoutingSnapshot.fromProfile(
+      ref.read(patchClashConfigProvider).mode,
+      profile,
+    );
+    unawaited(
+      _routingStore.save(session, snapshot).catchError((Object error) {
+        commonPrint.event(
+          'auth.routing.save_failed',
+          fields: {'error_type': error.runtimeType.toString()},
+        );
+      }),
+    );
+  }
+
+  Future<XboardRoutingSnapshot?> _loadRoutingSelection(
+    XboardLoginResult session,
+  ) async {
+    final revision = globalState.xboardSessionRevision;
+    final profile = ref.read(currentProfileProvider);
+    final saved = await _routingStore.load(session);
+    if (profile != null && await _routingStore.ownsProfile(session, profile)) {
+      if (mounted &&
+          !_logoutInProgress &&
+          globalState.isActiveXboardSession(session, revision) &&
+          ref.read(currentProfileProvider)?.id == profile.id &&
+          ref.read(currentProfileProvider)?.url == profile.url) {
+        _routingMemorySession = session;
+        _routingMemoryProfileId = profile.id;
+        _routingMemoryProfileUrl = profile.url;
+      }
+    }
+    return saved;
+  }
+
+  Future<void> _finishRoutingAttempt(XboardLoginResult session) async {
+    final attempt = _loginRoutingAttempt;
+    try {
+      await _pendingRoutingSnapshot;
+    } catch (_) {}
+    if (!mounted ||
+        _logoutInProgress ||
+        !identical(attempt, _loginRoutingAttempt) ||
+        !identical(session, _loginRoutingSession)) {
+      return;
+    }
+    _routingPersistencePaused = false;
+    if (_routingHasManualIntent) _saveRoutingSelection();
+  }
+
   void _beginDefaultLoginRouting(XboardLoginResult session) {
+    _saveRoutingSelection();
+    if (_routingMemorySession == null ||
+        XboardRoutingStore.scopeKey(_routingMemorySession!) !=
+            XboardRoutingStore.scopeKey(session)) {
+      _routingMemorySession = null;
+      _routingMemoryProfileId = null;
+      _routingMemoryProfileUrl = null;
+    }
+    _routingPersistencePaused = true;
     final revision = globalState.xboardSessionRevision;
     final proxiesAction = ref.read(proxiesActionProvider.notifier);
-    late final int manualSelectionRevision;
     _loginRoutingSession = session;
+    _loginRoutingManualRevision = proxiesAction.manualSelectionRevision;
+    final manualSelectionRevision = _loginRoutingManualRevision;
+    final setup = ref.read(setupActionProvider.notifier);
+    _loginRoutingModeRevision = setup.manualModeRevision;
+    final manualModeRevision = _loginRoutingModeRevision;
+    _loginRoutingInitialMode = ref.read(patchClashConfigProvider).mode;
     _loginRoutingAttempt = _loginRouting.begin(
       isSessionCurrent: () =>
           mounted &&
           !_logoutInProgress &&
           globalState.isActiveXboardSession(session, revision) &&
-          proxiesAction.manualSelectionRevision == manualSelectionRevision,
+          proxiesAction.manualSelectionRevision == manualSelectionRevision &&
+          setup.manualModeRevision == manualModeRevision,
     );
-    manualSelectionRevision = proxiesAction.manualSelectionRevision;
+    _pendingRoutingSnapshot = _loadRoutingSelection(session);
+    unawaited(
+      _pendingRoutingSnapshot!.then<void>((_) {}, onError: (Object _) {}),
+    );
     commonPrint.event(
       'auth.routing.started',
-      fields: {'session_revision': revision, 'mode': Mode.rule.name},
+      fields: {
+        'session_revision': revision,
+        'mode': _loginRoutingInitialMode!.name,
+      },
     );
   }
 
-  void _selectDefaultLoginNode(
+  Future<void> _selectDefaultLoginNode(
     XboardLoginResult session, {
     Profile? expectedProfile,
     bool applyProfile = false,
-  }) {
+  }) async {
     final attempt = _loginRoutingAttempt;
-    if (attempt == null ||
-        !identical(session, _loginRoutingSession) ||
-        !_loginRouting.isCurrent(attempt)) {
-      return;
-    }
+    if (attempt == null || !identical(session, _loginRoutingSession)) return;
+    final sessionRevision = globalState.xboardSessionRevision;
     final proxiesAction = ref.read(proxiesActionProvider.notifier);
-    var selectionRevision = proxiesAction.hongKongSelectionRevision;
+    final pendingSnapshot = _pendingRoutingSnapshot;
     var profile = ref.read(currentProfileProvider);
+    var expectedMode = _loginRoutingInitialMode;
+    var shouldSave = false;
+    var prepared = false;
+    bool ownsProfile() =>
+        mounted &&
+        !_logoutInProgress &&
+        identical(attempt, _loginRoutingAttempt) &&
+        globalState.isActiveXboardSession(session, sessionRevision) &&
+        profile != null &&
+        ref.read(currentProfileProvider)?.id == profile!.id &&
+        ref.read(currentProfileProvider)?.url == profile!.url;
+    bool canStart() =>
+        ownsProfile() &&
+        _loginRouting.isCurrent(attempt) &&
+        ref.read(currentProfileProvider) == profile &&
+        ref.read(patchClashConfigProvider).mode == expectedMode;
     if (expectedProfile != null &&
         !loginRoutingProfileMatches(expectedProfile, profile)) {
-      commonPrint.event(
-        'auth.routing.discarded',
-        fields: {'reason': 'applied_profile_changed'},
-      );
       return;
     }
-    bool canStart() =>
-        proxiesAction.hongKongSelectionRevision == selectionRevision &&
-        ref.read(currentProfileProvider) == profile &&
-        ref.read(patchClashConfigProvider).mode == Mode.rule;
-    unawaited(
-      _loginRouting.select<HongKongSelectionResult>(
+    try {
+      await _loginRouting.select<HongKongSelectionResult>(
         attempt,
         prepare: () async {
           final readiness = await _applicationReadinessGate.wait();
           if (readiness != ApplicationReadiness.ready) {
             throw StateError('application_not_ready_${readiness.name}');
           }
-          if (!_loginRouting.isCurrent(attempt)) return;
+          if (!canStart()) return;
           if (!ref.read(initProvider) ||
               ref.read(coreStatusProvider) != CoreStatus.connected) {
             throw StateError('login_routing_core_unavailable');
           }
-          if (applyProfile && canStart()) {
+          final snapshot = await pendingSnapshot;
+          if (!canStart()) return;
+          if (applyProfile) {
             final previousProfile = profile;
             await ref
                 .read(setupActionProvider.notifier)
-                .applyProfile(force: true, silence: true);
-            if (!_loginRouting.isCurrent(attempt)) return;
+                .applyProfile(
+                  force: true,
+                  silence: true,
+                  isCurrent: () =>
+                      ownsProfile() && _loginRouting.isCurrent(attempt),
+                  propagateErrors: true,
+                );
+            if (!_loginRouting.isCurrent(attempt) || !ownsProfile()) return;
             final appliedProfile = ref.read(currentProfileProvider);
             if (!loginRoutingProfileMatches(
               previousProfile,
@@ -146,20 +270,69 @@ class ApplicationState extends ConsumerState<Application> {
               return;
             }
             profile = appliedProfile;
-            selectionRevision = proxiesAction.hongKongSelectionRevision;
           }
+          if (!canStart()) return;
+          final setup = ref.read(setupActionProvider.notifier);
+          final valid =
+              snapshot != null &&
+              hasValidSavedNodeSelection(
+                mode: snapshot.mode,
+                groups: ref.read(groupsProvider),
+                selectedMap: snapshot.selectedMap,
+                ruleGroupName: setup.ruleSelectionGroup,
+                currentGroupName: snapshot.currentGroupName,
+              );
+          expectedMode = snapshot?.mode ?? Mode.rule;
+          profile = profile!.copyWith(
+            currentGroupName: snapshot?.currentGroupName,
+            selectedMap: snapshot?.selectedMap ?? const {},
+          );
+          ref.read(profilesProvider.notifier).put(profile!);
+          profile = ref.read(currentProfileProvider);
+          ref
+              .read(patchClashConfigProvider.notifier)
+              .update((config) => config.copyWith(mode: expectedMode!));
+          final previousProfile = profile;
+          await setup.applyProfile(
+            force: true,
+            silence: true,
+            isCurrent: () => ownsProfile() && _loginRouting.isCurrent(attempt),
+            propagateErrors: true,
+          );
+          if (!ownsProfile() || !_loginRouting.isCurrent(attempt)) return;
+          final appliedProfile = ref.read(currentProfileProvider);
+          if (!loginRoutingProfileMatches(
+            previousProfile,
+            appliedProfile,
+            allowContentRefresh: true,
+          )) {
+            return;
+          }
+          profile = appliedProfile;
+          if (!canStart()) return;
+          shouldSave = valid;
+          prepared = true;
         },
-        canStart: canStart,
-        select: (isCancelled) => proxiesAction.selectHongKongForMode(
-          Mode.rule,
-          isCancelled: () =>
-              isCancelled() ||
-              ref.read(currentProfileIdProvider) != profile?.id,
-        ),
+        canStart: () => prepared && canStart(),
+        select: (isCancelled) async {
+          if (shouldSave) {
+            commonPrint.event(
+              'auth.routing.restored',
+              fields: {'mode': expectedMode!.name},
+            );
+            return HongKongSelectionResult.selected;
+          }
+          final result = await proxiesAction.selectHongKongForMode(
+            expectedMode!,
+            isCancelled: () => isCancelled() || !ownsProfile(),
+          );
+          shouldSave = result == HongKongSelectionResult.selected;
+          return result;
+        },
         onResult: (result) {
           commonPrint.event(
             'auth.routing.completed',
-            fields: {'mode': Mode.rule.name, 'result': result.name},
+            fields: {'mode': expectedMode!.name, 'result': result.name},
           );
           switch (result) {
             case HongKongSelectionResult.unavailable:
@@ -187,8 +360,28 @@ class ApplicationState extends ConsumerState<Application> {
             isCurrent: () => _loginRouting.isCurrent(attempt),
           );
         },
-      ),
-    );
+      );
+    } finally {
+      if (ownsProfile()) {
+        final currentProfile = ref.read(currentProfileProvider)!;
+        try {
+          await _routingStore.bindProfile(session, currentProfile);
+        } catch (error) {
+          commonPrint.event(
+            'auth.routing.save_failed',
+            fields: {'error_type': error.runtimeType.toString()},
+          );
+        }
+        if (ownsProfile()) {
+          _routingMemorySession = session;
+          _routingMemoryProfileId = currentProfile.id;
+          _routingMemoryProfileUrl = currentProfile.url;
+          _routingPersistencePaused = false;
+          if (shouldSave || _routingHasManualIntent) _saveRoutingSelection();
+        }
+      }
+      await _finishRoutingAttempt(session);
+    }
   }
 
   void _openHome() {
@@ -432,7 +625,7 @@ class ApplicationState extends ConsumerState<Application> {
     try {
       final profile = await _syncSubscriptionProfile(session, sessionRevision);
       if (!isCurrent() || profile == null) return;
-      _selectDefaultLoginNode(session, expectedProfile: profile);
+      await _selectDefaultLoginNode(session, expectedProfile: profile);
       if (!isCurrent()) return;
       globalState.requestXboardAnnouncementAutoPrompt();
     } on XboardAuthException catch (error) {
@@ -454,6 +647,8 @@ class ApplicationState extends ConsumerState<Application> {
         'retry deferred profile sync failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
+    } finally {
+      await _finishRoutingAttempt(session);
     }
   }
 
@@ -639,17 +834,21 @@ class ApplicationState extends ConsumerState<Application> {
     XboardLoginResult session,
     int sessionRevision,
   ) async {
-    final profile = await _syncSubscriptionProfileForLogin(
-      session,
-      sessionRevision,
-      showFailureMessage: false,
-    );
-    if (!mounted ||
-        !globalState.isActiveXboardSession(session, sessionRevision) ||
-        profile == null) {
-      return;
+    try {
+      final profile = await _syncSubscriptionProfileForLogin(
+        session,
+        sessionRevision,
+        showFailureMessage: false,
+      );
+      if (!mounted ||
+          !globalState.isActiveXboardSession(session, sessionRevision) ||
+          profile == null) {
+        return;
+      }
+      await _selectDefaultLoginNode(session, expectedProfile: profile);
+    } finally {
+      await _finishRoutingAttempt(session);
     }
-    _selectDefaultLoginNode(session, expectedProfile: profile);
   }
 
   Future<Profile?> _syncSubscriptionProfile(
@@ -905,7 +1104,9 @@ class ApplicationState extends ConsumerState<Application> {
 
   Future<void> _logoutXboard() async {
     if (_logoutInProgress) return;
+    _saveRoutingSelection();
     _logoutInProgress = true;
+    _routingMemorySession = null;
     _loginRouting.cancel();
     _loginRoutingAttempt = null;
     _loginRoutingSession = null;
@@ -914,6 +1115,14 @@ class ApplicationState extends ConsumerState<Application> {
         false;
     _deferredProfileSyncRevision = null;
     try {
+      try {
+        await _routingStore.flush();
+      } catch (error) {
+        commonPrint.event(
+          'auth.routing.save_failed',
+          fields: {'error_type': error.runtimeType.toString()},
+        );
+      }
       await _performLogoutXboard();
     } finally {
       _logoutInProgress = false;
@@ -1082,6 +1291,7 @@ class ApplicationState extends ConsumerState<Application> {
       await _openLoginForOnlineRestore();
       return false;
     }
+    XboardLoginResult? routingSession;
     try {
       final session = await _xboardAuthService.restoreSession(
         preferredEndpoint: storedSession.endpoint!,
@@ -1090,13 +1300,19 @@ class ApplicationState extends ConsumerState<Application> {
         isAdmin: storedSession.isAdmin,
         secureSubscription: storedSession.secureSubscription,
       );
+      _saveRoutingSelection();
       globalState.activateXboardSession(
         session,
         accountEmail: storedSession.email,
       );
+      _beginDefaultLoginRouting(session);
+      routingSession = session;
       await _loadXboardNodes(session, ignoreOfflineMode: true);
       final sessionRevision = globalState.xboardSessionRevision;
-      await _syncSubscriptionProfile(session, sessionRevision);
+      final profile = await _syncSubscriptionProfile(session, sessionRevision);
+      if (profile != null) {
+        await _selectDefaultLoginNode(session, expectedProfile: profile);
+      }
       await _xboardSessionStorage.setOfflineMode(false);
       globalState.setOfflineMode(false);
       globalState.requestXboardAnnouncementAutoPrompt();
@@ -1108,6 +1324,8 @@ class ApplicationState extends ConsumerState<Application> {
         return false;
       }
       rethrow;
+    } finally {
+      if (routingSession != null) await _finishRoutingAttempt(routingSession);
     }
   }
 
@@ -1146,6 +1364,7 @@ class ApplicationState extends ConsumerState<Application> {
       if (!globalState.isActiveXboardSession(activeSession, activeRevision)) {
         return false;
       }
+      XboardLoginResult? routingSession;
       try {
         final subscription = await _xboardAuthService.fetchSubscription(
           endpoint: activeSession.endpoint,
@@ -1174,12 +1393,15 @@ class ApplicationState extends ConsumerState<Application> {
           secureSubscription: activeSession.secureSubscription,
           rawData: activeSession.rawData,
         );
+        _saveRoutingSelection();
         final updatedRevision = globalState.activateXboardSession(
           updatedSession,
           nodes: globalState.xboardNodes,
           nodesStatusFresh: globalState.xboardNodesStatusFresh,
           ruleAccountKey: ruleAccountKey,
         );
+        _beginDefaultLoginRouting(updatedSession);
+        routingSession = updatedSession;
         final nodesRefreshed =
             !refreshNodeMetadata || await _loadXboardNodes(updatedSession);
         if (!globalState.isActiveXboardSession(
@@ -1209,7 +1431,16 @@ class ApplicationState extends ConsumerState<Application> {
             logLevel: LogLevel.warning,
           );
         }
-        await _syncSubscriptionProfile(updatedSession, updatedRevision);
+        final profile = await _syncSubscriptionProfile(
+          updatedSession,
+          updatedRevision,
+        );
+        if (profile != null) {
+          await _selectDefaultLoginNode(
+            updatedSession,
+            expectedProfile: profile,
+          );
+        }
         return nodesRefreshed &&
             globalState.isActiveXboardSession(updatedSession, updatedRevision);
       } catch (error, stackTrace) {
@@ -1219,6 +1450,8 @@ class ApplicationState extends ConsumerState<Application> {
             error.failure == XboardAuthFailure.authenticationRejected) {
           break;
         }
+      } finally {
+        if (routingSession != null) await _finishRoutingAttempt(routingSession);
       }
     }
     commonPrint.log(
@@ -1378,9 +1611,12 @@ class ApplicationState extends ConsumerState<Application> {
     super.initState();
     final proxiesAction = ref.read(proxiesActionProvider.notifier);
     _loginRouting = LoginRoutingCoordinator(
-      resetToRule: () =>
-          ref.read(setupActionProvider.notifier).changeModeOnly(Mode.rule),
       cancelSelection: proxiesAction.cancelHongKongSelection,
+    );
+    ref.listenManual(currentProfileProvider, (_, _) => _scheduleRoutingSave());
+    ref.listenManual(
+      patchClashConfigProvider.select((config) => config.mode),
+      (_, _) => _scheduleRoutingSave(),
     );
     globalState.logoutXboard = _logoutXboard;
     globalState.enableOfflineMode = _enableOfflineMode;

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fl_clash/common/login_routing_coordinator.dart';
 import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/core/interface.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -1186,6 +1187,125 @@ void main() {
     },
   );
 
+  test(
+    'manual mode intent cancels login restoration before mode commits',
+    () async {
+      final harness = _Harness(
+        initialMode: Mode.rule,
+        initialProfile: _profile(
+          globalSelection: _globalNode.name,
+          routeSelection: _sharedNode.name,
+        ),
+      );
+      final proxies = harness.container.read(proxiesActionProvider.notifier);
+      final nodeRevision = proxies.manualSelectionRevision;
+      final modeRevision = harness.setup.manualModeRevision;
+      final routing = LoginRoutingCoordinator(
+        cancelSelection: proxies.cancelHongKongSelection,
+      );
+      addTearDown(routing.dispose);
+      final attempt = routing.begin(
+        isSessionCurrent: () =>
+            proxies.manualSelectionRevision == nodeRevision &&
+            harness.setup.manualModeRevision == modeRevision,
+      );
+      final ready = Completer<void>();
+      var restored = false;
+      final restoring = routing.select<bool>(
+        attempt,
+        prepare: () => ready.future,
+        canStart: () => true,
+        select: (_) async {
+          restored = true;
+          return true;
+        },
+        onResult: (_) {},
+        onError: (error) => fail('$error'),
+      );
+      final enteredSelection = Completer<void>();
+      final releaseSelection = Completer<void>();
+      harness.onSelection = (params) async {
+        enteredSelection.complete();
+        await releaseSelection.future;
+        return '';
+      };
+
+      final switching = harness.setup.changeModeAndWait(Mode.global);
+      await enteredSelection.future;
+      expect(harness.mode, Mode.rule);
+      expect(proxies.manualSelectionRevision, nodeRevision);
+      expect(routing.isCurrent(attempt), isFalse);
+      ready.complete();
+      await restoring;
+      expect(restored, isFalse);
+      releaseSelection.complete();
+      expect(await switching, ModeSwitchResult.switched);
+      expect(harness.mode, Mode.global);
+    },
+  );
+
+  test(
+    'returning to the original mode cannot revive login restoration',
+    () async {
+      final initialProfile = _profile(
+        globalSelection: _globalNode.name,
+        routeSelection: _sharedNode.name,
+      );
+      final harness = _Harness(
+        initialMode: Mode.rule,
+        initialProfile: initialProfile,
+      );
+      final proxies = harness.container.read(proxiesActionProvider.notifier);
+      final modeRevision = harness.setup.manualModeRevision;
+      final routing = LoginRoutingCoordinator(
+        cancelSelection: proxies.cancelHongKongSelection,
+      );
+      addTearDown(routing.dispose);
+      final attempt = routing.begin(
+        isSessionCurrent: () =>
+            harness.setup.manualModeRevision == modeRevision,
+      );
+      final ready = Completer<void>();
+      var restored = false;
+      final restoring = routing.select<bool>(
+        attempt,
+        prepare: () => ready.future,
+        canStart: () => harness.mode == Mode.rule,
+        select: (_) async {
+          restored = true;
+          return true;
+        },
+        onResult: (_) {},
+        onError: (error) => fail('$error'),
+      );
+      final enteredSelection = Completer<void>();
+      final releaseSelection = Completer<void>();
+      harness.onSelection = (params) async {
+        if (params.proxyName == _sharedNode.name) {
+          enteredSelection.complete();
+          await releaseSelection.future;
+        }
+        return '';
+      };
+
+      final switching = harness.setup.changeModeAndWait(Mode.global);
+      await enteredSelection.future;
+      expect(
+        await harness.setup.changeModeAndWait(Mode.rule),
+        ModeSwitchResult.unchanged,
+      );
+      expect(harness.mode, Mode.rule);
+      expect(harness.setup.manualModeRevision, modeRevision + 2);
+      expect(routing.isCurrent(attempt), isFalse);
+      ready.complete();
+      await restoring;
+      expect(restored, isFalse);
+      releaseSelection.complete();
+      expect(await switching, ModeSwitchResult.cancelled);
+      harness.expectInitialState(initialProfile, Mode.rule);
+    },
+  );
+
   test('rapid same-target requests share one mode switch', () async {
     final initialProfile = _profile(
       globalSelection: _globalNode.name,
@@ -1206,9 +1326,11 @@ void main() {
       return '';
     };
 
+    final initialModeRevision = harness.setup.manualModeRevision;
     final first = harness.setup.changeModeAndWait(Mode.global);
     await enteredSelection.future;
     final latest = harness.setup.changeModeAndWait(Mode.global);
+    expect(harness.setup.manualModeRevision, initialModeRevision + 1);
     releaseSelection.complete();
 
     expect(await first, ModeSwitchResult.switched);

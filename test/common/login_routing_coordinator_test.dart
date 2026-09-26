@@ -140,13 +140,13 @@ void main() {
   });
 
   test(
-    'each authenticated entry cancels previous selection and resets rule',
+    'each authenticated entry cancels previous selection without resetting mode',
     () {
       final harness = _Harness();
       final first = harness.begin();
       final second = harness.begin();
 
-      expect(harness.events, ['cancel', 'rule', 'cancel', 'rule']);
+      expect(harness.events, ['cancel', 'cancel']);
       expect(harness.coordinator.isCurrent(first), isFalse);
       expect(harness.coordinator.isCurrent(second), isTrue);
       harness.coordinator.dispose();
@@ -161,14 +161,13 @@ void main() {
       final attempt = harness.begin();
       final pending = harness.route(attempt, preparation: preparation.future);
 
-      expect(harness.events, ['cancel', 'rule', 'prepare']);
+      expect(harness.events, ['cancel', 'prepare']);
       expect(harness.coordinator.isCurrent(attempt), isTrue);
       preparation.complete();
       await pending;
 
       expect(harness.events, [
         'cancel',
-        'rule',
         'prepare',
         'select',
         'result:selected',
@@ -190,7 +189,7 @@ void main() {
       preparation.complete();
       await pending;
 
-      expect(harness.events, ['cancel', 'rule', 'prepare']);
+      expect(harness.events, ['cancel', 'prepare']);
       harness.coordinator.dispose();
     },
   );
@@ -208,7 +207,7 @@ void main() {
       preparation.complete();
       await pending;
 
-      expect(harness.events, ['cancel', 'rule', 'prepare']);
+      expect(harness.events, ['cancel', 'prepare']);
       harness.coordinator.dispose();
     },
   );
@@ -224,7 +223,7 @@ void main() {
       await pending;
 
       expect(harness.coordinator.isCurrent(attempt), isFalse);
-      expect(harness.events, ['cancel', 'rule', 'prepare', 'cancel']);
+      expect(harness.events, ['cancel', 'prepare', 'cancel']);
       preparation.complete();
       await preparation.future;
       expect(harness.events.where((event) => event == 'select'), isEmpty);
@@ -389,7 +388,7 @@ void main() {
     harness.sessionCurrent = false;
     await harness.route(attempt);
 
-    expect(harness.events, ['cancel', 'rule']);
+    expect(harness.events, ['cancel']);
     harness.coordinator.dispose();
   });
 
@@ -437,10 +436,6 @@ void main() {
 class _Harness {
   _Harness() {
     coordinator = LoginRoutingCoordinator(
-      resetToRule: () {
-        manualSelectionRevision++;
-        events.add('rule');
-      },
       cancelSelection: () => events.add('cancel'),
     );
   }
