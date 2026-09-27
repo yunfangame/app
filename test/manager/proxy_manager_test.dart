@@ -46,12 +46,10 @@ const _readbackFailure = ProxyOperationResult(
   stage: 'readback_mismatch',
   enabled: false,
 );
-const _fallbackPending = ProxyOperationResult(
-  success: true,
+const _serviceUnavailable = ProxyOperationResult(
+  success: false,
   operation: 'start',
-  stage: 'fallback_pending',
-  enabled: false,
-  fallbackUsed: true,
+  stage: 'service_discovery',
 );
 
 class _ProxyClient extends Proxy {
@@ -61,6 +59,7 @@ class _ProxyClient extends Proxy {
   int inspections = 0;
   Future<ProxyOperationResult> Function(int port)? start;
   Future<ProxyOperationResult> Function(int? port)? stop;
+  Future<ProxyOperationResult> Function(int port)? inspect;
   Object? inspectionError;
   ProxyOperationResult inspection = _started;
 
@@ -90,6 +89,8 @@ class _ProxyClient extends Proxy {
     inspections++;
     final error = inspectionError;
     if (error != null) throw error;
+    final inspector = inspect;
+    if (inspector != null) return inspector(expectedPort);
     return inspection;
   }
 }
@@ -501,6 +502,79 @@ void main() {
     expect(rig.setup.requests, [false]);
     expect(rig.container.read(runTimeProvider), isNull);
     expect(rig.container.read(networkSettingProvider).systemProxy, isFalse);
+    expect(rig.notifications.single, contains('W-PROXY-03'));
+  });
+
+  testWidgets('macOS verified service remains enabled through guard checks', (
+    tester,
+  ) async {
+    final rig = _Rig();
+
+    await rig.mount(
+      tester,
+      isWindows: false,
+      isMacOS: true,
+      macOSProxyGuardInterval: const Duration(seconds: 1),
+    );
+    await tester.pumpAndSettle();
+    expect(rig.client.inspections, 1);
+
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(rig.client.inspections, greaterThanOrEqualTo(2));
+    final periodicInspections = rig.client.inspections;
+    await systemProxyRefreshSignal.request();
+    await tester.pumpAndSettle();
+
+    expect(rig.client.inspections, greaterThan(periodicInspections));
+    expect(rig.client.startPorts, [7890]);
+    expect(rig.client.stopPorts, isEmpty);
+    expect(rig.setup.requests, isEmpty);
+    expect(rig.container.read(runTimeProvider), 1);
+    expect(rig.container.read(networkSettingProvider).systemProxy, isTrue);
+    expect(rig.notifications, isEmpty);
+  });
+
+  testWidgets('macOS service readback failure still stops and notifies', (
+    tester,
+  ) async {
+    final rig = _Rig();
+    rig.client.inspection = _readbackFailure;
+
+    await rig.mount(tester, isWindows: false, isMacOS: true);
+    await tester.pumpAndSettle();
+
+    expect(rig.client.inspections, 1);
+    expect(rig.setup.requests, [false]);
+    expect(rig.container.read(runTimeProvider), isNull);
+    expect(rig.container.read(networkSettingProvider).systemProxy, isFalse);
+    expect(rig.notifications.single, contains('W-PROXY-04'));
+  });
+
+  testWidgets('macOS stop discards a late service readback failure', (
+    tester,
+  ) async {
+    final rig = _Rig();
+    final readback = Completer<ProxyOperationResult>();
+    rig.client.inspect = (_) => readback.future;
+
+    await rig.mount(tester, isWindows: false, isMacOS: true);
+    await tester.pumpAndSettle();
+    expect(rig.client.inspections, 1);
+    await rig.setup.setRunning(false);
+    await tester.pump();
+
+    readback.complete(_readbackFailure);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pumpAndSettle();
+
+    expect(rig.setup.requests, [false]);
+    expect(rig.container.read(runTimeProvider), isNull);
+    expect(rig.client.startPorts, [7890]);
+    expect(rig.client.stopPorts, [7890]);
+    expect(rig.client.inspections, 1);
+    expect(rig.notifications, isEmpty);
   });
 
   testWidgets('macOS network signal reapplies an overwritten system proxy', (
@@ -697,19 +771,20 @@ void main() {
     });
   }
 
-  testWidgets('macOS fallback stays armed while no primary network exists', (
+  testWidgets('macOS does not report connected without a primary service', (
     tester,
   ) async {
     final rig = _Rig();
-    rig.client.start = (_) async => _fallbackPending;
+    rig.client.start = (_) async => _serviceUnavailable;
     rig.client.inspection = _readbackFailure;
 
     await rig.mount(tester, isWindows: false, isMacOS: true);
     await tester.pumpAndSettle();
 
     expect(rig.client.startPorts, [7890]);
-    expect(rig.setup.requests, isEmpty);
-    expect(rig.container.read(runTimeProvider), 1);
-    expect(rig.container.read(networkSettingProvider).systemProxy, isTrue);
+    expect(rig.setup.requests, [false]);
+    expect(rig.container.read(runTimeProvider), isNull);
+    expect(rig.container.read(networkSettingProvider).systemProxy, isFalse);
+    expect(rig.notifications.single, contains('W-PROXY-09'));
   });
 }

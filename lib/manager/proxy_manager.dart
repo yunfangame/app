@@ -162,7 +162,6 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
       if (result?.success == true &&
           macOSGuard != null &&
           _isCurrent(revision)) {
-        final fallbackPending = result?.stage == 'fallback_pending';
         try {
           final verification = await macOSGuard.verifyAfterApply(
             port,
@@ -176,7 +175,7 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
                 'platform': 'macos',
               },
             );
-            if (!verification.success && !fallbackPending) {
+            if (!verification.success) {
               result = verification;
             }
           }

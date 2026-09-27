@@ -7,9 +7,16 @@ class MacosProxy {
   final ProxyCommandRunner _commandRunner;
   final Map<String, MacosNetworkServiceProxyState> _originalStates = {};
   final Set<String> _managedServices = {};
+  final int verificationAttempts;
+  final Duration verificationRetryInterval;
 
-  MacosProxy({required ProxyCommandRunner commandRunner})
-    : _commandRunner = commandRunner;
+  MacosProxy({
+    required ProxyCommandRunner commandRunner,
+    this.verificationAttempts = 3,
+    this.verificationRetryInterval = const Duration(milliseconds: 250),
+  }) : assert(verificationAttempts > 0),
+       assert(!verificationRetryInterval.isNegative),
+       _commandRunner = commandRunner;
 
   Future<bool> start(int port, List<String> bypassDomain) async {
     return (await startDetailed(port, bypassDomain)).success;
@@ -20,14 +27,21 @@ class MacosProxy {
     List<String> bypassDomain,
   ) async {
     final targets = await _networkServicesInPriorityOrder();
-    if (targets.services.isEmpty) {
+    if (targets.primaryService == null) {
       return const ProxyOperationResult(
         success: false,
         operation: 'start',
         stage: 'service_discovery',
       );
     }
-    await _captureOriginalStates(targets.services);
+    if (!await _captureOriginalStates(targets.services)) {
+      return const ProxyOperationResult(
+        success: false,
+        operation: 'start',
+        stage: 'readback',
+        message: 'Cannot read original network service proxy settings',
+      );
+    }
     final applied = <String>[];
     for (final service in targets.services) {
       if (await _commandRunner.run(
@@ -46,28 +60,13 @@ class MacosProxy {
     }
     final inspection = await inspectDetailed(port);
     if (!inspection.success) {
-      if (targets.primaryService == null &&
-          inspection.stage == 'readback_mismatch') {
-        return ProxyOperationResult(
-          success: true,
-          operation: 'start',
-          stage: 'fallback_pending',
-          enabled: inspection.enabled,
-          server: inspection.server,
-          connectionName: applied.first,
-          fallbackUsed: true,
-        );
-      }
       return ProxyOperationResult(
         success: false,
         operation: 'start',
         stage: inspection.stage,
         enabled: inspection.enabled,
         server: inspection.server,
-        connectionName: targets.primaryService,
-        fallbackUsed:
-            targets.primaryService == null ||
-            !applied.contains(targets.primaryService),
+        connectionName: inspection.connectionName ?? targets.primaryService,
         message: inspection.message,
       );
     }
@@ -77,10 +76,8 @@ class MacosProxy {
       stage: 'verified',
       enabled: true,
       server: '$proxyHost:$port',
-      connectionName: targets.primaryService ?? applied.first,
-      fallbackUsed:
-          targets.primaryService == null ||
-          !applied.contains(targets.primaryService),
+      connectionName: inspection.connectionName,
+      message: inspection.message,
     );
   }
 
@@ -95,7 +92,11 @@ class MacosProxy {
     final restoredServices = <String>{};
     for (final entry in _originalStates.entries) {
       final commands = MacosProxyCommands.buildRestore(entry.key, entry.value);
-      final restored = await _commandRunner.run(commands);
+      final applied = await _commandRunner.run(commands);
+      final readback = applied
+          ? await _readNetworkServiceState(entry.key)
+          : null;
+      final restored = readback != null && readback.restores(entry.value);
       succeeded = restored && succeeded;
       if (restored) restoredServices.add(entry.key);
     }
@@ -116,20 +117,21 @@ class MacosProxy {
         _managedServices.remove(service);
         continue;
       }
-      final stopped = await _commandRunner.run(
-        MacosProxyCommands.buildStop(service),
-      );
+      final stopped = await _stopOwnedService(service, expectedPort);
       succeeded = stopped && succeeded;
       if (stopped) _managedServices.remove(service);
     }
     if (!hasSessionState) {
       final services = await _networkServices();
-      for (final service in services) {
+      if (services == null) succeeded = false;
+      for (final service in services ?? <String>[]) {
         final state = await _readNetworkServiceState(service);
-        if (state == null || !state.isOwnedBy(expectedPort)) continue;
-        final stopped = await _commandRunner.run(
-          MacosProxyCommands.buildStop(service),
-        );
+        if (state == null) {
+          succeeded = false;
+          continue;
+        }
+        if (!state.isOwnedBy(expectedPort)) continue;
+        final stopped = await _stopOwnedService(service, expectedPort);
         succeeded = stopped && succeeded;
       }
     }
@@ -140,18 +142,6 @@ class MacosProxy {
         stage: 'restore',
       );
     }
-    if (expectedPort != null) {
-      final inspection = await inspectDetailed(expectedPort);
-      if (inspection.success) {
-        return ProxyOperationResult(
-          success: false,
-          operation: 'stop',
-          stage: 'readback_mismatch',
-          enabled: inspection.enabled,
-          server: inspection.server,
-        );
-      }
-    }
     return const ProxyOperationResult(
       success: true,
       operation: 'stop',
@@ -160,45 +150,99 @@ class MacosProxy {
     );
   }
 
+  Future<bool> _stopOwnedService(String service, int? expectedPort) async {
+    final state = await _readNetworkServiceState(service);
+    if (state == null) return false;
+    if (!state.isOwnedBy(expectedPort)) return true;
+    if (!await _commandRunner.run(
+      MacosProxyCommands.buildStop(service, state, expectedPort),
+    )) {
+      return false;
+    }
+    final readback = await _readNetworkServiceState(service);
+    return readback != null && !readback.isOwnedBy(expectedPort);
+  }
+
   Future<ProxyOperationResult> inspectDetailed(int expectedPort) async {
-    try {
-      final result = await _commandRunner.process('/usr/sbin/scutil', [
-        '--proxy',
-      ]);
-      if (result.exitCode != 0) {
-        return ProxyOperationResult(
-          success: false,
-          operation: 'inspect',
-          stage: 'readback',
-          errorCode: result.exitCode,
-        );
+    var result = await _inspectDetailedOnce(expectedPort);
+    for (
+      var attempt = 1;
+      attempt < verificationAttempts && !result.success;
+      attempt++
+    ) {
+      if (!const {
+        'service_discovery',
+        'readback',
+        'readback_mismatch',
+      }.contains(result.stage)) {
+        break;
       }
-      final state = MacosEffectiveProxyState.parse(result.stdout.toString());
-      final matches = state.matches(expectedPort);
-      return ProxyOperationResult(
-        success: matches,
+      await Future<void>.delayed(verificationRetryInterval);
+      result = await _inspectDetailedOnce(expectedPort);
+    }
+    return result;
+  }
+
+  Future<ProxyOperationResult> _inspectDetailedOnce(int expectedPort) async {
+    final targets = await _networkServicesInPriorityOrder();
+    final service = targets.primaryService;
+    if (service == null) {
+      return const ProxyOperationResult(
+        success: false,
         operation: 'inspect',
-        stage: matches ? 'verified' : 'readback_mismatch',
-        enabled: state.anyEnabled,
-        server: state.primaryServer,
-        message: state.isComplete ? null : 'Incomplete proxy readback',
+        stage: 'service_discovery',
       );
-    } on ProcessException catch (error) {
+    }
+    final state = await _readNetworkServiceState(service);
+    if (state == null) {
       return ProxyOperationResult(
         success: false,
         operation: 'inspect',
         stage: 'readback',
-        errorCode: error.errorCode,
+        connectionName: service,
+        message: 'Cannot read network service proxy settings',
       );
     }
+    final currentTargets = await _networkServicesInPriorityOrder();
+    if (currentTargets.primaryService != service ||
+        currentTargets.primaryServiceId != targets.primaryServiceId) {
+      return const ProxyOperationResult(
+        success: false,
+        operation: 'inspect',
+        stage: 'service_discovery',
+        message: 'Active network service changed during proxy verification',
+      );
+    }
+    final endpoints = [state.web, state.secureWeb, state.socks];
+    final enabledEndpoints = endpoints.where((endpoint) => endpoint.enabled);
+    final endpoint =
+        enabledEndpoints
+            .where((endpoint) => endpoint.isOwnedBy(expectedPort))
+            .firstOrNull ??
+        enabledEndpoints.firstOrNull;
+    final matches =
+        endpoints.every((endpoint) => endpoint.isOwnedBy(expectedPort)) &&
+        !state.autoProxy.enabled &&
+        !state.autoDiscovery;
+    return ProxyOperationResult(
+      success: matches,
+      operation: 'inspect',
+      stage: matches ? 'verified' : 'readback_mismatch',
+      enabled: enabledEndpoints.isNotEmpty,
+      server: endpoint == null ? null : '${endpoint.server}:${endpoint.port}',
+      connectionName: service,
+      message: matches ? 'Network service proxy settings verified' : null,
+    );
   }
 
-  Future<void> _captureOriginalStates(List<String> services) async {
+  Future<bool> _captureOriginalStates(List<String> services) async {
     for (final service in services) {
       if (_originalStates.containsKey(service)) continue;
       final state = await _readNetworkServiceState(service);
-      if (state != null) _originalStates[service] = state;
+      if (state == null) return false;
+      _originalStates[service] = state;
     }
+    return true;
   }
 
   Future<MacosNetworkServiceProxyState?> _readNetworkServiceState(
@@ -212,6 +256,10 @@ class MacosProxy {
         '/usr/sbin/networksetup',
         ['-getautoproxyurl', service],
       );
+      final discoveryResult = await _commandRunner.process(
+        '/usr/sbin/networksetup',
+        ['-getproxyautodiscovery', service],
+      );
       final bypassResult = await _commandRunner.process(
         '/usr/sbin/networksetup',
         ['-getproxybypassdomains', service],
@@ -220,6 +268,7 @@ class MacosProxy {
           secureWeb == null ||
           socks == null ||
           autoProxyResult.exitCode != 0 ||
+          discoveryResult.exitCode != 0 ||
           bypassResult.exitCode != 0) {
         return null;
       }
@@ -228,11 +277,18 @@ class MacosProxy {
         secureWeb: secureWeb,
         socks: socks,
         autoProxy: MacosAutoProxyState.parse(autoProxyResult.stdout.toString()),
+        autoDiscovery: MacosProxyCommands.parseEnabled(
+          MacosProxyCommands.parseKeyValueOutput(
+            discoveryResult.stdout.toString(),
+          )['Auto Proxy Discovery'],
+        ),
         bypassDomains: MacosProxyCommands.parseBypassDomains(
           bypassResult.stdout.toString(),
         ),
       );
     } on ProcessException {
+      return null;
+    } on FormatException {
       return null;
     }
   }
@@ -251,8 +307,21 @@ class MacosProxy {
 
   Future<_MacosNetworkTargets> _networkServicesInPriorityOrder() async {
     final services = await _networkServices();
-    if (services.isEmpty) {
+    if (services == null || services.isEmpty) {
       return const _MacosNetworkTargets(services: [], primaryService: null);
+    }
+    final primary = await _primaryNetworkService();
+    if (primary != null) {
+      final service = primary.$2;
+      return _MacosNetworkTargets(
+        services: service != null && services.contains(service)
+            ? [service]
+            : [],
+        primaryService: service != null && services.contains(service)
+            ? service
+            : null,
+        primaryServiceId: primary.$1,
+      );
     }
     final defaultDevice = await _defaultDevice();
     final serviceOrder = await _networkServiceOrder();
@@ -266,6 +335,36 @@ class MacosProxy {
       services: [primaryService],
       primaryService: primaryService,
     );
+  }
+
+  Future<(String, String?)?> _primaryNetworkService() async {
+    String? discoveredServiceId;
+    try {
+      final primaryResult = await _commandRunner.process('/bin/sh', [
+        '-c',
+        "printf 'show State:/Network/Global/IPv4\\nshow State:/Network/Global/IPv6\\nquit\\n' | /usr/sbin/scutil",
+      ]);
+      if (primaryResult.exitCode != 0) return null;
+      final serviceId = RegExp(
+        r'^\s*PrimaryService\s*:\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\s*$',
+        multiLine: true,
+      ).firstMatch(primaryResult.stdout.toString())?.group(1);
+      if (serviceId == null) return null;
+      discoveredServiceId = serviceId;
+      final serviceResult = await _commandRunner.process('/bin/sh', [
+        '-c',
+        "printf 'show Setup:/Network/Service/$serviceId\\nquit\\n' | /usr/sbin/scutil",
+      ]);
+      if (serviceResult.exitCode != 0) return (serviceId, null);
+      return (
+        serviceId,
+        MacosProxyCommands.parseKeyValueOutput(
+          serviceResult.stdout.toString(),
+        )['UserDefinedName'],
+      );
+    } on ProcessException {
+      return discoveredServiceId == null ? null : (discoveredServiceId, null);
+    }
   }
 
   Future<String?> _defaultDevice() async {
@@ -296,15 +395,17 @@ class MacosProxy {
     }
   }
 
-  Future<List<String>> _networkServices() async {
+  Future<List<String>?> _networkServices() async {
     try {
       final result = await _commandRunner.process('/usr/sbin/networksetup', [
         '-listallnetworkservices',
       ]);
-      if (result.exitCode != 0) return [];
+      if (result.exitCode != 0 || result.stdout.toString().trim().isEmpty) {
+        return null;
+      }
       return MacosProxyCommands.parseNetworkServices(result.stdout.toString());
     } on ProcessException {
-      return [];
+      return null;
     }
   }
 }
@@ -313,10 +414,12 @@ class _MacosNetworkTargets {
   const _MacosNetworkTargets({
     required this.services,
     required this.primaryService,
+    this.primaryServiceId,
   });
 
   final List<String> services;
   final String? primaryService;
+  final String? primaryServiceId;
 }
 
 class MacosProxyEndpoint {
@@ -332,11 +435,17 @@ class MacosProxyEndpoint {
 
   factory MacosProxyEndpoint.parse(String output) {
     final values = MacosProxyCommands.parseKeyValueOutput(output);
-    return MacosProxyEndpoint(
-      enabled: MacosProxyCommands.parseEnabled(values['Enabled']),
-      server: values['Server'] ?? '',
-      port: int.tryParse(values['Port'] ?? ''),
-    );
+    final enabled = MacosProxyCommands.parseEnabled(values['Enabled']);
+    final server = values['Server'];
+    final port = int.tryParse(values['Port'] ?? '');
+    if (server == null ||
+        port == null ||
+        port < 0 ||
+        port > 65535 ||
+        (enabled && (server.isEmpty || port == 0))) {
+      throw const FormatException('Incomplete network service proxy endpoint');
+    }
+    return MacosProxyEndpoint(enabled: enabled, server: server, port: port);
   }
 
   bool isOwnedBy(int? expectedPort) {
@@ -354,10 +463,12 @@ class MacosAutoProxyState {
 
   factory MacosAutoProxyState.parse(String output) {
     final values = MacosProxyCommands.parseKeyValueOutput(output);
-    return MacosAutoProxyState(
-      enabled: MacosProxyCommands.parseEnabled(values['Enabled']),
-      url: values['URL'] ?? '',
-    );
+    final enabled = MacosProxyCommands.parseEnabled(values['Enabled']);
+    final url = values['URL'];
+    if (url == null || (enabled && url.isEmpty)) {
+      throw const FormatException('Incomplete automatic proxy settings');
+    }
+    return MacosAutoProxyState(enabled: enabled, url: url);
   }
 }
 
@@ -368,6 +479,7 @@ class MacosNetworkServiceProxyState {
     required this.socks,
     required this.autoProxy,
     required this.bypassDomains,
+    required this.autoDiscovery,
   });
 
   final MacosProxyEndpoint web;
@@ -375,78 +487,35 @@ class MacosNetworkServiceProxyState {
   final MacosProxyEndpoint socks;
   final MacosAutoProxyState autoProxy;
   final List<String> bypassDomains;
+  final bool autoDiscovery;
+
+  bool restores(MacosNetworkServiceProxyState original) {
+    bool endpointMatches(
+      MacosProxyEndpoint actual,
+      MacosProxyEndpoint expected,
+    ) {
+      return actual.enabled == expected.enabled &&
+          (expected.server.isEmpty ||
+              expected.port == null ||
+              (actual.server == expected.server &&
+                  actual.port == expected.port));
+    }
+
+    return endpointMatches(web, original.web) &&
+        endpointMatches(secureWeb, original.secureWeb) &&
+        endpointMatches(socks, original.socks) &&
+        autoProxy.enabled == original.autoProxy.enabled &&
+        (original.autoProxy.url.isEmpty ||
+            autoProxy.url == original.autoProxy.url) &&
+        autoDiscovery == original.autoDiscovery &&
+        bypassDomains.length == original.bypassDomains.length &&
+        bypassDomains.toSet().containsAll(original.bypassDomains);
+  }
 
   bool isOwnedBy(int? expectedPort) {
     return web.isOwnedBy(expectedPort) ||
         secureWeb.isOwnedBy(expectedPort) ||
         socks.isOwnedBy(expectedPort);
-  }
-}
-
-class MacosEffectiveProxyState {
-  const MacosEffectiveProxyState({
-    required this.httpEnabled,
-    required this.httpHost,
-    required this.httpPort,
-    required this.httpsEnabled,
-    required this.httpsHost,
-    required this.httpsPort,
-    required this.socksEnabled,
-    required this.socksHost,
-    required this.socksPort,
-  });
-
-  final bool httpEnabled;
-  final String? httpHost;
-  final int? httpPort;
-  final bool httpsEnabled;
-  final String? httpsHost;
-  final int? httpsPort;
-  final bool socksEnabled;
-  final String? socksHost;
-  final int? socksPort;
-
-  factory MacosEffectiveProxyState.parse(String output) {
-    final values = MacosProxyCommands.parseScutilProxyOutput(output);
-    return MacosEffectiveProxyState(
-      httpEnabled: values['HTTPEnable'] == '1',
-      httpHost: values['HTTPProxy'],
-      httpPort: int.tryParse(values['HTTPPort'] ?? ''),
-      httpsEnabled: values['HTTPSEnable'] == '1',
-      httpsHost: values['HTTPSProxy'],
-      httpsPort: int.tryParse(values['HTTPSPort'] ?? ''),
-      socksEnabled: values['SOCKSEnable'] == '1',
-      socksHost: values['SOCKSProxy'],
-      socksPort: int.tryParse(values['SOCKSPort'] ?? ''),
-    );
-  }
-
-  bool get anyEnabled => httpEnabled || httpsEnabled || socksEnabled;
-
-  bool get isComplete =>
-      httpHost != null && httpsHost != null && socksHost != null;
-
-  String? get primaryServer {
-    if (httpHost != null && httpPort != null) return '$httpHost:$httpPort';
-    if (httpsHost != null && httpsPort != null) {
-      return '$httpsHost:$httpsPort';
-    }
-    if (socksHost != null && socksPort != null) {
-      return '$socksHost:$socksPort';
-    }
-    return null;
-  }
-
-  bool matches(int expectedPort) {
-    return httpEnabled &&
-        httpHost == proxyHost &&
-        httpPort == expectedPort &&
-        httpsEnabled &&
-        httpsHost == proxyHost &&
-        httpsPort == expectedPort &&
-        socksEnabled &&
-        socksHost == proxyHost &&
-        socksPort == expectedPort;
   }
 }
 
@@ -459,6 +528,11 @@ class MacosProxyCommands {
     return [
       ProxyCommand('/usr/sbin/networksetup', [
         '-setautoproxystate',
+        service,
+        'off',
+      ]),
+      ProxyCommand('/usr/sbin/networksetup', [
+        '-setproxyautodiscovery',
         service,
         'off',
       ]),
@@ -499,29 +573,30 @@ class MacosProxyCommands {
     ];
   }
 
-  static List<ProxyCommand> buildStop(String service) {
+  static List<ProxyCommand> buildStop(
+    String service,
+    MacosNetworkServiceProxyState state,
+    int? expectedPort,
+  ) {
     return [
-      ProxyCommand('/usr/sbin/networksetup', [
-        '-setautoproxystate',
-        service,
-        'off',
-      ]),
-      ProxyCommand('/usr/sbin/networksetup', [
-        '-setwebproxystate',
-        service,
-        'off',
-      ]),
-      ProxyCommand('/usr/sbin/networksetup', [
-        '-setsecurewebproxystate',
-        service,
-        'off',
-      ]),
-      ProxyCommand('/usr/sbin/networksetup', [
-        '-setsocksfirewallproxystate',
-        service,
-        'off',
-      ]),
-      buildProxyBypass(service, const []),
+      if (state.web.isOwnedBy(expectedPort))
+        ProxyCommand('/usr/sbin/networksetup', [
+          '-setwebproxystate',
+          service,
+          'off',
+        ]),
+      if (state.secureWeb.isOwnedBy(expectedPort))
+        ProxyCommand('/usr/sbin/networksetup', [
+          '-setsecurewebproxystate',
+          service,
+          'off',
+        ]),
+      if (state.socks.isOwnedBy(expectedPort))
+        ProxyCommand('/usr/sbin/networksetup', [
+          '-setsocksfirewallproxystate',
+          service,
+          'off',
+        ]),
     ];
   }
 
@@ -559,6 +634,11 @@ class MacosProxyCommands {
         '-setautoproxystate',
         service,
         state.autoProxy.enabled ? 'on' : 'off',
+      ]),
+      ProxyCommand('/usr/sbin/networksetup', [
+        '-setproxyautodiscovery',
+        service,
+        state.autoDiscovery ? 'on' : 'off',
       ]),
     ];
   }
@@ -610,9 +690,14 @@ class MacosProxyCommands {
 
   static Map<String, String> parseNetworkServiceOrder(String stdout) {
     final services = <String, String>{};
+    final ambiguousDevices = <String>{};
     String? pendingService;
     for (final rawLine in stdout.split('\n')) {
       final line = rawLine.trim();
+      if (line.startsWith('(*)')) {
+        pendingService = null;
+        continue;
+      }
       final serviceMatch = RegExp(r'^\(\d+\)\s+(.+)$').firstMatch(line);
       if (serviceMatch != null) {
         pendingService = serviceMatch.group(1)?.trim();
@@ -621,7 +706,12 @@ class MacosProxyCommands {
       final deviceMatch = RegExp(r'Device:\s*([^,)]+)').firstMatch(line);
       final device = deviceMatch?.group(1)?.trim();
       if (pendingService != null && device?.isNotEmpty == true) {
-        services[device!] = pendingService;
+        if (services.containsKey(device)) {
+          services.remove(device);
+          ambiguousDevices.add(device!);
+        } else if (!ambiguousDevices.contains(device)) {
+          services[device!] = pendingService;
+        }
         pendingService = null;
       }
     }
@@ -653,20 +743,11 @@ class MacosProxyCommands {
     return values;
   }
 
-  static Map<String, String> parseScutilProxyOutput(String stdout) {
-    final values = <String, String>{};
-    for (final rawLine in stdout.split('\n')) {
-      final match = RegExp(
-        r'^\s*([A-Za-z]+)\s*:\s*(.*?)\s*$',
-      ).firstMatch(rawLine);
-      final key = match?.group(1);
-      final value = match?.group(2);
-      if (key != null && value != null) values[key] = value;
-    }
-    return values;
-  }
-
   static bool parseEnabled(String? value) {
-    return value == 'Yes' || value == '1' || value == 'On';
+    return switch (value?.toLowerCase()) {
+      'yes' || '1' || 'on' => true,
+      'no' || '0' || 'off' => false,
+      _ => throw const FormatException('Missing or invalid proxy enable state'),
+    };
   }
 }

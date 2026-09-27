@@ -2330,6 +2330,9 @@ class _AuthorizationSetupAction extends SetupAction {
   @override
   bool get requiresWindowsTunAuthorization => false;
 
+  @override
+  bool get requiresFullSetupAfterAuthorization => false;
+
   final List<AuthorizeCode> authorizationResults;
   int authorizationRequestCount = 0;
 

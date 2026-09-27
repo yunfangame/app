@@ -334,8 +334,8 @@ USB 10/100/1000 LAN
       );
 
       expect(commands.first.args, ['-setautoproxystate', 'Wi-Fi', 'off']);
-      expect(firstStateCommand, 5);
-      expect(commands[4].args.first, '-setproxybypassdomains');
+      expect(firstStateCommand, 6);
+      expect(commands[5].args.first, '-setproxybypassdomains');
     });
 
     test('finds the primary network service from the default device', () {
@@ -356,26 +356,6 @@ destination: default
 '''),
         {'en0': 'Wi-Fi', 'en7': 'USB LAN'},
       );
-    });
-
-    test('requires HTTP HTTPS and SOCKS effective readback to match', () {
-      final state = MacosEffectiveProxyState.parse('''
-<dictionary> {
-  HTTPEnable : 1
-  HTTPPort : 7890
-  HTTPProxy : 127.0.0.1
-  HTTPSEnable : 1
-  HTTPSPort : 7890
-  HTTPSProxy : 127.0.0.1
-  SOCKSEnable : 1
-  SOCKSPort : 7890
-  SOCKSProxy : 127.0.0.1
-}
-''');
-
-      expect(state.matches(7890), isTrue);
-      expect(state.matches(7891), isFalse);
-      expect(state.primaryServer, '127.0.0.1:7890');
     });
 
     test(
@@ -413,7 +393,9 @@ destination: default
               return ProcessResult(
                 1,
                 0,
-                'Enabled: No\nServer: old.proxy\nPort: 8080\n',
+                effectiveEnabled
+                    ? 'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n'
+                    : 'Enabled: No\nServer: old.proxy\nPort: 8080\n',
                 '',
               );
             }
@@ -421,32 +403,17 @@ destination: default
               return ProcessResult(
                 1,
                 0,
-                'URL: http://old/pac\nEnabled: Yes\n',
+                effectiveEnabled
+                    ? 'URL: http://old/pac\nEnabled: No\n'
+                    : 'URL: http://old/pac\nEnabled: Yes\n',
                 '',
               );
+            }
+            if (arguments.firstOrNull == '-getproxyautodiscovery') {
+              return ProcessResult(1, 0, 'Auto Proxy Discovery: Off\n', '');
             }
             if (arguments.firstOrNull == '-getproxybypassdomains') {
               return ProcessResult(1, 0, 'localhost\n', '');
-            }
-            if (executable == '/usr/sbin/scutil') {
-              return ProcessResult(
-                1,
-                0,
-                effectiveEnabled
-                    ? '''
-HTTPEnable : 1
-HTTPPort : 7890
-HTTPProxy : 127.0.0.1
-HTTPSEnable : 1
-HTTPSPort : 7890
-HTTPSProxy : 127.0.0.1
-SOCKSEnable : 1
-SOCKSPort : 7890
-SOCKSProxy : 127.0.0.1
-'''
-                    : '<dictionary> {\n}\n',
-                '',
-              );
             }
             if (arguments.firstOrNull == '-setsocksfirewallproxystate' &&
                 arguments.last == 'on') {
@@ -495,7 +462,7 @@ SOCKSProxy : 127.0.0.1
     );
 
     test(
-      'keeps fallback services armed while no primary route exists',
+      'does not claim success while no primary service can be determined',
       () async {
         final proxy = MacosProxy(
           commandRunner: ProxyCommandRunner((
@@ -539,9 +506,8 @@ SOCKSProxy : 127.0.0.1
 
         final result = await proxy.startDetailed(7890, const []);
 
-        expect(result.success, isTrue);
-        expect(result.stage, 'fallback_pending');
-        expect(result.fallbackUsed, isTrue);
+        expect(result.success, isFalse);
+        expect(result.stage, 'service_discovery');
       },
     );
 
