@@ -500,13 +500,13 @@ class MessageLookup extends MessageLookupByLibrary {
       "キャッシュが破損しています。クリアしますか？",
     ),
     "campusNetworkApplyFailed": MessageLookupByLibrary.simpleMessage(
-      "キャンパスネットワークモードを適用できませんでした。接続を確認して再試行してください",
+      "干渉対策モードを適用できませんでした。接続を確認して再試行してください",
     ),
     "campusNetworkDisabled": MessageLookupByLibrary.simpleMessage(
-      "キャンパスネットワークモードを無効にしました",
+      "干渉対策モードを無効にしました",
     ),
     "campusNetworkEnabled": MessageLookupByLibrary.simpleMessage(
-      "キャンパスネットワークモードを有効にしました",
+      "干渉対策モードを有効にしました",
     ),
     "campusNetworkInformation": MessageLookupByLibrary.simpleMessage(
       "無効時は CDN の通常の名前解決を使用します。有効化または回線変更後にコア設定を自動で再読み込みします。",
@@ -516,12 +516,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "campusNetworkLine2": MessageLookupByLibrary.simpleMessage("回線2"),
     "campusNetworkLine3": MessageLookupByLibrary.simpleMessage("回線3"),
     "campusNetworkLineNumber": m10,
-    "campusNetworkMode": MessageLookupByLibrary.simpleMessage("キャンパスネットワークモード"),
+    "campusNetworkMode": MessageLookupByLibrary.simpleMessage("干渉対策モード"),
     "campusNetworkModeSubtitle": MessageLookupByLibrary.simpleMessage(
-      "キャンパスネットワーク用の専用入口回線に切り替えます",
+      "専用入口回線に切り替え、干渉を受けるネットワークの接続を改善します",
     ),
     "campusNetworkSwitch": MessageLookupByLibrary.simpleMessage(
-      "キャンパスネットワークモードを有効にする",
+      "干渉対策モードを有効にする",
     ),
     "campusNetworkSwitchDescription": MessageLookupByLibrary.simpleMessage(
       "有効にするとノードドメインを選択した入口回線に割り当てます",
@@ -818,7 +818,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "disconnected": MessageLookupByLibrary.simpleMessage("切断済み"),
     "discoverNewVersion": MessageLookupByLibrary.simpleMessage("新バージョンを発見"),
     "dnsAdvancedCampusOverrideActive": MessageLookupByLibrary.simpleMessage(
-      "学内ネットワークモードが DNS の上書きを適用しています。hosts 設定の適用中は、このモードが上書きスイッチを管理します。",
+      "干渉対策モードが DNS の上書きを強制しています。入口回線の hosts 設定が有効な間は、干渉対策モードが上書きスイッチを管理します。",
     ),
     "dnsAdvancedDnsDisabled": MessageLookupByLibrary.simpleMessage(
       "端末の設定で DNS が無効になっています。これらの設定を使用するには有効にしてください。",

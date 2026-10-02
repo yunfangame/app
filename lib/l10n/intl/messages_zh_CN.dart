@@ -450,12 +450,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "bypassDomainDesc": MessageLookupByLibrary.simpleMessage("仅在系统代理启用时生效"),
     "cacheCorrupt": MessageLookupByLibrary.simpleMessage("缓存已损坏，是否清空？"),
     "campusNetworkApplyFailed": MessageLookupByLibrary.simpleMessage(
-      "校园网模式应用失败，请检查网络后重试",
+      "防干扰模式应用失败，请检查网络后重试",
     ),
     "campusNetworkDisabled": MessageLookupByLibrary.simpleMessage(
-      "校园网模式已关闭并生效",
+      "防干扰模式已关闭并生效",
     ),
-    "campusNetworkEnabled": MessageLookupByLibrary.simpleMessage("校园网模式已开启并生效"),
+    "campusNetworkEnabled": MessageLookupByLibrary.simpleMessage("防干扰模式已开启并生效"),
     "campusNetworkInformation": MessageLookupByLibrary.simpleMessage(
       "关闭时继续使用 CDN 正常解析；开启或切换线路后会自动重新加载内核配置。",
     ),
@@ -464,11 +464,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "campusNetworkLine2": MessageLookupByLibrary.simpleMessage("穿透2线路"),
     "campusNetworkLine3": MessageLookupByLibrary.simpleMessage("穿透3线路"),
     "campusNetworkLineNumber": m10,
-    "campusNetworkMode": MessageLookupByLibrary.simpleMessage("校园网模式"),
+    "campusNetworkMode": MessageLookupByLibrary.simpleMessage("防干扰模式"),
     "campusNetworkModeSubtitle": MessageLookupByLibrary.simpleMessage(
-      "为校园网络切换专用入口线路",
+      "切换专用入口线路，改善受干扰网络的连接",
     ),
-    "campusNetworkSwitch": MessageLookupByLibrary.simpleMessage("启用校园网模式"),
+    "campusNetworkSwitch": MessageLookupByLibrary.simpleMessage("启用防干扰模式"),
     "campusNetworkSwitchDescription": MessageLookupByLibrary.simpleMessage(
       "开启后将节点域名映射到所选线路的入口 IP",
     ),
@@ -728,7 +728,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "disconnected": MessageLookupByLibrary.simpleMessage("已断开"),
     "discoverNewVersion": MessageLookupByLibrary.simpleMessage("发现新版本"),
     "dnsAdvancedCampusOverrideActive": MessageLookupByLibrary.simpleMessage(
-      "校园网模式正在强制覆写 DNS。校园网 hosts 配置生效期间，覆写开关由校园网模式管理。",
+      "防干扰模式正在强制覆写 DNS。入口线路的 hosts 配置生效期间，覆写开关由防干扰模式管理。",
     ),
     "dnsAdvancedDnsDisabled": MessageLookupByLibrary.simpleMessage(
       "本机配置中的 DNS 已关闭，启用后才能使用这些设置。",

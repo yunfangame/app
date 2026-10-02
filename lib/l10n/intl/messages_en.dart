@@ -584,13 +584,13 @@ class MessageLookup extends MessageLookupByLibrary {
       "The cache is corrupt. Do you want to clear it?",
     ),
     "campusNetworkApplyFailed": MessageLookupByLibrary.simpleMessage(
-      "Failed to apply campus network mode. Check your connection and try again",
+      "Failed to apply anti-interference mode. Check your connection and try again",
     ),
     "campusNetworkDisabled": MessageLookupByLibrary.simpleMessage(
-      "Campus network mode is disabled",
+      "Anti-interference mode is disabled",
     ),
     "campusNetworkEnabled": MessageLookupByLibrary.simpleMessage(
-      "Campus network mode is enabled and active",
+      "Anti-interference mode is enabled and active",
     ),
     "campusNetworkInformation": MessageLookupByLibrary.simpleMessage(
       "When disabled, CDN resolution remains in use. Enabling or switching routes automatically reloads the core configuration.",
@@ -601,13 +601,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "campusNetworkLine3": MessageLookupByLibrary.simpleMessage("Route 3"),
     "campusNetworkLineNumber": m10,
     "campusNetworkMode": MessageLookupByLibrary.simpleMessage(
-      "Campus network mode",
+      "Anti-interference mode",
     ),
     "campusNetworkModeSubtitle": MessageLookupByLibrary.simpleMessage(
-      "Switch to dedicated entry routes on campus networks",
+      "Switch to dedicated entry routes to improve connectivity on networks affected by interference",
     ),
     "campusNetworkSwitch": MessageLookupByLibrary.simpleMessage(
-      "Enable campus network mode",
+      "Enable anti-interference mode",
     ),
     "campusNetworkSwitchDescription": MessageLookupByLibrary.simpleMessage(
       "Maps node domains to the selected entry route when enabled",
@@ -960,7 +960,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Discover the new version",
     ),
     "dnsAdvancedCampusOverrideActive": MessageLookupByLibrary.simpleMessage(
-      "Campus network mode is applying DNS override. The override switch is managed by campus network mode while its hosts configuration is active.",
+      "Anti-interference mode is forcing DNS override. The override switch is managed by anti-interference mode while the entry route hosts configuration is active.",
     ),
     "dnsAdvancedDnsDisabled": MessageLookupByLibrary.simpleMessage(
       "DNS is disabled in the local configuration. Enable it to use these settings.",

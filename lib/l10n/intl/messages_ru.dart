@@ -592,13 +592,13 @@ class MessageLookup extends MessageLookupByLibrary {
       "Кэш поврежден. Хотите очистить его?",
     ),
     "campusNetworkApplyFailed": MessageLookupByLibrary.simpleMessage(
-      "Не удалось применить режим университетской сети. Проверьте подключение и повторите попытку",
+      "Не удалось применить режим защиты от помех. Проверьте подключение и повторите попытку",
     ),
     "campusNetworkDisabled": MessageLookupByLibrary.simpleMessage(
-      "Режим университетской сети выключен",
+      "Режим защиты от помех выключен",
     ),
     "campusNetworkEnabled": MessageLookupByLibrary.simpleMessage(
-      "Режим университетской сети включён",
+      "Режим защиты от помех включён",
     ),
     "campusNetworkInformation": MessageLookupByLibrary.simpleMessage(
       "Когда режим выключен, используется обычное разрешение CDN. После включения или смены маршрута конфигурация ядра перезагружается автоматически.",
@@ -611,13 +611,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "campusNetworkLine3": MessageLookupByLibrary.simpleMessage("Маршрут 3"),
     "campusNetworkLineNumber": m10,
     "campusNetworkMode": MessageLookupByLibrary.simpleMessage(
-      "Режим университетской сети",
+      "Режим защиты от помех",
     ),
     "campusNetworkModeSubtitle": MessageLookupByLibrary.simpleMessage(
-      "Переключение на выделенные входные маршруты в университетской сети",
+      "Переключение на выделенные входные маршруты для улучшения соединения в сетях с помехами",
     ),
     "campusNetworkSwitch": MessageLookupByLibrary.simpleMessage(
-      "Включить режим университетской сети",
+      "Включить режим защиты от помех",
     ),
     "campusNetworkSwitchDescription": MessageLookupByLibrary.simpleMessage(
       "Сопоставляет домены узлов с выбранным входным маршрутом",
@@ -982,7 +982,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Обнаружена новая версия",
     ),
     "dnsAdvancedCampusOverrideActive": MessageLookupByLibrary.simpleMessage(
-      "Режим сети кампуса принудительно переопределяет DNS. Пока его настройки hosts активны, этот режим управляет переключателем переопределения.",
+      "Режим защиты от помех принудительно переопределяет DNS. Пока настройки hosts входного маршрута активны, переключателем переопределения управляет режим защиты от помех.",
     ),
     "dnsAdvancedDnsDisabled": MessageLookupByLibrary.simpleMessage(
       "DNS отключён в локальной конфигурации. Включите его, чтобы использовать эти настройки.",

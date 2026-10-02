@@ -4,7 +4,6 @@ import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/pages/customer_service.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
-import 'package:fl_clash/views/dashboard/fengwo_desktop_dashboard.dart';
 import 'package:fl_clash/views/dashboard/fengwo_node_selector.dart';
 import 'package:fl_clash/views/dashboard/widgets/dashboard_node_entry.dart';
 import 'package:fl_clash/views/dashboard/widgets/dashboard_subscription_refresh_button.dart';
@@ -79,52 +78,7 @@ class FengWoMobileDashboard extends ConsumerWidget {
       statusAvailable: !globalState.isOfflineMode,
     );
     final traffic = ref.watch(trafficsProvider).list.safeLast(const Traffic());
-    final ipInfo = ref.watch(
-      networkDetectionProvider.select((state) => state.originIpInfo),
-    );
-    final mapNodes = currentGroup == null
-        ? const <FengWoWorldMapNode>[]
-        : currentGroup.all.map((proxy) {
-            final connectionDelay = ref.watch(
-              connectionDelayProvider(
-                proxyName: proxy.name,
-                testUrl: currentGroup.testUrl,
-              ),
-            );
-            final standardDelay = ref.watch(
-              standardDelayProvider(
-                proxyName: proxy.name,
-                testUrl: currentGroup.testUrl,
-              ),
-            );
-            final fallbackDelay = ref.watch(
-              delayProvider(
-                proxyName: proxy.name,
-                testUrl: currentGroup.testUrl,
-              ),
-            );
-            return FengWoWorldMapNode(
-              name: proxy.name,
-              delay: connectionDelay ?? standardDelay ?? fallbackDelay,
-              connectionDelay: connectionDelay,
-              standardDelay: standardDelay,
-              backendStatus: resolveXboardNodeDisplayStatus(
-                ref.watch(realSelectedProxyStateProvider(proxy.name)).proxyName,
-                globalState.xboardNodes,
-                statusAvailable: !globalState.isOfflineMode,
-              ),
-            );
-          }).toList();
     final subscription = globalState.xboardSubscription;
-    final xboardNodes = globalState.xboardNodes;
-    final countryCount = xboardNodes.isEmpty
-        ? mapNodes
-              .map((node) => node.countryCode ?? node.name)
-              .map(fengWoNodeCountryCode)
-              .whereType<String>()
-              .toSet()
-              .length
-        : xboardTagCount(xboardNodes);
     return Material(
       color: colors.background,
       child: SafeArea(
@@ -188,15 +142,6 @@ class FengWoMobileDashboard extends ConsumerWidget {
                 const SizedBox(height: 14),
                 _MobileModeSelector(colors: colors),
                 const SizedBox(height: 14),
-                _MobileWorldMapCard(
-                  colors: colors,
-                  isStart: isStart,
-                  nodeName: rawNodeName,
-                  ipInfo: ipInfo,
-                  nodes: mapNodes,
-                  countryCount: countryCount,
-                ),
-                const SizedBox(height: 16),
                 _MobileNodeCard(
                   colors: colors,
                   isStart: isStart,
@@ -749,94 +694,6 @@ class _MobileModeItem extends StatelessWidget {
   }
 }
 
-class _MobileWorldMapCard extends StatelessWidget {
-  final _MobileDashboardColors colors;
-  final bool isStart;
-  final String nodeName;
-  final IpInfo? ipInfo;
-  final List<FengWoWorldMapNode> nodes;
-  final int countryCount;
-
-  const _MobileWorldMapCard({
-    required this.colors,
-    required this.isStart,
-    required this.nodeName,
-    required this.ipInfo,
-    required this.nodes,
-    required this.countryCount,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.appLocalizations;
-    return _MobileCard(
-      key: const ValueKey('fengwo-mobile-world-map-card'),
-      colors: colors,
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.shield_outlined, color: colors.primary, size: 22),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 3,
-                child: Text(
-                  l10n.globalAccelerationNetwork,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colors.text,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                flex: 2,
-                child: Text(
-                  l10n.countriesCount(countryCount),
-                  key: const ValueKey('fengwo-mobile-map-country-count'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.end,
-                  style: TextStyle(
-                    color: colors.muted,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: ColoredBox(
-                color: colors.primarySoft.withValues(alpha: 0.34),
-                child: FengWoWorldMap(
-                  key: const ValueKey('fengwo-mobile-world-map'),
-                  isStart: isStart,
-                  showRoute: true,
-                  interactive: true,
-                  opacity: 0.82,
-                  nodeName: nodeName,
-                  ipInfo: ipInfo,
-                  nodes: nodes,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _MobileNodeCard extends StatelessWidget {
   final _MobileDashboardColors colors;
   final bool isStart;
@@ -1046,30 +903,6 @@ class _MobileTrafficCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 13),
-          Row(
-            children: [
-              Expanded(
-                child: _MobileTrafficMetric(
-                  colors: colors,
-                  icon: Icons.arrow_downward_rounded,
-                  color: colors.primary,
-                  label: l10n.download,
-                  value: '${traffic.down.traffic.show}/s',
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _MobileTrafficMetric(
-                  colors: colors,
-                  icon: Icons.arrow_upward_rounded,
-                  color: const Color(0xFF8A4DFF),
-                  label: l10n.upload,
-                  value: '${traffic.up.traffic.show}/s',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
           Container(
             key: const ValueKey('fengwo-mobile-traffic-details'),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
@@ -1118,6 +951,30 @@ class _MobileTrafficCard extends StatelessWidget {
               ),
             ),
           ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _MobileTrafficMetric(
+                  colors: colors,
+                  icon: Icons.arrow_downward_rounded,
+                  color: colors.primary,
+                  label: l10n.download,
+                  value: '${traffic.down.traffic.show}/s',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _MobileTrafficMetric(
+                  colors: colors,
+                  icon: Icons.arrow_upward_rounded,
+                  color: const Color(0xFF8A4DFF),
+                  label: l10n.upload,
+                  value: '${traffic.up.traffic.show}/s',
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
           SubscriptionPlanActionBar(
             key: const ValueKey('fengwo-mobile-traffic-plan-actions'),
