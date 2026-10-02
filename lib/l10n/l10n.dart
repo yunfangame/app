@@ -9393,30 +9393,30 @@ class AppLocalizations {
     return Intl.message('Reject', name: 'reject', desc: '', args: []);
   }
 
-  /// `Campus network mode`
+  /// `Anti-interference mode`
   String get campusNetworkMode {
     return Intl.message(
-      'Campus network mode',
+      'Anti-interference mode',
       name: 'campusNetworkMode',
       desc: '',
       args: [],
     );
   }
 
-  /// `Switch to dedicated entry routes on campus networks`
+  /// `Switch to dedicated entry routes to improve connectivity on networks affected by interference`
   String get campusNetworkModeSubtitle {
     return Intl.message(
-      'Switch to dedicated entry routes on campus networks',
+      'Switch to dedicated entry routes to improve connectivity on networks affected by interference',
       name: 'campusNetworkModeSubtitle',
       desc: '',
       args: [],
     );
   }
 
-  /// `Enable campus network mode`
+  /// `Enable anti-interference mode`
   String get campusNetworkSwitch {
     return Intl.message(
-      'Enable campus network mode',
+      'Enable anti-interference mode',
       name: 'campusNetworkSwitch',
       desc: '',
       args: [],
@@ -9483,30 +9483,30 @@ class AppLocalizations {
     );
   }
 
-  /// `Campus network mode is enabled and active`
+  /// `Anti-interference mode is enabled and active`
   String get campusNetworkEnabled {
     return Intl.message(
-      'Campus network mode is enabled and active',
+      'Anti-interference mode is enabled and active',
       name: 'campusNetworkEnabled',
       desc: '',
       args: [],
     );
   }
 
-  /// `Campus network mode is disabled`
+  /// `Anti-interference mode is disabled`
   String get campusNetworkDisabled {
     return Intl.message(
-      'Campus network mode is disabled',
+      'Anti-interference mode is disabled',
       name: 'campusNetworkDisabled',
       desc: '',
       args: [],
     );
   }
 
-  /// `Failed to apply campus network mode. Check your connection and try again`
+  /// `Failed to apply anti-interference mode. Check your connection and try again`
   String get campusNetworkApplyFailed {
     return Intl.message(
-      'Failed to apply campus network mode. Check your connection and try again',
+      'Failed to apply anti-interference mode. Check your connection and try again',
       name: 'campusNetworkApplyFailed',
       desc: '',
       args: [],
@@ -10868,10 +10868,10 @@ class AppLocalizations {
     );
   }
 
-  /// `Campus network mode is applying DNS override. The override switch is managed by campus network mode while its hosts configuration is active.`
+  /// `Anti-interference mode is forcing DNS override. The override switch is managed by anti-interference mode while the entry route hosts configuration is active.`
   String get dnsAdvancedCampusOverrideActive {
     return Intl.message(
-      'Campus network mode is applying DNS override. The override switch is managed by campus network mode while its hosts configuration is active.',
+      'Anti-interference mode is forcing DNS override. The override switch is managed by anti-interference mode while the entry route hosts configuration is active.',
       name: 'dnsAdvancedCampusOverrideActive',
       desc: '',
       args: [],

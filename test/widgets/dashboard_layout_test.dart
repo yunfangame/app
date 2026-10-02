@@ -229,6 +229,83 @@ void main() {
     expect(tester.takeException(), null);
   });
 
+  for (final scenario in const [
+    (size: Size(1440, 900), scale: 1.0, columns: 4),
+    (size: Size(864, 677), scale: 1.0, columns: 2),
+    (size: Size(1440, 900), scale: 1.8, columns: 2),
+    (size: Size(640, 720), scale: 1.8, columns: 1),
+  ]) {
+    testWidgets(
+      'desktop metrics use ${scenario.columns} columns at ${scenario.size}, text ${scenario.scale}',
+      (tester) async {
+        tester.view.physicalSize = scenario.size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        addTearDown(globalState.clearXboardSession);
+        globalState.container = container;
+        globalState.xboardSession = _testTrafficSession();
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: _TestApp(
+              textScaler: TextScaler.linear(scenario.scale),
+              child: const FengWoDesktopDashboard(),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final cards = [
+          'fengwo-desktop-latency',
+          'fengwo-desktop-traffic-details',
+          'fengwo-desktop-download',
+          'fengwo-desktop-upload',
+        ].map((key) => tester.getRect(find.byKey(ValueKey(key)))).toList();
+        for (var index = 0; index < cards.length; index++) {
+          final rowStart = index ~/ scenario.columns * scenario.columns;
+          expect(cards[index].top, closeTo(cards[rowStart].top, 0.1));
+          if (index % scenario.columns > 0) {
+            expect(cards[index].left, greaterThan(cards[index - 1].right));
+          } else if (index > 0) {
+            expect(cards[index].top, greaterThan(cards[index - 1].bottom));
+          }
+        }
+        expect(cards.first.left, closeTo(49, 0.1));
+        expect(
+          cards[scenario.columns - 1].right,
+          closeTo(scenario.size.width - 49, 0.1),
+        );
+        expect(
+          find.byKey(const ValueKey('fengwo-global-network-map')),
+          findsNothing,
+        );
+        expect(find.byType(DashboardNodeEntry), findsOneWidget);
+        if (scenario.columns == 1) {
+          await tester.drag(
+            find.byKey(const ValueKey('fengwo-desktop-mode-scroll')),
+            const Offset(-600, 0),
+          );
+          await tester.pumpAndSettle();
+          final systemProxy = find.byKey(
+            const ValueKey('fengwo-desktop-system-proxy'),
+          );
+          expect(systemProxy.hitTestable(), findsOneWidget);
+          final previous = container.read(networkSettingProvider).systemProxy;
+          await tester.tap(systemProxy);
+          await tester.pump();
+          expect(
+            container.read(networkSettingProvider).systemProxy,
+            !previous,
+          );
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   for (final (mobile, locale) in [
     (false, const Locale('en')),
     (true, const Locale('en')),
@@ -823,6 +900,25 @@ void main() {
       const ValueKey('fengwo-mobile-traffic-details'),
     );
     expect(trafficDetails, findsOneWidget);
+    final latencyCard = find.byKey(const ValueKey('fengwo-mobile-node-card'));
+    final downloadSpeed = find.text(l10n.download);
+    final uploadSpeed = find.text(l10n.upload);
+    expect(
+      tester.getRect(latencyCard).bottom,
+      lessThan(tester.getRect(trafficDetails).top),
+    );
+    expect(
+      tester.getRect(trafficDetails).bottom,
+      lessThan(tester.getRect(downloadSpeed).top),
+    );
+    expect(
+      tester.getRect(downloadSpeed).top,
+      closeTo(tester.getRect(uploadSpeed).top, 0.1),
+    );
+    expect(
+      tester.getRect(downloadSpeed).right,
+      lessThan(tester.getRect(uploadSpeed).left),
+    );
     expect(
       find.descendant(
         of: trafficDetails,
@@ -1321,190 +1417,144 @@ void main() {
     );
   }
 
-  testWidgets('desktop map shows directional route endpoints', (tester) async {
-    tester.view.physicalSize = const Size(1440, 900);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets(
+    'desktop dashboard keeps the background map and fills the metrics panel',
+    (tester) async {
+      tester.view.physicalSize = const Size(1440, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-    const nodeName = '新加坡专线节点';
-    const profile = Profile(
-      id: 1,
-      autoUpdateDuration: Duration.zero,
-      currentGroupName: '自动选择',
-      selectedMap: {'自动选择': nodeName},
-    );
-    const group = Group(
-      name: '自动选择',
-      type: GroupType.Selector,
-      hidden: false,
-      now: nodeName,
-      all: [
-        Proxy(name: nodeName, type: 'ss'),
-        Proxy(name: '新加坡备用节点', type: 'hysteria2'),
-      ],
-    );
-    final container = ProviderContainer(
-      overrides: [
-        profilesProvider.overrideWithValue([profile]),
-        groupsProvider.overrideWithValue([group]),
-        currentProfileProvider.overrideWithValue(profile),
-        runTimeProvider.overrideWithBuild((_, _) => 1000),
-        networkDetectionProvider.overrideWithValue(
-          const NetworkDetectionState(
-            isLoading: false,
-            ipInfo: IpInfo(
-              ip: '198.51.100.1',
-              countryCode: 'CN',
-              latitude: 31.2304,
-              longitude: 121.4737,
-            ),
-            originIpInfo: IpInfo(
-              ip: '198.51.100.1',
-              countryCode: 'CN',
-              latitude: 31.2304,
-              longitude: 121.4737,
+      const nodeName = '新加坡专线节点';
+      const profile = Profile(
+        id: 1,
+        autoUpdateDuration: Duration.zero,
+        currentGroupName: '自动选择',
+        selectedMap: {'自动选择': nodeName},
+      );
+      const group = Group(
+        name: '自动选择',
+        type: GroupType.Selector,
+        hidden: false,
+        now: nodeName,
+        all: [
+          Proxy(name: nodeName, type: 'ss'),
+          Proxy(name: '新加坡备用节点', type: 'hysteria2'),
+        ],
+      );
+      final container = ProviderContainer(
+        overrides: [
+          profilesProvider.overrideWithValue([profile]),
+          groupsProvider.overrideWithValue([group]),
+          currentProfileProvider.overrideWithValue(profile),
+          runTimeProvider.overrideWithBuild((_, _) => 1000),
+          networkDetectionProvider.overrideWithValue(
+            const NetworkDetectionState(
+              isLoading: false,
+              ipInfo: IpInfo(
+                ip: '198.51.100.1',
+                countryCode: 'CN',
+                latitude: 31.2304,
+                longitude: 121.4737,
+              ),
+              originIpInfo: IpInfo(
+                ip: '198.51.100.1',
+                countryCode: 'CN',
+                latitude: 31.2304,
+                longitude: 121.4737,
+              ),
             ),
           ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(globalState.clearXboardSession);
+      globalState.container = container;
+      globalState.xboardSession = _testTrafficSession();
+      globalState.xboardNodes = const [
+        XboardNodeData(
+          name: nodeName,
+          type: 'shadowsocks',
+          rate: 1,
+          tags: ['SG'],
+          isOnline: true,
+          rawData: {},
         ),
-      ],
-    );
-    addTearDown(container.dispose);
-    addTearDown(globalState.clearXboardSession);
-    globalState.container = container;
-    globalState.xboardSession = _testTrafficSession();
-    globalState.xboardNodes = const [
-      XboardNodeData(
-        name: nodeName,
-        type: 'shadowsocks',
-        rate: 1,
-        tags: ['SG'],
-        isOnline: true,
-        rawData: {},
-      ),
-      XboardNodeData(
-        name: '新加坡备用节点',
-        type: 'hysteria2',
-        rate: 1.5,
-        tags: ['SG'],
-        isOnline: true,
-        rawData: {},
-      ),
-      XboardNodeData(
-        name: '日本专线节点',
-        type: 'hysteria2',
-        rate: 2,
-        tags: ['JP'],
-        isOnline: true,
-        rawData: {},
-      ),
-    ];
+        XboardNodeData(
+          name: '新加坡备用节点',
+          type: 'hysteria2',
+          rate: 1.5,
+          tags: ['SG'],
+          isOnline: true,
+          rawData: {},
+        ),
+        XboardNodeData(
+          name: '日本专线节点',
+          type: 'hysteria2',
+          rate: 2,
+          tags: ['JP'],
+          isOnline: true,
+          rawData: {},
+        ),
+      ];
 
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: const _TestApp(child: FengWoDesktopDashboard()),
-      ),
-    );
-    await tester.pump();
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const _TestApp(child: FengWoDesktopDashboard()),
+        ),
+      );
+      await tester.pump();
 
-    final userEndpoint = find.byKey(const ValueKey('fengwo-route-user'));
-    final nodeEndpoint = find.byKey(const ValueKey('fengwo-route-node'));
-    final globalMap = find.byKey(const ValueKey('fengwo-global-network-map'));
-    final focusedMap = tester.widget<FlutterMap>(
-      find.descendant(of: globalMap, matching: find.byType(FlutterMap)),
-    );
-    expect(
-      focusedMap.mapController!.camera.center.latitude,
-      closeTo(31.2304, 0.001),
-    );
-    expect(
-      focusedMap.mapController!.camera.center.longitude,
-      closeTo(121.4737, 0.001),
-    );
-    expect(
-      find.descendant(
-        of: globalMap,
-        matching: find.byKey(const ValueKey('fengwo-user-focus-pulse')),
-      ),
-      findsOneWidget,
-    );
-    final singaporeLabel = find.descendant(
-      of: globalMap,
-      matching: find.byKey(const ValueKey('fengwo-map-country-SG')),
-    );
-    expect(singaporeLabel, findsOneWidget);
-    expect(
-      find.descendant(of: singaporeLabel, matching: find.text('Singapore')),
-      findsOneWidget,
-    );
-    expect(
-      find.byWidgetPredicate(
-        (widget) => widget.runtimeType.toString() == '_MapLabel',
-      ),
-      findsNothing,
-    );
-    expect(userEndpoint, findsOneWidget);
-    expect(nodeEndpoint, findsOneWidget);
-    final userContext = tester.element(userEndpoint);
-    expect(
-      find.descendant(
-        of: userEndpoint,
-        matching: find.text(userContext.appLocalizations.userMapLabel),
-        matchRoot: true,
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: nodeEndpoint,
-        matching: find.textContaining(nodeName),
-        matchRoot: true,
-      ),
-      findsNothing,
-    );
-    expect(find.byKey(const ValueKey('fengwo-map-zoom-in')), findsOneWidget);
-    final l10n = tester
-        .element(find.byType(FengWoDesktopDashboard))
-        .appLocalizations;
-    final trafficDetails = find.byKey(
-      const ValueKey('fengwo-desktop-traffic-details'),
-    );
-    expect(trafficDetails, findsOneWidget);
-    expect(
-      find.descendant(
-        of: trafficDetails,
-        matching: find.text(l10n.usedTrafficLabel),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(of: trafficDetails, matching: find.text('658 GB')),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(of: trafficDetails, matching: find.text('1342 GB')),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(of: trafficDetails, matching: find.text('2000 GB')),
-      findsOneWidget,
-    );
-    expect(find.text(l10n.nodesCount(3)), findsOneWidget);
-    expect(find.text(l10n.countriesCount(2)), findsOneWidget);
-    final networkNodeCount = find.byKey(
-      const ValueKey('fengwo-desktop-network-country-count'),
-    );
-    expect(networkNodeCount, findsOneWidget);
-    expect(tester.widget<Text>(networkNodeCount).data, l10n.countriesCount(2));
-    final map = tester.widget<FlutterMap>(find.byType(FlutterMap).first);
-    final initialZoom = map.mapController!.camera.zoom;
-    await tester.tap(find.byKey(const ValueKey('fengwo-map-zoom-in')));
-    await tester.pump();
-    expect(map.mapController!.camera.zoom, greaterThan(initialZoom));
-    expect(find.byType(RichAttributionWidget), findsOneWidget);
-    expect(tester.takeException(), null);
-  });
+      expect(
+        find.byKey(const ValueKey('fengwo-global-network-map')),
+        findsNothing,
+      );
+      expect(find.byType(FlutterMap), findsOneWidget);
+      expect(find.byKey(const ValueKey('fengwo-route-user')), findsNothing);
+      expect(find.byKey(const ValueKey('fengwo-route-node')), findsNothing);
+      expect(find.byKey(const ValueKey('fengwo-map-zoom-in')), findsOneWidget);
+      final l10n = tester
+          .element(find.byType(FengWoDesktopDashboard))
+          .appLocalizations;
+      final trafficDetails = find.byKey(
+        const ValueKey('fengwo-desktop-traffic-details'),
+      );
+      expect(trafficDetails, findsOneWidget);
+      expect(
+        find.descendant(
+          of: trafficDetails,
+          matching: find.text(l10n.usedTrafficLabel),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: trafficDetails, matching: find.text('658 GB')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: trafficDetails, matching: find.text('1342 GB')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: trafficDetails, matching: find.text('2000 GB')),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.nodesCount(3)), findsOneWidget);
+      expect(find.text(l10n.globalAccelerationNetwork), findsNothing);
+      expect(
+        find.byKey(const ValueKey('fengwo-desktop-network-country-count')),
+        findsNothing,
+      );
+      final map = tester.widget<FlutterMap>(find.byType(FlutterMap).first);
+      final initialZoom = map.mapController!.camera.zoom;
+      await tester.tap(find.byKey(const ValueKey('fengwo-map-zoom-in')));
+      await tester.pump();
+      expect(map.mapController!.camera.zoom, greaterThan(initialZoom));
+      expect(find.byType(RichAttributionWidget), findsNothing);
+      expect(tester.takeException(), null);
+    },
+  );
 
   testWidgets('world map centers a country-only IP result', (tester) async {
     tester.view.physicalSize = const Size(820, 520);
@@ -1532,10 +1582,7 @@ void main() {
     final map = tester.widget<FlutterMap>(find.byType(FlutterMap));
     expect(map.mapController!.camera.center.latitude, closeTo(1.35, 0.001));
     expect(map.mapController!.camera.center.longitude, closeTo(103.8, 0.001));
-    expect(
-      find.byKey(const ValueKey('fengwo-user-focus-pulse')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('fengwo-user-focus-pulse')), findsNothing);
     expect(tester.takeException(), null);
   });
 
@@ -1571,7 +1618,7 @@ void main() {
     );
     expect(find.byKey(const ValueKey('fengwo-route-user')), findsOneWidget);
     expect(find.byKey(const ValueKey('fengwo-route-node')), findsOneWidget);
-    expect(find.byKey(const ValueKey('fengwo-route-progress')), findsOneWidget);
+    expect(find.byKey(const ValueKey('fengwo-route-progress')), findsNothing);
     expect(tester.takeException(), null);
   });
 
@@ -1907,7 +1954,7 @@ void main() {
     expect(tester.takeException(), null);
   });
 
-  testWidgets('world map animates a node while latency testing is active', (
+  testWidgets('world map shows a static node while latency testing is active', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(520, 320);
@@ -1932,12 +1979,14 @@ void main() {
     await tester.pump();
 
     final pulse = find.byKey(const ValueKey('fengwo-map-node-pulse-$nodeName'));
-    expect(pulse, findsOneWidget);
-    final initialSize = tester.getSize(pulse);
+    expect(pulse, findsNothing);
+    final dot = find.byKey(const ValueKey('fengwo-map-node-dot-$nodeName'));
+    final initialSize = tester.getSize(dot);
 
     await tester.pump(const Duration(milliseconds: 500));
 
-    expect(tester.getSize(pulse).width, greaterThan(initialSize.width));
+    expect(tester.getSize(dot), initialSize);
+    expect(tester.binding.transientCallbackCount, 0);
     expect(tester.takeException(), null);
   });
 
@@ -2059,11 +2108,8 @@ void main() {
     expect(find.byType(FlutterMap), findsOneWidget);
     expect(find.byKey(const ValueKey('fengwo-route-user')), findsOneWidget);
     expect(find.byKey(const ValueKey('fengwo-route-node')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('fengwo-user-focus-pulse')),
-      findsOneWidget,
-    );
-    expect(find.byKey(const ValueKey('fengwo-route-progress')), findsOneWidget);
+    expect(find.byKey(const ValueKey('fengwo-user-focus-pulse')), findsNothing);
+    expect(find.byKey(const ValueKey('fengwo-route-progress')), findsNothing);
     expect(find.text(metadataNode.name), findsNothing);
     expect(
       find.byKey(const ValueKey('fengwo-node-status-scrollable-list')),

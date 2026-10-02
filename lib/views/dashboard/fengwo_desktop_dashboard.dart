@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 
 import 'package:fl_clash/common/common.dart';
-import 'package:fl_clash/common/fengwo_node_country.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
@@ -185,23 +184,37 @@ class _FengWoDesktopDashboardState
     final delay = connectionDelay ?? standardDelay ?? fallbackDelay;
     final trafficHistory = ref.watch(trafficsProvider).list;
     final traffic = trafficHistory.safeLast(const Traffic());
-    final ipInfo = ref.watch(
-      networkDetectionProvider.select((state) => state.originIpInfo),
-    );
     final subscription = globalState.xboardSubscription;
     final xboardNodes = globalState.xboardNodes;
     final totalNodeCount = xboardNodes.isEmpty
         ? currentGroup?.all.length ?? 0
         : xboardNodes.length;
-    final countryCount = fengWoCountryCodesFromTags(
-      xboardNodes.expand((node) => node.tags),
-    ).length;
     return Material(
       color: colors.background,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final contentHeight = math.max(constraints.maxHeight, 720.0);
-          final panelHeight = (contentHeight * 0.42).clamp(290.0, 570.0);
+          final textScale = math.max(
+            1.0,
+            MediaQuery.textScalerOf(context).scale(13) / 13,
+          );
+          final metricsWidth = constraints.maxWidth - 96;
+          final minimumCardWidth = 220 * textScale;
+          final metricColumns = metricsWidth >= minimumCardWidth * 4 + 30
+              ? 4
+              : metricsWidth >= minimumCardWidth * 2 + 10
+              ? 2
+              : 1;
+          final metricHeight = 132 * textScale;
+          final metricRows = 4 ~/ metricColumns;
+          final panelHeight =
+              metricRows * metricHeight +
+              (metricRows - 1) * 10 +
+              156 * textScale +
+              36;
+          final contentHeight = math.max(
+            constraints.maxHeight,
+            panelHeight + 400 * textScale,
+          );
           return SingleChildScrollView(
             key: const ValueKey('fengwo-desktop-dashboard-scroll'),
             child: SizedBox(
@@ -250,39 +263,23 @@ class _FengWoDesktopDashboardState
                               right: 30,
                               bottom: 24,
                               height: panelHeight,
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    flex: 47,
-                                    child: _ConnectionStatusPanel(
-                                      colors: colors,
-                                      isStart: isStart,
-                                      delay: delay,
-                                      connectionDelay: connectionDelay,
-                                      standardDelay: standardDelay,
-                                      traffic: traffic,
-                                      trafficHistory: trafficHistory,
-                                      subscription: subscription,
-                                      onRefresh: currentGroup == null
-                                          ? null
-                                          : () => delayTest(
-                                              currentGroup.all,
-                                              currentGroup.testUrl,
-                                            ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 18),
-                                  Expanded(
-                                    flex: 53,
-                                    child: _GlobalNetworkPanel(
-                                      colors: colors,
-                                      nodeName: nodeName,
-                                      isStart: isStart,
-                                      ipInfo: ipInfo,
-                                      countryCount: countryCount,
-                                    ),
-                                  ),
-                                ],
+                              child: _ConnectionStatusPanel(
+                                colors: colors,
+                                isStart: isStart,
+                                delay: delay,
+                                connectionDelay: connectionDelay,
+                                standardDelay: standardDelay,
+                                traffic: traffic,
+                                trafficHistory: trafficHistory,
+                                subscription: subscription,
+                                metricColumns: metricColumns,
+                                metricHeight: metricHeight,
+                                onRefresh: currentGroup == null
+                                    ? null
+                                    : () => delayTest(
+                                        currentGroup.all,
+                                        currentGroup.testUrl,
+                                      ),
                               ),
                             ),
                           ],
@@ -624,48 +621,52 @@ class _ModeSelector extends ConsumerWidget {
           ),
         ],
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _ModeItem(
-            colors: colors,
-            icon: Icons.route_rounded,
-            label: l10n.rule,
-            selected: mode == Mode.rule,
-            onTap: () =>
-                ref.read(setupActionProvider.notifier).changeMode(Mode.rule),
-          ),
-          _ModeItem(
-            key: const ValueKey('fengwo-desktop-global-mode'),
-            colors: colors,
-            icon: Icons.public_rounded,
-            label: l10n.global,
-            selected: mode == Mode.global,
-            onTap: () {
-              requestGlobalModeSwitch(
-                context,
-                ref,
-                skipConfirmation: skipGlobalModeConfirmation,
-              );
-            },
-          ),
-          _ModeItem(
-            colors: colors,
-            icon: Icons.account_tree_outlined,
-            label: l10n.tun,
-            selected: tunEnabled,
-            onTap: () => ref.read(systemActionProvider.notifier).updateTun(),
-          ),
-          _ModeItem(
-            key: const ValueKey('fengwo-desktop-system-proxy'),
-            colors: colors,
-            icon: Icons.lan_outlined,
-            label: l10n.systemProxy,
-            selected: systemProxyEnabled,
-            onTap: () =>
-                ref.read(systemActionProvider.notifier).updateSystemProxy(),
-          ),
-        ],
+      child: SingleChildScrollView(
+        key: const ValueKey('fengwo-desktop-mode-scroll'),
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _ModeItem(
+              colors: colors,
+              icon: Icons.route_rounded,
+              label: l10n.rule,
+              selected: mode == Mode.rule,
+              onTap: () =>
+                  ref.read(setupActionProvider.notifier).changeMode(Mode.rule),
+            ),
+            _ModeItem(
+              key: const ValueKey('fengwo-desktop-global-mode'),
+              colors: colors,
+              icon: Icons.public_rounded,
+              label: l10n.global,
+              selected: mode == Mode.global,
+              onTap: () {
+                requestGlobalModeSwitch(
+                  context,
+                  ref,
+                  skipConfirmation: skipGlobalModeConfirmation,
+                );
+              },
+            ),
+            _ModeItem(
+              colors: colors,
+              icon: Icons.account_tree_outlined,
+              label: l10n.tun,
+              selected: tunEnabled,
+              onTap: () => ref.read(systemActionProvider.notifier).updateTun(),
+            ),
+            _ModeItem(
+              key: const ValueKey('fengwo-desktop-system-proxy'),
+              colors: colors,
+              icon: Icons.lan_outlined,
+              label: l10n.systemProxy,
+              selected: systemProxyEnabled,
+              onTap: () =>
+                  ref.read(systemActionProvider.notifier).updateSystemProxy(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -725,6 +726,8 @@ class _ConnectionStatusPanel extends StatelessWidget {
   final List<Traffic> trafficHistory;
   final XboardSubscriptionData? subscription;
   final VoidCallback? onRefresh;
+  final int metricColumns;
+  final double metricHeight;
 
   const _ConnectionStatusPanel({
     required this.colors,
@@ -736,6 +739,8 @@ class _ConnectionStatusPanel extends StatelessWidget {
     required this.trafficHistory,
     required this.subscription,
     required this.onRefresh,
+    required this.metricColumns,
+    required this.metricHeight,
   });
 
   @override
@@ -788,24 +793,25 @@ class _ConnectionStatusPanel extends StatelessWidget {
               ),
               Divider(height: 20, color: colors.outline),
               SizedBox(
-                height: math.max(
-                  240 * MediaQuery.textScalerOf(context).scale(13) / 13,
-                  panelConstraints.maxHeight - 140,
-                ),
+                height:
+                    (4 ~/ metricColumns) * metricHeight +
+                    (4 ~/ metricColumns - 1) * 10,
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final cellWidth = (constraints.maxWidth - 10) / 2;
-                    final cellHeight = (constraints.maxHeight - 10) / 2;
+                    final cellWidth =
+                        (constraints.maxWidth - 10 * (metricColumns - 1)) /
+                        metricColumns;
                     return GridView.count(
                       physics: const NeverScrollableScrollPhysics(),
-                      crossAxisCount: 2,
-                      childAspectRatio: cellWidth / cellHeight,
+                      crossAxisCount: metricColumns,
+                      childAspectRatio: cellWidth / metricHeight,
                       crossAxisSpacing: 10,
                       mainAxisSpacing: 10,
                       children: [
                         Tooltip(
                           message: l10n.referenceDelayExplanation,
                           child: _MetricCard(
+                            key: const ValueKey('fengwo-desktop-latency'),
                             colors: colors,
                             icon: Icons.equalizer_rounded,
                             color: _delayColor(delay, colors),
@@ -830,7 +836,17 @@ class _ConnectionStatusPanel extends StatelessWidget {
                             latency: delay,
                           ),
                         ),
+                        _TrafficDetailsMetricCard(
+                          colors: colors,
+                          used: used,
+                          remaining: remaining,
+                          total: total,
+                          progress: total > 0
+                              ? (used / total).clamp(0, 1).toDouble()
+                              : 0,
+                        ),
                         _MetricCard(
+                          key: const ValueKey('fengwo-desktop-download'),
                           colors: colors,
                           icon: Icons.arrow_downward_rounded,
                           color: colors.primary,
@@ -842,6 +858,7 @@ class _ConnectionStatusPanel extends StatelessWidget {
                               .toList(),
                         ),
                         _MetricCard(
+                          key: const ValueKey('fengwo-desktop-upload'),
                           colors: colors,
                           icon: Icons.arrow_upward_rounded,
                           color: const Color(0xFF8A4DFF),
@@ -851,15 +868,6 @@ class _ConnectionStatusPanel extends StatelessWidget {
                           samples: trafficHistory
                               .map((item) => item.up)
                               .toList(),
-                        ),
-                        _TrafficDetailsMetricCard(
-                          colors: colors,
-                          used: used,
-                          remaining: remaining,
-                          total: total,
-                          progress: total > 0
-                              ? (used / total).clamp(0, 1).toDouble()
-                              : 0,
                         ),
                       ],
                     );
@@ -922,6 +930,7 @@ class _MetricCard extends StatelessWidget {
   final bool fitValue;
 
   const _MetricCard({
+    super.key,
     required this.colors,
     required this.icon,
     required this.color,
@@ -1281,119 +1290,6 @@ class _MetricChartPainter extends CustomPainter {
   }
 }
 
-class _GlobalNetworkPanel extends ConsumerWidget {
-  final _DashboardColors colors;
-  final String nodeName;
-  final bool isStart;
-  final IpInfo? ipInfo;
-  final int countryCount;
-
-  const _GlobalNetworkPanel({
-    required this.colors,
-    required this.nodeName,
-    required this.isStart,
-    required this.ipInfo,
-    required this.countryCount,
-  });
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final firstGroup = _currentDashboardGroup(
-      ref,
-      ref.watch(currentProfileProvider),
-    );
-    final mapNodes = firstGroup == null
-        ? const <_WorldNode>[]
-        : firstGroup.all
-              .map((proxy) {
-                final connectionDelay = ref.watch(
-                  connectionDelayProvider(
-                    proxyName: proxy.name,
-                    testUrl: firstGroup.testUrl,
-                  ),
-                );
-                final standardDelay = ref.watch(
-                  standardDelayProvider(
-                    proxyName: proxy.name,
-                    testUrl: firstGroup.testUrl,
-                  ),
-                );
-                final fallbackDelay = ref.watch(
-                  delayProvider(
-                    proxyName: proxy.name,
-                    testUrl: firstGroup.testUrl,
-                  ),
-                );
-                return _WorldNode(
-                  name: proxy.name,
-                  delay: connectionDelay ?? standardDelay ?? fallbackDelay,
-                  connectionDelay: connectionDelay,
-                  standardDelay: standardDelay,
-                  backendStatus: resolveXboardNodeDisplayStatus(
-                    ref
-                        .watch(realSelectedProxyStateProvider(proxy.name))
-                        .proxyName,
-                    globalState.xboardNodes,
-                    statusAvailable: globalState.xboardNodesStatusFresh,
-                  ),
-                );
-              })
-              .toList(growable: false);
-    final l10n = context.appLocalizations;
-    return _GlassPanel(
-      colors: colors,
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.shield_outlined, color: colors.primary, size: 27),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  l10n.globalAccelerationNetwork,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colors.text,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                l10n.countriesCount(countryCount),
-                key: const ValueKey('fengwo-desktop-network-country-count'),
-                maxLines: 1,
-                style: TextStyle(
-                  color: colors.muted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: _ThemedWorldMap(
-              key: const ValueKey('fengwo-global-network-map'),
-              colors: colors,
-              isStart: isStart,
-              showRoute: true,
-              opacity: 0.7,
-              nodeName: nodeName,
-              ipInfo: ipInfo,
-              nodes: mapNodes,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ThemedWorldMap extends StatefulWidget {
   final _DashboardColors colors;
   final bool isStart;
@@ -1407,7 +1303,6 @@ class _ThemedWorldMap extends StatefulWidget {
   final bool showAttribution;
 
   const _ThemedWorldMap({
-    super.key,
     required this.colors,
     required this.isStart,
     required this.showRoute,
@@ -1424,15 +1319,13 @@ class _ThemedWorldMap extends StatefulWidget {
   State<_ThemedWorldMap> createState() => _ThemedWorldMapState();
 }
 
-class _ThemedWorldMapState extends State<_ThemedWorldMap>
-    with SingleTickerProviderStateMixin {
+class _ThemedWorldMapState extends State<_ThemedWorldMap> {
   static const _initialCenter = LatLng(20, 0);
   static const _initialZoom = 1.35;
   static const _userFocusZoom = 1.75;
   static const _minZoom = 1.0;
   static const _maxZoom = 5.0;
 
-  late final AnimationController _controller;
   late final MapController _mapController;
   late double _mapZoom;
   bool _mapReady = false;
@@ -1441,10 +1334,6 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2600),
-    )..repeat();
     _mapController = MapController();
     _mapZoom =
         _mapUserLatLng(widget.ipInfo, showRoute: widget.showRoute) == null
@@ -1454,7 +1343,6 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
 
   @override
   void dispose() {
-    _controller.dispose();
     _mapController.dispose();
     super.dispose();
   }
@@ -1579,7 +1467,6 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
             node: item.node,
             selected: item.node.name == widget.nodeName,
             revealed: item.node.name == _revealedNodeName,
-            animation: _controller,
             onTap: () => _toggleNodeLabel(item.node.name),
           ),
         ),
@@ -1714,38 +1601,6 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap>
               MarkerLayer(markers: nodeMarkers),
               if (endpointMarkers.isNotEmpty)
                 MarkerLayer(markers: endpointMarkers),
-              if (widget.isStart && userPosition != null)
-                AnimatedBuilder(
-                  animation: _controller,
-                  builder: (context, _) {
-                    return MarkerLayer(
-                      markers: [
-                        Marker(
-                          point: userPosition,
-                          width: 42,
-                          height: 42,
-                          child: _UserFocusPulse(
-                            key: const ValueKey('fengwo-user-focus-pulse'),
-                            progress: _controller.value,
-                          ),
-                        ),
-                        if (canDrawRoute)
-                          Marker(
-                            point: _interpolateGeo(
-                              userPosition,
-                              nodePosition,
-                              _controller.value,
-                            ),
-                            width: 18,
-                            height: 18,
-                            child: const _RouteProgressMarker(
-                              key: ValueKey('fengwo-route-progress'),
-                            ),
-                          ),
-                      ],
-                    );
-                  },
-                ),
               if (widget.showAttribution)
                 const RichAttributionWidget(
                   showFlutterMapAttribution: false,
@@ -1802,7 +1657,6 @@ class _NodeMapMarker extends StatelessWidget {
   final _WorldNode node;
   final bool selected;
   final bool revealed;
-  final Animation<double> animation;
   final VoidCallback onTap;
 
   const _NodeMapMarker({
@@ -1811,7 +1665,6 @@ class _NodeMapMarker extends StatelessWidget {
     required this.node,
     required this.selected,
     required this.revealed,
-    required this.animation,
     required this.onTap,
   });
 
@@ -1819,7 +1672,6 @@ class _NodeMapMarker extends StatelessWidget {
   Widget build(BuildContext context) {
     final markerColor = _delayColor(node.delay, colors);
     final diameter = selected ? 12.0 : 9.0;
-    final animated = selected || node.delay == 0;
     return Semantics(
       button: true,
       label: node.name,
@@ -1845,31 +1697,7 @@ class _NodeMapMarker extends StatelessWidget {
               bottom: 4,
               child: SizedBox.square(
                 dimension: 32,
-                child: AnimatedBuilder(
-                  animation: animation,
-                  builder: (context, child) {
-                    final progress = animated ? animation.value : 0.0;
-                    return Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        if (animated)
-                          Container(
-                            key: ValueKey('fengwo-map-node-pulse-${node.name}'),
-                            width: diameter + 16 * progress,
-                            height: diameter + 16 * progress,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: markerColor.withValues(
-                                  alpha: 0.48 * (1 - progress),
-                                ),
-                              ),
-                            ),
-                          ),
-                        child!,
-                      ],
-                    );
-                  },
+                child: Center(
                   child: Container(
                     key: ValueKey('fengwo-map-node-dot-${node.name}'),
                     width: diameter,
@@ -2082,72 +1910,6 @@ class _CountryMapLabel extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _UserFocusPulse extends StatelessWidget {
-  final double progress;
-
-  const _UserFocusPulse({super.key, required this.progress});
-
-  @override
-  Widget build(BuildContext context) {
-    final eased = Curves.easeOut.transform(progress);
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        Container(
-          width: 16 + 24 * eased,
-          height: 16 + 24 * eased,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: _neonRouteColor.withValues(alpha: 0.08 * (1 - eased)),
-            border: Border.all(
-              color: _neonRouteColor.withValues(alpha: 0.75 * (1 - eased)),
-              width: 1.8,
-            ),
-          ),
-        ),
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: _neonRouteColor,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 1.4),
-            boxShadow: [
-              BoxShadow(
-                color: _neonRouteColor.withValues(alpha: 0.68),
-                blurRadius: 10,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _RouteProgressMarker extends StatelessWidget {
-  const _RouteProgressMarker({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: _neonRouteColor,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 1.4),
-        boxShadow: [
-          BoxShadow(
-            color: _neonRouteColor.withValues(alpha: 0.55),
-            blurRadius: 9,
-            spreadRadius: 2,
-          ),
-        ],
       ),
     );
   }
@@ -2493,16 +2255,6 @@ double _wrapLongitude(double longitude) {
     value += 360;
   }
   return value;
-}
-
-LatLng _interpolateGeo(LatLng start, LatLng end, double progress) {
-  var longitudeDelta = end.longitude - start.longitude;
-  if (longitudeDelta > 180) longitudeDelta -= 360;
-  if (longitudeDelta < -180) longitudeDelta += 360;
-  return LatLng(
-    start.latitude + (end.latitude - start.latitude) * progress,
-    _wrapLongitude(start.longitude + longitudeDelta * progress),
-  );
 }
 
 String? fengWoNodeCountryCode(String nodeName) {

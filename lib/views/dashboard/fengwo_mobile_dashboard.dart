@@ -949,30 +949,6 @@ class _MobileTrafficCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 13),
-          Row(
-            children: [
-              Expanded(
-                child: _MobileTrafficMetric(
-                  colors: colors,
-                  icon: Icons.arrow_downward_rounded,
-                  color: colors.primary,
-                  label: l10n.download,
-                  value: '${traffic.down.traffic.show}/s',
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _MobileTrafficMetric(
-                  colors: colors,
-                  icon: Icons.arrow_upward_rounded,
-                  color: const Color(0xFF8A4DFF),
-                  label: l10n.upload,
-                  value: '${traffic.up.traffic.show}/s',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
           Container(
             key: const ValueKey('fengwo-mobile-traffic-details'),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
@@ -1021,6 +997,30 @@ class _MobileTrafficCard extends StatelessWidget {
               ),
             ),
           ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _MobileTrafficMetric(
+                  colors: colors,
+                  icon: Icons.arrow_downward_rounded,
+                  color: colors.primary,
+                  label: l10n.download,
+                  value: '${traffic.down.traffic.show}/s',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _MobileTrafficMetric(
+                  colors: colors,
+                  icon: Icons.arrow_upward_rounded,
+                  color: const Color(0xFF8A4DFF),
+                  label: l10n.upload,
+                  value: '${traffic.up.traffic.show}/s',
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
           SubscriptionPlanActionBar(
             key: const ValueKey('fengwo-mobile-traffic-plan-actions'),

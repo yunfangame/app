@@ -312,13 +312,8 @@ void main() {
           final statistic = find.byKey(
             const ValueKey('fengwo-desktop-network-country-count'),
           );
-          final l10n = tester
-              .element(find.byType(FengWoDesktopDashboard))
-              .appLocalizations;
-          expect(
-            tester.widget<Text>(statistic).data,
-            l10n.countriesCount(count),
-          );
+          expect(statistic, findsNothing);
+          expect(find.byType(FengWoDesktopDashboard), findsOneWidget);
         }
         expect(tester.takeException(), isNull);
       });
@@ -611,10 +606,8 @@ void main() {
             findsOneWidget,
           );
         } else {
-          expect(
-            tester.widget<Text>(statistic).data,
-            currentAppLocalizations.countriesCount(count),
-          );
+          expect(statistic, findsNothing);
+          expect(find.byType(FengWoDesktopDashboard), findsOneWidget);
         }
       }
 
