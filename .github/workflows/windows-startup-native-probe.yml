@@ -34,6 +34,13 @@ jobs:
         run: |
           flutter pub get
           if ($LASTEXITCODE -ne 0) { throw 'Flutter dependencies failed' }
+          Push-Location plugins/setup/buildkit/build_tool
+          try {
+            dart pub get
+            if ($LASTEXITCODE -ne 0) { throw 'Build tool dependencies failed' }
+          } finally {
+            Pop-Location
+          }
           dart tooling/apply_core_patches.dart
           if ($LASTEXITCODE -ne 0) { throw 'Core patch application failed' }
       - name: Analyze native probe

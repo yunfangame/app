@@ -453,8 +453,9 @@ jobs:
             if ([BitConverter]::ToUInt16($bytes, $peOffset + 4) -ne 0x8664) { throw "Expected amd64 binary: $($binary.Name)" }
           }
           if ($app.VersionInfo.ProductName -ne '蜂窝加速器') { throw "Unexpected product name: $($app.VersionInfo.ProductName)" }
-          if ($app.VersionInfo.ProductVersion -ne $env:PACKAGED_VERSION) { throw "Unexpected product version: $($app.VersionInfo.ProductVersion)" }
-          if ($app.VersionInfo.FileVersion -ne $env:PACKAGED_VERSION) { throw "Unexpected file version: $($app.VersionInfo.FileVersion)" }
+          $displayVersion = $env:PACKAGED_VERSION.Split('+')[0]
+          if ($app.VersionInfo.ProductVersion -ne $displayVersion) { throw "Unexpected product version: $($app.VersionInfo.ProductVersion)" }
+          if ($app.VersionInfo.FileVersion -ne $displayVersion) { throw "Unexpected file version: $($app.VersionInfo.FileVersion)" }
           $manifestPath = Join-Path $app.DirectoryName 'manifest.json'
           $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
           $coreHash = (Get-FileHash -LiteralPath $core.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -505,7 +506,8 @@ jobs:
           $expectedTarget = Join-Path $installDir 'FengWo.exe'
           if (-not (Test-Path -LiteralPath $expectedTarget -PathType Leaf)) { throw 'Installed executable not found' }
           $installedVersion = (Get-Item -LiteralPath $expectedTarget).VersionInfo.ProductVersion
-          if ($installedVersion -ne $env:PACKAGED_VERSION) { throw "Unexpected installed version: $installedVersion" }
+          $displayVersion = $env:PACKAGED_VERSION.Split('+')[0]
+          if ($installedVersion -ne $displayVersion) { throw "Unexpected installed version: $installedVersion" }
           $shortcutPath = $shortcutCandidates |
             Select-Object -Unique |
             Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
