@@ -1,0 +1,56 @@
+name: fengwo-windows-startup-native-probe
+run-name: Windows startup runtime probe · ${{ github.sha }}
+
+on:
+  push:
+    tags:
+      - 'fengwo-probe-windows-startup-*'
+
+permissions:
+  contents: read
+
+jobs:
+  native-startup:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.4'
+          cache-dependency-path: core/go.sum
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.44.4'
+          cache: true
+      - name: Prepare dependencies and pinned Core
+        run: |
+          flutter pub get
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter dependencies failed' }
+          dart tooling/apply_core_patches.dart
+          if ($LASTEXITCODE -ne 0) { throw 'Core patch application failed' }
+      - name: Analyze native probe
+        run: |
+          flutter analyze tooling/windows_startup_native_probe.dart --no-fatal-infos
+          if ($LASTEXITCODE -ne 0) { throw 'Native probe analysis failed' }
+      - name: Build native Windows probe
+        run: |
+          flutter build windows --debug --target tooling/windows_startup_native_probe.dart
+          if ($LASTEXITCODE -ne 0) { throw 'Native probe build failed' }
+      - name: Exercise startup connection against real Core and system proxy
+        run: ./tooling/windows/test_startup_native.ps1 -ProbeExecutable ./build/windows/x64/runner/Debug/FengWo.exe -OutputDirectory ./artifacts/windows-startup-native
+      - name: Upload native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-startup-native-${{ github.sha }}
+          path: artifacts/windows-startup-native/**
+          if-no-files-found: warn
+          retention-days: 14
