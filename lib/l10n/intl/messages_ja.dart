@@ -426,8 +426,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "autoLaunchDesc": MessageLookupByLibrary.simpleMessage("システムの自動起動に従う"),
     "autoRefresh": MessageLookupByLibrary.simpleMessage("自動更新"),
     "autoRenew": MessageLookupByLibrary.simpleMessage("自動更新"),
-    "autoRun": MessageLookupByLibrary.simpleMessage("自動実行"),
-    "autoRunDesc": MessageLookupByLibrary.simpleMessage("アプリ起動時に自動実行"),
+    "autoRun": MessageLookupByLibrary.simpleMessage("起動後に自動接続"),
+    "autoRunDesc": MessageLookupByLibrary.simpleMessage(
+      "アプリの起動またはログイン後、前回のモードとノードを復元し、遅延を1回測定してから接続します。前回のノードの測定がタイムアウトしても、そのノードを使用します。",
+    ),
+    "autoRunFailed": MessageLookupByLibrary.simpleMessage(
+      "自動接続に失敗しました。接続ボタンを押して再試行してください。",
+    ),
     "autoSetSystemDns": MessageLookupByLibrary.simpleMessage("オートセットシステムDNS"),
     "autoUpdate": MessageLookupByLibrary.simpleMessage("自動更新"),
     "autoUpdateInterval": MessageLookupByLibrary.simpleMessage("自動更新間隔（分）"),
@@ -1945,6 +1950,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "startOptimization": MessageLookupByLibrary.simpleMessage("検索開始"),
     "startTest": MessageLookupByLibrary.simpleMessage("判定開始"),
     "startVpn": MessageLookupByLibrary.simpleMessage("VPNを開始中..."),
+    "startupSettings": MessageLookupByLibrary.simpleMessage("起動設定"),
+    "startupSettingsSubtitle": MessageLookupByLibrary.simpleMessage(
+      "アプリ起動後の接続動作を設定します",
+    ),
     "status": MessageLookupByLibrary.simpleMessage("ステータス"),
     "statusDesc": MessageLookupByLibrary.simpleMessage("無効時はシステムDNSを使用"),
     "stop": MessageLookupByLibrary.simpleMessage("停止"),

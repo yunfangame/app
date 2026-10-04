@@ -7,6 +7,7 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/views/application_setting.dart';
 import 'package:fl_clash/views/settings/fengwo_dns_advanced.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:fl_clash/widgets/app_update_controls.dart';
@@ -388,6 +389,8 @@ class _FengWoAdvancedSettingsViewState
                           children: [
                             _buildUpdateCard(colors),
                             const SizedBox(height: 16),
+                            _buildStartupCard(colors),
+                            const SizedBox(height: 16),
                             _buildProxyCard(colors),
                             const SizedBox(height: 16),
                             _buildIpv6Card(colors),
@@ -405,6 +408,8 @@ class _FengWoAdvancedSettingsViewState
                       return Column(
                         children: [
                           _buildUpdateCard(colors),
+                          const SizedBox(height: 18),
+                          _buildStartupCard(colors),
                           const SizedBox(height: 18),
                           IntrinsicHeight(
                             child: Row(
@@ -451,6 +456,32 @@ class _FengWoAdvancedSettingsViewState
       key: const ValueKey('advanced-software-update-card'),
       colors: colors,
       child: const AppUpdateSettingsContent(),
+    );
+  }
+
+  Widget _buildStartupCard(_AdvancedColors colors) {
+    final l10n = context.appLocalizations;
+    return _AdvancedCard(
+      key: const ValueKey('advanced-startup-card'),
+      colors: colors,
+      child: Column(
+        children: [
+          _CardHeading(
+            colors: colors,
+            icon: Icons.power_settings_new_rounded,
+            title: l10n.startupSettings,
+            subtitle: l10n.startupSettingsSubtitle,
+            accent: colors.blue,
+          ),
+          const SizedBox(height: 10),
+          const Material(
+            type: MaterialType.transparency,
+            child: AutoRunItem(
+              switchKey: ValueKey('advanced-auto-connect-switch'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

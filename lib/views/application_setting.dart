@@ -115,7 +115,9 @@ class SilentLaunchItem extends ConsumerWidget {
 }
 
 class AutoRunItem extends ConsumerWidget {
-  const AutoRunItem({super.key});
+  final Key? switchKey;
+
+  const AutoRunItem({super.key, this.switchKey});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -123,15 +125,22 @@ class AutoRunItem extends ConsumerWidget {
     final autoRun = ref.watch(
       appSettingProvider.select((state) => state.autoRun),
     );
-    return ListItem.toggle(
+    void updateAutoRun(bool value) {
+      ref
+          .read(appSettingProvider.notifier)
+          .update((state) => state.copyWith(autoRun: value));
+    }
+
+    return ListItem(
       title: Text(appLocalizations.autoRun),
       subtitle: Text(appLocalizations.autoRunDesc),
-      value: autoRun,
-      onChanged: (bool value) {
-        ref
-            .read(appSettingProvider.notifier)
-            .update((state) => state.copyWith(autoRun: value));
-      },
+      padding: const EdgeInsets.only(left: 16, right: 8),
+      onTap: () => updateAutoRun(!autoRun),
+      trailing: Switch(
+        key: switchKey,
+        value: autoRun,
+        onChanged: updateAutoRun,
+      ),
     );
   }
 }

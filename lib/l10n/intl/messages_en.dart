@@ -488,9 +488,14 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "autoRefresh": MessageLookupByLibrary.simpleMessage("Auto refresh"),
     "autoRenew": MessageLookupByLibrary.simpleMessage("Auto-renew"),
-    "autoRun": MessageLookupByLibrary.simpleMessage("AutoRun"),
+    "autoRun": MessageLookupByLibrary.simpleMessage(
+      "Auto-connect after startup",
+    ),
     "autoRunDesc": MessageLookupByLibrary.simpleMessage(
-      "Auto run when the application is opened",
+      "After starting the app or signing in, restore the last mode and node, test latency once, then connect. Keep the previous node if its latency test times out.",
+    ),
+    "autoRunFailed": MessageLookupByLibrary.simpleMessage(
+      "Automatic connection failed. Tap Connect to try again.",
     ),
     "autoSetSystemDns": MessageLookupByLibrary.simpleMessage(
       "Auto set system DNS",
@@ -2306,6 +2311,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "startOptimization": MessageLookupByLibrary.simpleMessage("Start scan"),
     "startTest": MessageLookupByLibrary.simpleMessage("Start test"),
     "startVpn": MessageLookupByLibrary.simpleMessage("Starting VPN..."),
+    "startupSettings": MessageLookupByLibrary.simpleMessage("Startup settings"),
+    "startupSettingsSubtitle": MessageLookupByLibrary.simpleMessage(
+      "Choose connection behavior when the app starts",
+    ),
     "status": MessageLookupByLibrary.simpleMessage("Status"),
     "statusDesc": MessageLookupByLibrary.simpleMessage(
       "System DNS will be used when turned off",

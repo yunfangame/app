@@ -7,6 +7,7 @@ import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/views/application_setting.dart';
 import 'package:fl_clash/views/settings/fengwo_advanced_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -14,6 +15,65 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final size in [const Size(390, 844), const Size(760, 1000)]) {
+    testWidgets(
+      'startup auto-connect defaults off and toggles on Android at ${size.width}',
+      (tester) async {
+        final container = await _pumpCampusSettings(
+          tester,
+          loadConfig: _loadTwoCampusLines,
+          size: size,
+        );
+        final l10n = tester
+            .element(find.byType(FengWoAdvancedSettingsView))
+            .appLocalizations;
+        final startupCard = find.byKey(const ValueKey('advanced-startup-card'));
+        final autoConnect = find.byKey(
+          const ValueKey('advanced-auto-connect-switch'),
+        );
+        final updateRect = tester.getRect(
+          find.byKey(const ValueKey('advanced-software-update-card')),
+        );
+        final startupRect = tester.getRect(startupCard);
+        final proxyRect = tester.getRect(
+          find.byKey(const ValueKey('advanced-proxy-card')),
+        );
+
+        expect(find.text(l10n.startupSettings), findsOne);
+        expect(find.text(l10n.autoRunDesc), findsOne);
+        expect(
+          find.descendant(of: startupCard, matching: find.byType(AutoRunItem)),
+          findsOne,
+        );
+        expect(find.byType(AutoLaunchItem), findsNothing);
+        expect(startupRect.width, updateRect.width);
+        expect(startupRect.top, greaterThan(updateRect.bottom));
+        expect(proxyRect.top, greaterThan(startupRect.bottom));
+        expect(container.read(appSettingProvider).autoRun, isFalse);
+        expect(tester.widget<Switch>(autoConnect).value, isFalse);
+
+        await tester.ensureVisible(autoConnect);
+        await tester.pumpAndSettle();
+        await tester.tap(autoConnect);
+        await tester.pumpAndSettle();
+
+        expect(container.read(appSettingProvider).autoRun, isTrue);
+        expect(tester.widget<Switch>(autoConnect).value, isTrue);
+
+        await tester.ensureVisible(find.text(l10n.autoRun));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(l10n.autoRun));
+        await tester.pumpAndSettle();
+
+        expect(container.read(appSettingProvider).autoRun, isFalse);
+        expect(tester.widget<Switch>(autoConnect).value, isFalse);
+        expect(container.read(appSettingProvider).autoLaunch, isFalse);
+        expect(tester.takeException(), isNull);
+      },
+      variant: const TargetPlatformVariant({TargetPlatform.android}),
+    );
+  }
+
   for (final platform in [
     TargetPlatform.android,
     TargetPlatform.iOS,
@@ -619,8 +679,8 @@ Future<ProviderContainer> _pumpCampusSettings(
   required CampusNetworkConfigLoader loadConfig,
   AppSettingProps initial = const AppSettingProps(),
   CampusNetworkCoreRestarter? restartCore,
+  Size size = const Size(1280, 1000),
 }) async {
-  const size = Size(1280, 1000);
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);

@@ -490,9 +490,14 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "autoRefresh": MessageLookupByLibrary.simpleMessage("Автообновление"),
     "autoRenew": MessageLookupByLibrary.simpleMessage("Автопродление"),
-    "autoRun": MessageLookupByLibrary.simpleMessage("Автозапуск"),
+    "autoRun": MessageLookupByLibrary.simpleMessage(
+      "Автоподключение после запуска",
+    ),
     "autoRunDesc": MessageLookupByLibrary.simpleMessage(
-      "Автоматический запуск при открытии приложения",
+      "После запуска приложения или входа восстановить последние режим и узел, один раз измерить задержку и подключиться. Если проверка прежнего узла превысит время ожидания, продолжить использовать его.",
+    ),
+    "autoRunFailed": MessageLookupByLibrary.simpleMessage(
+      "Не удалось подключиться автоматически. Нажмите «Подключиться», чтобы повторить попытку.",
     ),
     "autoSetSystemDns": MessageLookupByLibrary.simpleMessage(
       "Автоматическая настройка системного DNS",
@@ -2398,6 +2403,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "startOptimization": MessageLookupByLibrary.simpleMessage("Начать поиск"),
     "startTest": MessageLookupByLibrary.simpleMessage("Начать проверку"),
     "startVpn": MessageLookupByLibrary.simpleMessage("Запуск VPN..."),
+    "startupSettings": MessageLookupByLibrary.simpleMessage(
+      "Настройки запуска",
+    ),
+    "startupSettingsSubtitle": MessageLookupByLibrary.simpleMessage(
+      "Настройте подключение при запуске приложения",
+    ),
     "status": MessageLookupByLibrary.simpleMessage("Статус"),
     "statusDesc": MessageLookupByLibrary.simpleMessage(
       "Системный DNS будет использоваться при выключении",
