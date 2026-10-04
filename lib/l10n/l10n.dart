@@ -1334,16 +1334,31 @@ class AppLocalizations {
     );
   }
 
-  /// `AutoRun`
+  /// `Auto-connect after startup`
   String get autoRun {
-    return Intl.message('AutoRun', name: 'autoRun', desc: '', args: []);
+    return Intl.message(
+      'Auto-connect after startup',
+      name: 'autoRun',
+      desc: '',
+      args: [],
+    );
   }
 
-  /// `Auto run when the application is opened`
+  /// `After starting the app or signing in, restore the last mode and node, test latency once, then connect. Keep the previous node if its latency test times out.`
   String get autoRunDesc {
     return Intl.message(
-      'Auto run when the application is opened',
+      'After starting the app or signing in, restore the last mode and node, test latency once, then connect. Keep the previous node if its latency test times out.',
       name: 'autoRunDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Automatic connection failed. Tap Connect to try again.`
+  String get autoRunFailed {
+    return Intl.message(
+      'Automatic connection failed. Tap Connect to try again.',
+      name: 'autoRunFailed',
       desc: '',
       args: [],
     );

@@ -20,6 +20,9 @@ class SystemAction extends _$SystemAction {
   }
 
   Future<void> handleExit([bool needSave = false]) {
+    ref
+        .read(proxiesActionProvider.notifier)
+        .cancelHongKongSelection(manual: true);
     final coordinator = _exitCoordinator ??= SystemExitCoordinator(
       watchdogDuration: exitWatchdogDuration,
       closeWindow: closeWindow,

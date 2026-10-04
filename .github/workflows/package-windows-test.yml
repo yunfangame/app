@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  TEST_BUILD_NUMBER: '2026090701'
+  TEST_BUILD_NUMBER: '2026100401'
 
 jobs:
   package:
@@ -329,6 +329,9 @@ jobs:
             'test/core/protocol_contract_test.dart',
             'test/views/proxies/common_test.dart',
             'test/common/task_test.dart',
+            'test/common/startup_connection_coordinator_test.dart',
+            'test/common/login_routing_coordinator_test.dart',
+            'test/common/xboard_routing_store_test.dart',
             'test/common/api_health_test.dart',
             'test/common/api_network_diagnostic_test.dart',
             'test/common/diagnostic_log_test.dart',
@@ -341,6 +344,8 @@ jobs:
             'test/manager/core_manager_test.dart',
             'test/manager/proxy_manager_test.dart',
             'test/providers/action_test.dart',
+            'test/providers/startup_auto_connect_test.dart',
+            'test/providers/subscription_core_recovery_test.dart',
             'test/providers/system_action_test.dart',
             'test/providers/windows_connection_test.dart',
             'test/providers/network_diagnostic_test.dart',
@@ -416,10 +421,15 @@ jobs:
         run: |
           cmake -S windows -B build/windows/x64 -Dinclude_proxy_tests=ON
           if ($LASTEXITCODE -ne 0) { throw 'Proxy test configuration failed' }
-          cmake --build build/windows/x64 --config Release --target proxy_test
+          cmake --build build/windows/x64 --config Release --target proxy_test proxy_winhttp_compatibility_test
           if ($LASTEXITCODE -ne 0) { throw 'Proxy test compilation failed' }
           ctest --test-dir build/windows/x64/plugins/proxy -C Release --output-on-failure --no-tests=error -R Proxy
           if ($LASTEXITCODE -ne 0) { throw 'Proxy tests failed' }
+          $rawBypass = Join-Path $env:RUNNER_TEMP 'fengwo-raw-bypass.txt'
+          $normalizedBypass = Join-Path $env:RUNNER_TEMP 'fengwo-normalized-bypass.txt'
+          [System.IO.File]::WriteAllText($rawBypass, 'localhost;127.*;10.*;::1', [System.Text.UTF8Encoding]::new($false))
+          & ./build/windows/x64/plugins/proxy/Release/proxy_winhttp_compatibility_test.exe $rawBypass $normalizedBypass
+          if ($LASTEXITCODE -ne 0) { throw 'WinHTTP compatibility test failed' }
 
       - name: Verify Windows archive and runtime window
         env:

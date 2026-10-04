@@ -205,6 +205,10 @@ class ProfilesAction extends _$ProfilesAction {
       await ref.read(profilesProvider.notifier).putDurable(updatedProfile);
       ensureCurrent();
       ref.read(currentProfileIdProvider.notifier).value = updatedProfile.id;
+      final committedProfile = await _readCommittedSubscriptionProfile(
+        updatedProfile,
+        isCurrent: isCurrent,
+      );
       ensureCurrent();
       if (replacingUrl != null && replacingUrl != normalizedUrl) {
         await _removeSubscriptionProfile(
@@ -214,7 +218,7 @@ class ProfilesAction extends _$ProfilesAction {
         );
       }
       ensureCurrent();
-      return updatedProfile;
+      return committedProfile;
     } catch (error, stackTrace) {
       await _rollbackProfileSync(
         transactionSnapshot,
@@ -333,6 +337,7 @@ class ProfilesAction extends _$ProfilesAction {
       ensureCurrent();
       await _bindProfileRuleAccount(updatedProfile.id, ruleAccountKey);
       ensureCurrent();
+      late final Profile committedProfile;
       await runSubscriptionDiagnosticStage(
         stage: 'profile_write',
         recorder: diagnosticRecorder,
@@ -352,6 +357,10 @@ class ProfilesAction extends _$ProfilesAction {
           await ref.read(profilesProvider.notifier).putDurable(updatedProfile);
           ensureCurrent();
           ref.read(currentProfileIdProvider.notifier).value = updatedProfile.id;
+          committedProfile = await _readCommittedSubscriptionProfile(
+            updatedProfile,
+            isCurrent: isCurrent,
+          );
         },
       );
       ensureCurrent();
@@ -370,7 +379,7 @@ class ProfilesAction extends _$ProfilesAction {
         );
       }
       ensureCurrent();
-      return updatedProfile;
+      return committedProfile;
     } catch (error, stackTrace) {
       await _rollbackProfileSync(
         transactionSnapshot,
@@ -379,6 +388,21 @@ class ProfilesAction extends _$ProfilesAction {
       );
       Error.throwWithStackTrace(error, stackTrace);
     }
+  }
+
+  Future<Profile> _readCommittedSubscriptionProfile(
+    Profile expected, {
+    bool Function()? isCurrent,
+  }) async {
+    final profiles = await database.profilesDao.query().get();
+    final committed = profiles.getProfile(expected.id);
+    if (isCurrent?.call() == false ||
+        ref.read(currentProfileIdProvider) != expected.id ||
+        committed == null ||
+        committed.url != expected.url) {
+      throw StateError('profile_sync_superseded');
+    }
+    return committed;
   }
 
   Future<void> removeLegacyXboardSubscriptionProfiles({

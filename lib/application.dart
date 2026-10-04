@@ -6,6 +6,8 @@ import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/application_bootstrap.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/login_routing_coordinator.dart';
+import 'package:fl_clash/common/startup_connection_coordinator.dart';
+import 'package:fl_clash/core/core.dart';
 import 'package:fl_clash/common/saved_node_selection.dart';
 import 'package:fl_clash/common/xboard_routing_store.dart';
 import 'package:fl_clash/common/system_dns.dart';
@@ -14,7 +16,7 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/manager/hotkey_manager.dart';
 import 'package:fl_clash/manager/manager.dart';
-import 'package:fl_clash/models/profile.dart';
+import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/plugins/app.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
@@ -74,6 +76,13 @@ class ApplicationState extends ConsumerState<Application> {
   int? _deferredProfileSyncRevision;
   int? _authenticationBootstrapSessionRevision;
   final _managedProfileSources = <String>{};
+
+  final _startupConnection = StartupConnectionCoordinator();
+  StartupConnectionAttempt? _startupConnectionAttempt;
+  bool _startupAuthenticated = false;
+  bool _startupLatencyTested = false;
+  Profile? _startupRoutingProfile;
+  Mode? _startupRoutingMode;
 
   final _routingStore = XboardRoutingStore();
   XboardLoginResult? _routingMemorySession;
@@ -163,7 +172,10 @@ class ApplicationState extends ConsumerState<Application> {
     if (_routingHasManualIntent) _saveRoutingSelection();
   }
 
-  void _beginDefaultLoginRouting(XboardLoginResult session) {
+  void _beginDefaultLoginRouting(
+    XboardLoginResult session, {
+    bool autoConnect = false,
+  }) {
     _saveRoutingSelection();
     if (_routingMemorySession == null ||
         XboardRoutingStore.scopeKey(_routingMemorySession!) !=
@@ -190,6 +202,15 @@ class ApplicationState extends ConsumerState<Application> {
           proxiesAction.manualSelectionRevision == manualSelectionRevision &&
           setup.manualModeRevision == manualModeRevision,
     );
+    final routingAttempt = _loginRoutingAttempt!;
+    _startupConnectionAttempt = _startupConnection.begin(
+      enabled: autoConnect && ref.read(appSettingProvider).autoRun,
+      isCurrent: () => _loginRouting.isCurrent(routingAttempt),
+    );
+    _startupAuthenticated = false;
+    _startupLatencyTested = false;
+    _startupRoutingProfile = null;
+    _startupRoutingMode = null;
     _pendingRoutingSnapshot = _loadRoutingSelection(session);
     unawaited(
       _pendingRoutingSnapshot!.then<void>((_) {}, onError: (Object _) {}),
@@ -216,6 +237,7 @@ class ApplicationState extends ConsumerState<Application> {
     var profile = ref.read(currentProfileProvider);
     var expectedMode = _loginRoutingInitialMode;
     var shouldSave = false;
+    var latencyTested = false;
     var prepared = false;
     bool ownsProfile() =>
         mounted &&
@@ -327,6 +349,7 @@ class ApplicationState extends ConsumerState<Application> {
             isCancelled: () => isCancelled() || !ownsProfile(),
           );
           shouldSave = result == HongKongSelectionResult.selected;
+          latencyTested = shouldSave;
           return result;
         },
         onResult: (result) {
@@ -382,9 +405,116 @@ class ApplicationState extends ConsumerState<Application> {
       }
       await _finishRoutingAttempt(session);
     }
+    if (shouldSave && ownsProfile() && _loginRouting.isCurrent(attempt)) {
+      _startupLatencyTested = latencyTested;
+      _startupRoutingProfile = ref.read(currentProfileProvider);
+      _startupRoutingMode = ref.read(patchClashConfigProvider).mode;
+      _tryStartupConnection();
+    }
+  }
+
+  void _allowStartupConnection() {
+    _startupAuthenticated = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _tryStartupConnection();
+    });
+  }
+
+  void _tryStartupConnection() {
+    final attempt = _startupConnectionAttempt;
+    final profile = _startupRoutingProfile;
+    final mode = _startupRoutingMode;
+    final latencyTested = _startupLatencyTested;
+    if (attempt == null || profile == null || mode == null) return;
+    bool canProceed() =>
+        mounted &&
+        !_logoutInProgress &&
+        ref.read(appSettingProvider).autoRun &&
+        ref.read(initProvider) &&
+        ref.read(coreStatusProvider) == CoreStatus.connected &&
+        loginRoutingProfileMatches(profile, ref.read(currentProfileProvider)) &&
+        ref.read(patchClashConfigProvider).mode == mode;
+    unawaited(
+      _startupConnection.run(
+        attempt,
+        authenticated: _startupAuthenticated,
+        routingReady: true,
+        canProceed: canProceed,
+        testLatency: (isCurrent) => latencyTested
+            ? Future<void>.value()
+            : _testStartupNodeLatency(profile, mode, isCurrent),
+        isConnected: () =>
+            ref.read(isStartProvider) || ref.read(connectionPendingProvider),
+        connect: () => ref
+            .read(commonActionProvider.notifier)
+            .startAfterLogin(isCurrent: canProceed),
+        onProbeError: (error) => commonPrint.event(
+          'connection.auto.probe_failed',
+          fields: {'error_type': error.runtimeType.toString()},
+        ),
+        onConnectionError: (error) {
+          commonPrint.event(
+            'connection.auto.failed',
+            fields: {'error_type': error.runtimeType.toString()},
+          );
+          _showStartupMessage(
+            currentAppLocalizations.autoRunFailed,
+            isCurrent: canProceed,
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _testStartupNodeLatency(
+    Profile profile,
+    Mode mode,
+    bool Function() isCurrent,
+  ) async {
+    if (!isCurrent() || mode == Mode.direct) return;
+    final groups = ref.read(groupsProvider);
+    final requestedGroup = mode == Mode.global
+        ? GroupName.GLOBAL.name
+        : ref.read(setupActionProvider.notifier).ruleSelectionGroup ??
+              profile.currentGroupName;
+    final group =
+        groups.getGroup(requestedGroup ?? '') ??
+        groups
+            .where(
+              (group) =>
+                  group.hidden == false &&
+                  group.name != GroupName.GLOBAL.name &&
+                  group.type == GroupType.Selector,
+            )
+            .firstOrNull;
+    if (group == null) return;
+    final selected = ref.read(realSelectedProxyStateProvider(group.name));
+    if (selected.proxyName.isEmpty) return;
+    final testUrl = selected.testUrl.takeFirstValid([
+      ref.read(realTestUrlProvider(group.testUrl)),
+    ]);
+    final proxies = ref.read(proxiesActionProvider.notifier);
+    proxies.setDelay(Delay(url: testUrl, name: selected.proxyName, value: 0));
+    commonPrint.event('connection.auto.probe_started');
+    try {
+      final delay = await coreController
+          .getDelay(testUrl, selected.proxyName)
+          .timeout(const Duration(seconds: 6));
+      if (isCurrent()) proxies.setDelay(delay);
+    } catch (error) {
+      if (!isCurrent()) return;
+      proxies.setDelay(
+        Delay(url: testUrl, name: selected.proxyName, value: -1),
+      );
+      commonPrint.event(
+        'connection.auto.probe_failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
+    }
   }
 
   void _openHome() {
+    _allowStartupConnection();
     globalState.navigatorKey.currentState?.pushReplacement(
       MaterialPageRoute<void>(builder: (_) => const HomePage()),
     );
@@ -493,6 +623,11 @@ class ApplicationState extends ConsumerState<Application> {
     setState(() {
       _authenticationBootstrap = destination;
     });
+    if (destination == _AuthenticationBootstrap.home) {
+      _allowStartupConnection();
+    } else {
+      _startupConnection.cancel();
+    }
     return true;
   }
 
@@ -519,7 +654,7 @@ class ApplicationState extends ConsumerState<Application> {
           nodes: offlineCache.nodes,
           ruleAccountKey: offlineCache.ruleAccountKey,
         );
-        _beginDefaultLoginRouting(session);
+        _beginDefaultLoginRouting(session, autoConnect: true);
         globalState.setOfflineMode(true);
         _completeAuthenticationBootstrap(
           bootstrapRevision,
@@ -553,7 +688,7 @@ class ApplicationState extends ConsumerState<Application> {
           accountEmail: storedSession.email,
         );
         _authenticationBootstrapSessionRevision = sessionRevision;
-        _beginDefaultLoginRouting(session);
+        _beginDefaultLoginRouting(session, autoConnect: true);
         _startPostLoginProfileSync(session, sessionRevision);
         globalState.setOfflineMode(false);
         await _xboardSessionStorage.setOfflineMode(false);
@@ -676,7 +811,7 @@ class ApplicationState extends ConsumerState<Application> {
       );
       if (!mounted || _logoutInProgress) return session;
       globalState.activateXboardSession(session, accountEmail: email);
-      _beginDefaultLoginRouting(session);
+      _beginDefaultLoginRouting(session, autoConnect: true);
       _startPostLoginProfileSync(session, globalState.xboardSessionRevision);
       await _loadXboardNodes(session, ignoreOfflineMode: true);
       commonPrint.event(
@@ -1106,6 +1241,7 @@ class ApplicationState extends ConsumerState<Application> {
     if (_logoutInProgress) return;
     _saveRoutingSelection();
     _logoutInProgress = true;
+    _startupConnection.cancel();
     _routingMemorySession = null;
     _loginRouting.cancel();
     _loginRoutingAttempt = null;
@@ -1269,7 +1405,7 @@ class ApplicationState extends ConsumerState<Application> {
       nodes: cache.nodes,
       ruleAccountKey: cache.ruleAccountKey,
     );
-    _beginDefaultLoginRouting(cachedSession);
+    _beginDefaultLoginRouting(cachedSession, autoConnect: true);
     globalState.setOfflineMode(true);
     if (mounted) setState(() => _offlineAvailable = true);
     _selectDefaultLoginNode(cachedSession, applyProfile: true);
@@ -1305,7 +1441,7 @@ class ApplicationState extends ConsumerState<Application> {
         session,
         accountEmail: storedSession.email,
       );
-      _beginDefaultLoginRouting(session);
+      _beginDefaultLoginRouting(session, autoConnect: true);
       routingSession = session;
       await _loadXboardNodes(session, ignoreOfflineMode: true);
       final sessionRevision = globalState.xboardSessionRevision;
@@ -1315,6 +1451,7 @@ class ApplicationState extends ConsumerState<Application> {
       }
       await _xboardSessionStorage.setOfflineMode(false);
       globalState.setOfflineMode(false);
+      _allowStartupConnection();
       globalState.requestXboardAnnouncementAutoPrompt();
       return true;
     } on XboardAuthException catch (error) {
@@ -1613,6 +1750,12 @@ class ApplicationState extends ConsumerState<Application> {
     _loginRouting = LoginRoutingCoordinator(
       cancelSelection: proxiesAction.cancelHongKongSelection,
     );
+    ref.listenManual(
+      appSettingProvider.select((settings) => settings.autoRun),
+      (_, enabled) {
+        if (!enabled) _startupConnection.cancel();
+      },
+    );
     ref.listenManual(currentProfileProvider, (_, _) => _scheduleRoutingSave());
     ref.listenManual(
       patchClashConfigProvider.select((config) => config.mode),
@@ -1717,7 +1860,7 @@ class ApplicationState extends ConsumerState<Application> {
           );
           if (!mounted || _logoutInProgress) return session;
           globalState.activateXboardSession(session, accountEmail: email);
-          _beginDefaultLoginRouting(session);
+          _beginDefaultLoginRouting(session, autoConnect: true);
           _startPostLoginProfileSync(
             session,
             globalState.xboardSessionRevision,
@@ -1932,6 +2075,7 @@ class ApplicationState extends ConsumerState<Application> {
     _authenticationBootstrapController.dispose();
     _applicationReadinessGate.dispose();
     _loginRouting.dispose();
+    _startupConnection.dispose();
     linkManager.destroy();
     _autoUpdateProfilesTaskTimer?.cancel();
     globalState.logoutXboard = null;

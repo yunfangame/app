@@ -402,8 +402,11 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "autoRefresh": MessageLookupByLibrary.simpleMessage("自动刷新"),
     "autoRenew": MessageLookupByLibrary.simpleMessage("自动续费"),
-    "autoRun": MessageLookupByLibrary.simpleMessage("自动运行"),
-    "autoRunDesc": MessageLookupByLibrary.simpleMessage("应用打开时自动运行"),
+    "autoRun": MessageLookupByLibrary.simpleMessage("启动后自动连接"),
+    "autoRunDesc": MessageLookupByLibrary.simpleMessage(
+      "每次启动应用或登录后，恢复上次的模式和节点，测速一次后自动连接；原节点测速超时仍继续使用。",
+    ),
+    "autoRunFailed": MessageLookupByLibrary.simpleMessage("自动连接失败，请手动点击连接重试。"),
     "autoSetSystemDns": MessageLookupByLibrary.simpleMessage("自动设置系统DNS"),
     "autoUpdate": MessageLookupByLibrary.simpleMessage("自动更新"),
     "autoUpdateInterval": MessageLookupByLibrary.simpleMessage("自动更新间隔（分钟）"),
