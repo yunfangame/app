@@ -11,6 +11,24 @@ class CommonAction extends _$CommonAction {
   @protected
   bool get enablesSystemProxyOnConnect => system.isDesktop;
 
+  Future<void> startAfterLogin({required bool Function() isCurrent}) async {
+    if (!ref.mounted ||
+        !isCurrent() ||
+        !ref.read(initProvider) ||
+        ref.read(isStartProvider) ||
+        ref.read(connectionPendingProvider)) {
+      return;
+    }
+    if (enablesSystemProxyOnConnect) {
+      ref
+          .read(networkSettingProvider.notifier)
+          .update((state) => state.copyWith(systemProxy: true));
+    }
+    if (!isCurrent()) return;
+    commonPrint.event('connection.auto.requested');
+    await ref.read(setupActionProvider.notifier).startAutomatically();
+  }
+
   void toggleRunning() {
     final running =
         !ref.read(isStartProvider) && !ref.read(connectionPendingProvider);

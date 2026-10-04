@@ -5,7 +5,8 @@ import 'dart:typed_data';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/core/desktop/model.dart';
-import 'package:fl_clash/database/database.dart' show database;
+import 'package:fl_clash/database/database.dart'
+    show ProfilesCompanionExt, database;
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/action.dart';
@@ -1251,6 +1252,64 @@ void main() {
     );
 
     for (final useV2 in [false, true]) {
+      test(
+        'profile switching during the commit read rejects the snapshot, V2=$useV2',
+        () async {
+          final existing = Profile.normal(label: 'Existing');
+          final setupAction = _TestSetupAction();
+          final container = ProviderContainer(
+            overrides: [
+              coreStatusProvider.overrideWithBuild(
+                (_, _) => CoreStatus.connected,
+              ),
+              currentProfileIdProvider.overrideWithBuild((_, _) => existing.id),
+              profilesProvider.overrideWith(() => _TestProfiles([existing])),
+              setupActionProvider.overrideWith(() => setupAction),
+            ],
+          );
+          addTearDown(container.dispose);
+          final subscription = container.listen(currentProfileIdProvider, (
+            _,
+            profileId,
+          ) {
+            if (profileId != null && profileId != existing.id) {
+              scheduleMicrotask(() {
+                container.read(currentProfileIdProvider.notifier).value =
+                    existing.id;
+              });
+            }
+          });
+          addTearDown(subscription.close);
+          final action = container.read(profilesActionProvider.notifier);
+
+          final syncing = useV2
+              ? action.syncSubscriptionProfileBytes(
+                  Uint8List.fromList([1]),
+                  sourceId: 'fengwo-v2://test-key/commit-read',
+                  loader: (profile, _) async => profile,
+                )
+              : action.syncSubscriptionProfile(
+                  'https://subscribe.example.com/client/commit-read',
+                  loader: (profile) async => profile,
+                );
+
+          await expectLater(
+            syncing,
+            throwsA(
+              isA<StateError>().having(
+                (error) => error.message,
+                'message',
+                'profile_sync_superseded',
+              ),
+            ),
+          );
+          expect(container.read(profilesProvider), [existing]);
+          expect(container.read(currentProfileIdProvider), existing.id);
+          expect(setupAction.applyProfileCount, 2);
+          expect(setupAction.lastProfileOverride, existing);
+        },
+      );
+
       test('session invalidation during cleanup rolls back, V2=$useV2', () async {
         final existing = Profile.normal(
           label: 'Existing',
@@ -2199,7 +2258,10 @@ class _TestProfiles extends Profiles {
   _TestProfiles(this.initial);
 
   @override
-  List<Profile> build() => initial;
+  List<Profile> build() {
+    ref.listen(currentProfileIdProvider, (_, _) {});
+    return initial;
+  }
 
   @override
   void put(Profile profile) {
@@ -2215,7 +2277,11 @@ class _TestProfiles extends Profiles {
 
   @override
   Future<void> putDurable(Profile profile) async {
-    put(profile);
+    await database.profilesDao.putAll([profile.toCompanion()]);
+    final persisted = (await database.profilesDao.query().get()).getProfile(
+      profile.id,
+    );
+    put(persisted!);
   }
 
   @override

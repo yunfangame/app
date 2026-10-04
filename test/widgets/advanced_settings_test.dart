@@ -52,10 +52,44 @@ void main() {
         expect(
           find.byKey(const ValueKey('advanced-startup-card')),
           switch (platform) {
+            TargetPlatform.iOS => findsNothing,
+            _ => findsOneWidget,
+          },
+        );
+        expect(
+          find.byKey(const ValueKey('auto-launch-switch')),
+          switch (platform) {
             TargetPlatform.android || TargetPlatform.iOS => findsNothing,
             _ => findsOneWidget,
           },
         );
+        final autoConnect = find.byKey(
+          const ValueKey('advanced-auto-connect-switch'),
+        );
+        if (platform == TargetPlatform.iOS) {
+          expect(autoConnect, findsNothing);
+        } else {
+          final l10n = tester
+              .element(find.byType(FengWoAdvancedSettingsView))
+              .appLocalizations;
+          expect(autoConnect, findsOneWidget);
+          expect(find.text(l10n.autoRunDesc), findsOneWidget);
+          expect(container.read(appSettingProvider).autoRun, isFalse);
+          expect(tester.widget<Switch>(autoConnect).value, isFalse);
+          await tester.ensureVisible(autoConnect);
+          await tester.pumpAndSettle();
+          await tester.tap(autoConnect);
+          await tester.pumpAndSettle();
+          expect(container.read(appSettingProvider).autoRun, isTrue);
+          expect(tester.widget<Switch>(autoConnect).value, isTrue);
+          await tester.ensureVisible(find.text(l10n.autoRun));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(l10n.autoRun));
+          await tester.pumpAndSettle();
+          expect(container.read(appSettingProvider).autoRun, isFalse);
+          expect(tester.widget<Switch>(autoConnect).value, isFalse);
+          expect(container.read(appSettingProvider).autoLaunch, isFalse);
+        }
         final entry = find.byKey(const ValueKey('advanced-app-routing-tile'));
         if (platform == TargetPlatform.android) {
           expect(entry, findsOneWidget);
@@ -71,6 +105,62 @@ void main() {
         } else {
           expect(entry, findsNothing);
         }
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant({platform}),
+    );
+  }
+
+  for (final platform in [
+    TargetPlatform.android,
+    TargetPlatform.macOS,
+    TargetPlatform.windows,
+    TargetPlatform.linux,
+  ]) {
+    testWidgets(
+      'wide startup settings keep auto-connect above proxy settings on $platform',
+      (tester) async {
+        const size = Size(1280, 1000);
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final container = ProviderContainer(
+          overrides: [
+            currentProfileProvider.overrideWithValue(null),
+            systemActionProvider.overrideWith(_RoutingSystemAction.new),
+          ],
+        );
+        addTearDown(container.dispose);
+        globalState.container = container;
+        container.read(viewSizeProvider.notifier).value = size;
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const _TestApp(
+              child: FengWoAdvancedSettingsView(
+                campusNetworkConfigLoader: _loadTwoCampusLines,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final startupCard = find.byKey(const ValueKey('advanced-startup-card'));
+        final proxyCard = find.byKey(const ValueKey('advanced-proxy-card'));
+        final autoConnect = find.byKey(
+          const ValueKey('advanced-auto-connect-switch'),
+        );
+        expect(startupCard, findsOneWidget);
+        expect(autoConnect, findsOneWidget);
+        expect(tester.widget<Switch>(autoConnect).value, isFalse);
+        expect(
+          tester.getBottomLeft(startupCard).dy,
+          lessThan(tester.getTopLeft(proxyCard).dy),
+        );
+        expect(
+          find.byKey(const ValueKey('auto-launch-switch')),
+          platform == TargetPlatform.android ? findsNothing : findsOneWidget,
+        );
         expect(tester.takeException(), isNull);
       },
       variant: TargetPlatformVariant({platform}),

@@ -280,7 +280,7 @@ class SetupAction extends _$SetupAction {
     if (system.isAndroid) {
       await _updateStartTime();
     }
-    final shouldRun = _isRunning || ref.read(appSettingProvider).autoRun;
+    final shouldRun = _isRunning;
     try {
       if (shouldRun) {
         await setRunning(true, initialize: true);
@@ -311,12 +311,26 @@ class SetupAction extends _$SetupAction {
     bool initialize = false,
     bool propagateErrors = false,
   }) {
-    _physicalNetworkRecoveryRevision++;
     if (!initialize) {
       ref
           .read(proxiesActionProvider.notifier)
           .cancelHongKongSelection(manual: true);
     }
+    return _requestRunning(
+      running,
+      initialize: initialize,
+      propagateErrors: propagateErrors,
+    );
+  }
+
+  Future<void> startAutomatically() => _requestRunning(true);
+
+  Future<void> _requestRunning(
+    bool running, {
+    bool initialize = false,
+    bool propagateErrors = false,
+  }) {
+    _physicalNetworkRecoveryRevision++;
     if (running && !initialize && !ref.read(initProvider)) {
       return Future.value();
     }

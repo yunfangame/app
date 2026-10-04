@@ -3,13 +3,16 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/login_routing_coordinator.dart';
 import 'package:fl_clash/core/desktop/model.dart';
+import 'package:fl_clash/database/database.dart' show database;
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/action.dart';
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/database.dart';
+import 'package:fl_clash/providers/state.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:riverpod/riverpod.dart';
@@ -24,20 +27,55 @@ void main() {
   });
 
   tearDownAll(() async {
+    await database.close();
     await commonPrint.flushDiagnosticEvents();
     await directory.delete(recursive: true);
   });
 
+  setUp(() async {
+    await database.profilesDao.setAll([]);
+  });
+
   for (final useBytes in [false, true]) {
     test(
-      'recovers stopped Core before ${useBytes ? 'V2' : 'V1'} validation',
+      'recovers Core and returns the committed ${useBytes ? 'V2' : 'V1'} profile',
       () async {
         final harness = _Harness();
         addTearDown(harness.container.dispose);
+        final persistedAt = DateTime(2026, 10, 4, 12, 34, 56);
+        final committedProfile = Completer<Profile>();
+        final subscription = harness.container.listen(currentProfileProvider, (
+          _,
+          profile,
+        ) {
+          if (!committedProfile.isCompleted &&
+              profile?.lastUpdateDate == persistedAt) {
+            committedProfile.complete(profile);
+          }
+        }, fireImmediately: true);
+        addTearDown(subscription.close);
+        await harness.container.read(profilesStreamProvider.future);
 
         final profile = await harness.sync(useBytes: useBytes);
+        final immediatelyCurrent = harness.container.read(
+          currentProfileProvider,
+        );
+        expect(profile, immediatelyCurrent);
+        expect(loginRoutingProfileMatches(profile, immediatelyCurrent), isTrue);
+        final current = await committedProfile.future;
+        final persisted = (await database.profilesDao.query().get()).single;
 
         expect(harness.events, ['start', 'init', 'validate', 'apply']);
+        expect(harness.validatedProfile!.lastUpdateDate!.millisecond, 123);
+        expect(harness.validatedProfile!.lastUpdateDate!.microsecond, 456);
+        expect(profile.lastUpdateDate, persistedAt);
+        expect(profile, persisted);
+        expect(profile, current);
+        expect(loginRoutingProfileMatches(profile, current), isTrue);
+        expect(
+          loginRoutingProfileMatches(harness.validatedProfile, current),
+          isFalse,
+        );
         expect(harness.container.read(profilesProvider), [profile]);
         expect(harness.container.read(currentProfileIdProvider), profile.id);
         expect(
@@ -48,6 +86,17 @@ void main() {
       },
     );
   }
+
+  test('routing still rejects distinct content revisions in one second', () {
+    final original = Profile.normal().copyWith(
+      lastUpdateDate: DateTime(2026, 10, 4, 12, 34, 56, 100),
+    );
+    final refreshed = original.copyWith(
+      lastUpdateDate: DateTime(2026, 10, 4, 12, 34, 56, 900),
+    );
+
+    expect(loginRoutingProfileMatches(original, refreshed), isFalse);
+  });
 }
 
 class _Harness {
@@ -56,7 +105,6 @@ class _Harness {
     container = ProviderContainer(
       overrides: [
         currentProfileIdProvider.overrideWithBuild((_, _) => null),
-        profilesProvider.overrideWith(_MemoryProfiles.new),
         coreActionProvider.overrideWith(() => core),
         setupActionProvider.overrideWith(() => _TestSetupAction(events)),
       ],
@@ -67,6 +115,7 @@ class _Harness {
   late final _TestCoreAction core;
   late final ProviderContainer container;
   bool current = true;
+  Profile? validatedProfile;
 
   Future<Profile> sync({required bool useBytes}) {
     final action = container.read(profilesActionProvider.notifier);
@@ -75,7 +124,11 @@ class _Harness {
       if (!core.initialized) {
         throw TimeoutException('Core method validateConfig timed out');
       }
-      return profile.copyWith(lastUpdateDate: DateTime.now());
+      return validatedProfile = profile.copyWith(
+        lastUpdateDate: DateTime(2026, 10, 4, 12, 34, 56, 123, 456),
+        currentGroupName: 'Proxy',
+        selectedMap: const {'Proxy': 'Hong Kong 1'},
+      );
     }
 
     return useBytes
@@ -131,21 +184,6 @@ class _TestSetupAction extends SetupAction {
     Profile? profileOverride,
   }) async {
     events.add('apply');
-  }
-}
-
-class _MemoryProfiles extends Profiles {
-  @override
-  List<Profile> build() => [];
-
-  @override
-  Future<void> putDurable(Profile profile) async {
-    state = [...state.where((value) => value.id != profile.id), profile];
-  }
-
-  @override
-  Future<void> setAllDurable(List<Profile> profiles) async {
-    state = List.of(profiles);
   }
 }
 

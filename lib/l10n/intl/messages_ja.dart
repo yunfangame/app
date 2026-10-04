@@ -446,8 +446,13 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "autoRefresh": MessageLookupByLibrary.simpleMessage("自動更新"),
     "autoRenew": MessageLookupByLibrary.simpleMessage("自動更新"),
-    "autoRun": MessageLookupByLibrary.simpleMessage("自動実行"),
-    "autoRunDesc": MessageLookupByLibrary.simpleMessage("アプリ起動時に自動実行"),
+    "autoRun": MessageLookupByLibrary.simpleMessage("起動後に自動接続"),
+    "autoRunDesc": MessageLookupByLibrary.simpleMessage(
+      "アプリの起動またはログイン後、前回のモードとノードを復元し、遅延を1回測定してから接続します。前回のノードの測定がタイムアウトしても、そのノードを使用します。",
+    ),
+    "autoRunFailed": MessageLookupByLibrary.simpleMessage(
+      "自動接続に失敗しました。接続ボタンを押して再試行してください。",
+    ),
     "autoSetSystemDns": MessageLookupByLibrary.simpleMessage("オートセットシステムDNS"),
     "autoUpdate": MessageLookupByLibrary.simpleMessage("自動更新"),
     "autoUpdateInterval": MessageLookupByLibrary.simpleMessage("自動更新間隔（分）"),

@@ -371,6 +371,9 @@ class _FengWoAdvancedSettingsViewState
   @override
   Widget build(BuildContext context) {
     final colors = _AdvancedColors.of(context);
+    final showStartupSettings =
+        AutoLaunchItem.isSupported ||
+        defaultTargetPlatform == TargetPlatform.android;
     return Material(
       color: colors.background,
       child: CustomScrollView(
@@ -392,10 +395,10 @@ class _FengWoAdvancedSettingsViewState
                             if (system.isDesktop) ...[
                               _buildUpdateCard(colors),
                               const SizedBox(height: 16),
-                              if (AutoLaunchItem.isSupported) ...[
-                                _buildStartupCard(colors),
-                                const SizedBox(height: 16),
-                              ],
+                            ],
+                            if (showStartupSettings) ...[
+                              _buildStartupCard(colors),
+                              const SizedBox(height: 16),
                             ],
                             _buildProxyCard(colors),
                             const SizedBox(height: 16),
@@ -416,10 +419,10 @@ class _FengWoAdvancedSettingsViewState
                           if (system.isDesktop) ...[
                             _buildUpdateCard(colors),
                             const SizedBox(height: 18),
-                            if (AutoLaunchItem.isSupported) ...[
-                              _buildStartupCard(colors),
-                              const SizedBox(height: 18),
-                            ],
+                          ],
+                          if (showStartupSettings) ...[
+                            _buildStartupCard(colors),
+                            const SizedBox(height: 18),
                           ],
                           IntrinsicHeight(
                             child: Row(
@@ -487,7 +490,13 @@ class _FengWoAdvancedSettingsViewState
               accent: colors.blue,
             ),
             const SizedBox(height: 12),
-            const AutoLaunchItem(),
+            if (AutoLaunchItem.isSupported) ...[
+              const AutoLaunchItem(),
+              Divider(height: 1, color: colors.outline),
+            ],
+            const AutoRunItem(
+              switchKey: ValueKey('advanced-auto-connect-switch'),
+            ),
           ],
         ),
       ),
