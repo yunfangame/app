@@ -6,6 +6,10 @@ on:
     tags:
       - 'fengwo-package-windows-*'
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   package:
     runs-on: windows-2022
@@ -17,7 +21,41 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      - name: Verify previously passed prechecks for resource-only recovery
+        if: startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $previousSha = '1a5573fd634217655cf1bcb7c64b9c5cd0f3ecb7'
+          $runJson = gh run view 37576837106 --repo $env:GITHUB_REPOSITORY --json headSha,status,conclusion,jobs,url
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to verify previous CI evidence' }
+          $run = $runJson | ConvertFrom-Json
+          if ($run.headSha -cne $previousSha -or $run.status -cne 'completed' -or $run.conclusion -cne 'failure') { throw 'Previous CI identity or state differs from the reviewed run' }
+          $reusedSteps = '["Test Windows installer integrity checks","Test actual Windows process integrity levels","Test Windows TLS roots against live APIs","Test collector on Windows PowerShell 5.1","Test Windows runtime prerequisites","Test Windows auto launch uninstall callbacks","Test Core patch application","Test connection and credential regressions","Test live API fallback and encryption","Test native Windows listeners","Test Windows helper service"]' | ConvertFrom-Json
+          $steps = @($run.jobs | ForEach-Object { $_.steps })
+          foreach ($name in $reusedSteps) {
+            $matches = @($steps | Where-Object { $_.name -ceq $name })
+            if ($matches.Count -ne 1 -or $matches[0].conclusion -cne 'success') { throw "Previous verification did not pass: $name" }
+          }
+          $failedSteps = @($steps | Where-Object { $_.conclusion -eq 'failure' })
+          if ($failedSteps.Count -ne 1 -or $failedSteps[0].name -cne 'Verify Windows package') { throw 'Unexpected failed step in the reviewed run' }
+          $compareJson = gh api "repos/$env:GITHUB_REPOSITORY/compare/$previousSha...$env:GITHUB_SHA"
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to compare snapshot source with tested source' }
+          $compare = $compareJson | ConvertFrom-Json
+          $changed = @($compare.files | ForEach-Object { $_.filename })
+          $allowed = @('.github/workflows/package-windows.yml', 'windows/runner/CMakeLists.txt')
+          if ($compare.status -cne 'ahead' -or $changed.Count -ne $allowed.Count -or @(Compare-Object -ReferenceObject $allowed -DifferenceObject $changed -CaseSensitive).Count -ne 0) { throw 'Recovery includes unverified source changes' }
+          $cmake = Get-Content windows/runner/CMakeLists.txt -Raw
+          if ($cmake.Contains('FENGWO_DISPLAY_VERSION') -or -not $cmake.Contains('FLUTTER_VERSION=\"${FLUTTER_VERSION}\"')) { throw 'The real PE resource must retain build metadata' }
+          $output = Join-Path $env:RUNNER_TEMP 'reused-verification'
+          New-Item -ItemType Directory -Force $output | Out-Null
+          [IO.File]::WriteAllText((Join-Path $output 'previous-ci-run.json'), ($runJson -join "`n"), [Text.UTF8Encoding]::new($false))
+          [IO.File]::WriteAllText((Join-Path $output 'resource-only-source-compare.json'), ($compareJson -join "`n"), [Text.UTF8Encoding]::new($false))
+          [ordered]@{ previous_run = 37576837106; previous_source = $previousSha; current_source = $env:GITHUB_SHA; passed_steps = $reusedSteps; changed_files = $changed } | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $output 'reused-checks.json') -Encoding utf8NoBOM
+
       - name: Test Windows installer integrity checks
+        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: powershell
         run: |
           ./tooling/windows/test_integrity_installer.ps1 -OutputDirectory "$env:RUNNER_TEMP/integrity-installer-verification"
@@ -70,6 +108,7 @@ jobs:
         run: flutter pub get
 
       - name: Test actual Windows process integrity levels
+        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           dart compile exe tooling/windows_integrity_probe.dart -o "$env:RUNNER_TEMP/FengWoIntegrityProbe.exe"
@@ -77,12 +116,14 @@ jobs:
           ./tooling/windows/test_runtime_integrity.ps1 -ProbePath "$env:RUNNER_TEMP/FengWoIntegrityProbe.exe" -OutputPath "$env:RUNNER_TEMP/integrity-runtime-verification/runtime-integrity.json"
 
       - name: Test Windows TLS roots against live APIs
+        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           flutter test test/common/windows_tls_trust_test.dart tooling/windows_tls_live_smoke_test.dart --no-pub --reporter expanded
           if ($LASTEXITCODE -ne 0) { throw 'Windows strict TLS regression failed' }
 
       - name: Test collector on Windows PowerShell 5.1
+        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: powershell
         run: |
           if ($PSVersionTable.PSVersion.Major -ne 5) { throw 'Expected Windows PowerShell 5.1' }
@@ -102,6 +143,7 @@ jobs:
           if (@(Get-ChildItem "$env:RUNNER_TEMP/tls-diagnostics" -Filter '*.txt').Count -ne 1) { throw 'Missing text report' }
 
       - name: Test Windows runtime prerequisites
+        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           ./tooling/windows/test_prepare_vc_runtime.ps1
@@ -111,6 +153,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows packaging tests failed' }
 
       - name: Test Windows auto launch uninstall callbacks
+        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           ./tooling/windows/test_autostart_uninstall.ps1 -OutputDirectory "$env:RUNNER_TEMP/autostart-uninstall-verification"
@@ -126,6 +169,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Core patch application failed' }
 
       - name: Test Core patch application
+        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         working-directory: plugins/setup/buildkit/build_tool
         shell: pwsh
         run: |
@@ -135,6 +179,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Core patch tests failed' }
 
       - name: Test connection and credential regressions
+        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           $tests = @(
@@ -251,6 +296,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Crisp message bridge tests failed' }
 
       - name: Test live API fallback and encryption
+        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           foreach ($case in @('redundant', 'backup', 'bundled')) {
@@ -259,6 +305,7 @@ jobs:
           }
 
       - name: Test native Windows listeners
+        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           Push-Location core
@@ -270,6 +317,7 @@ jobs:
           Pop-Location
 
       - name: Test Windows helper service
+        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           cargo test --manifest-path services/helper/Cargo.toml --features windows-service
@@ -498,6 +546,7 @@ jobs:
         with:
           name: fengwo-windows-verification
           path: |
+            ${{ runner.temp }}/reused-verification/*
             ${{ runner.temp }}/tls-diagnostics/*
             ${{ runner.temp }}/integrity-runtime-verification/*.json
             ${{ runner.temp }}/integrity-installer-verification/*.json
