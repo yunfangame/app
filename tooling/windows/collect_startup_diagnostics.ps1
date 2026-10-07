@@ -232,7 +232,10 @@ function Collect-Events {
         $result.scanned = $events.Count
         $result.limitReached = $events.Count -ge 1500
         $needle = 'FengWo|FlClash|fengwoacc|蜂窝加速器'
-        if ($selectedPath) { $needle += '|' + [regex]::Escape([IO.Path]::GetFileName($selectedPath)) }
+        if ($selectedPath) {
+            $needle += '|' + [regex]::Escape([IO.Path]::GetFileName($selectedPath))
+            $needle += '|' + [regex]::Escape((Split-Path -Parent $selectedPath).TrimEnd('\') + '\')
+        }
         foreach ($event in $events) {
             $xml = $event.ToXml()
             if ($xml -match $needle) {

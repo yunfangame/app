@@ -59,16 +59,26 @@ function Invoke-CollectorScenario {
     $beforeIds = @(Get-Process | ForEach-Object { $_.Id })
     $previousPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
+    $collector = $null
     try {
+        $consolePath = Join-Path $outputDirectory 'collector-console.txt'
+        $stderrPath = Join-Path $outputDirectory 'collector-stderr.txt'
         if ([string]::IsNullOrWhiteSpace($CmdPath)) {
-            & $engine @arguments *> (Join-Path $outputDirectory 'collector-console.txt')
+            $quotedArguments = @($arguments | ForEach-Object { '"' + $_ + '"' }) -join ' '
+            $collector = Start-Process -FilePath $engine -ArgumentList $quotedArguments -PassThru -RedirectStandardOutput $consolePath -RedirectStandardError $stderrPath
         } else {
             $command = '""' + $CmdPath + '" -AppPath "' + $AppPath + '" -OutputDirectory "' + $outputDirectory + '" -ObserveSeconds 5 -NonInteractive'
             if ($NoLaunch) { $command += ' -NoLaunch' }
             $command += ' <nul"'
-            & $env:ComSpec /d /s /c $command *> (Join-Path $outputDirectory 'collector-console.txt')
+            $collector = Start-Process -FilePath $env:ComSpec -ArgumentList ('/d /s /c ' + $command) -PassThru -RedirectStandardOutput $consolePath -RedirectStandardError $stderrPath
         }
-        $collectorExitCode = $LASTEXITCODE
+        if ($collector.WaitForExit(120000)) {
+            $collectorExitCode = $collector.ExitCode
+        } else {
+            $collectorExitCode = -999
+            $collector.Kill()
+            [IO.File]::WriteAllText((Join-Path $outputDirectory 'collector-timeout.txt'), 'Collector process exceeded the 120 second test limit.')
+        }
     } finally {
         $ErrorActionPreference = $previousPreference
         foreach ($process in @(Get-Process -Name 'FengWo', 'FlClashCore', 'FlClashHelperService' -ErrorAction SilentlyContinue)) {
@@ -76,6 +86,7 @@ function Invoke-CollectorScenario {
                 if ($beforeIds -notcontains $process.Id -and $process.Path.StartsWith($work, [StringComparison]::OrdinalIgnoreCase)) { [void]$ownedProcesses.Add($process.Id) }
             } catch { }
         }
+        if ($null -ne $collector) { $collector.Dispose() }
     }
     $reports = @(Get-ChildItem -LiteralPath $outputDirectory -Recurse -Filter 'summary.json' -File)
     Assert-Condition ($reports.Count -eq 1) "$Name did not preserve one JSON report"

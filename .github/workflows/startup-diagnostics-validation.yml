@@ -32,6 +32,7 @@ jobs:
       - name: Validate collector on Windows PowerShell 5.1
         if: matrix.shell == 'powershell'
         shell: powershell
+        timeout-minutes: 13
         run: |
           $ErrorActionPreference = 'Stop'
           & ./.ci/startup/test_startup_diagnostics.ps1 -VerifiedPackageDirectory (Join-Path $env:RUNNER_TEMP 'startup-verified-package') -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'startup-diagnostics-evidence') -ExpectedMajor 5
@@ -39,6 +40,7 @@ jobs:
       - name: Validate collector on PowerShell 7
         if: matrix.shell == 'pwsh'
         shell: pwsh
+        timeout-minutes: 13
         run: |
           $ErrorActionPreference = 'Stop'
           & ./.ci/startup/test_startup_diagnostics.ps1 -VerifiedPackageDirectory (Join-Path $env:RUNNER_TEMP 'startup-verified-package') -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'startup-diagnostics-evidence') -ExpectedMajor 7
