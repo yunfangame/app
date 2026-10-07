@@ -108,9 +108,11 @@ function Invoke-NativeRead {
             try { $process.Kill() } catch {}
             return [ordered]@{ timeout = $true; exitCode = $null; output = 'Diagnostic read command timed out.' }
         }
-        $null = $stdout.Wait(2000)
-        $null = $stderr.Wait(2000)
-        return [ordered]@{ timeout = $false; exitCode = $process.ExitCode; output = (Protect-Text ($stdout.Result + $stderr.Result)) }
+        $stdoutReady = $stdout.Wait(2000)
+        $stderrReady = $stderr.Wait(2000)
+        $stdoutText = if ($stdoutReady) { $stdout.Result } else { '[stdout did not close within timeout]' }
+        $stderrText = if ($stderrReady) { $stderr.Result } else { '[stderr did not close within timeout]' }
+        return [ordered]@{ timeout = (-not $stdoutReady -or -not $stderrReady); exitCode = $process.ExitCode; output = (Protect-Text ($stdoutText + $stderrText)) }
     } finally { $process.Dispose() }
 }
 
@@ -149,6 +151,7 @@ function Get-ClientProcesses {
             try { $path = $process.Path } catch {}
             if ($nativeReady) {
                 $windows = @([FengWoStartupDiagnostics.NativeProbe]::SnapshotWindows($process.Id))
+                foreach ($window in $windows) { $window.Title = Protect-Text $window.Title }
                 $integrity = [FengWoStartupDiagnostics.NativeProbe]::GetIntegrityLevel($process.Id)
             } elseif ($process.MainWindowHandle -ne [IntPtr]::Zero) {
                 $windows = @([ordered]@{ Handle = $process.MainWindowHandle.ToInt64().ToString('X'); Title = Protect-Text $process.MainWindowTitle; Visible = $null; Minimized = $null })
@@ -265,6 +268,7 @@ try {
         }
         if ($nativeReady) { $system.collectorIntegrity = [FengWoStartupDiagnostics.NativeProbe]::GetIntegrityLevel($PID) }
         Save-Json 'system.json' $system
+        Save-Json 'disk-space.json' @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' -OperationTimeoutSec 15 | Select-Object DeviceID, FileSystem, Size, FreeSpace)
         Save-Json 'gpu.json' @(Get-CimInstance Win32_VideoController -OperationTimeoutSec 15 | Select-Object Name, DriverVersion, DriverDate, Status, VideoModeDescription)
     }
     Invoke-Step 'installed client discovery' {
@@ -362,6 +366,7 @@ try {
                 $launch.status = 'started'
                 $launch.startedPid = $newProcess.Id
             } catch {
+                if ($newProcess) { $newProcess.Dispose(); $newProcess = $null }
                 $launch.status = 'start_failed'
                 $exception = $_.Exception
                 while ($exception.InnerException) { $exception = $exception.InnerException }
@@ -391,11 +396,18 @@ try {
         $visible = @($after | Where-Object { $_.pid -eq $launch.startedPid } | ForEach-Object { $_.windows } | Where-Object { $_.Visible -eq $true })
         $otherClient = @($after | Where-Object { $_.name -match '^(FengWo|fengwoacc|FlClash)$' -and $_.pid -ne $launch.startedPid })
         if ($newProcess) {
+            $newProcess.Refresh()
+            if ($newProcess.HasExited) {
+                $launch.status = 'exited'
+                $launch.exitCode = $newProcess.ExitCode
+                $launch.exitCodeHex = '0x' + [BitConverter]::ToUInt32([BitConverter]::GetBytes([int]$newProcess.ExitCode), 0).ToString('X8')
+            }
             if ($launch.status -eq 'exited') {
                 if ($launch.exitCode -ne 0) { $launch.classification = 'exited_nonzero'; Add-Finding 'nonzero_exit' ('进程退出码 ' + $launch.exitCodeHex + '，需结合崩溃、系统拦截和依赖记录定位。') }
                 elseif ($otherClient.Count) { $launch.classification = 'exit_zero_existing_instance'; Add-Finding 'existing_instance' '新进程正常退出且仍有其他客户端进程，可能触发单实例激活；请核对旧进程路径、会话与窗口。' }
                 else { $launch.classification = 'exit_zero_no_client'; Add-Finding 'exit_zero_no_client' '新进程退出码为 0，但没有其他客户端进程；需检查文件锁、配置目录访问及启动日志。' }
-            } elseif ($visible.Count) { $launch.classification = 'process_running_window_visible' }
+            } elseif (-not $nativeReady) { $launch.classification = 'process_running_window_state_unknown'; Add-Finding 'window_state_unavailable' '进程仍在，窗口检查组件不可用，暂时无法确认窗口状态。' }
+            elseif ($visible.Count) { $launch.classification = 'process_running_window_visible' }
             else { $launch.classification = 'process_running_no_visible_window'; Add-Finding 'running_no_visible_window' '观察结束时进程仍在但未检测到可见顶层窗口，可能仍在初始化、静默启动或窗口未显示；这不是已确认的崩溃。' }
             $newProcess.Dispose()
         }

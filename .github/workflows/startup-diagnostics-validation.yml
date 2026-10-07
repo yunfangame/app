@@ -29,13 +29,19 @@ jobs:
           run-id: 37580333614
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/startup-verified-package
-      - name: Validate collector fixtures and real application
-        shell: ${{ matrix.shell }}
-        env:
-          EXPECTED_MAJOR: ${{ matrix.shell == 'powershell' && '5' || '7' }}
+      - name: Validate collector on Windows PowerShell 5.1
+        if: matrix.shell == 'powershell'
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          & ./.ci/startup/test_startup_diagnostics.ps1 -VerifiedPackageDirectory (Join-Path $env:RUNNER_TEMP 'startup-verified-package') -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'startup-diagnostics-evidence') -ExpectedMajor ([int]$env:EXPECTED_MAJOR)
+          & ./.ci/startup/test_startup_diagnostics.ps1 -VerifiedPackageDirectory (Join-Path $env:RUNNER_TEMP 'startup-verified-package') -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'startup-diagnostics-evidence') -ExpectedMajor 5
+          if ($LASTEXITCODE -ne 0) { throw "Collector validation failed with $LASTEXITCODE" }
+      - name: Validate collector on PowerShell 7
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./.ci/startup/test_startup_diagnostics.ps1 -VerifiedPackageDirectory (Join-Path $env:RUNNER_TEMP 'startup-verified-package') -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'startup-diagnostics-evidence') -ExpectedMajor 7
           if ($LASTEXITCODE -ne 0) { throw "Collector validation failed with $LASTEXITCODE" }
       - name: Upload diagnostic verification evidence
         if: always()

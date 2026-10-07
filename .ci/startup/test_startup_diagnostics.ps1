@@ -224,6 +224,17 @@ Test-Scenario 'missing-executable-preserves-report' {
     Assert-Condition ($report.launch.classification -eq 'executable_not_found') 'Collector did not classify the missing executable correctly'
 }
 
+Test-Scenario 'invalid-executable-start-failure-preserves-report' {
+    $directory = New-ApplicationDirectory -Name '错误 PE 创建失败' -Kind ''
+    $appPath = Join-Path $directory 'FengWo.exe'
+    [IO.File]::WriteAllBytes($appPath, [byte[]]@(0, 1, 2, 3))
+    $report = Invoke-CollectorScenario -Name 'invalid-executable-start-failure' -AppPath $appPath
+    Assert-Condition ($report.launch.status -eq 'start_failed' -and $report.launch.classification -eq 'start_failed') 'Collector did not preserve the CreateProcess failure classification'
+    Assert-Condition ($report.launch.startErrorNativeCode -eq 193) 'Invalid PE did not preserve Windows error code 193'
+    $afterFiles = @(Get-ChildItem -LiteralPath (Join-Path $EvidenceDirectory 'invalid-executable-start-failure') -Recurse -Filter 'processes-after.json' -File)
+    Assert-Condition ($afterFiles.Count -eq 1) 'CreateProcess failure interrupted final process collection'
+}
+
 Test-Scenario 'missing-runtime-file-preserves-report' {
     $directory = New-ApplicationDirectory -Name '缺失 运行库' -Kind ''
     Remove-Item -LiteralPath (Join-Path $directory 'flutter_windows.dll') -Force
