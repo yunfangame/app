@@ -7,12 +7,7 @@
 #include <memory>
 #include <string>
 
-// Returns the process-independent registered message used by a second app
-// instance to ask the primary window to become visible again.
-UINT GetFengWoWindowActivationMessage();
-
-// Restores a hidden/minimized app window and puts it back on the taskbar.
-void ActivateFengWoWindow(HWND window);
+#include "window_visibility.h"
 
 // A class abstraction for a high DPI-aware Win32 Window. Intended to be
 // inherited from by classes that wish to specialize with custom
@@ -63,6 +58,8 @@ class Win32Window {
   RECT GetClientArea();
 
  protected:
+  void MarkFirstFrameReady();
+
   // Processes and route salient window messages for mouse handling,
   // size change and DPI. Delegates handling of these to member overloads that
   // inheriting classes can handle.
@@ -98,6 +95,7 @@ class Win32Window {
   static void UpdateTheme(HWND const window);
 
   bool quit_on_close_ = false;
+  FengWoWindowPresentationState presentation_state_;
 
   // window handle for top level window.
   HWND window_handle_ = nullptr;

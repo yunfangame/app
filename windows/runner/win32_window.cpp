@@ -17,8 +17,7 @@ namespace {
 #endif
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
-constexpr const wchar_t kWindowActivationMessageName[] =
-    L"FengWoAccelerator.FengWo.ActivateMainWindow";
+constexpr UINT kFirstFrameReadyMessage = WM_APP + 0x4F1;
 
 /// Registry key for app theme preference.
 ///
@@ -56,27 +55,6 @@ void EnableFullDpiSupportIfAvailable(HWND hwnd) {
 }
 
 }  // namespace
-
-UINT GetFengWoWindowActivationMessage() {
-  static const UINT message =
-      RegisterWindowMessageW(kWindowActivationMessageName);
-  return message;
-}
-
-void ActivateFengWoWindow(HWND window) {
-  if (window == nullptr) {
-    return;
-  }
-  LONG_PTR extended_style = GetWindowLongPtrW(window, GWL_EXSTYLE);
-  extended_style |= WS_EX_APPWINDOW;
-  extended_style &= ~static_cast<LONG_PTR>(WS_EX_TOOLWINDOW);
-  SetWindowLongPtrW(window, GWL_EXSTYLE, extended_style);
-  ShowWindow(window, SW_RESTORE);
-  SetWindowPos(window, nullptr, 0, 0, 0, 0,
-               SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
-                   SWP_FRAMECHANGED | SWP_SHOWWINDOW);
-  SetForegroundWindow(window);
-}
 
 // Manages the Win32Window's window class registration.
 class WindowClassRegistrar {
@@ -167,13 +145,21 @@ bool Win32Window::Create(const std::wstring& title,
     return false;
   }
 
+  AllowFengWoWindowActivation(window);
   UpdateTheme(window);
 
   return OnCreate();
 }
 
 bool Win32Window::Show() {
+  EnsureFengWoWindowOnScreen(window_handle_, false);
   return ShowWindow(window_handle_, SW_SHOWNORMAL);
+}
+
+void Win32Window::MarkFirstFrameReady() {
+  if (window_handle_ != nullptr) {
+    PostMessageW(window_handle_, kFirstFrameReadyMessage, 0, 0);
+  }
 }
 
 // static
@@ -190,6 +176,29 @@ LRESULT CALLBACK Win32Window::WndProc(HWND const window,
     EnableFullDpiSupportIfAvailable(window);
     that->window_handle_ = window;
   } else if (Win32Window* that = GetThisFromHandle(window)) {
+    const UINT activation = GetFengWoWindowActivationMessage();
+    if (activation != 0 && message == activation) {
+      if (IsFengWoWindowActivationRequest(message, wparam, lparam) &&
+          that->presentation_state_.RequestActivation()) {
+        ActivateFengWoWindow(window);
+      }
+      return 0;
+    }
+    if (message == kFirstFrameReadyMessage) {
+      if (wparam == 0 && lparam == 0 &&
+          that->presentation_state_.OnFirstFrame()) {
+        ActivateFengWoWindow(window);
+      }
+      return 0;
+    }
+    if (message == WM_WINDOWPOSCHANGING) {
+      AdjustFengWoWindowPosition(window,
+                                 reinterpret_cast<WINDOWPOS*>(lparam));
+    } else if ((message == WM_SHOWWINDOW && wparam != FALSE) ||
+               message == WM_DISPLAYCHANGE ||
+               (message == WM_SETTINGCHANGE && wparam == SPI_SETWORKAREA)) {
+      EnsureFengWoWindowOnScreen(window, false);
+    }
     return that->MessageHandler(window, message, wparam, lparam);
   }
 
@@ -201,10 +210,6 @@ Win32Window::MessageHandler(HWND hwnd,
                             UINT const message,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
-  if (message == GetFengWoWindowActivationMessage()) {
-    ActivateFengWoWindow(hwnd);
-    return 0;
-  }
   switch (message) {
     case WM_DESTROY:
       window_handle_ = nullptr;
@@ -221,6 +226,7 @@ Win32Window::MessageHandler(HWND hwnd,
 
       SetWindowPos(hwnd, nullptr, newRectSize->left, newRectSize->top, newWidth,
                    newHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+      EnsureFengWoWindowOnScreen(hwnd, false);
 
       return 0;
     }
@@ -250,6 +256,7 @@ Win32Window::MessageHandler(HWND hwnd,
 
 void Win32Window::Destroy() {
   OnDestroy();
+  presentation_state_.Reset();
 
   if (window_handle_) {
     DestroyWindow(window_handle_);
