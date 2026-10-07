@@ -52,6 +52,10 @@ class WindowExtManager {
   Future<void> setTerminateHandlerReady(bool ready) async {
     await _channel.invokeMethod('setTerminateHandlerReady', {'ready': ready});
   }
+
+  Future<bool> restoreToActiveScreen() async {
+    return await _channel.invokeMethod<bool>('restoreToActiveScreen') ?? false;
+  }
 }
 
 final windowExtManager = WindowExtManager.instance;

@@ -108,6 +108,15 @@ void WindowExtPlugin::HandleMethodCall(
       }
     }
     result->Success();
+  } else if (method_call.method_name().compare("restoreToActiveScreen") == 0) {
+    auto *view = registrar->GetView();
+    const HWND hWnd = view ? ::GetAncestor(view->GetNativeWindow(), GA_ROOT)
+                           : nullptr;
+    const UINT message = ::RegisterWindowMessageW(
+        L"FengWoAccelerator.FengWo.ActivateMainWindow");
+    const bool requested = hWnd && message != 0 &&
+                           ::PostMessageW(hWnd, message, 0, 0) != FALSE;
+    result->Success(flutter::EncodableValue(requested));
   } else {
     result->NotImplemented();
   }

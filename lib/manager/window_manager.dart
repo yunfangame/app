@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
@@ -10,8 +11,10 @@ import 'package:window_manager/window_manager.dart';
 
 class WindowManager extends ConsumerStatefulWidget {
   final Widget child;
+  @visibleForTesting
+  final bool? isWindows;
 
-  const WindowManager({super.key, required this.child});
+  const WindowManager({super.key, this.isWindows, required this.child});
 
   @override
   ConsumerState<WindowManager> createState() => _WindowContainerState();
@@ -19,6 +22,65 @@ class WindowManager extends ConsumerStatefulWidget {
 
 class _WindowContainerState extends ConsumerState<WindowManager>
     with WindowListener, WindowExtListener {
+  Timer? _boundsSyncTimer;
+  int _boundsSyncRevision = 0;
+
+  bool get _isWindows => widget.isWindows ?? system.isWindows;
+
+  void _cancelWindowBoundsSync() {
+    _boundsSyncTimer?.cancel();
+    _boundsSyncRevision++;
+  }
+
+  void _scheduleWindowBoundsSync() {
+    if (!_isWindows || !mounted) return;
+    _boundsSyncTimer?.cancel();
+    final revision = ++_boundsSyncRevision;
+    _boundsSyncTimer = Timer(const Duration(milliseconds: 100), () {
+      unawaited(_syncWindowBounds(revision));
+    });
+  }
+
+  Future<void> _syncWindowBounds(int revision) async {
+    try {
+      if (!mounted || revision != _boundsSyncRevision) return;
+      if (!await windowManager.isVisible() ||
+          await windowManager.isMinimized()) {
+        return;
+      }
+      if (!mounted || revision != _boundsSyncRevision) return;
+      final bounds = await windowManager.getBounds();
+      if (!mounted || revision != _boundsSyncRevision) return;
+      if (!await windowManager.isVisible() ||
+          await windowManager.isMinimized()) {
+        return;
+      }
+      if (!mounted || revision != _boundsSyncRevision) return;
+      if (!bounds.left.isFinite ||
+          !bounds.top.isFinite ||
+          !bounds.width.isFinite ||
+          !bounds.height.isFinite ||
+          bounds.isEmpty) {
+        return;
+      }
+      ref
+          .read(windowSettingProvider.notifier)
+          .update(
+            (state) => state.copyWith(
+              left: bounds.left,
+              top: bounds.top,
+              width: bounds.width,
+              height: bounds.height,
+            ),
+          );
+    } catch (error) {
+      commonPrint.log(
+        'sync window bounds failed: $error',
+        logLevel: LogLevel.warning,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return widget.child;
@@ -41,10 +103,22 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   }
 
   @override
+  void onWindowEvent(String eventName) {
+    super.onWindowEvent(eventName);
+    if (_isWindows && eventName == 'show') {
+      render?.resume();
+      _scheduleWindowBoundsSync();
+    } else if (_isWindows && eventName == 'hide') {
+      _cancelWindowBoundsSync();
+    }
+  }
+
+  @override
   void onWindowFocus() {
     super.onWindowFocus();
     commonPrint.log('focus');
     render?.resume();
+    _scheduleWindowBoundsSync();
     unawaited(
       ref.read(systemActionProvider.notifier).refreshAutoLaunch().catchError((
         Object error,
@@ -94,6 +168,7 @@ class _WindowContainerState extends ConsumerState<WindowManager>
 
   @override
   void onWindowMinimize() async {
+    _cancelWindowBoundsSync();
     ref.read(storeActionProvider.notifier).savePreferencesDebounce();
     commonPrint.log('minimize');
     render?.pause();
@@ -109,6 +184,7 @@ class _WindowContainerState extends ConsumerState<WindowManager>
 
   @override
   Future<void> dispose() async {
+    _cancelWindowBoundsSync();
     windowManager.removeListener(this);
     windowExtManager.removeListener(this);
     if (system.isMacOS) {

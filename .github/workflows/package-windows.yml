@@ -21,41 +21,7 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Verify previously passed prechecks for resource-only recovery
-        if: startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-')
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $previousSha = '1a5573fd634217655cf1bcb7c64b9c5cd0f3ecb7'
-          $runJson = gh run view 37576837106 --repo $env:GITHUB_REPOSITORY --json headSha,status,conclusion,jobs,url
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to verify previous CI evidence' }
-          $run = $runJson | ConvertFrom-Json
-          if ($run.headSha -cne $previousSha -or $run.status -cne 'completed' -or $run.conclusion -cne 'failure') { throw 'Previous CI identity or state differs from the reviewed run' }
-          $reusedSteps = '["Test Windows installer integrity checks","Test actual Windows process integrity levels","Test Windows TLS roots against live APIs","Test collector on Windows PowerShell 5.1","Test Windows runtime prerequisites","Test Windows auto launch uninstall callbacks","Test Core patch application","Test connection and credential regressions","Test live API fallback and encryption","Test native Windows listeners","Test Windows helper service"]' | ConvertFrom-Json
-          $steps = @($run.jobs | ForEach-Object { $_.steps })
-          foreach ($name in $reusedSteps) {
-            $matches = @($steps | Where-Object { $_.name -ceq $name })
-            if ($matches.Count -ne 1 -or $matches[0].conclusion -cne 'success') { throw "Previous verification did not pass: $name" }
-          }
-          $failedSteps = @($steps | Where-Object { $_.conclusion -eq 'failure' })
-          if ($failedSteps.Count -ne 1 -or $failedSteps[0].name -cne 'Verify Windows package') { throw 'Unexpected failed step in the reviewed run' }
-          $compareJson = gh api "repos/$env:GITHUB_REPOSITORY/compare/$previousSha...$env:GITHUB_SHA"
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to compare snapshot source with tested source' }
-          $compare = $compareJson | ConvertFrom-Json
-          $changed = @($compare.files | ForEach-Object { $_.filename })
-          $allowed = @('.github/workflows/package-windows.yml', 'windows/runner/CMakeLists.txt')
-          if ($compare.status -cne 'ahead' -or $changed.Count -ne $allowed.Count -or @(Compare-Object -ReferenceObject $allowed -DifferenceObject $changed -CaseSensitive).Count -ne 0) { throw 'Recovery includes unverified source changes' }
-          $cmake = Get-Content windows/runner/CMakeLists.txt -Raw
-          if ($cmake.Contains('FENGWO_DISPLAY_VERSION') -or -not $cmake.Contains('FLUTTER_VERSION=\"${FLUTTER_VERSION}\"')) { throw 'The real PE resource must retain build metadata' }
-          $output = Join-Path $env:RUNNER_TEMP 'reused-verification'
-          New-Item -ItemType Directory -Force $output | Out-Null
-          [IO.File]::WriteAllText((Join-Path $output 'previous-ci-run.json'), ($runJson -join "`n"), [Text.UTF8Encoding]::new($false))
-          [IO.File]::WriteAllText((Join-Path $output 'resource-only-source-compare.json'), ($compareJson -join "`n"), [Text.UTF8Encoding]::new($false))
-          [ordered]@{ previous_run = 37576837106; previous_source = $previousSha; current_source = $env:GITHUB_SHA; passed_steps = $reusedSteps; changed_files = $changed } | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $output 'reused-checks.json') -Encoding utf8NoBOM
-
       - name: Test Windows installer integrity checks
-        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: powershell
         run: |
           ./tooling/windows/test_integrity_installer.ps1 -OutputDirectory "$env:RUNNER_TEMP/integrity-installer-verification"
@@ -108,7 +74,6 @@ jobs:
         run: flutter pub get
 
       - name: Test actual Windows process integrity levels
-        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           dart compile exe tooling/windows_integrity_probe.dart -o "$env:RUNNER_TEMP/FengWoIntegrityProbe.exe"
@@ -116,14 +81,12 @@ jobs:
           ./tooling/windows/test_runtime_integrity.ps1 -ProbePath "$env:RUNNER_TEMP/FengWoIntegrityProbe.exe" -OutputPath "$env:RUNNER_TEMP/integrity-runtime-verification/runtime-integrity.json"
 
       - name: Test Windows TLS roots against live APIs
-        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           flutter test test/common/windows_tls_trust_test.dart tooling/windows_tls_live_smoke_test.dart --no-pub --reporter expanded
           if ($LASTEXITCODE -ne 0) { throw 'Windows strict TLS regression failed' }
 
       - name: Test collector on Windows PowerShell 5.1
-        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: powershell
         run: |
           if ($PSVersionTable.PSVersion.Major -ne 5) { throw 'Expected Windows PowerShell 5.1' }
@@ -143,7 +106,6 @@ jobs:
           if (@(Get-ChildItem "$env:RUNNER_TEMP/tls-diagnostics" -Filter '*.txt').Count -ne 1) { throw 'Missing text report' }
 
       - name: Test Windows runtime prerequisites
-        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           ./tooling/windows/test_prepare_vc_runtime.ps1
@@ -153,7 +115,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows packaging tests failed' }
 
       - name: Test Windows auto launch uninstall callbacks
-        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           ./tooling/windows/test_autostart_uninstall.ps1 -OutputDirectory "$env:RUNNER_TEMP/autostart-uninstall-verification"
@@ -169,7 +130,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Core patch application failed' }
 
       - name: Test Core patch application
-        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         working-directory: plugins/setup/buildkit/build_tool
         shell: pwsh
         run: |
@@ -179,7 +139,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Core patch tests failed' }
 
       - name: Test connection and credential regressions
-        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           $tests = @(
@@ -189,6 +148,8 @@ jobs:
             'test/providers/mode_selection_switch_action_test.dart',
             'test/l10n/app_localizations_test.dart',
             'test/state_test.dart',
+            'test/common/window_recovery_test.dart',
+            'test/manager/window_manager_test.dart',
             'test/common/fake_ip_settings_test.dart',
             'test/common/fake_ip_profile_test.dart',
             'test/widgets/fengwo_dns_advanced_test.dart',
@@ -296,7 +257,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Crisp message bridge tests failed' }
 
       - name: Test live API fallback and encryption
-        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           foreach ($case in @('redundant', 'backup', 'bundled')) {
@@ -305,7 +265,6 @@ jobs:
           }
 
       - name: Test native Windows listeners
-        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           Push-Location core
@@ -317,7 +276,6 @@ jobs:
           Pop-Location
 
       - name: Test Windows helper service
-        if: ${{ !startsWith(github.ref, 'refs/tags/fengwo-package-windows-20261007-108-version-fix-') }}
         shell: pwsh
         run: |
           cargo test --manifest-path services/helper/Cargo.toml --features windows-service
@@ -379,8 +337,8 @@ jobs:
           $expectedBuild = [int]$versionLine.Matches[0].Groups[2].Value
           if ($expectedBuild -lt 1 -or $expectedBuild -gt 65535) { throw 'Windows native build number must fit 16 bits' }
           $expectedVersion = "$displayVersion+$expectedBuild"
-          if ($app.VersionInfo.FileMajorPart -ne 1 -or $app.VersionInfo.FileMinorPart -ne 0 -or $app.VersionInfo.FileBuildPart -ne 8 -or $app.VersionInfo.FilePrivatePart -ne 16) { throw 'Windows native file version must be 1,0,8,16' }
-          if ($app.VersionInfo.ProductMajorPart -ne 1 -or $app.VersionInfo.ProductMinorPart -ne 0 -or $app.VersionInfo.ProductBuildPart -ne 8 -or $app.VersionInfo.ProductPrivatePart -ne 16) { throw 'Windows native product version must be 1,0,8,16' }
+          if ($app.VersionInfo.FileMajorPart -ne 1 -or $app.VersionInfo.FileMinorPart -ne 0 -or $app.VersionInfo.FileBuildPart -ne 8 -or $app.VersionInfo.FilePrivatePart -ne 17) { throw 'Windows native file version must be 1,0,8,17' }
+          if ($app.VersionInfo.ProductMajorPart -ne 1 -or $app.VersionInfo.ProductMinorPart -ne 0 -or $app.VersionInfo.ProductBuildPart -ne 8 -or $app.VersionInfo.ProductPrivatePart -ne 17) { throw 'Windows native product version must be 1,0,8,17' }
           if ($app.VersionInfo.ProductVersion -ne $expectedVersion) { throw "Unexpected product version: $($app.VersionInfo.ProductVersion)" }
           if ($app.VersionInfo.FileVersion -ne $expectedVersion) { throw "Unexpected file version: $($app.VersionInfo.FileVersion)" }
           if ($app.VersionInfo.ProductName -ne '蜂窝加速器') { throw "Unexpected product name: $($app.VersionInfo.ProductName)" }
@@ -505,12 +463,14 @@ jobs:
           $metadata = [ordered]@{
             version = '1.0.8'
             actual_product_version = (Get-Item build/windows/x64/runner/Release/FengWo.exe).VersionInfo.ProductVersion
-            build_number = 16
+            build_number = 17
             release_channel = 'stable'
             fixes = @('windows_public_root_trust', 'preferences_atomic_save_and_recovery', 'upgrade_save_before_installer', 'windows_tun_service_repair', 'windows_winhttp_ipv6_bypass', 'windows_autostart_verified', 'v2_node_country_tag_count', 'global_header_plan_badge_removed', 'desktop_connect_auto_system_proxy', 'desktop_proxy_port_recovery', 'online_1_0_8_same_version_overwrite_upgrade', 'crisp_single_session_chinese_profile_and_version', 'dashboard_node_entry_original_selector', 'proxy_rules_navigation', 'windows_install_directory_choice', 'windows_integrity_install_guard', 'windows_integrity_startup_diagnostics', 'advanced_dns_fake_ip_settings', 'account_subscription_routing_memory', 'startup_disclaimer_removed', 'windows_helper_dedicated_port', 'windows_helper_port_conflict_diagnostics')
             source_branch = 'codex/desktop-upstream-0897-port'
             source_workspace_head = '5bfbc54dd74dd7a3df561584ff44143fecc094c3'
             source_snapshot_contains_working_changes = $true
+            native_window_recovery_source_sha256 = '3e3bea81223731b833b5db2af3e96ed716f564abe49a593e35b78dda9b6948d3'
+            real_uac_activation = 'unverified_hosted_runner_has_no_linked_pair'
             version_features = @('startup_quota_check_removed', 'reset_countdown_days_hours', 'mac_proxy_os_command_diagnostics', 'windows_listener_winsock_classification', 'trusted_api_dynamic_failover', 'secure_subscription_budget_and_recovery', 'same_display_version_real_build_number')
             source_sha = $env:GITHUB_SHA
             source_ref = $env:GITHUB_REF
@@ -530,6 +490,18 @@ jobs:
           $metadata | ConvertTo-Json | Set-Content -LiteralPath dist/windows-build.json -Encoding utf8NoBOM
           "$hash  $($installer.Name)" | Set-Content -LiteralPath dist/SHA256SUMS -Encoding utf8NoBOM
 
+      - name: Archive unsigned release directory for offline signing
+        shell: pwsh
+        run: |
+          $bundle = Join-Path $PWD 'build/windows/x64/runner/Release'
+          $manifest = @(Get-ChildItem -LiteralPath $bundle -File -Recurse | Sort-Object FullName | ForEach-Object {
+            [ordered]@{ path = [IO.Path]::GetRelativePath($bundle, $_.FullName).Replace('\', '/'); bytes = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+          })
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath dist/release-directory-files.json -Encoding utf8NoBOM
+          Compress-Archive -Path (Join-Path $bundle '*') -DestinationPath dist/fengwo-windows-amd64-release-unsigned.zip -CompressionLevel Optimal
+          $zipHash = (Get-FileHash -LiteralPath dist/fengwo-windows-amd64-release-unsigned.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$zipHash  fengwo-windows-amd64-release-unsigned.zip" | Add-Content -LiteralPath dist/SHA256SUMS -Encoding utf8NoBOM
+
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
@@ -538,6 +510,8 @@ jobs:
             dist/*windows*.exe
             dist/windows-build.json
             dist/SHA256SUMS
+            dist/fengwo-windows-amd64-release-unsigned.zip
+            dist/release-directory-files.json
           if-no-files-found: error
 
       - name: Upload Windows verification
