@@ -453,10 +453,10 @@ int wmain(int argc, wchar_t** argv) {
   });
 
   Run("small-workarea-clamps-size-and-supports-negative-coordinates", [] {
-    const std::vector<RECT> small{{40, 80, 220, 170}};
+    const std::vector<RECT> small_work_areas{{40, 80, 220, 170}};
     const auto clamped = ComputeFengWoWindowBounds(
-        RECT{20000, 20000, 21280, 20720}, small, 0, true);
-    Require(clamped.changed && Contained(clamped.rect, small[0]),
+        RECT{20000, 20000, 21280, 20720}, small_work_areas, 0, true);
+    Require(clamped.changed && Contained(clamped.rect, small_work_areas[0]),
             "Oversized window did not fit small work area");
     const std::vector<RECT> negative{{-1920, -1000, -640, -100}};
     const auto moved = ComputeFengWoWindowBounds(
