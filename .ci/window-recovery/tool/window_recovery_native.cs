@@ -54,6 +54,9 @@ namespace FengWoWindowRecovery
         public bool? DwmCloaked { get; set; }
         public uint? DwmCloakFlags { get; set; }
         public int DwmQueryHResult { get; set; }
+        public uint? Dpi { get; set; }
+        public string DpiAwarenessContext { get; set; }
+        public int? DpiAwareness { get; set; }
     }
 
     public sealed class DpiState
@@ -172,6 +175,7 @@ namespace FengWoWindowRecovery
                     handle = ParseHandle(windowHandle);
                     sessionId = CurrentSessionId();
                     result.Before = ReadTarget(handle, processId, sessionId);
+                    if (!dpi.State.Applied) throw new InvalidOperationException("Per-monitor-v2 thread DPI context is unavailable; no window changes were attempted.");
                     List<MonitorSnapshot> monitors = CaptureMonitors(errors);
                     foreach (MonitorSnapshot monitor in monitors)
                     {
@@ -361,6 +365,19 @@ namespace FengWoWindowRecovery
                 {
                     result.DwmCloakFlags = cloak;
                     result.DwmCloaked = cloak != 0;
+                }
+            }
+            catch (EntryPointNotFoundException) { }
+            catch (DllNotFoundException) { }
+            try
+            {
+                uint windowDpi = GetDpiForWindow(handle);
+                if (windowDpi != 0) result.Dpi = windowDpi;
+                IntPtr context = GetWindowDpiAwarenessContext(handle);
+                if (context != IntPtr.Zero)
+                {
+                    result.DpiAwarenessContext = FormatHandle(context);
+                    result.DpiAwareness = GetAwarenessFromDpiAwarenessContext(context);
                 }
             }
             catch (EntryPointNotFoundException) { }
@@ -602,6 +619,12 @@ namespace FengWoWindowRecovery
         private static extern bool SetForegroundWindow(IntPtr handle);
         [DllImport("user32.dll", SetLastError = true)]
         private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+        [DllImport("user32.dll")]
+        private static extern uint GetDpiForWindow(IntPtr handle);
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetWindowDpiAwarenessContext(IntPtr handle);
+        [DllImport("user32.dll")]
+        private static extern int GetAwarenessFromDpiAwarenessContext(IntPtr context);
         [DllImport("dwmapi.dll")]
         private static extern int DwmGetWindowAttribute(IntPtr handle, uint attribute, out uint value, uint size);
         [DllImport("kernel32.dll")]

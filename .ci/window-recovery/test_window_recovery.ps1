@@ -84,11 +84,13 @@ function Invoke-Recovery {
         $process = Start-Process -FilePath $env:ComSpec -ArgumentList ('/d /s /c ' + $command) -PassThru -RedirectStandardOutput $console -RedirectStandardError $stderr
     }
     try {
+        $nativeHandle = $process.Handle
         if (-not $process.WaitForExit(60000)) {
             try { $process.Kill() } catch { }
             throw 'Recovery tool exceeded the 60 second test limit'
         }
         $exitCode = $process.ExitCode
+        Assert-Condition ($null -ne $exitCode) 'Process exit code was unavailable'
     } finally {
         $watch.Stop()
         $process.Dispose()

@@ -53,6 +53,8 @@ try {
     $windows = @($report.Before.Windows)
     if ($InspectOnly) {
         $report.Status = 'inspection_only'
+    } elseif (-not $report.Before.Dpi.Applied) {
+        $report.Status = 'dpi_context_unavailable'
     } elseif ($windows.Count -eq 0) {
         $report.Status = 'no_matching_window'
     } elseif (@($report.Before.Monitors | Where-Object { $_.Primary }).Count -eq 0) {
@@ -72,7 +74,7 @@ try {
         foreach ($target in $windows) {
             $afterWindow = @($report.After.Windows | Where-Object { $_.Handle -eq $target.Handle -and $_.ProcessId -eq $target.ProcessId } | Select-Object -First 1)
             $onPrimary = $false
-            if ($primary.Count -eq 1 -and $afterWindow.Count -eq 1) {
+            if ($report.After.Dpi.Applied -and $primary.Count -eq 1 -and $afterWindow.Count -eq 1) {
                 $onPrimary = Test-WindowOnPrimary $afterWindow[0] $primary[0]
             }
             $report.Verification += [ordered]@{
@@ -104,7 +106,7 @@ try {
 
 switch ($report.Status) {
     'window_on_primary' {
-        Write-Host '已核对：蜂窝窗口位于主屏范围内，未最小化，窗口有响应。' -ForegroundColor Green
+        Write-Host '已核对：蜂窝窗口位于主屏范围内，未最小化；Windows 未报告窗口无响应。' -ForegroundColor Green
         Write-Host '请确认界面是否出现；若仍看不到，请把下面的报告发回客服。'
     }
     'no_matching_window' {
