@@ -1,0 +1,44 @@
+name: fengwo-window-recovery-validation
+
+on:
+  push:
+    tags:
+      - 'fengwo-ci-window-recovery-*'
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+    name: window-recovery-${{ matrix.shell }}
+    steps:
+      - name: Checkout isolated synthetic validation
+        uses: actions/checkout@v4
+      - name: Validate Windows PowerShell 5.1 recovery
+        if: matrix.shell == 'powershell'
+        shell: powershell
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./.ci/window-recovery/test_window_recovery.ps1 -ExpectedMajor 5 -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'window-recovery-evidence')
+      - name: Validate PowerShell 7 recovery
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./.ci/window-recovery/test_window_recovery.ps1 -ExpectedMajor 7 -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'window-recovery-evidence')
+      - name: Upload synthetic recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: window-recovery-${{ matrix.shell }}
+          path: ${{ runner.temp }}/window-recovery-evidence
+          if-no-files-found: error
+          retention-days: 14
