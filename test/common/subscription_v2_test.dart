@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
 import 'package:fl_clash/common/api_health.dart';
 import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/api_request_router.dart';
+import 'package:fl_clash/common/diagnostic_log.dart';
 import 'package:fl_clash/common/subscription_v2.dart';
 import 'package:fl_clash/common/xboard_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -1181,7 +1182,10 @@ void main() {
       addTearDown(() => directory.delete(recursive: true));
       final previousPathProvider = PathProviderPlatform.instance;
       PathProviderPlatform.instance = _TemporaryPathProvider(directory.path);
-      addTearDown(() => PathProviderPlatform.instance = previousPathProvider);
+      addTearDown(() async {
+        await diagnosticLog.flush();
+        PathProviderPlatform.instance = previousPathProvider;
+      });
       FlutterSecureStorage.setMockInitialValues({});
       addTearDown(() => FlutterSecureStorage.setMockInitialValues({}));
       final server = await _FakeSubscriptionV2Server.create();
