@@ -60,6 +60,8 @@ function Invoke-CollectorScenario {
     $previousPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     $collector = $null
+    $collectorTimedOut = $false
+    $collectorWatch = [Diagnostics.Stopwatch]::StartNew()
     try {
         $consolePath = Join-Path $outputDirectory 'collector-console.txt'
         $stderrPath = Join-Path $outputDirectory 'collector-stderr.txt'
@@ -76,8 +78,9 @@ function Invoke-CollectorScenario {
             $collectorExitCode = $collector.ExitCode
         } else {
             $collectorExitCode = -999
-            $collector.Kill()
-            [IO.File]::WriteAllText((Join-Path $outputDirectory 'collector-timeout.txt'), 'Collector process exceeded the 120 second test limit.')
+            $collectorTimedOut = $true
+            [IO.File]::WriteAllText((Join-Path $outputDirectory 'collector-timeout.txt'), ('Collector process exceeded the 120 second test limit. Elapsed seconds: ' + $collectorWatch.Elapsed.TotalSeconds))
+            try { $collector.Kill() } catch { }
         }
     } finally {
         $ErrorActionPreference = $previousPreference
@@ -87,6 +90,7 @@ function Invoke-CollectorScenario {
             } catch { }
         }
         if ($null -ne $collector) { $collector.Dispose() }
+        $collectorWatch.Stop()
     }
     $reports = @(Get-ChildItem -LiteralPath $outputDirectory -Recurse -Filter 'summary.json' -File)
     Assert-Condition ($reports.Count -eq 1) "$Name did not preserve one JSON report"
@@ -102,7 +106,8 @@ function Invoke-CollectorScenario {
     Assert-Condition ($archivedJson.Count -eq 1 -and $archivedText.Count -eq 1) "$Name ZIP is missing the final report"
     Assert-Condition ((Get-FileHash -LiteralPath $archivedJson[0].FullName -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $reports[0].FullName -Algorithm SHA256).Hash) "$Name ZIP contains a stale JSON report"
     if ($report.launch.startedPid) { [void]$ownedProcesses.Add([int]$report.launch.startedPid) }
-    $checks.Add([ordered]@{ name = "$Name-report"; collector_exit_code = $collectorExitCode; launch_status = $report.launch.status; classification = $report.launch.classification; started_pid = $report.launch.startedPid; observed_count = (Get-EntryCount $report.observations); collection_error_count = (Get-EntryCount $report.collectionErrors); zip_preserved = $true })
+    $checks.Add([ordered]@{ name = "$Name-report"; collector_exit_code = $collectorExitCode; collector_elapsed_seconds = [Math]::Round($collectorWatch.Elapsed.TotalSeconds, 2); collector_timed_out = $collectorTimedOut; launch_status = $report.launch.status; classification = $report.launch.classification; started_pid = $report.launch.startedPid; observed_count = (Get-EntryCount $report.observations); collection_error_count = (Get-EntryCount $report.collectionErrors); zip_preserved = $true })
+    Assert-Condition (-not $collectorTimedOut) "$Name collector process exceeded the 120 second test limit"
     return $report
 }
 
