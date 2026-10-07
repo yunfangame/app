@@ -177,7 +177,6 @@ jobs:
             'test/common/xboard_api_routing_test.dart',
             'test/common/xboard_api_request_test.dart',
             'test/common/xboard_refresh_coordinator_test.dart',
-            'test/common/subscription_access_guard_test.dart',
             'test/common/startup_connection_coordinator_test.dart',
             'test/providers/startup_auto_connect_test.dart',
             'test/widgets/subscription_status_indicator_test.dart',
@@ -461,7 +460,7 @@ jobs:
             source_branch = 'codex/desktop-upstream-0897-port'
             source_workspace_head = '5bfbc54dd74dd7a3df561584ff44143fecc094c3'
             source_snapshot_contains_working_changes = $true
-            version_features = @('subscription_renewal_prompt', 'reset_countdown_days_hours', 'mac_proxy_os_command_diagnostics', 'windows_listener_winsock_classification', 'trusted_api_dynamic_failover', 'secure_subscription_budget_and_recovery', 'same_display_version_real_build_number')
+            version_features = @('startup_quota_check_removed', 'reset_countdown_days_hours', 'mac_proxy_os_command_diagnostics', 'windows_listener_winsock_classification', 'trusted_api_dynamic_failover', 'secure_subscription_budget_and_recovery', 'same_display_version_real_build_number')
             source_sha = $env:GITHUB_SHA
             source_ref = $env:GITHUB_REF
             run_id = $env:GITHUB_RUN_ID

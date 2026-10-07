@@ -65,20 +65,20 @@ void main() {
         ]),
       );
     },
-    timeout: const Timeout(Duration(minutes: 2)),
+    timeout: const Timeout(Duration(minutes: 5)),
   );
 }
 
 Future<int> _status(Uri uri, SecurityContext context) async {
   final client = HttpClient(context: context)
-    ..connectionTimeout = const Duration(seconds: 8);
+    ..connectionTimeout = const Duration(seconds: 20);
   client.findProxy = (_) => 'DIRECT';
   try {
     final request = await client
         .getUrl(uri)
-        .timeout(const Duration(seconds: 8));
+        .timeout(const Duration(seconds: 20));
     request.followRedirects = false;
-    final response = await request.close().timeout(const Duration(seconds: 8));
+    final response = await request.close().timeout(const Duration(seconds: 20));
     return response.statusCode;
   } finally {
     client.close(force: true);

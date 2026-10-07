@@ -7,8 +7,6 @@ import 'package:fl_clash/common/application_bootstrap.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/login_routing_coordinator.dart';
 import 'package:fl_clash/common/startup_connection_coordinator.dart';
-import 'package:fl_clash/common/subscription_access_guard.dart';
-import 'package:fl_clash/widgets/subscription_status_indicator.dart';
 import 'package:fl_clash/core/core.dart';
 import 'package:fl_clash/common/saved_node_selection.dart';
 import 'package:fl_clash/common/xboard_routing_store.dart';
@@ -84,7 +82,6 @@ class ApplicationState extends ConsumerState<Application> {
   final _dataRefresh = XboardRefreshCoordinator<bool>();
 
   final _startupConnection = StartupConnectionCoordinator();
-  final _subscriptionAccessGuard = SubscriptionAccessGuard();
   StartupConnectionAttempt? _startupConnectionAttempt;
   bool _startupAuthenticated = false;
   bool _startupLatencyTested = false;
@@ -423,52 +420,8 @@ class ApplicationState extends ConsumerState<Application> {
   void _allowStartupConnection() {
     _startupAuthenticated = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_checkXboardSubscriptionAccess());
       if (mounted) _tryStartupConnection();
     });
-  }
-
-  Future<bool> _checkXboardSubscriptionAccess() async {
-    final session = globalState.xboardSession;
-    if (session == null || globalState.isOfflineMode) return true;
-    final revision = globalState.xboardSessionRevision;
-    bool isCurrent() =>
-        mounted &&
-        !_logoutInProgress &&
-        globalState.isActiveXboardSession(session, revision) &&
-        !globalState.isOfflineMode;
-    return _subscriptionAccessGuard.check(
-      requestKey: revision.toString(),
-      account:
-          '${session.endpoint}|${session.subscription.uuid ?? session.subscription.email ?? session.token}',
-      isCurrent: isCurrent,
-      fetch: () async {
-        final subscription = await _xboardAuthService
-            .fetchSubscription(
-              endpoint: session.endpoint,
-              authData: session.authData,
-              userToken: session.token,
-              secureSubscription: session.secureSubscription,
-            )
-            .timeout(const Duration(seconds: 10));
-        if (!hasValidSubscriptionUsage(subscription)) {
-          throw const FormatException('invalid_subscription_usage');
-        }
-        if (isCurrent()) {
-          globalState.updateXboardSubscriptionSnapshot(session, subscription);
-        }
-        return subscription;
-      },
-      notify: (subscription, issue) async {
-        final currentContext = globalState.navigatorKey.currentContext;
-        if (currentContext == null || !isCurrent()) return;
-        await showSubscriptionAccessNotice(
-          context: currentContext,
-          subscription: subscription,
-          issue: issue,
-        );
-      },
-    );
   }
 
   void _tryStartupConnection() {
@@ -1905,7 +1858,6 @@ class ApplicationState extends ConsumerState<Application> {
     globalState.enableOfflineMode = _enableOfflineMode;
     globalState.restoreOnlineMode = _restoreOnlineMode;
     globalState.refreshXboardSubscription = _refreshXboardSubscription;
-    globalState.checkXboardSubscriptionAccess = _checkXboardSubscriptionAccess;
     globalState.refreshXboardNodes = _refreshXboardNodes;
     _applicationReadinessGate.startTimeout(
       timeout: _applicationReadinessTimeout,
@@ -2226,7 +2178,6 @@ class ApplicationState extends ConsumerState<Application> {
     globalState.enableOfflineMode = null;
     globalState.restoreOnlineMode = null;
     globalState.refreshXboardSubscription = null;
-    globalState.checkXboardSubscriptionAccess = null;
     globalState.refreshXboardNodes = null;
     super.dispose();
   }
