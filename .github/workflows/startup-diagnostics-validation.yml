@@ -1,0 +1,47 @@
+name: fengwo-startup-diagnostics-validation
+
+on:
+  push:
+    tags:
+      - 'fengwo-ci-startup-diagnostics-*'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+    name: startup-diagnostics-${{ matrix.shell }}
+    steps:
+      - name: Checkout isolated validation snapshot
+        uses: actions/checkout@v4
+      - name: Download previously verified Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: fengwo-windows-amd64
+          repository: yunfangame/app
+          run-id: 37580333614
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/startup-verified-package
+      - name: Validate collector fixtures and real application
+        shell: ${{ matrix.shell }}
+        env:
+          EXPECTED_MAJOR: ${{ matrix.shell == 'powershell' && '5' || '7' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./.ci/startup/test_startup_diagnostics.ps1 -VerifiedPackageDirectory (Join-Path $env:RUNNER_TEMP 'startup-verified-package') -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'startup-diagnostics-evidence') -ExpectedMajor ([int]$env:EXPECTED_MAJOR)
+          if ($LASTEXITCODE -ne 0) { throw "Collector validation failed with $LASTEXITCODE" }
+      - name: Upload diagnostic verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-diagnostics-${{ matrix.shell }}
+          path: ${{ runner.temp }}/startup-diagnostics-evidence
+          if-no-files-found: error
+          retention-days: 14
