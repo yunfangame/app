@@ -29,9 +29,17 @@ DWORD sender_integrity_rid = 0;
 DWORD receiver_integrity_rid = 0;
 bool medium_mutex_probe_confirmed = false;
 DWORD child_exit_code = 0;
+DWORD parent_elevation_type = 0;
+DWORD linked_elevation_type = 0;
+DWORD linked_token_error = 0;
+bool linked_same_user = false;
+bool linked_same_logon_sid = false;
+bool linked_same_session = false;
+bool linked_token_used = false;
 
 struct ChildDiagnostics {
   DWORD parent_session = 0;
+  BOOL entered_wmain = FALSE;
   DWORD child_session = 0;
   DWORD child_integrity = 0;
   BOOL same_user = FALSE;
@@ -111,8 +119,16 @@ void SaveResults() {
       << ",\"medium_mutex_read_only_probe_confirmed\":"
       << (medium_mutex_probe_confirmed ? "true" : "false")
       << ",\"child_exit_code\":" << child_exit_code
+      << ",\"parent_elevation_type\":" << parent_elevation_type
+      << ",\"linked_elevation_type\":" << linked_elevation_type
+      << ",\"linked_token_error\":" << linked_token_error
+      << ",\"linked_token_used\":" << (linked_token_used ? "true" : "false")
+      << ",\"linked_same_user_sid\":" << (linked_same_user ? "true" : "false")
+      << ",\"linked_same_logon_sid\":" << (linked_same_logon_sid ? "true" : "false")
+      << ",\"linked_same_session\":" << (linked_same_session ? "true" : "false")
       << ",\"child_diagnostics\":{\"parent_session_id\":"
       << child_diagnostics.parent_session
+      << ",\"entered_wmain\":" << (child_diagnostics.entered_wmain ? "true" : "false")
       << ",\"child_session_id\":" << child_diagnostics.child_session
       << ",\"child_integrity_rid\":" << child_diagnostics.child_integrity
       << ",\"same_user_sid\":" << (child_diagnostics.same_user ? "true" : "false")
@@ -191,16 +207,12 @@ void PumpMessages() {
   }
 }
 
-DWORD IntegrityRid(HANDLE process) {
-  HANDLE raw_token = nullptr;
-  Require(OpenProcessToken(process, TOKEN_QUERY, &raw_token) != FALSE,
-          "OpenProcessToken failed");
-  OwnedHandle token(raw_token);
+DWORD TokenIntegrityRid(HANDLE token) {
   DWORD size = 0;
-  GetTokenInformation(token.value, TokenIntegrityLevel, nullptr, 0, &size);
+  GetTokenInformation(token, TokenIntegrityLevel, nullptr, 0, &size);
   Require(size != 0, "Integrity level size unavailable");
   std::vector<BYTE> data(size);
-  Require(GetTokenInformation(token.value, TokenIntegrityLevel, data.data(),
+  Require(GetTokenInformation(token, TokenIntegrityLevel, data.data(),
                               size, &size) != FALSE,
           "Integrity level unavailable");
   const auto* label = reinterpret_cast<TOKEN_MANDATORY_LABEL*>(data.data());
@@ -210,21 +222,51 @@ DWORD IntegrityRid(HANDLE process) {
   return *GetSidSubAuthority(label->Label.Sid, count - 1);
 }
 
-std::vector<BYTE> CurrentUserSid() {
+DWORD IntegrityRid(HANDLE process) {
   HANDLE raw_token = nullptr;
-  Require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw_token) != FALSE,
-          "User token unavailable");
+  Require(OpenProcessToken(process, TOKEN_QUERY, &raw_token) != FALSE,
+          "OpenProcessToken failed");
   OwnedHandle token(raw_token);
+  return TokenIntegrityRid(token.value);
+}
+
+std::vector<BYTE> UserSid(HANDLE token) {
   DWORD size = 0;
-  GetTokenInformation(token.value, TokenUser, nullptr, 0, &size);
+  GetTokenInformation(token, TokenUser, nullptr, 0, &size);
   std::vector<BYTE> data(size);
-  Require(GetTokenInformation(token.value, TokenUser, data.data(), size, &size) != FALSE,
+  Require(GetTokenInformation(token, TokenUser, data.data(), size, &size) != FALSE,
           "User SID unavailable");
   const auto* user = reinterpret_cast<TOKEN_USER*>(data.data());
   std::vector<BYTE> sid(GetLengthSid(user->User.Sid));
   Require(CopySid(static_cast<DWORD>(sid.size()), sid.data(), user->User.Sid) != FALSE,
           "User SID copy failed");
   return sid;
+}
+
+std::vector<BYTE> CurrentUserSid() {
+  HANDLE raw_token = nullptr;
+  Require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw_token) != FALSE,
+          "User token unavailable");
+  OwnedHandle token(raw_token);
+  return UserSid(token.value);
+}
+
+std::vector<BYTE> LogonSid(HANDLE token) {
+  DWORD size = 0;
+  GetTokenInformation(token, TokenGroups, nullptr, 0, &size);
+  std::vector<BYTE> data(size);
+  Require(GetTokenInformation(token, TokenGroups, data.data(), size, &size) != FALSE,
+          "Token logon group unavailable");
+  const auto* groups = reinterpret_cast<TOKEN_GROUPS*>(data.data());
+  for (DWORD index = 0; index < groups->GroupCount; ++index) {
+    if ((groups->Groups[index].Attributes & SE_GROUP_LOGON_ID) == SE_GROUP_LOGON_ID) {
+      std::vector<BYTE> sid(GetLengthSid(groups->Groups[index].Sid));
+      Require(CopySid(static_cast<DWORD>(sid.size()), sid.data(), groups->Groups[index].Sid) != FALSE,
+              "Token logon SID copy failed");
+      return sid;
+    }
+  }
+  return {};
 }
 
 class DiagnosticMapping {
@@ -284,34 +326,57 @@ void PostFromMediumIntegrityChild(HWND target, const std::wstring& mutex_name) {
     throw EnvironmentUnavailable("Cannot open token for restricted sender");
   }
   OwnedHandle token(raw_token);
-  BYTE administrator_sid[SECURITY_MAX_SID_SIZE]{};
-  DWORD sid_size = sizeof(administrator_sid);
-  Require(CreateWellKnownSid(WinBuiltinAdministratorsSid, nullptr,
-                              administrator_sid, &sid_size) != FALSE,
-          "Cannot create administrator SID");
-  SID_AND_ATTRIBUTES disabled{administrator_sid, 0};
+  DWORD size = 0;
+  TOKEN_ELEVATION_TYPE elevation{};
+  Require(GetTokenInformation(token.value, TokenElevationType, &elevation,
+                              sizeof(elevation), &size) != FALSE,
+          "Parent elevation type unavailable");
+  parent_elevation_type = static_cast<DWORD>(elevation);
+  TOKEN_LINKED_TOKEN linked{};
+  const BOOL has_linked = GetTokenInformation(
+      token.value, TokenLinkedToken, &linked, sizeof(linked), &size);
+  linked_token_error = has_linked ? ERROR_SUCCESS : GetLastError();
+  OwnedHandle linked_token(has_linked ? linked.LinkedToken : nullptr);
+  if (!has_linked || elevation != TokenElevationTypeFull) {
+    throw EnvironmentUnavailable("Runner has no elevated/limited UAC pair: elevation=" +
+        std::to_string(parent_elevation_type) + ", linked token error=" +
+        std::to_string(linked_token_error));
+  }
+  TOKEN_ELEVATION_TYPE linked_elevation{};
+  Require(GetTokenInformation(linked_token.value, TokenElevationType,
+          &linked_elevation, sizeof(linked_elevation), &size) != FALSE,
+          "Linked elevation type unavailable");
+  linked_elevation_type = static_cast<DWORD>(linked_elevation);
+  const auto parent_user = UserSid(token.value);
+  const auto linked_user = UserSid(linked_token.value);
+  linked_same_user = EqualSid(const_cast<BYTE*>(parent_user.data()),
+                             const_cast<BYTE*>(linked_user.data())) != FALSE;
+  const auto parent_logon = LogonSid(token.value);
+  const auto linked_logon = LogonSid(linked_token.value);
+  linked_same_logon_sid = !parent_logon.empty() && !linked_logon.empty() &&
+      EqualSid(const_cast<BYTE*>(parent_logon.data()),
+               const_cast<BYTE*>(linked_logon.data())) != FALSE;
+  DWORD parent_session = 0;
+  DWORD linked_session = 0;
+  Require(GetTokenInformation(token.value, TokenSessionId, &parent_session,
+              sizeof(parent_session), &size) != FALSE &&
+          GetTokenInformation(linked_token.value, TokenSessionId, &linked_session,
+              sizeof(linked_session), &size) != FALSE,
+          "UAC pair session unavailable");
+  linked_same_session = parent_session == linked_session;
+  if (linked_elevation != TokenElevationTypeLimited ||
+      TokenIntegrityRid(linked_token.value) != SECURITY_MANDATORY_MEDIUM_RID ||
+      !linked_same_user || !linked_same_logon_sid || !linked_same_session) {
+    throw EnvironmentUnavailable("Linked token is not a same-user/session/logon medium limited token");
+  }
   HANDLE raw_restricted = nullptr;
-  if (!CreateRestrictedToken(token.value, DISABLE_MAX_PRIVILEGE, 1, &disabled,
-                              0, nullptr, 0, nullptr, &raw_restricted)) {
-    throw EnvironmentUnavailable("CreateRestrictedToken unavailable: " +
+  if (!DuplicateTokenEx(linked_token.value, TOKEN_ALL_ACCESS, nullptr,
+                       SecurityImpersonation, TokenPrimary, &raw_restricted)) {
+    throw EnvironmentUnavailable("Cannot duplicate genuine linked medium token: " +
                                  std::to_string(GetLastError()));
   }
   OwnedHandle restricted(raw_restricted);
-  PSID medium_sid = nullptr;
-  Require(ConvertStringSidToSidW(L"S-1-16-8192", &medium_sid) != FALSE,
-          "Cannot create medium integrity SID");
-  TOKEN_MANDATORY_LABEL label{};
-  label.Label.Sid = medium_sid;
-  label.Label.Attributes = SE_GROUP_INTEGRITY;
-  const BOOL assigned = SetTokenInformation(
-      restricted.value, TokenIntegrityLevel, &label,
-      static_cast<DWORD>(sizeof(label)) + GetLengthSid(medium_sid));
-  const DWORD assign_error = GetLastError();
-  LocalFree(medium_sid);
-  if (!assigned) {
-    throw EnvironmentUnavailable("Cannot assign medium integrity: " +
-                                 std::to_string(assign_error));
-  }
+  linked_token_used = true;
   std::vector<wchar_t> executable(32768);
   const DWORD length = GetModuleFileNameW(
       nullptr, executable.data(), static_cast<DWORD>(executable.size()));
@@ -324,22 +389,13 @@ void PostFromMediumIntegrityChild(HWND target, const std::wstring& mutex_name) {
   arguments.push_back(L'\0');
   STARTUPINFOW startup{};
   startup.cb = sizeof(startup);
-  wchar_t desktop[] = L"winsta0\\default";
-  startup.lpDesktop = desktop;
+  startup.lpDesktop = nullptr;
   PROCESS_INFORMATION child{};
   const DWORD flags = CREATE_SUSPENDED | CREATE_NO_WINDOW;
   BOOL created = CreateProcessAsUserW(
       restricted.value, executable.data(), arguments.data(), nullptr, nullptr,
       FALSE, flags, nullptr, nullptr, &startup, &child);
-  DWORD create_error = GetLastError();
-  if (!created && create_error == ERROR_PRIVILEGE_NOT_HELD) {
-    arguments.assign(command.begin(), command.end());
-    arguments.push_back(L'\0');
-    created = CreateProcessWithTokenW(
-        restricted.value, 0, executable.data(), arguments.data(), flags,
-        nullptr, nullptr, &startup, &child);
-    create_error = GetLastError();
-  }
+  const DWORD create_error = GetLastError();
   if (!created) {
     throw EnvironmentUnavailable("Cannot launch medium integrity sender: " +
                                  std::to_string(create_error));
@@ -493,6 +549,7 @@ int wmain(int argc, wchar_t** argv) {
     auto* diagnostics = static_cast<ChildDiagnostics*>(
         MapViewOfFile(mapping.value, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(ChildDiagnostics)));
     if (diagnostics == nullptr) return 85;
+    diagnostics->entered_wmain = TRUE;
     diagnostics->child_integrity = integrity;
     ProcessIdToSessionId(GetCurrentProcessId(), &diagnostics->child_session);
     const auto sid = CurrentUserSid();
