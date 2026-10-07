@@ -1,10 +1,11 @@
-param([Parameter(Mandatory = $true)][string]$EvidenceDirectory, [switch]$CompileOnly)
+param([Parameter(Mandatory = $true)][string]$EvidenceDirectory, [switch]$CompileOnly, [string]$TestCase)
 
 $ErrorActionPreference = 'Stop'
 [void](New-Item -ItemType Directory -Force -Path $EvidenceDirectory)
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $runnerDirectory = Join-Path $repository 'windows/runner'
-$build = Join-Path $env:RUNNER_TEMP ('native-window-build-' + [Guid]::NewGuid().ToString('N'))
+$temporaryRoot = if ([string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) { [IO.Path]::GetTempPath() } else { $env:RUNNER_TEMP }
+$build = Join-Path $temporaryRoot ('native-window-build-' + [Guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Force -Path $build)
 $sourceHashes = [ordered]@{}
 foreach ($name in @('window_visibility.h', 'window_visibility.cpp', 'win32_window.h', 'win32_window.cpp', 'flutter_window.cpp', 'main.cpp', 'CMakeLists.txt')) {
@@ -87,15 +88,25 @@ try {
     }
     & cl.exe /nologo /std:c++17 /EHsc /W4 /WX /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX ('/I' + $runnerDirectory) (Join-Path $runnerDirectory 'window_visibility.cpp') (Join-Path $PSScriptRoot 'native_window_tests.cpp') ('/Fe:' + $executable) user32.lib gdi32.lib dwmapi.lib advapi32.lib *> (Join-Path $EvidenceDirectory 'build.txt')
     if ($LASTEXITCODE -ne 0) { throw 'Production window visibility module or native test compilation failed' }
-    $process = Start-Process -FilePath $executable -ArgumentList ('"' + (Join-Path $EvidenceDirectory 'verification.json') + '"') -PassThru -RedirectStandardOutput (Join-Path $EvidenceDirectory 'runtime.txt') -RedirectStandardError (Join-Path $EvidenceDirectory 'stderr.txt')
+    $arguments = '"' + (Join-Path $EvidenceDirectory 'verification.json') + '"'
+    if (-not [string]::IsNullOrWhiteSpace($TestCase)) { $arguments += ' "' + $TestCase + '"' }
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    $exitCode = $null
+    $timedOut = $false
+    $process = Start-Process -FilePath $executable -ArgumentList $arguments -PassThru -RedirectStandardOutput (Join-Path $EvidenceDirectory 'runtime.txt') -RedirectStandardError (Join-Path $EvidenceDirectory 'stderr.txt')
     try {
         $processHandle = $process.Handle
         if (-not $process.WaitForExit(60000)) {
+            $timedOut = $true
             try { $process.Kill() } catch { }
             throw 'Native verification exceeded the 60 second limit'
         }
-        if ($null -eq $process.ExitCode -or $process.ExitCode -ne 0) { throw 'Production window visibility native verification failed' }
+        $exitCode = $process.ExitCode
+        if ($null -eq $exitCode -or $exitCode -ne 0) { throw 'Production window visibility native verification failed' }
     } finally {
+        $watch.Stop()
+        [ordered]@{ exit_code = $exitCode; elapsed_seconds = [Math]::Round($watch.Elapsed.TotalSeconds, 3); timed_out = $timedOut; selected_case = $TestCase } |
+            ConvertTo-Json | Set-Content -LiteralPath (Join-Path $EvidenceDirectory 'execution.json') -Encoding UTF8
         $process.Dispose()
     }
 } finally {

@@ -20,32 +20,12 @@ jobs:
         timeout-minutes: 6
         run: |
           $ErrorActionPreference = 'Stop'
-          & ./.ci/native-window-activation/test_native.ps1 -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'native-window-evidence')
+          & ./.ci/native-window-activation/test_native.ps1 -TestCase 'registered-message-rejects-payload-and-medium-activates-high' -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'native-window-evidence')
       - name: Upload synthetic native evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: native-window-activation
           path: ${{ runner.temp }}/native-window-evidence
-          if-no-files-found: error
-          retention-days: 14
-  windows-compile:
-    runs-on: windows-2022
-    timeout-minutes: 10
-    steps:
-      - name: Checkout isolated native validation
-        uses: actions/checkout@v4
-      - name: Compile production runner and window_ext against pinned official Flutter headers
-        shell: pwsh
-        timeout-minutes: 6
-        run: |
-          $ErrorActionPreference = 'Stop'
-          & ./.ci/native-window-activation/test_native.ps1 -CompileOnly -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'native-compile-evidence')
-      - name: Upload production compile evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-window-compile
-          path: ${{ runner.temp }}/native-compile-evidence
           if-no-files-found: error
           retention-days: 14

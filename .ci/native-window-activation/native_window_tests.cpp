@@ -24,6 +24,7 @@ struct Result {
 
 std::vector<Result> results;
 std::filesystem::path report_path;
+std::string selected_case;
 DWORD sender_integrity_rid = 0;
 DWORD receiver_integrity_rid = 0;
 bool medium_mutex_probe_confirmed = false;
@@ -77,6 +78,7 @@ void SaveResults() {
     if (result.skipped) ++skipped;
   }
   out << "{\"synthetic_data_only\":true,\"production_module_compiled\":true,"
+         "\"selected_case\":\"" << JsonEscape(selected_case) << "\","
          "\"test_count\":" << results.size()
       << ",\"passed_count\":" << passed
       << ",\"failed_count\":" << (results.size() - passed - skipped)
@@ -101,6 +103,7 @@ void SaveResults() {
 }
 
 void Run(const std::string& name, const std::function<void()>& body) {
+  if (!selected_case.empty() && name != selected_case) return;
   try {
     body();
     results.push_back({name, true, false, ""});
@@ -170,7 +173,8 @@ void PostFromMediumIntegrityChild(HWND target, const std::wstring& mutex_name) {
   }
   HANDLE raw_token = nullptr;
   if (!OpenProcessToken(GetCurrentProcess(),
-                        TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY,
+                        TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY |
+                            TOKEN_ADJUST_DEFAULT,
                         &raw_token)) {
     throw EnvironmentUnavailable("Cannot open token for restricted sender");
   }
@@ -385,10 +389,11 @@ int wmain(int argc, wchar_t** argv) {
     if (!probe) return 82;
     return PostFengWoWindowActivation(target) ? 0 : 83;
   }
-  if (argc != 2) {
+  if (argc != 2 && argc != 3) {
     return 2;
   }
   report_path = std::filesystem::path(argv[1]);
+  if (argc == 3) selected_case = std::filesystem::path(argv[2]).string();
   SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
   Run("normal-window-preserves-position-and-size", [] {
@@ -552,7 +557,7 @@ int wmain(int argc, wchar_t** argv) {
             "Position computation forced window visibility");
   });
 
-  bool all_passed = results.size() == 12;
+  bool all_passed = results.size() == (selected_case.empty() ? 12 : 1);
   for (const auto& result : results) {
     all_passed = all_passed && result.passed;
   }
