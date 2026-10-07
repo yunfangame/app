@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import 'proxy_command.dart';
+
 @immutable
 class ProxyOperationResult {
   const ProxyOperationResult({
@@ -13,6 +15,12 @@ class ProxyOperationResult {
     this.fallbackUsed = false,
     this.rasFailureCount = 0,
     this.message,
+    this.command,
+    this.commandExitCode,
+    this.commandStdout,
+    this.commandStderr,
+    this.commandSpawnError,
+    this.commandSpawnErrorCode,
   });
 
   final bool success;
@@ -25,6 +33,44 @@ class ProxyOperationResult {
   final bool fallbackUsed;
   final int rasFailureCount;
   final String? message;
+  final String? command;
+  final int? commandExitCode;
+  final String? commandStdout;
+  final String? commandStderr;
+  final String? commandSpawnError;
+  final int? commandSpawnErrorCode;
+
+  ProxyOperationResult withCommandFailure(ProxyCommandResult? failure) {
+    if (failure == null || failure.success || success) return this;
+    final failedCommand = failure.command;
+    final exception = failure.exception;
+    return ProxyOperationResult(
+      success: success,
+      operation: operation,
+      stage: stage,
+      errorCode: errorCode,
+      connectionName: connectionName,
+      enabled: enabled,
+      server: server,
+      fallbackUsed: fallbackUsed,
+      rasFailureCount: rasFailureCount,
+      message: message,
+      command: failedCommand == null
+          ? null
+          : _bounded(
+              '${failedCommand.executable} ${failedCommand.args.firstOrNull ?? ''}'
+                  .trim(),
+              256,
+            ),
+      commandExitCode: failure.processResult?.exitCode,
+      commandStdout: _bounded(failure.processResult?.stdout.toString()),
+      commandStderr: _bounded(failure.processResult?.stderr.toString()),
+      commandSpawnError: exception == null
+          ? null
+          : _bounded('ProcessException: ${exception.message}'),
+      commandSpawnErrorCode: exception?.errorCode,
+    );
+  }
 
   factory ProxyOperationResult.fromChannel(
     Object? value, {
@@ -97,7 +143,23 @@ class ProxyOperationResult {
     'fallback_used': fallbackUsed,
     'ras_failure_count': rasFailureCount,
     if (message?.isNotEmpty == true) 'message': message,
+    if (command?.isNotEmpty == true) 'command': _bounded(command, 256),
+    if (commandExitCode != null) 'command_exit_code': commandExitCode,
+    if (commandStdout?.isNotEmpty == true)
+      'command_stdout': _bounded(commandStdout),
+    if (commandStderr?.isNotEmpty == true)
+      'command_stderr': _bounded(commandStderr),
+    if (commandSpawnError?.isNotEmpty == true)
+      'command_spawn_error': _bounded(commandSpawnError),
+    if (commandSpawnErrorCode != null)
+      'command_spawn_error_code': commandSpawnErrorCode,
   };
+
+  static String? _bounded(String? value, [int limit = 1024]) {
+    final text = value?.trim();
+    if (text == null || text.isEmpty) return null;
+    return text.length <= limit ? text : text.substring(0, limit);
+  }
 
   static int? _asInt(Object? value) => switch (value) {
     int() => value,

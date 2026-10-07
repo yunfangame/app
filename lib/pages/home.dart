@@ -50,16 +50,17 @@ class HomePage extends ConsumerWidget {
                 return Column(
                   children: [
                     if (!isMobile)
-                      ValueListenableBuilder<int>(
-                        valueListenable:
-                            globalState.xboardSessionRevisionNotifier,
-                        builder: (context, revision, _) =>
-                            FengWoGlobalAccountHeader(
-                              key: ValueKey(
-                                'fengwo-global-account-header-$revision',
-                              ),
-                              subscription: globalState.xboardSubscription,
-                            ),
+                      ListenableBuilder(
+                        listenable: Listenable.merge([
+                          globalState.xboardSessionRevisionNotifier,
+                          globalState.xboardSubscriptionNotifier,
+                        ]),
+                        builder: (context, _) => FengWoGlobalAccountHeader(
+                          key: ValueKey(
+                            'fengwo-global-account-header-${globalState.xboardSessionRevision}',
+                          ),
+                          subscription: globalState.xboardSubscription,
+                        ),
                       ),
                     ValueListenableBuilder<bool>(
                       valueListenable: globalState.offlineModeNotifier,

@@ -54,13 +54,13 @@ jobs:
             [System.Text.UTF8Encoding]::new($false)
           )
 
-      - name: Download verified online v1.0.6 overwrite baseline
+      - name: Download verified online v1.0.8 overwrite baseline
         shell: pwsh
         run: |
-          $baseline = Join-Path $env:RUNNER_TEMP 'fengwo-baseline-1.0.6.exe'
+          $baseline = Join-Path $env:RUNNER_TEMP 'fengwo-baseline-1.0.8.exe'
           Invoke-WebRequest -Uri 'https://picture.sansen.tech/fengwo-windows-amd64-setup.exe' -OutFile $baseline
           $hash = (Get-FileHash -LiteralPath $baseline -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -cne 'd3b75feaa534f6822bd15e5262a6f263962af2e23ba8d8a9b6a4e21930006423') { throw 'The online v1.0.6 baseline changed; refusing an unverified overwrite test' }
+          if ($hash -cne '62ec77a28e997b0fd1040510df3a399940a92d08db7b6a7a3c3deee926c83c61') { throw 'The online v1.0.8 baseline changed; refusing an unverified overwrite test' }
           $tokens = $null
           $parseErrors = $null
           $null = [System.Management.Automation.Language.Parser]::ParseFile("$PWD/tooling/windows/test_installed_upgrade.ps1", [ref]$tokens, [ref]$parseErrors)
@@ -173,6 +173,19 @@ jobs:
             'test/pages/init_error_test.dart',
             'test/common/api_health_test.dart',
             'test/common/api_network_diagnostic_test.dart',
+            'test/common/api_request_router_test.dart',
+            'test/common/xboard_api_routing_test.dart',
+            'test/common/xboard_api_request_test.dart',
+            'test/common/xboard_refresh_coordinator_test.dart',
+            'test/common/subscription_access_guard_test.dart',
+            'test/common/startup_connection_coordinator_test.dart',
+            'test/providers/startup_auto_connect_test.dart',
+            'test/widgets/subscription_status_indicator_test.dart',
+            'test/widgets/purchase_plans_test.dart',
+            'test/widgets/orders_test.dart',
+            'test/widgets/invite_promotion_test.dart',
+            'test/widgets/traffic_details_test.dart',
+            'test/widgets/xboard_announcement_center_test.dart',
             'test/common/windows_tls_trust_test.dart',
             'test/common/remote_config_cipher_test.dart',
             'test/common/api_remote_config_cache_test.dart',
@@ -310,9 +323,14 @@ jobs:
             if ([BitConverter]::ToUInt32($bytes, $peOffset) -ne 0x00004550) { throw "Invalid PE signature: $($binary.Name)" }
             if ([BitConverter]::ToUInt16($bytes, $peOffset + 4) -ne 0x8664) { throw "Expected x64 binary: $($binary.Name)" }
           }
-          $versionLine = Select-String -Path pubspec.yaml -Pattern '^version:\s*(\d+\.\d+\.\d+)\s*$'
-          if ($null -eq $versionLine) { throw 'A stable version without build metadata is required' }
-          $expectedVersion = $versionLine.Matches[0].Groups[1].Value
+          $versionLine = Select-String -Path pubspec.yaml -Pattern '^version:\s*(\d+\.\d+\.\d+)\+(\d+)\s*$'
+          if ($null -eq $versionLine) { throw 'A stable version with numeric build metadata is required' }
+          $displayVersion = $versionLine.Matches[0].Groups[1].Value
+          $expectedBuild = [int]$versionLine.Matches[0].Groups[2].Value
+          if ($expectedBuild -lt 1 -or $expectedBuild -gt 65535) { throw 'Windows native build number must fit 16 bits' }
+          $expectedVersion = "$displayVersion+$expectedBuild"
+          if ($app.VersionInfo.FileMajorPart -ne 1 -or $app.VersionInfo.FileMinorPart -ne 0 -or $app.VersionInfo.FileBuildPart -ne 8 -or $app.VersionInfo.FilePrivatePart -ne 16) { throw 'Windows native file version must be 1,0,8,16' }
+          if ($app.VersionInfo.ProductMajorPart -ne 1 -or $app.VersionInfo.ProductMinorPart -ne 0 -or $app.VersionInfo.ProductBuildPart -ne 8 -or $app.VersionInfo.ProductPrivatePart -ne 16) { throw 'Windows native product version must be 1,0,8,16' }
           if ($app.VersionInfo.ProductVersion -ne $expectedVersion) { throw "Unexpected product version: $($app.VersionInfo.ProductVersion)" }
           if ($app.VersionInfo.FileVersion -ne $expectedVersion) { throw "Unexpected file version: $($app.VersionInfo.FileVersion)" }
           if ($app.VersionInfo.ProductName -ne '蜂窝加速器') { throw "Unexpected product name: $($app.VersionInfo.ProductName)" }
@@ -409,7 +427,7 @@ jobs:
         shell: pwsh
         run: |
           $installer = Get-ChildItem dist -Filter '*windows*.exe' -File | Select-Object -First 1
-          ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/upgrade-verification" -PreviousInstallerPath "$env:RUNNER_TEMP/fengwo-baseline-1.0.6.exe" -ExpectedPreviousVersion '1.0.6'
+          ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/upgrade-verification" -PreviousInstallerPath "$env:RUNNER_TEMP/fengwo-baseline-1.0.8.exe" -ExpectedPreviousVersion '1.0.8'
 
       - name: Verify installed helper service repair and overwrite
         shell: pwsh
@@ -435,10 +453,15 @@ jobs:
           $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
           $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           $metadata = [ordered]@{
-            version = (Get-Item build/windows/x64/runner/Release/FengWo.exe).VersionInfo.ProductVersion
+            version = '1.0.8'
+            actual_product_version = (Get-Item build/windows/x64/runner/Release/FengWo.exe).VersionInfo.ProductVersion
+            build_number = 16
             release_channel = 'stable'
-            fixes = @('windows_public_root_trust', 'preferences_atomic_save_and_recovery', 'upgrade_save_before_installer', 'windows_tun_service_repair', 'windows_winhttp_ipv6_bypass', 'windows_autostart_verified', 'v2_node_country_tag_count', 'global_header_plan_badge_removed', 'desktop_connect_auto_system_proxy', 'desktop_proxy_port_recovery', 'online_1_0_6_overwrite_upgrade', 'crisp_single_session_chinese_profile_and_version', 'dashboard_node_entry_original_selector', 'proxy_rules_navigation', 'windows_install_directory_choice', 'windows_integrity_install_guard', 'windows_integrity_startup_diagnostics', 'advanced_dns_fake_ip_settings', 'account_subscription_routing_memory', 'startup_disclaimer_removed', 'windows_helper_dedicated_port', 'windows_helper_port_conflict_diagnostics')
+            fixes = @('windows_public_root_trust', 'preferences_atomic_save_and_recovery', 'upgrade_save_before_installer', 'windows_tun_service_repair', 'windows_winhttp_ipv6_bypass', 'windows_autostart_verified', 'v2_node_country_tag_count', 'global_header_plan_badge_removed', 'desktop_connect_auto_system_proxy', 'desktop_proxy_port_recovery', 'online_1_0_8_same_version_overwrite_upgrade', 'crisp_single_session_chinese_profile_and_version', 'dashboard_node_entry_original_selector', 'proxy_rules_navigation', 'windows_install_directory_choice', 'windows_integrity_install_guard', 'windows_integrity_startup_diagnostics', 'advanced_dns_fake_ip_settings', 'account_subscription_routing_memory', 'startup_disclaimer_removed', 'windows_helper_dedicated_port', 'windows_helper_port_conflict_diagnostics')
             source_branch = 'codex/desktop-upstream-0897-port'
+            source_workspace_head = '5bfbc54dd74dd7a3df561584ff44143fecc094c3'
+            source_snapshot_contains_working_changes = $true
+            version_features = @('subscription_renewal_prompt', 'reset_countdown_days_hours', 'mac_proxy_os_command_diagnostics', 'windows_listener_winsock_classification', 'trusted_api_dynamic_failover', 'secure_subscription_budget_and_recovery', 'same_display_version_real_build_number')
             source_sha = $env:GITHUB_SHA
             source_ref = $env:GITHUB_REF
             run_id = $env:GITHUB_RUN_ID

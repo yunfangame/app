@@ -137,45 +137,47 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m54(count) => "${count}人";
 
-  static String m55(label) => "${label} は 1024 から 49151 の間でなければなりません";
+  static String m55(days, hours) => "次の通信量リセットまで ${days} 日 ${hours} 時間";
 
-  static String m56(value) => "${value} ms";
+  static String m56(label) => "${label} は 1024 から 49151 の間でなければなりません";
 
-  static String m57(count) => "${count} 件保存済み。上書き有効時に適用されます";
+  static String m57(value) => "${value} ms";
 
-  static String m58(profile) => "現在の購読：${profile}";
+  static String m58(count) => "${count} 件保存済み。上書き有効時に適用されます";
 
-  static String m59(count) => "${count} 秒";
+  static String m59(profile) => "現在の購読：${profile}";
 
-  static String m60(count) => "${count} 項目が選択されています";
+  static String m60(count) => "${count} 秒";
 
-  static String m61(date) => "プランは ${date} に期限切れとなりました。更新後に引き続きご利用いただけます。";
+  static String m61(count) => "${count} 項目が選択されています";
 
-  static String m62(date) => "プランは ${date} に期限切れとなり、残り 7 日未満です。早めに更新してください。";
+  static String m62(date) => "プランは ${date} に期限切れとなりました。更新後に引き続きご利用いただけます。";
 
-  static String m63(remaining) =>
+  static String m63(date) => "プランは ${date} に期限切れとなり、残り 7 日未満です。早めに更新してください。";
+
+  static String m64(remaining) =>
       "残り通信量は ${remaining} GB で、10 GB を下回っています。早めに購入または更新してください。";
 
-  static String m64(days, date) => "次の通信量リセットまであと ${days} 日（${date}）です。";
+  static String m65(days, date) => "次の通信量リセットまであと ${days} 日（${date}）です。";
 
-  static String m65(date) => "次の通信量リセットまで 1 日未満（${date}）です。";
-
-  static String m66(code) =>
-      "システムプロキシを有効にできませんでした（${code}）。スイッチを元に戻しました。診断用ログをエクスポートしてください";
+  static String m66(date) => "次の通信量リセットまで 1 日未満（${date}）です。";
 
   static String m67(code) =>
+      "システムプロキシを有効にできませんでした（${code}）。スイッチを元に戻しました。診断用ログをエクスポートしてください";
+
+  static String m68(code) =>
       "システムプロキシを無効にできませんでした（${code}）。Windows の設定で手動で無効にしてください";
 
-  static String m68(count) => "全 ${count} 件";
+  static String m69(count) => "全 ${count} 件";
 
-  static String m69(port) =>
+  static String m70(port) =>
       "内部補助サービスのポート ${port} は別のプログラムに使用されています。競合するプログラムとその補助サービスを終了して再試行するか、ログをエクスポートしてサポートに連絡してください。プロキシポートの変更や再承認では、このポートは解放されません。";
 
-  static String m70(ip) => "IP ${ip} からこのアカウントに再びログインできるようになります。";
+  static String m71(ip) => "IP ${ip} からこのアカウントに再びログインできるようになります。";
 
-  static String m71(label) => "${label}はURLである必要があります";
+  static String m72(label) => "${label}はURLである必要があります";
 
-  static String m72(count) => "${count}年前";
+  static String m73(count) => "${count}年前";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -1566,11 +1568,30 @@ class MessageLookup extends MessageLookupByLibrary {
     "pendingTest": MessageLookupByLibrary.simpleMessage("未判定"),
     "peopleCount": m54,
     "personalCenter": MessageLookupByLibrary.simpleMessage("アカウント"),
+    "planAccessEmptyBody": MessageLookupByLibrary.simpleMessage(
+      "プランの残り通信量は0です。通信量のリセットまたはプランのアップグレードで接続できます。通常、更新は有効期限の延長のみで、通信量はすぐにリセットされません。",
+    ),
+    "planAccessEmptyTitle": MessageLookupByLibrary.simpleMessage(
+      "プランの通信量を使い切りました",
+    ),
+    "planAccessExpiredBody": MessageLookupByLibrary.simpleMessage(
+      "プランの有効期限が切れているため接続できません。更新後に再接続してください。",
+    ),
+    "planAccessExpiredTitle": MessageLookupByLibrary.simpleMessage(
+      "プランの有効期限が切れました",
+    ),
     "planCatalogEmpty": MessageLookupByLibrary.simpleMessage(
       "現在購入できるプランはありません",
     ),
     "planCatalogFailed": MessageLookupByLibrary.simpleMessage("プランを読み込めませんでした"),
     "planDevicesLabel": MessageLookupByLibrary.simpleMessage("端末"),
+    "planResetPending": MessageLookupByLibrary.simpleMessage(
+      "通信量リセット時刻になりました。プラン情報を更新してください。",
+    ),
+    "planResetRemaining": m55,
+    "planResetWithinHour": MessageLookupByLibrary.simpleMessage(
+      "次の通信量リセットまで1時間未満",
+    ),
     "planSpeedLabel": MessageLookupByLibrary.simpleMessage("速度"),
     "planStoreSubtitle": MessageLookupByLibrary.simpleMessage(
       "安全で高速・安定したグローバル接続",
@@ -1598,7 +1619,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "port": MessageLookupByLibrary.simpleMessage("ポート"),
     "portConflictTip": MessageLookupByLibrary.simpleMessage("別のポートを入力してください"),
-    "portTip": m55,
+    "portTip": m56,
     "practicalTools": MessageLookupByLibrary.simpleMessage("ユーティリティ"),
     "practicalToolsSubtitle": MessageLookupByLibrary.simpleMessage(
       "ネットワークサービスをより快適に使うための便利なツール",
@@ -1710,7 +1731,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "referenceDelayExplanation": MessageLookupByLibrary.simpleMessage(
       "経路全体を通した校正済み参考遅延を表示します。測定失敗時はタイムアウトと表示します。",
     ),
-    "referenceDelayValue": m56,
+    "referenceDelayValue": m57,
     "referenceStandardizedDelay": MessageLookupByLibrary.simpleMessage(
       "参考 RTT",
     ),
@@ -1930,7 +1951,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "save": MessageLookupByLibrary.simpleMessage("保存"),
     "saveChanges": MessageLookupByLibrary.simpleMessage("変更を保存"),
-    "savedDnsServersCount": m57,
+    "savedDnsServersCount": m58,
     "savedRuleDeleted": MessageLookupByLibrary.simpleMessage(
       "ルールを削除し、設定を再適用しました",
     ),
@@ -1958,7 +1979,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "savedRulesProfileHint": MessageLookupByLibrary.simpleMessage(
       "購読を切り替えると、その購読に保存されたルールを表示します",
     ),
-    "savedRulesProfileScope": m58,
+    "savedRulesProfileScope": m59,
     "savedRulesReordered": MessageLookupByLibrary.simpleMessage(
       "ルールの優先度を更新して適用しました",
     ),
@@ -1978,7 +1999,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "ドメイン、IP、ルール、ノードを検索",
     ),
     "seconds": MessageLookupByLibrary.simpleMessage("秒"),
-    "secondsCount": m59,
+    "secondsCount": m60,
     "selectAll": MessageLookupByLibrary.simpleMessage("すべて選択"),
     "selectPaymentMethod": MessageLookupByLibrary.simpleMessage("支払い方法を選択"),
     "selectProxies": MessageLookupByLibrary.simpleMessage("プロキシを選択"),
@@ -1996,7 +2017,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "出金方法を選択してください",
     ),
     "selected": MessageLookupByLibrary.simpleMessage("選択済み"),
-    "selectedCountTitle": m60,
+    "selectedCountTitle": m61,
     "sendVerificationCode": MessageLookupByLibrary.simpleMessage("送信"),
     "sendingVerificationCode": MessageLookupByLibrary.simpleMessage("送信中..."),
     "serviceStatus": MessageLookupByLibrary.simpleMessage("サービス状態"),
@@ -2082,12 +2103,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "subRuleNotEmpty": MessageLookupByLibrary.simpleMessage("サブルールは空にできません"),
     "submit": MessageLookupByLibrary.simpleMessage("送信"),
     "submitWithdrawalTicket": MessageLookupByLibrary.simpleMessage("出金チケットを送信"),
-    "subscriptionExpiredWarning": m61,
-    "subscriptionExpiringWarning": m62,
+    "subscriptionExpiredWarning": m62,
+    "subscriptionExpiringWarning": m63,
     "subscriptionImportFailed": MessageLookupByLibrary.simpleMessage(
       "購読ノードを読み込めませんでした。ネットワークを確認して再試行してください",
     ),
-    "subscriptionLowTrafficWarning": m63,
+    "subscriptionLowTrafficWarning": m64,
     "subscriptionNormalTooltip": MessageLookupByLibrary.simpleMessage(
       "プランは正常です。クリックして詳細を表示",
     ),
@@ -2097,7 +2118,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionResetContinue": MessageLookupByLibrary.simpleMessage(
       "リセットを続ける",
     ),
-    "subscriptionResetCountdown": m64,
+    "subscriptionResetCountdown": m65,
     "subscriptionResetExpired": MessageLookupByLibrary.simpleMessage(
       "プランの有効期限が切れています。先に更新してください。リセット予定は更新後のプラン情報に従います。",
     ),
@@ -2114,7 +2135,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionResetSuccess": MessageLookupByLibrary.simpleMessage(
       "購読情報をリセットして同期しました",
     ),
-    "subscriptionResetWithinDay": m65,
+    "subscriptionResetWithinDay": m66,
     "subscriptionStatusNormalMessage": MessageLookupByLibrary.simpleMessage(
       "残り通信量と有効期限はいずれも正常です。",
     ),
@@ -2156,11 +2177,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "system": MessageLookupByLibrary.simpleMessage("システム"),
     "systemApp": MessageLookupByLibrary.simpleMessage("システムアプリ"),
     "systemProxy": MessageLookupByLibrary.simpleMessage("システムプロキシ"),
-    "systemProxyApplyFailed": m66,
+    "systemProxyApplyFailed": m67,
     "systemProxyDesc": MessageLookupByLibrary.simpleMessage(
       "HTTPプロキシをVpnServiceに接続",
     ),
-    "systemProxyDisableFailed": m67,
+    "systemProxyDisableFailed": m68,
     "systemProxyStaleCleaned": MessageLookupByLibrary.simpleMessage(
       "前回の異常終了で残ったシステムプロキシを消去しました",
     ),
@@ -2237,7 +2258,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "tools": MessageLookupByLibrary.simpleMessage("ツール"),
     "totalCommission": MessageLookupByLibrary.simpleMessage("累計報酬"),
     "totalLoginCount": MessageLookupByLibrary.simpleMessage("ログイン回数"),
-    "totalOrders": m68,
+    "totalOrders": m69,
     "totalTrafficLabel": MessageLookupByLibrary.simpleMessage("合計"),
     "tproxyPort": MessageLookupByLibrary.simpleMessage("Tproxyポート"),
     "trafficDetailRecords": MessageLookupByLibrary.simpleMessage("通信量の詳細履歴"),
@@ -2272,7 +2293,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "tunFailureHelp": MessageLookupByLibrary.simpleMessage(
       "仮想アダプターを無効にしました。詳細はエクスポートしたログで確認できます。再承認するか、対応アプリ用にシステムプロキシを選択してください。",
     ),
-    "tunHelperPortInUse": m69,
+    "tunHelperPortInUse": m70,
     "tunPermissionDenied": MessageLookupByLibrary.simpleMessage(
       "仮想アダプターを作成する権限がありません。",
     ),
@@ -2316,7 +2337,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "turnOn": MessageLookupByLibrary.simpleMessage("オン"),
     "twoYearBilling": MessageLookupByLibrary.simpleMessage("2年"),
     "unblockLoginIp": MessageLookupByLibrary.simpleMessage("解除"),
-    "unblockLoginIpMessage": m70,
+    "unblockLoginIpMessage": m71,
     "unblockLoginIpTitle": MessageLookupByLibrary.simpleMessage(
       "この IP の制限を解除しますか？",
     ),
@@ -2342,7 +2363,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "uploaded": MessageLookupByLibrary.simpleMessage("アップロード済み"),
     "url": MessageLookupByLibrary.simpleMessage("URL"),
     "urlDesc": MessageLookupByLibrary.simpleMessage("URL経由でプロファイルを取得"),
-    "urlTip": m71,
+    "urlTip": m72,
     "useHosts": MessageLookupByLibrary.simpleMessage("ホストを使用"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage("システムホストを使用"),
     "usedTrafficLabel": MessageLookupByLibrary.simpleMessage("使用済み"),
@@ -2403,7 +2424,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "送信するとシステム内にチケットが作成され、管理者が内容を確認して処理します。",
     ),
     "yearlyBilling": MessageLookupByLibrary.simpleMessage("年払い"),
-    "yearsAgo": m72,
+    "yearsAgo": m73,
     "zh_CN": MessageLookupByLibrary.simpleMessage("簡体字中国語"),
     "zoomIn": MessageLookupByLibrary.simpleMessage("拡大"),
     "zoomOut": MessageLookupByLibrary.simpleMessage("縮小"),

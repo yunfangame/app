@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/api_health_fixture.dart';
+
 void main() {
   testWidgets('traffic details renders XBoard totals, rates, and refreshes', (
     tester,
@@ -39,7 +41,10 @@ void main() {
     expect(find.byKey(const ValueKey('traffic-summary-month')), findsOne);
     expect(find.byKey(const ValueKey('traffic-summary-remaining')), findsOne);
     expect(find.byKey(const ValueKey('traffic-summary-total')), findsOne);
-    expect(find.byKey(const ValueKey('subscription-plan-actions')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('subscription-plan-actions')),
+      findsNothing,
+    );
     expect(find.byKey(const ValueKey('traffic-renew-plan')), findsNothing);
     expect(find.byKey(const ValueKey('traffic-upgrade-plan')), findsNothing);
     expect(find.byKey(const ValueKey('traffic-reset-plan')), findsNothing);
@@ -114,6 +119,7 @@ XboardAuthService _testService({
   VoidCallback? onSubscriptionRequested,
 }) {
   return XboardAuthService(
+    apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
     trafficLogsRequester: (endpoint, authData) async {
       onTrafficRequested?.call();
       final today = DateTime.now();

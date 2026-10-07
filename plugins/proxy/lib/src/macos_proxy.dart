@@ -26,7 +26,17 @@ class MacosProxy {
     int port,
     List<String> bypassDomain,
   ) async {
-    final targets = await _networkServicesInPriorityOrder();
+    final diagnostics = _MacosCommandDiagnostics();
+    final result = await _startDetailed(port, bypassDomain, diagnostics);
+    return result.withCommandFailure(diagnostics.firstFailure);
+  }
+
+  Future<ProxyOperationResult> _startDetailed(
+    int port,
+    List<String> bypassDomain,
+    _MacosCommandDiagnostics diagnostics,
+  ) async {
+    final targets = await _networkServicesInPriorityOrder(diagnostics);
     if (targets.primaryService == null) {
       return const ProxyOperationResult(
         success: false,
@@ -34,7 +44,7 @@ class MacosProxy {
         stage: 'service_discovery',
       );
     }
-    if (!await _captureOriginalStates(targets.services)) {
+    if (!await _captureOriginalStates(targets.services, diagnostics)) {
       return const ProxyOperationResult(
         success: false,
         operation: 'start',
@@ -44,9 +54,11 @@ class MacosProxy {
     }
     final applied = <String>[];
     for (final service in targets.services) {
-      if (await _commandRunner.run(
+      final result = await _commandRunner.runDetailed(
         MacosProxyCommands.buildStart(service, port, bypassDomain),
-      )) {
+      );
+      diagnostics.record(result);
+      if (result.success) {
         applied.add(service);
         _managedServices.add(service);
       }
@@ -58,7 +70,7 @@ class MacosProxy {
         stage: 'apply_default',
       );
     }
-    final inspection = await inspectDetailed(port);
+    final inspection = await _inspectDetailed(port, diagnostics);
     if (!inspection.success) {
       return ProxyOperationResult(
         success: false,
@@ -86,15 +98,34 @@ class MacosProxy {
   }
 
   Future<ProxyOperationResult> stopDetailed({int? expectedPort}) async {
+    final diagnostics = _MacosCommandDiagnostics();
+    final result = await _stopDetailed(expectedPort, diagnostics);
+    return result.withCommandFailure(diagnostics.firstFailure);
+  }
+
+  Future<ProxyOperationResult> _stopDetailed(
+    int? expectedPort,
+    _MacosCommandDiagnostics diagnostics,
+  ) async {
     var succeeded = true;
     final hasSessionState =
         _originalStates.isNotEmpty || _managedServices.isNotEmpty;
     final restoredServices = <String>{};
     for (final entry in _originalStates.entries) {
+      final current = await _readNetworkServiceState(entry.key, diagnostics);
+      if (current == null) {
+        succeeded = false;
+        continue;
+      }
+      if (current.restores(entry.value)) {
+        restoredServices.add(entry.key);
+        continue;
+      }
       final commands = MacosProxyCommands.buildRestore(entry.key, entry.value);
-      final applied = await _commandRunner.run(commands);
-      final readback = applied
-          ? await _readNetworkServiceState(entry.key)
+      final applied = await _commandRunner.runDetailed(commands);
+      diagnostics.record(applied);
+      final readback = applied.success
+          ? await _readNetworkServiceState(entry.key, diagnostics)
           : null;
       final restored = readback != null && readback.restores(entry.value);
       succeeded = restored && succeeded;
@@ -108,7 +139,7 @@ class MacosProxy {
         .where((service) => !_originalStates.containsKey(service))
         .toList();
     for (final service in cleanupCandidates) {
-      final state = await _readNetworkServiceState(service);
+      final state = await _readNetworkServiceState(service, diagnostics);
       if (state == null) {
         succeeded = false;
         continue;
@@ -117,21 +148,29 @@ class MacosProxy {
         _managedServices.remove(service);
         continue;
       }
-      final stopped = await _stopOwnedService(service, expectedPort);
+      final stopped = await _stopOwnedService(
+        service,
+        expectedPort,
+        diagnostics,
+      );
       succeeded = stopped && succeeded;
       if (stopped) _managedServices.remove(service);
     }
     if (!hasSessionState) {
-      final services = await _networkServices();
+      final services = await _networkServices(diagnostics);
       if (services == null) succeeded = false;
       for (final service in services ?? <String>[]) {
-        final state = await _readNetworkServiceState(service);
+        final state = await _readNetworkServiceState(service, diagnostics);
         if (state == null) {
           succeeded = false;
           continue;
         }
         if (!state.isOwnedBy(expectedPort)) continue;
-        final stopped = await _stopOwnedService(service, expectedPort);
+        final stopped = await _stopOwnedService(
+          service,
+          expectedPort,
+          diagnostics,
+        );
         succeeded = stopped && succeeded;
       }
     }
@@ -150,21 +189,36 @@ class MacosProxy {
     );
   }
 
-  Future<bool> _stopOwnedService(String service, int? expectedPort) async {
-    final state = await _readNetworkServiceState(service);
+  Future<bool> _stopOwnedService(
+    String service,
+    int? expectedPort,
+    _MacosCommandDiagnostics diagnostics,
+  ) async {
+    final state = await _readNetworkServiceState(service, diagnostics);
     if (state == null) return false;
     if (!state.isOwnedBy(expectedPort)) return true;
-    if (!await _commandRunner.run(
+    final result = await _commandRunner.runDetailed(
       MacosProxyCommands.buildStop(service, state, expectedPort),
-    )) {
+    );
+    diagnostics.record(result);
+    if (!result.success) {
       return false;
     }
-    final readback = await _readNetworkServiceState(service);
+    final readback = await _readNetworkServiceState(service, diagnostics);
     return readback != null && !readback.isOwnedBy(expectedPort);
   }
 
   Future<ProxyOperationResult> inspectDetailed(int expectedPort) async {
-    var result = await _inspectDetailedOnce(expectedPort);
+    final diagnostics = _MacosCommandDiagnostics();
+    final result = await _inspectDetailed(expectedPort, diagnostics);
+    return result.withCommandFailure(diagnostics.firstFailure);
+  }
+
+  Future<ProxyOperationResult> _inspectDetailed(
+    int expectedPort,
+    _MacosCommandDiagnostics diagnostics,
+  ) async {
+    var result = await _inspectDetailedOnce(expectedPort, diagnostics);
     for (
       var attempt = 1;
       attempt < verificationAttempts && !result.success;
@@ -178,13 +232,16 @@ class MacosProxy {
         break;
       }
       await Future<void>.delayed(verificationRetryInterval);
-      result = await _inspectDetailedOnce(expectedPort);
+      result = await _inspectDetailedOnce(expectedPort, diagnostics);
     }
     return result;
   }
 
-  Future<ProxyOperationResult> _inspectDetailedOnce(int expectedPort) async {
-    final targets = await _networkServicesInPriorityOrder();
+  Future<ProxyOperationResult> _inspectDetailedOnce(
+    int expectedPort,
+    _MacosCommandDiagnostics diagnostics,
+  ) async {
+    final targets = await _networkServicesInPriorityOrder(diagnostics);
     final service = targets.primaryService;
     if (service == null) {
       return const ProxyOperationResult(
@@ -193,7 +250,7 @@ class MacosProxy {
         stage: 'service_discovery',
       );
     }
-    final state = await _readNetworkServiceState(service);
+    final state = await _readNetworkServiceState(service, diagnostics);
     if (state == null) {
       return ProxyOperationResult(
         success: false,
@@ -203,7 +260,7 @@ class MacosProxy {
         message: 'Cannot read network service proxy settings',
       );
     }
-    final currentTargets = await _networkServicesInPriorityOrder();
+    final currentTargets = await _networkServicesInPriorityOrder(diagnostics);
     if (currentTargets.primaryService != service ||
         currentTargets.primaryServiceId != targets.primaryServiceId) {
       return const ProxyOperationResult(
@@ -235,10 +292,13 @@ class MacosProxy {
     );
   }
 
-  Future<bool> _captureOriginalStates(List<String> services) async {
+  Future<bool> _captureOriginalStates(
+    List<String> services,
+    _MacosCommandDiagnostics diagnostics,
+  ) async {
     for (final service in services) {
       if (_originalStates.containsKey(service)) continue;
-      final state = await _readNetworkServiceState(service);
+      final state = await _readNetworkServiceState(service, diagnostics);
       if (state == null) return false;
       _originalStates[service] = state;
     }
@@ -247,29 +307,38 @@ class MacosProxy {
 
   Future<MacosNetworkServiceProxyState?> _readNetworkServiceState(
     String service,
+    _MacosCommandDiagnostics diagnostics,
   ) async {
     try {
-      final web = await _readEndpoint('-getwebproxy', service);
-      final secureWeb = await _readEndpoint('-getsecurewebproxy', service);
-      final socks = await _readEndpoint('-getsocksfirewallproxy', service);
-      final autoProxyResult = await _commandRunner.process(
-        '/usr/sbin/networksetup',
-        ['-getautoproxyurl', service],
+      final web = await _readEndpoint('-getwebproxy', service, diagnostics);
+      final secureWeb = await _readEndpoint(
+        '-getsecurewebproxy',
+        service,
+        diagnostics,
       );
-      final discoveryResult = await _commandRunner.process(
-        '/usr/sbin/networksetup',
-        ['-getproxyautodiscovery', service],
+      final socks = await _readEndpoint(
+        '-getsocksfirewallproxy',
+        service,
+        diagnostics,
       );
-      final bypassResult = await _commandRunner.process(
-        '/usr/sbin/networksetup',
-        ['-getproxybypassdomains', service],
-      );
+      final autoProxyResult = await _networksetup([
+        '-getautoproxyurl',
+        service,
+      ], diagnostics);
+      final discoveryResult = await _networksetup([
+        '-getproxyautodiscovery',
+        service,
+      ], diagnostics);
+      final bypassResult = await _networksetup([
+        '-getproxybypassdomains',
+        service,
+      ], diagnostics);
       if (web == null ||
           secureWeb == null ||
           socks == null ||
-          autoProxyResult.exitCode != 0 ||
-          discoveryResult.exitCode != 0 ||
-          bypassResult.exitCode != 0) {
+          autoProxyResult == null ||
+          discoveryResult == null ||
+          bypassResult == null) {
         return null;
       }
       return MacosNetworkServiceProxyState(
@@ -296,17 +365,17 @@ class MacosProxy {
   Future<MacosProxyEndpoint?> _readEndpoint(
     String command,
     String service,
+    _MacosCommandDiagnostics diagnostics,
   ) async {
-    final result = await _commandRunner.process('/usr/sbin/networksetup', [
-      command,
-      service,
-    ]);
-    if (result.exitCode != 0) return null;
+    final result = await _networksetup([command, service], diagnostics);
+    if (result == null) return null;
     return MacosProxyEndpoint.parse(result.stdout.toString());
   }
 
-  Future<_MacosNetworkTargets> _networkServicesInPriorityOrder() async {
-    final services = await _networkServices();
+  Future<_MacosNetworkTargets> _networkServicesInPriorityOrder(
+    _MacosCommandDiagnostics diagnostics,
+  ) async {
+    final services = await _networkServices(diagnostics);
     if (services == null || services.isEmpty) {
       return const _MacosNetworkTargets(services: [], primaryService: null);
     }
@@ -324,7 +393,7 @@ class MacosProxy {
       );
     }
     final defaultDevice = await _defaultDevice();
-    final serviceOrder = await _networkServiceOrder();
+    final serviceOrder = await _networkServiceOrder(diagnostics);
     final primaryService = defaultDevice == null
         ? null
         : serviceOrder[defaultDevice];
@@ -381,12 +450,14 @@ class MacosProxy {
     }
   }
 
-  Future<Map<String, String>> _networkServiceOrder() async {
+  Future<Map<String, String>> _networkServiceOrder(
+    _MacosCommandDiagnostics diagnostics,
+  ) async {
     try {
-      final result = await _commandRunner.process('/usr/sbin/networksetup', [
+      final result = await _networksetup([
         '-listnetworkserviceorder',
-      ]);
-      if (result.exitCode != 0) return const {};
+      ], diagnostics);
+      if (result == null) return const {};
       return MacosProxyCommands.parseNetworkServiceOrder(
         result.stdout.toString(),
       );
@@ -395,18 +466,39 @@ class MacosProxy {
     }
   }
 
-  Future<List<String>?> _networkServices() async {
+  Future<List<String>?> _networkServices(
+    _MacosCommandDiagnostics diagnostics,
+  ) async {
     try {
-      final result = await _commandRunner.process('/usr/sbin/networksetup', [
+      final result = await _networksetup([
         '-listallnetworkservices',
-      ]);
-      if (result.exitCode != 0 || result.stdout.toString().trim().isEmpty) {
+      ], diagnostics);
+      if (result == null || result.stdout.toString().trim().isEmpty) {
         return null;
       }
       return MacosProxyCommands.parseNetworkServices(result.stdout.toString());
     } on ProcessException {
       return null;
     }
+  }
+
+  Future<ProcessResult?> _networksetup(
+    List<String> arguments,
+    _MacosCommandDiagnostics diagnostics,
+  ) async {
+    final result = await _commandRunner.runDetailed([
+      ProxyCommand('/usr/sbin/networksetup', arguments),
+    ]);
+    diagnostics.record(result);
+    return result.success ? result.processResult : null;
+  }
+}
+
+class _MacosCommandDiagnostics {
+  ProxyCommandResult? firstFailure;
+
+  void record(ProxyCommandResult result) {
+    if (!result.success) firstFailure ??= result;
   }
 }
 

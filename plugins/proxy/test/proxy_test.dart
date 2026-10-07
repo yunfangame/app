@@ -68,6 +68,54 @@ void main() {
 
       expect(await runner.run([ProxyCommand('missing', const [])]), isFalse);
     });
+
+    test('detailed batch keeps the first failed command and output', () async {
+      final calls = <String>[];
+      final runner = ProxyCommandRunner((
+        executable,
+        arguments, {
+        runInShell = false,
+      }) async {
+        calls.add(executable);
+        return ProcessResult(
+          1,
+          executable == 'first' ? 0 : 14,
+          'authorization required',
+          'access denied',
+        );
+      });
+      final failed = ProxyCommand('second', const ['-setwebproxy']);
+
+      final result = await runner.runDetailed([
+        ProxyCommand('first', const []),
+        failed,
+        ProxyCommand('third', const []),
+      ]);
+
+      expect(result.success, isFalse);
+      expect(result.command, same(failed));
+      expect(result.processResult?.exitCode, 14);
+      expect(result.processResult?.stdout, 'authorization required');
+      expect(result.processResult?.stderr, 'access denied');
+      expect(result.exception, isNull);
+      expect(calls, ['first', 'second']);
+    });
+
+    test('detailed batch preserves process launch failure', () async {
+      final error = ProcessException('missing', ['-setwebproxy'], 'denied', 5);
+      final runner = ProxyCommandRunner(
+        (executable, arguments, {runInShell = false}) async => throw error,
+      );
+
+      final result = await runner.runDetailed([
+        ProxyCommand('missing', const ['-setwebproxy']),
+      ]);
+
+      expect(result.success, isFalse);
+      expect(result.exception, same(error));
+      expect(result.processResult, isNull);
+      expect(result.command?.executable, 'missing');
+    });
   });
 
   group('Linux proxy command builders', () {

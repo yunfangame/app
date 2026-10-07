@@ -295,10 +295,20 @@ class ApiHealthService {
 
   Future<Uri?> loadLastSuccessfulEndpoint() => _preferenceStore.load();
 
-  Future<List<Uri>> loadCandidateEndpoints() async {
+  Future<List<Uri>> loadCandidateEndpoints() =>
+      _loadCandidateEndpoints(allowLastSuccessfulFallback: true);
+
+  Future<List<Uri>> loadVerifiedCandidateEndpoints() =>
+      _loadCandidateEndpoints(allowLastSuccessfulFallback: false);
+
+  Future<List<Uri>> _loadCandidateEndpoints({
+    required bool allowLastSuccessfulFallback,
+  }) async {
     Uri? lastSuccessful;
     try {
-      lastSuccessful = await loadLastSuccessfulEndpoint();
+      lastSuccessful = await loadLastSuccessfulEndpoint().timeout(
+        const Duration(seconds: 1),
+      );
     } catch (_) {}
     final cached = await _loadVerifiedCache();
     if (cached != null) {
@@ -336,7 +346,7 @@ class ApiHealthService {
       await _saveVerifiedCache(emergency);
       return _prioritizeLastSuccessful(emergency.endpoints, lastSuccessful);
     } on ApiRemoteConfigException catch (emergencyFailure) {
-      if (lastSuccessful != null) {
+      if (allowLastSuccessfulFallback && lastSuccessful != null) {
         emitApiDiagnosticEvent(_diagnosticRecorder, 'api.config.fallback', {
           'source': 'last_successful_endpoint',
           'candidate_count': 1,
@@ -468,12 +478,16 @@ class ApiHealthService {
 
   Future<_VerifiedRemoteConfig?> _loadVerifiedCache() async {
     try {
-      final payload = await _configCacheStore.load();
+      final payload = await _configCacheStore.load().timeout(
+        const Duration(seconds: 1),
+      );
       if (payload == null) return null;
       return await _verifyPayload(payload, requireEndpoints: true);
+    } on TimeoutException {
+      return null;
     } catch (_) {
       try {
-        await _configCacheStore.clear();
+        await _configCacheStore.clear().timeout(const Duration(seconds: 1));
       } catch (_) {}
       return null;
     }
@@ -548,10 +562,12 @@ class ApiHealthService {
 
   Future<void> _saveVerifiedCache(_VerifiedRemoteConfig verified) async {
     try {
-      await _configCacheStore.save(
-        encryptedConfig: verified.encryptedPayload,
-        candidateCount: verified.endpoints.length,
-      );
+      await _configCacheStore
+          .save(
+            encryptedConfig: verified.encryptedPayload,
+            candidateCount: verified.endpoints.length,
+          )
+          .timeout(const Duration(seconds: 1));
     } catch (_) {}
   }
 

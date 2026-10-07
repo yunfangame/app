@@ -469,13 +469,15 @@ void main() {
           (await proxy.startDetailed(7890, ['localhost'])).success,
           isTrue,
         );
+        system.writes.clear();
         system.readOverrides['-getautoproxyurl'] = '';
 
         final firstStop = await proxy.stopDetailed(expectedPort: 7890);
 
         expect(firstStop.success, isFalse);
         expect(firstStop.stage, 'restore');
-        expect(state.snapshot(), original);
+        expect(state.snapshot(), isNot(original));
+        expect(system.writes, isEmpty);
         system.readOverrides.clear();
         state.enableOwned();
         state.pacUrl = 'https://pac.example.invalid/changed.pac';
@@ -492,6 +494,147 @@ void main() {
             equals(['-setautoproxyurl', 'Service A', original['pacUrl']]),
           ),
         );
+      },
+    );
+
+    test('unchanged snapshot cleanup succeeds without denied writes', () async {
+      final system = _NetworkSystem();
+      final original = system.services['Service A']!.snapshot();
+      system.writeOverrides['-setautoproxystate'] = ProcessResult(
+        1,
+        14,
+        'needs authorization',
+        'denied',
+      );
+      final proxy = system.proxy();
+      final started = await proxy.startDetailed(7890, []);
+
+      expect(started.success, isFalse);
+      expect(started.stage, 'apply_default');
+      expect(started.command, '/usr/sbin/networksetup -setautoproxystate');
+      expect(started.commandExitCode, 14);
+      expect(started.commandStdout, 'needs authorization');
+      expect(started.commandStderr, 'denied');
+      expect(started.toDiagnosticFields(), isNot(contains('win32_error')));
+      expect(system.services['Service A']!.snapshot(), original);
+      system.writes.clear();
+
+      final stopped = await proxy.stopDetailed(expectedPort: 7890);
+
+      expect(stopped.success, isTrue);
+      expect(stopped.stage, 'verified');
+      expect(stopped.commandExitCode, isNull);
+      expect(system.writes, isEmpty);
+      system.services['Service A']!.bypass = ['new-unowned.invalid'];
+
+      expect((await proxy.stopDetailed(expectedPort: 7890)).success, isTrue);
+      expect(system.writes, isEmpty);
+      expect(system.services['Service A']!.bypass, ['new-unowned.invalid']);
+    });
+
+    test(
+      'partial failed start retains snapshot through denied restore',
+      () async {
+        final system = _NetworkSystem();
+        final original = system.services['Service A']!.snapshot();
+        system.writeOverrides['-setwebproxy'] = ProcessResult(
+          1,
+          14,
+          'needs authorization',
+          'denied',
+        );
+        final proxy = system.proxy();
+        final started = await proxy.startDetailed(7890, []);
+
+        expect(started.success, isFalse);
+        expect(started.command, '/usr/sbin/networksetup -setwebproxy');
+        expect(system.services['Service A']!.snapshot(), isNot(original));
+        system.writes.clear();
+
+        final firstStop = await proxy.stopDetailed(expectedPort: 7890);
+
+        expect(firstStop.success, isFalse);
+        expect(firstStop.stage, 'restore');
+        expect(firstStop.commandExitCode, 14);
+        expect(firstStop.command, '/usr/sbin/networksetup -setwebproxy');
+        expect(system.writes, hasLength(1));
+        system.writeOverrides.clear();
+
+        final secondStop = await proxy.stopDetailed(expectedPort: 7890);
+
+        expect(secondStop.success, isTrue);
+        expect(secondStop.commandExitCode, isNull);
+        expect(system.services['Service A']!.snapshot(), original);
+      },
+    );
+
+    test('restore readback mismatch retains snapshot for retry', () async {
+      final system = _NetworkSystem();
+      final original = system.services['Service A']!.snapshot();
+      final proxy = system.proxy();
+      expect((await proxy.startDetailed(7890, [])).success, isTrue);
+      system.ignoredWrites.add('-setautoproxystate');
+
+      final firstStop = await proxy.stopDetailed(expectedPort: 7890);
+
+      expect(firstStop.success, isFalse);
+      expect(firstStop.stage, 'restore');
+      expect(system.services['Service A']!.snapshot(), isNot(original));
+      system.ignoredWrites.clear();
+
+      final secondStop = await proxy.stopDetailed(expectedPort: 7890);
+
+      expect(secondStop.success, isTrue);
+      expect(system.services['Service A']!.snapshot(), original);
+    });
+
+    test('inspection preserves first failed read across retries', () async {
+      final system = _NetworkSystem();
+      system.readOverrides['-getwebproxy'] = ProcessResult(
+        1,
+        14,
+        'first stdout',
+        'first stderr',
+      );
+      system.readOverrides['-getsecurewebproxy'] = ProcessResult(
+        1,
+        99,
+        'later stdout',
+        'later stderr',
+      );
+
+      final inspected = await system.proxy().inspectDetailed(7890);
+
+      expect(inspected.success, isFalse);
+      expect(inspected.stage, 'readback');
+      expect(inspected.command, '/usr/sbin/networksetup -getwebproxy');
+      expect(inspected.commandExitCode, 14);
+      expect(inspected.commandStdout, 'first stdout');
+      expect(inspected.commandStderr, 'first stderr');
+      expect(
+        system.getterReads.where((args) => args.first == '-getwebproxy'),
+        hasLength(3),
+      );
+    });
+
+    test(
+      'networksetup spawn failure remains visible in start result',
+      () async {
+        final system = _NetworkSystem();
+        system.writeOverrides['-setautoproxystate'] = ProcessException(
+          '/usr/sbin/networksetup',
+          ['-setautoproxystate'],
+          'permission denied',
+          13,
+        );
+
+        final result = await system.proxy().startDetailed(7890, []);
+
+        expect(result.success, isFalse);
+        expect(result.command, '/usr/sbin/networksetup -setautoproxystate');
+        expect(result.commandExitCode, isNull);
+        expect(result.commandSpawnError, 'ProcessException: permission denied');
+        expect(result.commandSpawnErrorCode, 13);
       },
     );
 
@@ -603,6 +746,7 @@ class _NetworkSystem {
   final writes = <List<String>>[];
   final getterReads = <List<String>>[];
   final readOverrides = <String, Object>{};
+  final writeOverrides = <String, Object>{};
   final ignoredWrites = <String>{};
   String? primaryId = serviceAId;
   String routeDevice = 'en0';
@@ -711,6 +855,9 @@ class _NetworkSystem {
     }
     expect(flag, startsWith('-set'));
     writes.add([...arguments]);
+    final writeOverride = writeOverrides[flag];
+    if (writeOverride is ProcessException) throw writeOverride;
+    if (writeOverride is ProcessResult) return writeOverride;
     if (ignoredWrites.contains(flag)) return _result('');
     final endpoint = switch (flag) {
       '-setwebproxy' || '-setwebproxystate' => state!.web,

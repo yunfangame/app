@@ -27,7 +27,7 @@ void main() {
       find.byKey(const ValueKey('fengwo-global-next-plan-reset')),
       findsOneWidget,
     );
-    expect(find.textContaining('下次套餐重置时间'), findsOneWidget);
+    expect(find.textContaining('距离下次流量重置还有'), findsOneWidget);
     expect(find.text('会员套餐'), findsNothing);
     expect(find.textContaining('会员套餐 · '), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -92,7 +92,11 @@ XboardSubscriptionData _subscription({required bool monthly}) {
     transferEnableBytes: bytesPerGigabyte * 60,
     email: 'member@example.com',
     expiredAtEpochSeconds: monthly ? 1819497600 : null,
-    nextResetAtEpochSeconds: 1800000000,
+    nextResetAtEpochSeconds:
+        DateTime.now()
+            .add(const Duration(days: 2, hours: 3))
+            .millisecondsSinceEpoch ~/
+        1000,
     plan: const XboardPlanData(id: 7, name: '会员套餐', rawData: {}),
     rawData: const {},
   );

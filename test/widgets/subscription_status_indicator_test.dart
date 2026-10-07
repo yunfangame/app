@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/subscription_access_guard.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/subscription_status_indicator.dart';
@@ -8,8 +9,56 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/api_health_fixture.dart';
+
 void main() {
   final now = DateTime(2026, 8, 29, 12);
+
+  for (final issue in SubscriptionAccessIssue.values) {
+    testWidgets('unavailable notice offers actions for $issue', (tester) async {
+      await tester.pumpWidget(
+        _TestApp(
+          child: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showSubscriptionAccessNotice(
+                context: context,
+                subscription: _subscription(
+                  remainingGigabytes: 0,
+                  expiresAt: DateTime.now().add(const Duration(days: 10)),
+                  nextResetAt: DateTime.now().add(
+                    const Duration(days: 2, hours: 3),
+                  ),
+                ),
+                issue: issue,
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('subscription-access-notice')),
+        findsOneWidget,
+      );
+      if (issue == SubscriptionAccessIssue.expired) {
+        expect(find.textContaining('套餐已到期'), findsWidgets);
+        expect(find.text('续费'), findsOneWidget);
+      } else {
+        expect(find.textContaining('剩余流量为 0'), findsOneWidget);
+        expect(find.textContaining('距离下次流量重置还有'), findsOneWidget);
+        expect(find.text('升级套餐'), findsOneWidget);
+        expect(find.text('重置流量'), findsOneWidget);
+      }
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('subscription-access-notice')),
+        findsNothing,
+      );
+    });
+  }
 
   test('evaluates low traffic and finite expiry independently', () {
     final lowTraffic = evaluateSubscriptionStatus(
@@ -675,7 +724,7 @@ void main() {
           resetIn: const Duration(days: 2, hours: 1),
           unlimited: false,
           expired: false,
-          expected: '还有 3 天',
+          expected: '还有 2 天 1 小时',
           forfeiture: true,
         ),
         (
@@ -689,7 +738,14 @@ void main() {
           resetIn: const Duration(hours: 23),
           unlimited: false,
           expired: false,
-          expected: '不足 1 天',
+          expected: '还有 0 天 23 小时',
+          forfeiture: true,
+        ),
+        (
+          resetIn: const Duration(minutes: 30),
+          unlimited: false,
+          expired: false,
+          expected: '不到 1 小时',
           forfeiture: true,
         ),
         (
@@ -815,6 +871,7 @@ void main() {
       ..xboardSession = _session(subscription);
     addTearDown(globalState.clearXboardSession);
     final service = XboardAuthService(
+      apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
       plansRequester: (_, _) async {
         lookups++;
         throw StateError('must not look up');
@@ -852,7 +909,10 @@ void main() {
       ..xboardSession = _session(subscription);
     addTearDown(globalState.clearXboardSession);
     final pending = Completer<XboardLoginResponse>();
-    final service = XboardAuthService(plansRequester: (_, _) => pending.future);
+    final service = XboardAuthService(
+      apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
+      plansRequester: (_, _) => pending.future,
+    );
     await tester.pumpWidget(
       _TestApp(
         child: SubscriptionPlanActionBar(
@@ -930,7 +990,10 @@ void main() {
       ..xboardSession = _session(subscription);
     addTearDown(globalState.clearXboardSession);
     final pending = Completer<XboardLoginResponse>();
-    final service = XboardAuthService(plansRequester: (_, _) => pending.future);
+    final service = XboardAuthService(
+      apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
+      plansRequester: (_, _) => pending.future,
+    );
     await tester.pumpWidget(
       _TestApp(
         child: SubscriptionPlanActionBar(
@@ -1036,6 +1099,7 @@ XboardLoginResult _session(XboardSubscriptionData subscription) {
 
 XboardAuthService _paymentService(List<String> periods) {
   return XboardAuthService(
+    apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
     plansRequester: (endpoint, authData) async {
       expect(endpoint.queryParameters['id'], '1');
       return const XboardLoginResponse(

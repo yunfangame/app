@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'api_endpoint_preference.dart';
 import 'api_health.dart';
 import 'api_network_diagnostic.dart';
+import 'api_request_router.dart';
 import 'subscription_v2.dart';
 
 const xboardLoginPath = '/api/v1/passport/auth/login';
@@ -795,9 +796,19 @@ typedef XboardPasswordResetRequester =
       String emailCode,
     );
 
+class _RoutedXboardResponse {
+  const _RoutedXboardResponse({required this.endpoint, required this.response});
+
+  final Uri endpoint;
+  final XboardLoginResponse response;
+}
+
 class XboardAuthService {
   XboardAuthService({
     ApiHealthService? apiHealthService,
+    ApiRequestRouter? requestRouter,
+    this.apiRequestTimeout = const Duration(seconds: 20),
+    this.apiOperationTimeout = const Duration(seconds: 45),
     Dio? dio,
     XboardEndpointLoader? endpointLoader,
     XboardLoginRequester? loginRequester,
@@ -832,6 +843,7 @@ class XboardAuthService {
     SubscriptionV2Client? subscriptionV2Client,
     ApiDiagnosticRecorder? diagnosticRecorder,
   }) : _apiHealthService = apiHealthService ?? ApiHealthService(),
+       _requestRouter = requestRouter ?? ApiRequestRouter.shared,
        _dio =
            dio ??
            Dio(
@@ -875,6 +887,10 @@ class XboardAuthService {
        _diagnosticRecorder = diagnosticRecorder ?? recordApiDiagnosticEvent;
 
   final ApiHealthService _apiHealthService;
+  final ApiRequestRouter _requestRouter;
+  final Duration apiRequestTimeout;
+  final Duration apiOperationTimeout;
+  static final _apiRequestCancelTokenKey = Object();
   final ApiDiagnosticRecorder _diagnosticRecorder;
   final Dio _dio;
   final XboardEndpointLoader? _endpointLoader;
@@ -911,7 +927,7 @@ class XboardAuthService {
 
   Future<void> prepareApiConfiguration() async {
     try {
-      await _apiHealthService.loadCandidateEndpoints();
+      await _apiHealthService.loadVerifiedCandidateEndpoints();
     } catch (_) {}
   }
 
@@ -947,11 +963,14 @@ class XboardAuthService {
         throw _mapSubscriptionV2Error(error, endpoint);
       }
     }
-    final requestEndpoint = buildXboardServerFetchUri(endpoint);
-    final response = await (_nodesRequester ?? _requestNodes)(
+    var requestEndpoint = buildXboardServerFetchUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
+      (requestUri) => (_nodesRequester ?? _requestNodes)(requestUri, authData),
+      readOnly: true,
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final body = _decodeResponseMap(response.data, apiName: '节点接口');
       return _parseNodesSuccess(requestEndpoint, body);
@@ -983,11 +1002,14 @@ class XboardAuthService {
     required String authData,
     int? planId,
   }) async {
-    final requestEndpoint = buildXboardPlanFetchUri(endpoint, planId: planId);
-    final response = await (_plansRequester ?? _requestPlans)(
+    var requestEndpoint = buildXboardPlanFetchUri(endpoint, planId: planId);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
+      (requestUri) => (_plansRequester ?? _requestPlans)(requestUri, authData),
+      readOnly: true,
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '套餐接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return _parsePlansSuccess(requestEndpoint, body);
@@ -1013,11 +1035,17 @@ class XboardAuthService {
     required Uri endpoint,
     required String authData,
   }) async {
-    final requestEndpoint = buildXboardPaymentMethodUri(endpoint);
-    final response = await (_paymentMethodsRequester ?? _requestPaymentMethods)(
+    var requestEndpoint = buildXboardPaymentMethodUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
+      (requestUri) => (_paymentMethodsRequester ?? _requestPaymentMethods)(
+        requestUri,
+        authData,
+      ),
+      readOnly: true,
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '支付方式接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return _parsePaymentMethodsSuccess(requestEndpoint, body);
@@ -1036,13 +1064,18 @@ class XboardAuthService {
     required int planId,
     required String period,
   }) async {
-    final requestEndpoint = buildXboardOrderSaveUri(endpoint);
-    final response = await (_orderSaveRequester ?? _requestOrderSave)(
+    var requestEndpoint = buildXboardOrderSaveUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
-      planId,
-      period,
+      (requestUri) => (_orderSaveRequester ?? _requestOrderSave)(
+        requestUri,
+        authData,
+        planId,
+        period,
+      ),
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '创建订单接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final tradeNo = body['data']?.toString().trim() ?? '';
@@ -1069,13 +1102,18 @@ class XboardAuthService {
     required String tradeNo,
     required int methodId,
   }) async {
-    final requestEndpoint = buildXboardOrderCheckoutUri(endpoint);
-    final response = await (_orderCheckoutRequester ?? _requestOrderCheckout)(
+    var requestEndpoint = buildXboardOrderCheckoutUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
-      tradeNo,
-      methodId,
+      (requestUri) => (_orderCheckoutRequester ?? _requestOrderCheckout)(
+        requestUri,
+        authData,
+        tradeNo,
+        methodId,
+      ),
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '订单结算接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final type = _asInt(body['type']);
@@ -1113,12 +1151,18 @@ class XboardAuthService {
     required String authData,
     required String tradeNo,
   }) async {
-    final requestEndpoint = buildXboardOrderCheckUri(endpoint, tradeNo);
-    final response = await (_orderCheckRequester ?? _requestOrderCheck)(
+    var requestEndpoint = buildXboardOrderCheckUri(endpoint, tradeNo);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
-      tradeNo,
+      (requestUri) => (_orderCheckRequester ?? _requestOrderCheck)(
+        requestUri,
+        authData,
+        tradeNo,
+      ),
+      readOnly: true,
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '订单状态接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final status = _asInt(body['data']);
@@ -1143,11 +1187,15 @@ class XboardAuthService {
     required Uri endpoint,
     required String authData,
   }) async {
-    final requestEndpoint = buildXboardOrderFetchUri(endpoint);
-    final response = await (_ordersRequester ?? _requestOrders)(
+    var requestEndpoint = buildXboardOrderFetchUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
+      (requestUri) =>
+          (_ordersRequester ?? _requestOrders)(requestUri, authData),
+      readOnly: true,
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '订单列表接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return _parseOrdersSuccess(requestEndpoint, body);
@@ -1165,11 +1213,15 @@ class XboardAuthService {
     required String authData,
     required String tradeNo,
   }) async {
-    final requestEndpoint = buildXboardOrderDetailUri(endpoint, tradeNo);
-    final response = await (_orderDetailRequester ?? _requestOrders)(
+    var requestEndpoint = buildXboardOrderDetailUri(endpoint, tradeNo);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
+      (requestUri) =>
+          (_orderDetailRequester ?? _requestOrders)(requestUri, authData),
+      readOnly: true,
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '订单详情接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return _parseOrderDetailSuccess(requestEndpoint, body);
@@ -1187,12 +1239,17 @@ class XboardAuthService {
     required String authData,
     required String tradeNo,
   }) async {
-    final requestEndpoint = buildXboardOrderCancelUri(endpoint);
-    final response = await (_orderCancelRequester ?? _requestOrderCancel)(
+    var requestEndpoint = buildXboardOrderCancelUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
-      tradeNo,
+      (requestUri) => (_orderCancelRequester ?? _requestOrderCancel)(
+        requestUri,
+        authData,
+        tradeNo,
+      ),
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '取消订单接口');
     if (response.statusCode >= 200 && response.statusCode < 300) return;
     _throwAuthenticatedRequestFailure(
@@ -1207,19 +1264,25 @@ class XboardAuthService {
     required Uri endpoint,
     required String authData,
   }) async {
+    final operationStopwatch = Stopwatch()..start();
     final notices = <XboardNoticeData>[];
     final ids = <int>{};
     var current = 1;
     var total = 0;
     do {
-      final requestEndpoint = buildXboardNoticeFetchUri(
+      var requestEndpoint = buildXboardNoticeFetchUri(
         endpoint,
         current: current,
       );
-      final response = await (_noticesRequester ?? _requestNotices)(
+      final routed = await _routeRequest(
         requestEndpoint,
-        authData,
+        (requestUri) =>
+            (_noticesRequester ?? _requestNotices)(requestUri, authData),
+        readOnly: true,
+        operationStopwatch: operationStopwatch,
       );
+      requestEndpoint = routed.endpoint;
+      final response = routed.response;
       final body = _decodeResponseMap(response.data, apiName: '公告列表接口');
       if (response.statusCode < 200 || response.statusCode >= 300) {
         _throwAuthenticatedRequestFailure(
@@ -1244,11 +1307,15 @@ class XboardAuthService {
     required Uri endpoint,
     required String authData,
   }) async {
-    final requestEndpoint = buildXboardUserInfoUri(endpoint);
-    final response = await (_userInfoRequester ?? _requestUserInfo)(
+    var requestEndpoint = buildXboardUserInfoUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
+      (requestUri) =>
+          (_userInfoRequester ?? _requestUserInfo)(requestUri, authData),
+      readOnly: true,
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '个人资料接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return _parseUserInfoSuccess(requestEndpoint, body);
@@ -1265,11 +1332,15 @@ class XboardAuthService {
     required Uri endpoint,
     required String authData,
   }) async {
-    final requestEndpoint = buildXboardLoginIpFetchUri(endpoint);
-    final response = await (_loginIpFetchRequester ?? _requestLoginIps)(
+    var requestEndpoint = buildXboardLoginIpFetchUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
+      (requestUri) =>
+          (_loginIpFetchRequester ?? _requestLoginIps)(requestUri, authData),
+      readOnly: true,
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '登录 IP 记录接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return _parseLoginIpsSuccess(requestEndpoint, body);
@@ -1288,13 +1359,18 @@ class XboardAuthService {
     required String ip,
     String? reason,
   }) async {
-    final requestEndpoint = buildXboardLoginIpBlockUri(endpoint);
-    final response = await (_loginIpBlockRequester ?? _requestBlockLoginIp)(
+    var requestEndpoint = buildXboardLoginIpBlockUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
-      ip,
-      reason,
+      (requestUri) => (_loginIpBlockRequester ?? _requestBlockLoginIp)(
+        requestUri,
+        authData,
+        ip,
+        reason,
+      ),
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '拉黑登录 IP 接口');
     if (response.statusCode >= 200 && response.statusCode < 300) return;
     _throwAuthenticatedRequestFailure(
@@ -1310,12 +1386,17 @@ class XboardAuthService {
     required String authData,
     required String ip,
   }) async {
-    final requestEndpoint = buildXboardLoginIpUnblockUri(endpoint);
-    final response = await (_loginIpUnblockRequester ?? _requestUnblockLoginIp)(
+    var requestEndpoint = buildXboardLoginIpUnblockUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
-      ip,
+      (requestUri) => (_loginIpUnblockRequester ?? _requestUnblockLoginIp)(
+        requestUri,
+        authData,
+        ip,
+      ),
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '解除登录 IP 接口');
     if (response.statusCode >= 200 && response.statusCode < 300) return;
     _throwAuthenticatedRequestFailure(
@@ -1332,7 +1413,7 @@ class XboardAuthService {
     String? userToken,
     bool secureSubscription = false,
   }) async {
-    final requestEndpoint = buildXboardSubscribeUri(endpoint);
+    var requestEndpoint = buildXboardSubscribeUri(endpoint);
     if (secureSubscription) {
       final normalizedToken = userToken?.trim() ?? '';
       if (normalizedToken.isEmpty) {
@@ -1350,10 +1431,16 @@ class XboardAuthService {
         throw _mapSubscriptionV2Error(error, requestEndpoint);
       }
     }
-    final response = await (_subscriptionRequester ?? _requestSubscription)(
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
+      (requestUri) => (_subscriptionRequester ?? _requestSubscription)(
+        requestUri,
+        authData,
+      ),
+      readOnly: true,
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '订阅信息接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return _parseSubscriptionSuccess(requestEndpoint, body);
@@ -1370,11 +1457,15 @@ class XboardAuthService {
     required Uri endpoint,
     required String authData,
   }) async {
-    final requestEndpoint = buildXboardTrafficLogUri(endpoint);
-    final response = await (_trafficLogsRequester ?? _requestTrafficLogs)(
+    var requestEndpoint = buildXboardTrafficLogUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
+      (requestUri) =>
+          (_trafficLogsRequester ?? _requestTrafficLogs)(requestUri, authData),
+      readOnly: true,
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '流量明细接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return _parseTrafficLogsSuccess(requestEndpoint, body);
@@ -1391,11 +1482,15 @@ class XboardAuthService {
     required Uri endpoint,
     required String authData,
   }) async {
-    final requestEndpoint = buildXboardInviteFetchUri(endpoint);
-    final response = await (_inviteFetchRequester ?? _requestInvite)(
+    var requestEndpoint = buildXboardInviteFetchUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
+      (requestUri) =>
+          (_inviteFetchRequester ?? _requestInvite)(requestUri, authData),
+      readOnly: true,
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '邀请统计接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return _parseInviteSummarySuccess(requestEndpoint, body);
@@ -1412,11 +1507,14 @@ class XboardAuthService {
     required Uri endpoint,
     required String authData,
   }) async {
-    final requestEndpoint = buildXboardInviteSaveUri(endpoint);
-    final response = await (_inviteSaveRequester ?? _requestInvite)(
+    var requestEndpoint = buildXboardInviteSaveUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
+      (requestUri) =>
+          (_inviteSaveRequester ?? _requestInvite)(requestUri, authData),
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '生成邀请码接口');
     if (response.statusCode >= 200 && response.statusCode < 300) return;
     _throwAuthenticatedRequestFailure(
@@ -1431,11 +1529,15 @@ class XboardAuthService {
     required Uri endpoint,
     required String authData,
   }) async {
-    final requestEndpoint = buildXboardInviteDetailsUri(endpoint);
-    final response = await (_inviteDetailsRequester ?? _requestInvite)(
+    var requestEndpoint = buildXboardInviteDetailsUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
+      (requestUri) =>
+          (_inviteDetailsRequester ?? _requestInvite)(requestUri, authData),
+      readOnly: true,
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '佣金明细接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return _parseCommissionRecordsSuccess(requestEndpoint, body);
@@ -1453,13 +1555,18 @@ class XboardAuthService {
     required String authData,
     required int amount,
   }) async {
-    final requestEndpoint = buildXboardCommissionTransferUri(endpoint);
-    final response =
-        await (_commissionTransferRequester ?? _requestCommissionTransfer)(
-          requestEndpoint,
-          authData,
-          amount,
-        );
+    var requestEndpoint = buildXboardCommissionTransferUri(endpoint);
+    final routed = await _routeRequest(
+      requestEndpoint,
+      (requestUri) =>
+          (_commissionTransferRequester ?? _requestCommissionTransfer)(
+            requestUri,
+            authData,
+            amount,
+          ),
+    );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '佣金划转接口');
     if (response.statusCode >= 200 && response.statusCode < 300) return;
     _throwAuthenticatedRequestFailure(
@@ -1477,14 +1584,19 @@ class XboardAuthService {
     required int level,
     required String message,
   }) async {
-    final requestEndpoint = buildXboardTicketSaveUri(endpoint);
-    final response = await (_ticketSaveRequester ?? _requestTicketSave)(
+    var requestEndpoint = buildXboardTicketSaveUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
-      subject,
-      level,
-      message,
+      (requestUri) => (_ticketSaveRequester ?? _requestTicketSave)(
+        requestUri,
+        authData,
+        subject,
+        level,
+        message,
+      ),
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '创建工单接口');
     if (response.statusCode >= 200 && response.statusCode < 300) return;
     _throwAuthenticatedRequestFailure(
@@ -1501,13 +1613,18 @@ class XboardAuthService {
     required bool remindExpire,
     required bool remindTraffic,
   }) async {
-    final requestEndpoint = buildXboardUserUpdateUri(endpoint);
-    final response = await (_userUpdateRequester ?? _requestUserUpdate)(
+    var requestEndpoint = buildXboardUserUpdateUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
-      remindExpire,
-      remindTraffic,
+      (requestUri) => (_userUpdateRequester ?? _requestUserUpdate)(
+        requestUri,
+        authData,
+        remindExpire,
+        remindTraffic,
+      ),
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '通知设置接口');
     if (response.statusCode >= 200 && response.statusCode < 300) return;
     _throwAuthenticatedRequestFailure(
@@ -1524,13 +1641,18 @@ class XboardAuthService {
     required String oldPassword,
     required String newPassword,
   }) async {
-    final requestEndpoint = buildXboardChangePasswordUri(endpoint);
-    final response = await (_changePasswordRequester ?? _requestChangePassword)(
+    var requestEndpoint = buildXboardChangePasswordUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
-      oldPassword,
-      newPassword,
+      (requestUri) => (_changePasswordRequester ?? _requestChangePassword)(
+        requestUri,
+        authData,
+        oldPassword,
+        newPassword,
+      ),
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '修改密码接口');
     if (response.statusCode >= 200 && response.statusCode < 300) return;
     _throwAuthenticatedRequestFailure(
@@ -1566,11 +1688,16 @@ class XboardAuthService {
         throw _mapSubscriptionV2Error(error, endpoint);
       }
     }
-    final requestEndpoint = buildXboardResetSecurityUri(endpoint);
-    final response = await (_resetSecurityRequester ?? _requestResetSecurity)(
+    var requestEndpoint = buildXboardResetSecurityUri(endpoint);
+    final routed = await _routeRequest(
       requestEndpoint,
-      authData,
+      (requestUri) => (_resetSecurityRequester ?? _requestResetSecurity)(
+        requestUri,
+        authData,
+      ),
     );
+    requestEndpoint = routed.endpoint;
+    final response = routed.response;
     final body = _decodeResponseMap(response.data, apiName: '重置订阅接口');
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final rawUrl = body['data']?.toString().trim() ?? '';
@@ -1618,8 +1745,8 @@ class XboardAuthService {
     required String emailCode,
     String? invitationCode,
   }) async {
-    final availableEndpoints =
-        await (_endpointLoader ?? _loadAvailableEndpoints)();
+    final operationStopwatch = Stopwatch()..start();
+    final availableEndpoints = await _loadRoutedEndpoints();
     if (availableEndpoints.isEmpty) {
       throw const XboardAuthException(
         failure: XboardAuthFailure.noAvailableHost,
@@ -1627,26 +1754,29 @@ class XboardAuthService {
       );
     }
     final currentEndpoint = _currentGuestConfig?.endpoint;
-    final endpoints = <Uri>[
-      ?currentEndpoint,
-      ...availableEndpoints.where(
-        (endpoint) =>
-            currentEndpoint == null ||
-            endpoint.authority != currentEndpoint.authority,
-      ),
-    ];
+    final endpoints = _requestRouter.orderCandidates(
+      availableEndpoints,
+      preferred: currentEndpoint,
+    );
 
     XboardAuthException? lastFailure;
-    for (final baseEndpoint in endpoints) {
-      final endpoint = buildXboardRegisterUri(baseEndpoint);
+    for (final baseEndpoint in endpoints.take(1)) {
+      var endpoint = buildXboardRegisterUri(baseEndpoint);
       try {
-        final response = await (_registrationRequester ?? _requestRegistration)(
+        final routed = await _routeRequest(
           endpoint,
-          email.trim(),
-          password,
-          emailCode.trim(),
-          invitationCode?.trim(),
+          (requestUri) => (_registrationRequester ?? _requestRegistration)(
+            requestUri,
+            email.trim(),
+            password,
+            emailCode.trim(),
+            invitationCode?.trim(),
+          ),
+          candidates: endpoints,
+          operationStopwatch: operationStopwatch,
         );
+        endpoint = routed.endpoint;
+        final response = routed.response;
         final statusCode = response.statusCode;
         late final Map<String, Object?> body;
         try {
@@ -1723,8 +1853,8 @@ class XboardAuthService {
     required String password,
     required String emailCode,
   }) async {
-    final availableEndpoints =
-        await (_endpointLoader ?? _loadAvailableEndpoints)();
+    final operationStopwatch = Stopwatch()..start();
+    final availableEndpoints = await _loadRoutedEndpoints();
     if (availableEndpoints.isEmpty) {
       throw const XboardAuthException(
         failure: XboardAuthFailure.noAvailableHost,
@@ -1732,26 +1862,28 @@ class XboardAuthService {
       );
     }
     final currentEndpoint = _currentGuestConfig?.endpoint;
-    final endpoints = <Uri>[
-      ?currentEndpoint,
-      ...availableEndpoints.where(
-        (endpoint) =>
-            currentEndpoint == null ||
-            endpoint.authority != currentEndpoint.authority,
-      ),
-    ];
+    final endpoints = _requestRouter.orderCandidates(
+      availableEndpoints,
+      preferred: currentEndpoint,
+    );
 
     XboardAuthException? lastFailure;
-    for (final baseEndpoint in endpoints) {
-      final endpoint = buildXboardForgetPasswordUri(baseEndpoint);
+    for (final baseEndpoint in endpoints.take(1)) {
+      var endpoint = buildXboardForgetPasswordUri(baseEndpoint);
       try {
-        final response =
-            await (_passwordResetRequester ?? _requestPasswordReset)(
-              endpoint,
-              email.trim(),
-              password,
-              emailCode.trim(),
-            );
+        final routed = await _routeRequest(
+          endpoint,
+          (requestUri) => (_passwordResetRequester ?? _requestPasswordReset)(
+            requestUri,
+            email.trim(),
+            password,
+            emailCode.trim(),
+          ),
+          candidates: endpoints,
+          operationStopwatch: operationStopwatch,
+        );
+        endpoint = routed.endpoint;
+        final response = routed.response;
         final statusCode = response.statusCode;
         late final Map<String, Object?> body;
         try {
@@ -1824,8 +1956,8 @@ class XboardAuthService {
     required String email,
     bool isForgetPassword = false,
   }) async {
-    final availableEndpoints =
-        await (_endpointLoader ?? _loadAvailableEndpoints)();
+    final operationStopwatch = Stopwatch()..start();
+    final availableEndpoints = await _loadRoutedEndpoints();
     if (availableEndpoints.isEmpty) {
       throw const XboardAuthException(
         failure: XboardAuthFailure.noAvailableHost,
@@ -1833,25 +1965,28 @@ class XboardAuthService {
       );
     }
     final currentEndpoint = _currentGuestConfig?.endpoint;
-    final endpoints = <Uri>[
-      ?currentEndpoint,
-      ...availableEndpoints.where(
-        (endpoint) =>
-            currentEndpoint == null ||
-            endpoint.authority != currentEndpoint.authority,
-      ),
-    ];
+    final endpoints = _requestRouter.orderCandidates(
+      availableEndpoints,
+      preferred: currentEndpoint,
+    );
 
     XboardAuthException? lastFailure;
-    for (final baseEndpoint in endpoints) {
-      final endpoint = buildXboardSendEmailVerifyUri(baseEndpoint);
+    for (final baseEndpoint in endpoints.take(1)) {
+      var endpoint = buildXboardSendEmailVerifyUri(baseEndpoint);
       try {
-        final response =
-            await (_emailVerificationRequester ?? _requestEmailVerification)(
-              endpoint,
-              email.trim(),
-              isForgetPassword,
-            );
+        final routed = await _routeRequest(
+          endpoint,
+          (requestUri) =>
+              (_emailVerificationRequester ?? _requestEmailVerification)(
+                requestUri,
+                email.trim(),
+                isForgetPassword,
+              ),
+          candidates: endpoints,
+          operationStopwatch: operationStopwatch,
+        );
+        endpoint = routed.endpoint;
+        final response = routed.response;
         final statusCode = response.statusCode;
         late final Map<String, Object?> body;
         try {
@@ -1912,7 +2047,8 @@ class XboardAuthService {
   }
 
   Future<XboardGuestConfig> loadGuestConfig() async {
-    final endpoints = await (_endpointLoader ?? _loadAvailableEndpoints)();
+    final operationStopwatch = Stopwatch()..start();
+    final endpoints = await _loadRoutedEndpoints();
     if (endpoints.isEmpty) {
       throw const XboardAuthException(
         failure: XboardAuthFailure.noAvailableHost,
@@ -1921,12 +2057,19 @@ class XboardAuthService {
     }
 
     XboardAuthException? lastFailure;
-    for (final baseEndpoint in endpoints) {
-      final endpoint = buildXboardGuestConfigUri(baseEndpoint);
+    for (final baseEndpoint in endpoints.take(1)) {
+      var endpoint = buildXboardGuestConfigUri(baseEndpoint);
       try {
-        final response = await (_guestConfigRequester ?? _requestGuestConfig)(
+        final routed = await _routeRequest(
           endpoint,
+          (requestUri) =>
+              (_guestConfigRequester ?? _requestGuestConfig)(requestUri),
+          readOnly: true,
+          candidates: endpoints,
+          operationStopwatch: operationStopwatch,
         );
+        endpoint = routed.endpoint;
+        final response = routed.response;
         final statusCode = response.statusCode;
         late final Map<String, Object?> body;
         try {
@@ -1984,6 +2127,7 @@ class XboardAuthService {
     bool isAdmin = false,
     bool secureSubscription = false,
   }) async {
+    final operationStopwatch = Stopwatch()..start();
     final normalizedToken = token.trim();
     final normalizedAuthData = authData.trim();
     if (normalizedToken.isEmpty || normalizedAuthData.isEmpty) {
@@ -1992,35 +2136,41 @@ class XboardAuthService {
         message: '本地登录凭证不完整',
       );
     }
-    final availableEndpoints =
-        await (_endpointLoader ?? _loadAvailableEndpoints)();
+    final availableEndpoints = await _loadRoutedEndpoints().timeout(
+      apiOperationTimeout,
+    );
     final preferredBaseEndpoint = _asXboardBaseEndpoint(preferredEndpoint);
-    final lastSuccessfulEndpoint = _endpointLoader == null
-        ? await _apiHealthService.loadLastSuccessfulEndpoint()
-        : null;
-    final lastSuccessfulEndpointAvailable =
-        lastSuccessfulEndpoint != null &&
-        availableEndpoints.any(
-          (endpoint) => isSameApiEndpoint(endpoint, lastSuccessfulEndpoint),
-        );
-    final endpoints = lastSuccessfulEndpointAvailable
-        ? <Uri>[
-            ...availableEndpoints,
-            if (preferredBaseEndpoint != null &&
-                !availableEndpoints.any(
-                  (endpoint) =>
-                      isSameApiEndpoint(endpoint, preferredBaseEndpoint),
-                ))
-              preferredBaseEndpoint,
-          ]
-        : <Uri>[
-            ?preferredBaseEndpoint,
-            ...availableEndpoints.where(
-              (endpoint) =>
-                  preferredBaseEndpoint == null ||
-                  !isSameApiEndpoint(endpoint, preferredBaseEndpoint),
-            ),
-          ];
+    Uri? lastSuccessfulEndpoint;
+    final remaining = apiOperationTimeout - operationStopwatch.elapsed;
+    if (_endpointLoader == null && remaining > Duration.zero) {
+      try {
+        lastSuccessfulEndpoint = await _apiHealthService
+            .loadLastSuccessfulEndpoint()
+            .timeout(
+              remaining < const Duration(seconds: 1)
+                  ? remaining
+                  : const Duration(seconds: 1),
+            );
+      } catch (_) {}
+    }
+    final successfulEndpoint = lastSuccessfulEndpoint;
+    final endpoints = _requestRouter
+        .orderCandidates(
+          availableEndpoints,
+          preferred:
+              successfulEndpoint != null &&
+                  availableEndpoints.any(
+                    (endpoint) =>
+                        isSameApiEndpoint(endpoint, successfulEndpoint),
+                  )
+              ? successfulEndpoint
+              : preferredBaseEndpoint,
+        )
+        .where(
+          (endpoint) =>
+              preferredEndpoint.scheme != 'https' || endpoint.scheme == 'https',
+        )
+        .toList();
     if (endpoints.isEmpty) {
       throw const XboardAuthException(
         failure: XboardAuthFailure.noAvailableHost,
@@ -2048,7 +2198,8 @@ class XboardAuthService {
       subscription = await _fetchSubscription(
         auth: auth,
         preferredEndpoint: endpoints.first,
-        endpoints: endpoints,
+        endpoints: availableEndpoints,
+        operationStopwatch: operationStopwatch,
       );
     }
     final activeBaseEndpoint =
@@ -2062,7 +2213,7 @@ class XboardAuthService {
       secureSubscription: secureSubscription,
       rawData: auth.rawData,
     );
-    await _rememberSuccessfulEndpoint(activeBaseEndpoint);
+    unawaited(_rememberSuccessfulEndpoint(activeBaseEndpoint));
     _currentSession = result;
     return result;
   }
@@ -2073,7 +2224,8 @@ class XboardAuthService {
     String appVersion = 'unknown',
     String? platform,
   }) async {
-    final endpoints = await (_endpointLoader ?? _loadAvailableEndpoints)();
+    final operationStopwatch = Stopwatch()..start();
+    final endpoints = await _loadRoutedEndpoints().timeout(apiOperationTimeout);
     if (endpoints.isEmpty) {
       throw const XboardAuthException(
         failure: XboardAuthFailure.noAvailableHost,
@@ -2089,9 +2241,9 @@ class XboardAuthService {
     if (secureClient != null) {
       XboardAuthException? secureFailure;
       var useLegacyLogin = false;
-      for (final baseEndpoint in endpoints) {
+      for (final baseEndpoint in endpoints.take(1)) {
         SubscriptionV2Exception? secureError;
-        final loginEndpoint = buildXboardLoginUri(baseEndpoint);
+        var loginEndpoint = buildXboardLoginUri(baseEndpoint);
         final attemptId = newApiDiagnosticAttemptId();
         final stopwatch = Stopwatch()..start();
         try {
@@ -2113,6 +2265,7 @@ class XboardAuthService {
             useLegacyLogin = true;
             break;
           }
+          loginEndpoint = buildXboardLoginUri(secure.endpoint);
           final subscription = _parseSubscriptionSuccess(loginEndpoint, {
             'data': secure.subscription,
           });
@@ -2125,7 +2278,7 @@ class XboardAuthService {
             secureSubscription: true,
             rawData: secure.rawData,
           );
-          await _rememberSuccessfulEndpoint(baseEndpoint);
+          unawaited(_rememberSuccessfulEndpoint(secure.endpoint));
           _currentSession = result;
           _recordAuthAttempt(
             'succeeded',
@@ -2139,7 +2292,10 @@ class XboardAuthService {
           secureError = error;
           final mapped = _mapSubscriptionV2Error(error, loginEndpoint);
           secureFailure = mapped;
-          if (!_shouldRetrySecureEndpoint(error.code)) {
+          if (!ApiRequestRouter.isRecoverableFailure(
+            error: error.diagnostic,
+            statusCode: error.statusCode,
+          )) {
             _recordAuthAttempt(
               'failed',
               stage: 'secure_login',
@@ -2192,16 +2348,23 @@ class XboardAuthService {
     }
 
     XboardAuthException? lastFailure;
-    for (final baseEndpoint in endpoints) {
-      final loginEndpoint = buildXboardLoginUri(baseEndpoint);
+    for (final baseEndpoint in endpoints.take(1)) {
+      var loginEndpoint = buildXboardLoginUri(baseEndpoint);
       final attemptId = newApiDiagnosticAttemptId();
       final stopwatch = Stopwatch()..start();
       try {
-        final response = await (_loginRequester ?? _requestLogin)(
+        final routed = await _routeRequest(
           loginEndpoint,
-          email.trim(),
-          password,
+          (requestUri) => (_loginRequester ?? _requestLogin)(
+            requestUri,
+            email.trim(),
+            password,
+          ),
+          candidates: endpoints,
+          operationStopwatch: operationStopwatch,
         );
+        loginEndpoint = routed.endpoint;
+        final response = routed.response;
         final statusCode = response.statusCode;
         late final Map<String, Object?> body;
         try {
@@ -2217,6 +2380,7 @@ class XboardAuthService {
             auth: auth,
             preferredEndpoint: baseEndpoint,
             endpoints: endpoints,
+            operationStopwatch: operationStopwatch,
           );
           final activeBaseEndpoint =
               _asXboardBaseEndpoint(subscription.endpoint) ?? baseEndpoint;
@@ -2229,7 +2393,7 @@ class XboardAuthService {
             secureSubscription: false,
             rawData: auth.rawData,
           );
-          await _rememberSuccessfulEndpoint(activeBaseEndpoint);
+          unawaited(_rememberSuccessfulEndpoint(activeBaseEndpoint));
           _currentSession = result;
           _recordAuthAttempt(
             'succeeded',
@@ -2376,29 +2540,6 @@ class XboardAuthService {
     });
   }
 
-  bool _shouldRetrySecureEndpoint(String code) => const {
-    'gateway_unavailable',
-    'temporary_unavailable',
-    'invalid_response_envelope',
-    'invalid_server_signature',
-    'invalid_response_payload',
-    'invalid_response_data',
-    'invalid_signature',
-    'invalid_ciphertext',
-    'invalid_nonce',
-    'invalid_tag',
-    'invalid_token',
-    'invalid_auth_data',
-    'invalid_device_id',
-    'invalid_device_expires_at',
-    'invalid_subscription',
-    'subscription_v2_rejected',
-    'invalid_device_key',
-    'invalid_device_signature',
-    'replayed_request',
-    'unknown_operation',
-  }.contains(code);
-
   XboardAuthException _mapSubscriptionV2Error(
     SubscriptionV2Exception error,
     Uri endpoint,
@@ -2504,9 +2645,161 @@ class XboardAuthService {
     );
   }
 
+  Future<List<Uri>> _loadRoutedEndpoints() async {
+    final endpoints = await (_endpointLoader ?? _loadAvailableEndpoints)()
+        .timeout(apiOperationTimeout);
+    return _requestRouter.orderCandidates(endpoints);
+  }
+
+  Future<_RoutedXboardResponse> _routeRequest(
+    Uri requestEndpoint,
+    Future<XboardLoginResponse> Function(Uri endpoint) request, {
+    bool readOnly = false,
+    List<Uri>? candidates,
+    Stopwatch? operationStopwatch,
+  }) async {
+    final stopwatch = operationStopwatch ?? (Stopwatch()..start());
+    final candidateBudget = apiOperationTimeout - stopwatch.elapsed;
+    if (candidateBudget <= Duration.zero) {
+      throw TimeoutException('API operation exceeded its time budget');
+    }
+    final trusted =
+        candidates ??
+        await (_endpointLoader ?? _loadAvailableEndpoints)().timeout(
+          candidateBudget,
+        );
+    final attemptedOrigins = <String>{};
+    _RoutedXboardResponse? lastResponse;
+    Object? lastError;
+    StackTrace? lastStackTrace;
+    final maximumAttempts = readOnly ? 4 : 1;
+    for (var attempt = 0; attempt < maximumAttempts; attempt++) {
+      final remaining = apiOperationTimeout - stopwatch.elapsed;
+      if (remaining <= Duration.zero) {
+        throw TimeoutException('API operation exceeded its time budget');
+      }
+      final ordered = _requestRouter.orderCandidates(
+        trusted,
+        preferred: requestEndpoint,
+        eligibleCandidates: trusted.where(
+          (endpoint) =>
+              !attemptedOrigins.contains(endpoint.origin) &&
+              (requestEndpoint.scheme != 'https' || endpoint.scheme == 'https'),
+        ),
+        reserveRecoveryProbe: true,
+      );
+      if (ordered.isEmpty) {
+        if (lastError != null) {
+          Error.throwWithStackTrace(lastError, lastStackTrace!);
+        }
+        if (lastResponse != null) return lastResponse;
+        throw const XboardAuthException(
+          failure: XboardAuthFailure.noAvailableHost,
+          message: '当前没有可信的 API 节点，请刷新后重试',
+        );
+      }
+      final base = ordered.first;
+      final probeToken = _requestRouter.recoveryProbeToken(
+        base,
+        candidates: trusted,
+      );
+      attemptedOrigins.add(base.origin);
+      final endpoint = requestEndpoint.replace(
+        scheme: base.scheme,
+        host: base.host,
+        port: base.port,
+        userInfo: '',
+      );
+      final cancelToken = CancelToken();
+      final timeout = remaining < apiRequestTimeout
+          ? remaining
+          : apiRequestTimeout;
+      try {
+        final response =
+            await runZoned(
+              () => request(endpoint),
+              zoneValues: {_apiRequestCancelTokenKey: cancelToken},
+            ).timeout(
+              timeout,
+              onTimeout: () {
+                cancelToken.cancel('API request exceeded its time budget');
+                throw TimeoutException('API request exceeded its time budget');
+              },
+            );
+        final routed = _RoutedXboardResponse(
+          endpoint: endpoint,
+          response: response,
+        );
+        final failed = _requestRouter.recordFailure(
+          endpoint,
+          candidates: trusted,
+          probeToken: probeToken,
+          statusCode: response.statusCode,
+        );
+        if (failed) {
+          _recordRoutingFailure(
+            endpoint,
+            candidates: trusted,
+            statusCode: response.statusCode,
+          );
+          lastResponse = routed;
+          lastError = null;
+          if (attempt + 1 < maximumAttempts) continue;
+        } else if (response.statusCode >= 200 && response.statusCode < 300) {
+          _requestRouter.recordSuccess(
+            endpoint,
+            candidates: trusted,
+            probeToken: probeToken,
+          );
+          unawaited(_rememberSuccessfulEndpoint(base));
+        }
+        return routed;
+      } catch (error, stackTrace) {
+        final failed = _requestRouter.recordFailure(
+          endpoint,
+          candidates: trusted,
+          probeToken: probeToken,
+          error: error,
+        );
+        if (failed) {
+          _recordRoutingFailure(endpoint, candidates: trusted, error: error);
+          lastError = error;
+          lastStackTrace = stackTrace;
+          if (attempt + 1 < maximumAttempts) continue;
+        }
+        rethrow;
+      } finally {
+        _requestRouter.releaseRecoveryProbe(
+          endpoint,
+          candidates: trusted,
+          probeToken: probeToken,
+        );
+      }
+    }
+    throw StateError('No API request was issued');
+  }
+
+  void _recordRoutingFailure(
+    Uri endpoint, {
+    required List<Uri> candidates,
+    Object? error,
+    int? statusCode,
+  }) {
+    final diagnostic = classifyApiNetworkFailure(
+      error ?? StateError('HTTP response'),
+      stage: 'api_request',
+      endpoint: endpoint,
+      statusCode: statusCode,
+    );
+    emitApiDiagnosticEvent(_diagnosticRecorder, 'api.request.route.failed', {
+      'candidate_count': candidates.length,
+      ...diagnostic.toDiagnosticFields(),
+    });
+  }
+
   Future<List<Uri>> _loadAvailableEndpoints() async {
     try {
-      return await _apiHealthService.loadCandidateEndpoints();
+      return await _apiHealthService.loadVerifiedCandidateEndpoints();
     } on ApiRemoteConfigException catch (error) {
       throw XboardAuthException(
         failure: XboardAuthFailure.noAvailableHost,
@@ -2520,7 +2813,9 @@ class XboardAuthService {
 
   Future<void> _rememberSuccessfulEndpoint(Uri endpoint) async {
     try {
-      await _apiHealthService.rememberSuccessfulEndpoint(endpoint);
+      await _apiHealthService
+          .rememberSuccessfulEndpoint(endpoint)
+          .timeout(const Duration(seconds: 1));
     } catch (_) {}
   }
 
@@ -2530,7 +2825,7 @@ class XboardAuthService {
   }) async {
     final client = _subscriptionV2Client ?? SubscriptionV2Client();
     XboardAuthException? lastFailure;
-    for (final baseEndpoint in endpoints) {
+    for (final baseEndpoint in endpoints.take(1)) {
       final requestEndpoint = buildXboardSubscribeUri(baseEndpoint);
       try {
         final summary = await client.fetchSummary(
@@ -2540,7 +2835,12 @@ class XboardAuthService {
         return _parseSubscriptionSuccess(requestEndpoint, {'data': summary});
       } on SubscriptionV2Exception catch (error) {
         final failure = _mapSubscriptionV2Error(error, requestEndpoint);
-        if (!_shouldRetrySecureEndpoint(error.code)) throw failure;
+        if (!ApiRequestRouter.isRecoverableFailure(
+          error: error.diagnostic,
+          statusCode: error.statusCode,
+        )) {
+          throw failure;
+        }
         lastFailure = failure;
       }
     }
@@ -2555,21 +2855,34 @@ class XboardAuthService {
     required _XboardAuthData auth,
     required Uri preferredEndpoint,
     required List<Uri> endpoints,
+    Stopwatch? operationStopwatch,
   }) async {
-    final orderedEndpoints = <Uri>[
-      preferredEndpoint,
-      ...endpoints.where((endpoint) => endpoint != preferredEndpoint),
-    ];
+    final orderedEndpoints = _requestRouter.orderCandidates(
+      endpoints,
+      preferred: preferredEndpoint,
+      eligibleCandidates: endpoints.where(
+        (endpoint) =>
+            preferredEndpoint.scheme != 'https' || endpoint.scheme == 'https',
+      ),
+    );
     XboardAuthException? lastFailure;
-    for (final baseEndpoint in orderedEndpoints) {
-      final endpoint = buildXboardSubscribeUri(baseEndpoint);
+    for (final baseEndpoint in orderedEndpoints.take(1)) {
+      var endpoint = buildXboardSubscribeUri(baseEndpoint);
       final stopwatch = Stopwatch()..start();
       final attemptId = newApiDiagnosticAttemptId();
       try {
-        final response = await (_subscriptionRequester ?? _requestSubscription)(
+        final routed = await _routeRequest(
           endpoint,
-          auth.authData,
+          (requestUri) => (_subscriptionRequester ?? _requestSubscription)(
+            requestUri,
+            auth.authData,
+          ),
+          readOnly: true,
+          candidates: endpoints,
+          operationStopwatch: operationStopwatch,
         );
+        endpoint = routed.endpoint;
+        final response = routed.response;
         final statusCode = response.statusCode;
         late final Map<String, Object?> body;
         try {
@@ -2661,9 +2974,11 @@ class XboardAuthService {
   ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       data: FormData.fromMap({'email': email, 'password': password}),
       options: Options(
         responseType: ResponseType.json,
+        followRedirects: false,
         validateStatus: (status) =>
             status != null && status >= 200 && status < 600,
       ),
@@ -2680,9 +2995,11 @@ class XboardAuthService {
   ) async {
     final response = await _dio.getUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       options: Options(
         headers: {'Authorization': authData},
         responseType: ResponseType.json,
+        followRedirects: false,
         validateStatus: (status) =>
             status != null && status >= 200 && status < 600,
       ),
@@ -2699,9 +3016,11 @@ class XboardAuthService {
   ) async {
     final response = await _dio.getUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       options: Options(
         headers: {'Authorization': authData},
         responseType: ResponseType.json,
+        followRedirects: false,
         validateStatus: (status) =>
             status != null && status >= 200 && status < 600,
       ),
@@ -2718,9 +3037,11 @@ class XboardAuthService {
   ) async {
     final response = await _dio.getUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       options: Options(
         headers: {'Authorization': authData},
         responseType: ResponseType.json,
+        followRedirects: false,
         validateStatus: (status) =>
             status != null && status >= 200 && status < 600,
       ),
@@ -2737,6 +3058,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.getUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       options: _authenticatedOptions(authData),
     );
     return XboardLoginResponse(
@@ -2753,6 +3075,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       data: FormData.fromMap({'plan_id': planId, 'period': period}),
       options: _authenticatedOptions(authData),
     );
@@ -2770,6 +3093,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       data: FormData.fromMap({'trade_no': tradeNo, 'method': methodId}),
       options: _authenticatedOptions(authData),
     );
@@ -2786,6 +3110,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.getUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       options: _authenticatedOptions(authData),
     );
     return XboardLoginResponse(
@@ -2800,6 +3125,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.getUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       options: _authenticatedOptions(authData),
     );
     return XboardLoginResponse(
@@ -2815,6 +3141,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       data: FormData.fromMap({'trade_no': tradeNo}),
       options: _authenticatedOptions(authData),
     );
@@ -2830,6 +3157,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.getUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       options: _authenticatedOptions(authData),
     );
     return XboardLoginResponse(
@@ -2844,6 +3172,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.getUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       options: _authenticatedOptions(authData),
     );
     return XboardLoginResponse(
@@ -2858,6 +3187,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.getUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       options: _authenticatedOptions(authData),
     );
     return XboardLoginResponse(
@@ -2874,6 +3204,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       data: FormData.fromMap({
         'ip': ip,
         if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
@@ -2893,6 +3224,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       data: FormData.fromMap({'ip': ip}),
       options: _authenticatedOptions(authData),
     );
@@ -2908,6 +3240,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.getUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       options: _authenticatedOptions(authData),
     );
     return XboardLoginResponse(
@@ -2922,6 +3255,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.getUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       options: _authenticatedOptions(authData),
     );
     return XboardLoginResponse(
@@ -2937,6 +3271,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       data: FormData.fromMap({'transfer_amount': amount}),
       options: _authenticatedOptions(authData),
     );
@@ -2955,6 +3290,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       data: FormData.fromMap({
         'subject': subject,
         'level': level,
@@ -2976,6 +3312,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       data: FormData.fromMap({
         'remind_expire': remindExpire ? 1 : 0,
         'remind_traffic': remindTraffic ? 1 : 0,
@@ -2996,6 +3333,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       data: FormData.fromMap({
         'old_password': oldPassword,
         'new_password': newPassword,
@@ -3014,6 +3352,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.getUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       options: _authenticatedOptions(authData),
     );
     return XboardLoginResponse(
@@ -3026,6 +3365,7 @@ class XboardAuthService {
     return Options(
       headers: {'Authorization': authData},
       responseType: ResponseType.json,
+      followRedirects: false,
       validateStatus: (status) =>
           status != null && status >= 200 && status < 600,
     );
@@ -3034,8 +3374,10 @@ class XboardAuthService {
   Future<XboardLoginResponse> _requestGuestConfig(Uri endpoint) async {
     final response = await _dio.getUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       options: Options(
         responseType: ResponseType.json,
+        followRedirects: false,
         validateStatus: (status) =>
             status != null && status >= 200 && status < 600,
       ),
@@ -3053,12 +3395,14 @@ class XboardAuthService {
   ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       data: FormData.fromMap({
         'email': email,
         'isForgetPassword': isForgetPassword,
       }),
       options: Options(
         responseType: ResponseType.json,
+        followRedirects: false,
         validateStatus: (status) =>
             status != null && status >= 200 && status < 600,
       ),
@@ -3078,6 +3422,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       data: FormData.fromMap({
         'email': email,
         'password': password,
@@ -3087,6 +3432,7 @@ class XboardAuthService {
       }),
       options: Options(
         responseType: ResponseType.json,
+        followRedirects: false,
         validateStatus: (status) =>
             status != null && status >= 200 && status < 600,
       ),
@@ -3105,6 +3451,7 @@ class XboardAuthService {
   ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
+      cancelToken: Zone.current[_apiRequestCancelTokenKey] as CancelToken?,
       data: FormData.fromMap({
         'email': email,
         'password': password,
@@ -3112,6 +3459,7 @@ class XboardAuthService {
       }),
       options: Options(
         responseType: ResponseType.json,
+        followRedirects: false,
         validateStatus: (status) =>
             status != null && status >= 200 && status < 600,
       ),

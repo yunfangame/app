@@ -243,6 +243,146 @@ void main() {
     expect(endpoints, [Uri.parse('https://last-good.example.com:15699')]);
   });
 
+  test(
+    'authenticated routing rejects an unverified historical origin',
+    () async {
+      final store = ApiEndpointPreferenceStore();
+      await store.save(Uri.parse('https://unlisted.example.com'));
+      final service = ApiHealthService(
+        configUrl: 'https://config.example.com/app.json',
+        configRetryDelays: const [Duration.zero],
+        preferenceStore: store,
+        configLoader: (_) async => throw StateError('config unavailable'),
+        emergencyConfigLoader: () async =>
+            throw StateError('no verified backup'),
+      );
+
+      await expectLater(
+        service.loadVerifiedCandidateEndpoints(),
+        throwsA(isA<ApiRemoteConfigException>()),
+      );
+    },
+  );
+
+  test('authenticated routing keeps verified cache during an outage', () async {
+    final cache = ApiRemoteConfigCacheStore();
+    await ApiHealthService(
+      configUrl: 'https://config.example.com/app.json',
+      configCacheStore: cache,
+      configLoader: (_) async => {
+        'Authentication': 'FengWo',
+        'hosts': ['https://cached.example.com'],
+      },
+    ).loadVerifiedCandidateEndpoints();
+    final store = ApiEndpointPreferenceStore();
+    await store.save(Uri.parse('https://unlisted.example.com'));
+    final service = ApiHealthService(
+      configUrl: 'https://config.example.com/app.json',
+      configRetryDelays: const [Duration.zero],
+      configCacheStore: cache,
+      preferenceStore: store,
+      configLoader: (_) async => throw StateError('config unavailable'),
+      emergencyConfigLoader: () async => throw StateError('no verified backup'),
+    );
+
+    final candidates = await service.loadVerifiedCandidateEndpoints();
+
+    expect(candidates, [Uri.parse('https://cached.example.com')]);
+  });
+
+  test('authenticated routing accepts only verified emergency hosts', () async {
+    final store = ApiEndpointPreferenceStore();
+    await store.save(Uri.parse('https://unlisted.example.com'));
+    final service = ApiHealthService(
+      configUrl: 'https://config.example.com/app.json',
+      configRetryDelays: const [Duration.zero],
+      preferenceStore: store,
+      configLoader: (_) async => throw StateError('config unavailable'),
+      emergencyConfigLoader: () async => {
+        'Authentication': 'FengWo',
+        'hosts': ['https://emergency.example.com'],
+      },
+    );
+
+    final candidates = await service.loadVerifiedCandidateEndpoints();
+
+    expect(candidates, [Uri.parse('https://emergency.example.com')]);
+  });
+
+  test('a stalled optional preference cannot block verified routing', () async {
+    final preferenceResponse = Completer<SharedPreferences>();
+    final cache = _ControlledConfigCache(
+      payload: {
+        'Authentication': 'FengWo',
+        'hosts': ['https://cached.example.com'],
+      },
+    );
+    final service = ApiHealthService(
+      configUrl: 'https://config.example.com/app.json',
+      configRetryDelays: const [Duration.zero],
+      preferenceStore: ApiEndpointPreferenceStore(
+        preferencesLoader: () => preferenceResponse.future,
+      ),
+      configCacheStore: cache,
+      configLoader: (_) async => throw StateError('remote unavailable'),
+    );
+
+    final endpoints = await service.loadVerifiedCandidateEndpoints().timeout(
+      const Duration(seconds: 3),
+    );
+
+    expect(endpoints.single.host, 'cached.example.com');
+    expect(cache.clears, 0);
+  });
+
+  test('a stalled cache read falls back without clearing valid data', () async {
+    final cacheResponse = Completer<Object?>();
+    final cache = _ControlledConfigCache(readResponse: cacheResponse.future);
+    final service = ApiHealthService(
+      configUrl: 'https://config.example.com/app.json',
+      configRetryDelays: const [Duration.zero],
+      configCacheStore: cache,
+      configLoader: (_) async => {
+        'Authentication': 'FengWo',
+        'hosts': ['https://remote.example.com'],
+      },
+    );
+
+    final endpoints = await service.loadVerifiedCandidateEndpoints().timeout(
+      const Duration(seconds: 3),
+    );
+
+    expect(endpoints.single.host, 'remote.example.com');
+    expect(cache.clears, 0);
+    cacheResponse.complete({
+      'Authentication': 'FengWo',
+      'hosts': ['https://old.example.com'],
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(cache.clears, 0);
+    expect(endpoints.single.host, 'remote.example.com');
+  });
+
+  test('a stalled cache write cannot block a verified remote config', () async {
+    final cacheResponse = Completer<void>();
+    final cache = _ControlledConfigCache(writeResponse: cacheResponse.future);
+    final service = ApiHealthService(
+      configUrl: 'https://config.example.com/app.json',
+      configCacheStore: cache,
+      configLoader: (_) async => {
+        'Authentication': 'FengWo',
+        'hosts': ['https://remote.example.com'],
+      },
+    );
+
+    final config = await service.loadConfig().timeout(
+      const Duration(seconds: 3),
+    );
+
+    expect(parseApiEndpoints(config).single.host, 'remote.example.com');
+    expect(cache.writes, 1);
+  });
+
   test('legacy manual API preference is ignored and removed', () async {
     SharedPreferences.setMockInitialValues({
       'xboard.preferred_api_endpoint': 'https://manual.example.com',
@@ -511,6 +651,33 @@ Future<void> _waitUntil(Future<bool> Function() condition) async {
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
   fail('Timed out waiting for asynchronous condition');
+}
+
+class _ControlledConfigCache extends ApiRemoteConfigCacheStore {
+  _ControlledConfigCache({this.payload, this.readResponse, this.writeResponse});
+
+  final Object? payload;
+  final Future<Object?>? readResponse;
+  final Future<void>? writeResponse;
+  int clears = 0;
+  int writes = 0;
+
+  @override
+  Future<Object?> load() async => readResponse ?? payload;
+
+  @override
+  Future<void> save({
+    required Object? encryptedConfig,
+    required int candidateCount,
+  }) async {
+    writes++;
+    if (writeResponse case final response?) await response;
+  }
+
+  @override
+  Future<void> clear() async {
+    clears++;
+  }
 }
 
 class _ProxyOnlyHttpOverrides extends HttpOverrides {

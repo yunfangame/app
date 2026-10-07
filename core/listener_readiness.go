@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"runtime"
 	"syscall"
 
 	"github.com/metacubex/mihomo/config"
@@ -62,15 +63,36 @@ func mixedListenerFailure(general *config.General, result listener.MixedListener
 	if errors.As(result.Error, &errno) {
 		failure.OSErrorCode = uint64(errno)
 	}
-	switch {
-	case errors.Is(result.Error, syscall.EADDRINUSE):
-		failure.Reason = "address_in_use"
-	case errors.Is(result.Error, syscall.EACCES), errors.Is(result.Error, syscall.EPERM):
-		failure.Reason = "access_denied"
-	case errors.Is(result.Error, syscall.EADDRNOTAVAIL):
-		failure.Reason = "address_not_available"
+	if reason := listenerBindErrorReason(result.Error, runtime.GOOS); reason != "" {
+		failure.Reason = reason
 	}
 	return failure
+}
+
+func listenerBindErrorReason(err error, goos string) string {
+	if goos == "windows" {
+		var errno syscall.Errno
+		if errors.As(err, &errno) {
+			switch errno {
+			case 10048:
+				return "address_in_use"
+			case 10013, 5:
+				return "access_denied"
+			case 10049:
+				return "address_not_available"
+			}
+		}
+	}
+	switch {
+	case errors.Is(err, syscall.EADDRINUSE):
+		return "address_in_use"
+	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM):
+		return "access_denied"
+	case errors.Is(err, syscall.EADDRNOTAVAIL):
+		return "address_not_available"
+	default:
+		return ""
+	}
 }
 
 func safeListenerAddress(general *config.General) string {

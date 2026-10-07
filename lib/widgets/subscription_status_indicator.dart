@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/subscription_access_guard.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
@@ -11,6 +12,89 @@ import 'package:intl/intl.dart';
 
 const subscriptionLowTrafficThresholdBytes = 10 * bytesPerGigabyte;
 const subscriptionExpiryWarningWindow = Duration(days: 7);
+
+String subscriptionResetRemaining(
+  BuildContext context,
+  DateTime resetAt, {
+  DateTime? now,
+}) {
+  final l10n = context.appLocalizations;
+  final remaining = resetAt.difference(now ?? DateTime.now());
+  if (remaining <= Duration.zero) return l10n.planResetPending;
+  if (remaining.inHours == 0) return l10n.planResetWithinHour;
+  return l10n.planResetRemaining(remaining.inDays, remaining.inHours % 24);
+}
+
+Future<void> showSubscriptionAccessNotice({
+  required BuildContext context,
+  required XboardSubscriptionData subscription,
+  required SubscriptionAccessIssue issue,
+}) async {
+  final session = globalState.xboardSession;
+  final l10n = context.appLocalizations;
+  final expired = issue == SubscriptionAccessIssue.expired;
+  final resetAt = subscription.isMonthlyPlan && !expired
+      ? subscription.nextResetAt
+      : null;
+  final action = await showDialog<SubscriptionPlanAction>(
+    context: context,
+    builder: (context) => AlertDialog(
+      key: const ValueKey('subscription-access-notice'),
+      scrollable: true,
+      icon: Icon(Icons.warning_amber_rounded, color: context.colorScheme.error),
+      title: Text(
+        expired ? l10n.planAccessExpiredTitle : l10n.planAccessEmptyTitle,
+      ),
+      content: Text(
+        [
+          expired ? l10n.planAccessExpiredBody : l10n.planAccessEmptyBody,
+          if (resetAt != null) subscriptionResetRemaining(context, resetAt),
+        ].join('\n\n'),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(l10n.closeAction),
+        ),
+        if (expired)
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(context, SubscriptionPlanAction.renew),
+            child: Text(l10n.renewPlanAction),
+          )
+        else ...[
+          OutlinedButton(
+            onPressed: () =>
+                Navigator.pop(context, SubscriptionPlanAction.upgrade),
+            child: Text(l10n.upgradePlanAction),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(context, SubscriptionPlanAction.reset),
+            child: Text(l10n.resetTrafficAction),
+          ),
+        ],
+      ],
+    ),
+  );
+  if (action == null ||
+      !context.mounted ||
+      !identical(session, globalState.xboardSession)) {
+    return;
+  }
+  if (!subscriptionPlanActions(subscription).contains(action)) {
+    globalState.container
+        .read(currentPageLabelProvider.notifier)
+        .toPage(PageLabel.profiles);
+    return;
+  }
+  await _executeSubscriptionPlanAction(
+    context: context,
+    action: action,
+    subscription: subscription,
+    authService: XboardAuthService(),
+  );
+}
 
 @immutable
 class SubscriptionStatusEvaluation {
@@ -938,16 +1022,7 @@ class _TrafficResetNoticeDialogState extends State<_TrafficResetNoticeDialog> {
     } else if (!hasSchedule) {
       schedule = l10n.subscriptionResetScheduleUnavailable;
     } else {
-      final remaining = resetAt.difference(now);
-      final date = DateFormat.yMd(
-        Localizations.localeOf(context).toLanguageTag(),
-      ).add_Hm().format(resetAt);
-      schedule = remaining < const Duration(days: 1)
-          ? l10n.subscriptionResetWithinDay(date)
-          : l10n.subscriptionResetCountdown(
-              (remaining.inMicroseconds / Duration.microsecondsPerDay).ceil(),
-              date,
-            );
+      schedule = subscriptionResetRemaining(context, resetAt, now: now);
     }
     return AlertDialog(
       key: const ValueKey('subscription-reset-notice-dialog'),

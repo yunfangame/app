@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fl_clash/core/method.dart';
 import 'package:proxy/proxy.dart';
 
@@ -20,9 +22,14 @@ class DesktopProxyFailure {
     required this.port,
     required this.code,
     this.reason,
+    this.osErrorCode,
   });
 
-  factory DesktopProxyFailure.fromError(Object error, {required int port}) {
+  factory DesktopProxyFailure.fromError(
+    Object error, {
+    required int port,
+    bool? isWindows,
+  }) {
     if (error is DesktopProxyFailure) return error;
     if (error is! CoreMethodException) {
       return DesktopProxyFailure(
@@ -32,8 +39,23 @@ class DesktopProxyFailure {
       );
     }
     final details = error.details;
-    final reason = details is Map ? details['reason']?.toString() : null;
+    var reason = details is Map ? details['reason']?.toString() : null;
+    final osErrorCode = details is Map
+        ? _parseOSErrorCode(details['os_error_code'])
+        : null;
     final isTun = details is Map && details['listener'] == 'tun';
+    if ((isWindows ?? Platform.isWindows) &&
+        error.code == 'listener_not_ready' &&
+        details is Map &&
+        details['listener'] == 'mixed' &&
+        (reason == null || reason == 'bind_failed')) {
+      reason = switch (osErrorCode) {
+        10048 => 'address_in_use',
+        10013 || 5 => 'access_denied',
+        10049 => 'address_not_available',
+        _ => reason,
+      };
+    }
     final kind = isTun
         ? DesktopProxyFailureKind.configurationFailed
         : switch (reason ?? error.code) {
@@ -55,6 +77,7 @@ class DesktopProxyFailure {
       port: port,
       code: error.code,
       reason: reason,
+      osErrorCode: osErrorCode,
     );
   }
 
@@ -78,6 +101,7 @@ class DesktopProxyFailure {
       port: port,
       code: result.diagnosticCode,
       reason: result.stage,
+      osErrorCode: result.errorCode,
     );
   }
 
@@ -85,6 +109,10 @@ class DesktopProxyFailure {
   final int port;
   final String code;
   final String? reason;
+  final int? osErrorCode;
+
+  String get diagnosticCode =>
+      osErrorCode == null || osErrorCode == 0 ? code : '$code ($osErrorCode)';
 
   bool get canChangePort => switch (kind) {
     DesktopProxyFailureKind.addressInUse ||
@@ -100,4 +128,13 @@ class DesktopProxyFailure {
     DesktopProxyFailureKind.systemProxyFailed => true,
     _ => false,
   };
+}
+
+int? _parseOSErrorCode(Object? value) {
+  final code = value is int
+      ? value
+      : value is String
+      ? int.tryParse(value)
+      : null;
+  return code != null && code >= 0 ? code : null;
 }

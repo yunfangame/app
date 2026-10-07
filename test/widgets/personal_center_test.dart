@@ -11,6 +11,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/api_health_fixture.dart';
 import '../support/ticket_fixtures.dart';
 
 void main() {
@@ -462,6 +463,7 @@ XboardAuthService _testService({
 }) {
   final state = loginIpState ?? _LoginIpTestState();
   return XboardAuthService(
+    apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
     userInfoRequester: (endpoint, authData) async {
       final balance = userBalance?.call() ?? 1250;
       onUserInfoFetched?.call();

@@ -57,7 +57,7 @@ class DesktopProxyFailureDialog extends StatelessWidget {
             Text(l10n.desktopProxyCurrentPort(failure.port)),
             const SizedBox(height: 8),
             Text(
-              l10n.desktopProxyFailureCode(failure.code),
+              l10n.desktopProxyFailureCode(failure.diagnosticCode),
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 16),

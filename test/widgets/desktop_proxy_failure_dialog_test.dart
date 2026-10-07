@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/desktop_proxy_failure.dart';
+import 'package:fl_clash/core/method.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/widgets/desktop_proxy_failure_dialog.dart';
 import 'package:flutter/material.dart';
@@ -51,6 +52,40 @@ void main() {
     port: 7890,
     code: 'listener_not_ready',
   );
+
+  for (final osCode in [10048, 10013]) {
+    testWidgets('Windows $osCode displays the cause and port recovery', (
+      tester,
+    ) async {
+      try {
+        final failure = DesktopProxyFailure.fromError(
+          CoreMethodException(
+            code: 'listener_not_ready',
+            message: 'Local mixed listener is not ready',
+            details: {
+              'listener': 'mixed',
+              'reason': 'bind_failed',
+              'os_error_code': osCode,
+            },
+          ),
+          port: 7890,
+          isWindows: true,
+        );
+        await pumpDialog(tester, DesktopProxyFailureDialog(failure: failure));
+
+        expect(find.text('错误代码：listener_not_ready ($osCode)'), findsOneWidget);
+        expect(find.text('更换端口'), findsOneWidget);
+        expect(
+          find.textContaining(osCode == 10048 ? '端口已被其他程序占用' : '拒绝'),
+          findsOneWidget,
+        );
+        expect(find.textContaining('代理配置未能成功应用'), findsNothing);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+    });
+  }
 
   testWidgets(
     'port conflict displays its reason and recovery choices in Chinese',

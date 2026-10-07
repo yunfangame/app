@@ -86,6 +86,20 @@ void main() {
     },
   );
 
+  test('unavailable plan prevents manual and automatic startup', () async {
+    final previousCheck = globalState.checkXboardSubscriptionAccess;
+    globalState.checkXboardSubscriptionAccess = () async => false;
+    addTearDown(
+      () => globalState.checkXboardSubscriptionAccess = previousCheck,
+    );
+    final harness = _Harness();
+    await harness.common.startAfterLogin(isCurrent: () => true);
+    await harness.common.toggleRunning();
+    expect(harness.setup.automaticStarts, 0);
+    expect(harness.setup.manualRequests, isEmpty);
+    expect(harness.container.read(networkSettingProvider).systemProxy, isFalse);
+  });
+
   for (final guard in ['cancelled', 'not_ready', 'running', 'pending']) {
     test(
       'login startup skips a $guard attempt without changing proxy',

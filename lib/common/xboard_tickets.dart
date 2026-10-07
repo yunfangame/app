@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import 'api_health.dart';
+import 'api_request_router.dart';
+import 'xboard_api_request.dart';
 import 'xboard_auth.dart';
 
 typedef XboardTicketRequester =
@@ -67,20 +70,35 @@ class XboardTicketMessage {
 }
 
 class XboardTicketApi {
-  XboardTicketApi({Dio? dio, XboardTicketRequester? requester})
-    : _dio =
-          dio ??
-          Dio(
-            BaseOptions(
-              connectTimeout: const Duration(seconds: 5),
-              receiveTimeout: const Duration(seconds: 10),
-              sendTimeout: const Duration(seconds: 10),
-            ),
-          ),
-      _requester = requester;
+  XboardTicketApi({
+    Dio? dio,
+    XboardTicketRequester? requester,
+    ApiHealthService? apiHealthService,
+    ApiRequestRouter? router,
+    Duration requestTimeout = const Duration(seconds: 20),
+    Duration operationTimeout = const Duration(seconds: 45),
+  }) : _dio =
+           dio ??
+           Dio(
+             BaseOptions(
+               connectTimeout: const Duration(seconds: 5),
+               receiveTimeout: const Duration(seconds: 10),
+               sendTimeout: const Duration(seconds: 10),
+             ),
+           ),
+       _requester = requester,
+       _executor = XboardApiRequestExecutor(
+         apiHealthService: apiHealthService,
+         router: router,
+         singleEndpointSimulation:
+             apiHealthService == null && (requester != null || dio != null),
+         requestTimeout: requestTimeout,
+         operationTimeout: operationTimeout,
+       );
 
   final Dio _dio;
   final XboardTicketRequester? _requester;
+  final XboardApiRequestExecutor _executor;
 
   Future<Object?> request(
     XboardLoginResult session,
@@ -93,32 +111,48 @@ class XboardTicketApi {
         .replace(
           queryParameters: query?.map((key, value) => MapEntry(key, '$value')),
         );
-    final requester = _requester;
-    Object? payload;
-    if (requester != null) {
-      payload = await requester(endpoint, session.authData, body);
-    } else {
-      final response = await _dio.requestUri<Object?>(
-        endpoint,
-        data: body == null ? null : FormData.fromMap(body),
-        options: Options(
-          method: body == null ? 'GET' : 'POST',
-          headers: {
-            'Authorization': session.authData,
-            'Accept': 'application/json',
-          },
-          responseType: ResponseType.json,
-        ),
-      );
-      payload = response.data;
-    }
-    if (payload is! Map ||
-        !payload.containsKey('data') ||
-        payload['status'] == 0 ||
-        payload['data'] == false) {
-      throw const FormatException('Invalid ticket response');
-    }
-    return payload['data'];
+    return _executor.run(
+      endpoint: endpoint,
+      allowRetry:
+          body == null &&
+          const {
+            'ticket-sync/summary',
+            'ticket-sync/fetch',
+            'ticket-sync/detail',
+          }.contains(path),
+      request: (target, cancelToken) async {
+        final requester = _requester;
+        Object? payload;
+        if (requester != null) {
+          payload = await requester(target, session.authData, body);
+        } else {
+          final response = await _dio.requestUri<Object?>(
+            target,
+            cancelToken: cancelToken,
+            data: body == null ? null : FormData.fromMap(body),
+            options: Options(
+              method: body == null ? 'GET' : 'POST',
+              headers: {
+                'Authorization': session.authData,
+                'Accept': 'application/json',
+              },
+              responseType: ResponseType.json,
+              followRedirects: false,
+              validateStatus: (status) =>
+                  status != null && status >= 200 && status < 300,
+            ),
+          );
+          payload = response.data;
+        }
+        if (payload is! Map ||
+            !payload.containsKey('data') ||
+            payload['status'] == 0 ||
+            payload['data'] == false) {
+          throw const FormatException('Invalid ticket response');
+        }
+        return payload['data'];
+      },
+    );
   }
 }
 

@@ -2,6 +2,7 @@ part of '../action.dart';
 
 @Riverpod(keepAlive: true)
 class CommonAction extends _$CommonAction {
+  bool _checkingSubscriptionAccess = false;
   Future<void>? _appUpdatePrompt;
   bool _manualAppUpdateRequested = false;
 
@@ -12,6 +13,8 @@ class CommonAction extends _$CommonAction {
   bool get enablesSystemProxyOnConnect => system.isDesktop;
 
   Future<void> startAfterLogin({required bool Function() isCurrent}) async {
+    final checkAccess = globalState.checkXboardSubscriptionAccess;
+    if (checkAccess != null && !await checkAccess()) return;
     if (!ref.mounted ||
         !isCurrent() ||
         !ref.read(initProvider) ||
@@ -29,9 +32,25 @@ class CommonAction extends _$CommonAction {
     await ref.read(setupActionProvider.notifier).startAutomatically();
   }
 
-  void toggleRunning() {
+  Future<void> toggleRunning() async {
     final running =
         !ref.read(isStartProvider) && !ref.read(connectionPendingProvider);
+    if (running) {
+      if (_checkingSubscriptionAccess) return;
+      _checkingSubscriptionAccess = true;
+      try {
+        final allowed =
+            await globalState.checkXboardSubscriptionAccess?.call() ?? true;
+        if (!allowed ||
+            !ref.mounted ||
+            ref.read(isStartProvider) ||
+            ref.read(connectionPendingProvider)) {
+          return;
+        }
+      } finally {
+        _checkingSubscriptionAccess = false;
+      }
+    }
     if (running && enablesSystemProxyOnConnect) {
       ref
           .read(networkSettingProvider.notifier)
