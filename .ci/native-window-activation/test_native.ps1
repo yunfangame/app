@@ -23,7 +23,10 @@ $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer
 $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 if ([string]::IsNullOrWhiteSpace($installation)) { throw 'MSVC installation unavailable' }
 $developerCommand = Join-Path $installation 'Common7/Tools/VsDevCmd.bat'
-$environment = & $env:ComSpec /d /s /c ('""' + $developerCommand + '" -no_logo -arch=x64 -host_arch=x64 >nul && set"')
+$initialize = Join-Path $build 'initialize-msvc.cmd'
+@('@echo off', ('call "' + $developerCommand + '" -no_logo -arch=x64 -host_arch=x64 >nul'), 'if errorlevel 1 exit /b 1', 'set Path', 'set INCLUDE', 'set LIB', 'set LIBPATH', 'exit /b 0') |
+    Set-Content -LiteralPath $initialize -Encoding ASCII
+$environment = & $env:ComSpec /d /c $initialize
 if ($LASTEXITCODE -ne 0) { throw 'MSVC developer environment initialization failed' }
 foreach ($entry in $environment) {
     $split = $entry.IndexOf('=')
