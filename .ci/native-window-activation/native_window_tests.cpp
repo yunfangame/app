@@ -28,6 +28,29 @@ std::string selected_case;
 DWORD sender_integrity_rid = 0;
 DWORD receiver_integrity_rid = 0;
 bool medium_mutex_probe_confirmed = false;
+DWORD child_exit_code = 0;
+
+struct ChildDiagnostics {
+  DWORD parent_session = 0;
+  DWORD child_session = 0;
+  DWORD child_integrity = 0;
+  BOOL same_user = FALSE;
+  BOOL same_window_station = FALSE;
+  BOOL same_desktop = FALSE;
+  DWORD create_error = 0;
+  DWORD open_error = 0;
+  BOOL existing_instance = FALSE;
+  BOOL read_only_probe = FALSE;
+  BOOL owns_mutex = FALSE;
+  BOOL mutex_handle_present = FALSE;
+  BOOL post_succeeded = FALSE;
+  DWORD post_error = 0;
+  BYTE parent_user_sid[SECURITY_MAX_SID_SIZE]{};
+  wchar_t parent_window_station[256]{};
+  wchar_t parent_desktop[256]{};
+};
+
+ChildDiagnostics child_diagnostics{};
 
 class EnvironmentUnavailable : public std::runtime_error {
  public:
@@ -87,6 +110,27 @@ void SaveResults() {
       << ",\"sender_integrity_rid\":" << sender_integrity_rid
       << ",\"medium_mutex_read_only_probe_confirmed\":"
       << (medium_mutex_probe_confirmed ? "true" : "false")
+      << ",\"child_exit_code\":" << child_exit_code
+      << ",\"child_diagnostics\":{\"parent_session_id\":"
+      << child_diagnostics.parent_session
+      << ",\"child_session_id\":" << child_diagnostics.child_session
+      << ",\"child_integrity_rid\":" << child_diagnostics.child_integrity
+      << ",\"same_user_sid\":" << (child_diagnostics.same_user ? "true" : "false")
+      << ",\"same_window_station\":"
+      << (child_diagnostics.same_window_station ? "true" : "false")
+      << ",\"same_desktop\":" << (child_diagnostics.same_desktop ? "true" : "false")
+      << ",\"create_error\":" << child_diagnostics.create_error
+      << ",\"open_error\":" << child_diagnostics.open_error
+      << ",\"existing_instance\":" << (child_diagnostics.existing_instance ? "true" : "false")
+      << ",\"read_only_probe\":" << (child_diagnostics.read_only_probe ? "true" : "false")
+      << ",\"owns_mutex\":" << (child_diagnostics.owns_mutex ? "true" : "false")
+      << ",\"mutex_handle_present\":" << (child_diagnostics.mutex_handle_present ? "true" : "false")
+      << ",\"create_handle_present\":"
+      << (child_diagnostics.mutex_handle_present && !child_diagnostics.read_only_probe ? "true" : "false")
+      << ",\"open_handle_present\":"
+      << (child_diagnostics.mutex_handle_present && child_diagnostics.read_only_probe ? "true" : "false")
+      << ",\"post_succeeded\":" << (child_diagnostics.post_succeeded ? "true" : "false")
+      << ",\"post_error\":" << child_diagnostics.post_error << "}"
       << ",\"tests\":[";
   bool first = true;
   for (const auto& result : results) {
@@ -166,11 +210,72 @@ DWORD IntegrityRid(HANDLE process) {
   return *GetSidSubAuthority(label->Label.Sid, count - 1);
 }
 
+std::vector<BYTE> CurrentUserSid() {
+  HANDLE raw_token = nullptr;
+  Require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw_token) != FALSE,
+          "User token unavailable");
+  OwnedHandle token(raw_token);
+  DWORD size = 0;
+  GetTokenInformation(token.value, TokenUser, nullptr, 0, &size);
+  std::vector<BYTE> data(size);
+  Require(GetTokenInformation(token.value, TokenUser, data.data(), size, &size) != FALSE,
+          "User SID unavailable");
+  const auto* user = reinterpret_cast<TOKEN_USER*>(data.data());
+  std::vector<BYTE> sid(GetLengthSid(user->User.Sid));
+  Require(CopySid(static_cast<DWORD>(sid.size()), sid.data(), user->User.Sid) != FALSE,
+          "User SID copy failed");
+  return sid;
+}
+
+class DiagnosticMapping {
+ public:
+  DiagnosticMapping() {
+    name = L"Local\\FengWoNativeMetadata-" + std::to_wstring(GetCurrentProcessId()) +
+           L"-" + std::to_wstring(GetTickCount64());
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    Require(ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                L"D:(A;;GA;;;WD)S:(ML;;NW;;;ME)", SDDL_REVISION_1,
+                &descriptor, nullptr) != FALSE,
+            "Diagnostic mapping descriptor failed");
+    SECURITY_ATTRIBUTES attributes{};
+    attributes.nLength = sizeof(attributes);
+    attributes.lpSecurityDescriptor = descriptor;
+    handle = CreateFileMappingW(INVALID_HANDLE_VALUE, &attributes, PAGE_READWRITE,
+                                0, sizeof(ChildDiagnostics), name.c_str());
+    LocalFree(descriptor);
+    Require(handle != nullptr, "Diagnostic mapping failed");
+    data = static_cast<ChildDiagnostics*>(
+        MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(ChildDiagnostics)));
+    Require(data != nullptr, "Diagnostic map view failed");
+    *data = ChildDiagnostics{};
+    ProcessIdToSessionId(GetCurrentProcessId(), &data->parent_session);
+    const auto sid = CurrentUserSid();
+    Require(CopySid(sizeof(data->parent_user_sid), data->parent_user_sid,
+                    const_cast<BYTE*>(sid.data())) != FALSE,
+            "Diagnostic user comparison setup failed");
+    DWORD size = 0;
+    Require(GetUserObjectInformationW(GetProcessWindowStation(), UOI_NAME,
+             data->parent_window_station, sizeof(data->parent_window_station), &size) != FALSE,
+            "Parent window station unavailable");
+    Require(GetUserObjectInformationW(GetThreadDesktop(GetCurrentThreadId()), UOI_NAME,
+             data->parent_desktop, sizeof(data->parent_desktop), &size) != FALSE,
+            "Parent desktop unavailable");
+  }
+  ~DiagnosticMapping() {
+    if (data != nullptr) UnmapViewOfFile(data);
+    if (handle != nullptr) CloseHandle(handle);
+  }
+  std::wstring name;
+  HANDLE handle = nullptr;
+  ChildDiagnostics* data = nullptr;
+};
+
 void PostFromMediumIntegrityChild(HWND target, const std::wstring& mutex_name) {
   receiver_integrity_rid = IntegrityRid(GetCurrentProcess());
   if (receiver_integrity_rid < SECURITY_MANDATORY_HIGH_RID) {
     throw EnvironmentUnavailable("CI receiver is not high integrity");
   }
+  DiagnosticMapping diagnostics;
   HANDLE raw_token = nullptr;
   if (!OpenProcessToken(GetCurrentProcess(),
                         TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY |
@@ -214,7 +319,7 @@ void PostFromMediumIntegrityChild(HWND target, const std::wstring& mutex_name) {
   const std::wstring command = L"\"" + std::wstring(executable.data()) +
       L"\" --medium-post " +
       std::to_wstring(reinterpret_cast<std::uintptr_t>(target)) +
-      L" \"" + mutex_name + L"\"";
+      L" \"" + mutex_name + L"\" \"" + diagnostics.name + L"\"";
   std::vector<wchar_t> arguments(command.begin(), command.end());
   arguments.push_back(L'\0');
   STARTUPINFOW startup{};
@@ -249,11 +354,12 @@ void PostFromMediumIntegrityChild(HWND target, const std::wstring& mutex_name) {
             "Restricted sender did not resume");
     Require(WaitForSingleObject(child_process.value, 10000) == WAIT_OBJECT_0,
             "Restricted sender exceeded its time limit");
-    DWORD exit_code = 93;
-    Require(GetExitCodeProcess(child_process.value, &exit_code) != FALSE &&
-                exit_code == 0,
+    Require(GetExitCodeProcess(child_process.value, &child_exit_code) != FALSE,
+            "Medium sender exit code unavailable");
+    child_diagnostics = *diagnostics.data;
+    Require(child_exit_code == 0,
             "Medium sender failed production mutex probe or activation (exit " +
-                std::to_string(exit_code) + ")");
+                std::to_string(child_exit_code) + ")");
     medium_mutex_probe_confirmed = true;
   } catch (...) {
     TerminateProcess(child_process.value, 92);
@@ -375,19 +481,47 @@ RECT InsideCurrentWorkArea() {
 }
 
 int wmain(int argc, wchar_t** argv) {
-  if (argc == 4 && std::wstring(argv[1]) == L"--medium-post") {
+  if (argc == 5 && std::wstring(argv[1]) == L"--medium-post") {
     const auto target = reinterpret_cast<HWND>(
         static_cast<std::uintptr_t>(std::stoull(argv[2])));
-    if (IntegrityRid(GetCurrentProcess()) != SECURITY_MANDATORY_MEDIUM_RID) {
+    const DWORD integrity = IntegrityRid(GetCurrentProcess());
+    if (integrity != SECURITY_MANDATORY_MEDIUM_RID) {
       return 81;
     }
+    OwnedHandle mapping(OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, argv[4]));
+    if (mapping.value == nullptr) return 84;
+    auto* diagnostics = static_cast<ChildDiagnostics*>(
+        MapViewOfFile(mapping.value, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(ChildDiagnostics)));
+    if (diagnostics == nullptr) return 85;
+    diagnostics->child_integrity = integrity;
+    ProcessIdToSessionId(GetCurrentProcessId(), &diagnostics->child_session);
+    const auto sid = CurrentUserSid();
+    diagnostics->same_user = EqualSid(const_cast<BYTE*>(sid.data()), diagnostics->parent_user_sid);
+    wchar_t station[256]{};
+    wchar_t desktop[256]{};
+    DWORD size = 0;
+    GetUserObjectInformationW(GetProcessWindowStation(), UOI_NAME, station, sizeof(station), &size);
+    GetUserObjectInformationW(GetThreadDesktop(GetCurrentThreadId()), UOI_NAME, desktop, sizeof(desktop), &size);
+    diagnostics->same_window_station = wcscmp(station, diagnostics->parent_window_station) == 0;
+    diagnostics->same_desktop = wcscmp(desktop, diagnostics->parent_desktop) == 0;
     FengWoInstanceMutex mutex = AcquireFengWoInstanceMutex(argv[3]);
+    diagnostics->create_error = mutex.create_error;
+    diagnostics->open_error = mutex.open_error;
+    diagnostics->existing_instance = mutex.existing_instance;
+    diagnostics->read_only_probe = mutex.read_only_probe;
+    diagnostics->owns_mutex = mutex.owns_mutex;
+    diagnostics->mutex_handle_present = mutex.handle != nullptr;
     const bool probe = mutex.handle != nullptr && mutex.existing_instance &&
         mutex.read_only_probe && !mutex.owns_mutex &&
         mutex.create_error == ERROR_ACCESS_DENIED;
     ReleaseFengWoInstanceMutex(&mutex);
+    SetLastError(ERROR_SUCCESS);
+    const bool posted = PostFengWoWindowActivation(target);
+    diagnostics->post_succeeded = posted;
+    diagnostics->post_error = posted ? ERROR_SUCCESS : GetLastError();
+    UnmapViewOfFile(diagnostics);
     if (!probe) return 82;
-    return PostFengWoWindowActivation(target) ? 0 : 83;
+    return posted ? 0 : 83;
   }
   if (argc != 2 && argc != 3) {
     return 2;
