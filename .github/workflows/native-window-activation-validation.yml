@@ -20,7 +20,7 @@ jobs:
         timeout-minutes: 6
         run: |
           $ErrorActionPreference = 'Stop'
-          & ./.ci/native-window-activation/test_native.ps1 -TestCase 'registered-message-rejects-payload-and-medium-activates-high' -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'native-window-evidence')
+          & ./.ci/native-window-activation/test_native.ps1 -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'native-window-evidence')
       - name: Upload synthetic native evidence
         if: always()
         uses: actions/upload-artifact@v4

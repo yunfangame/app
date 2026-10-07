@@ -269,7 +269,9 @@ bool EnsureFengWoWindowOnScreen(HWND window, bool prefer_current_monitor) {
         (prefer_current_monitor && existing_monitor == monitors.preferred)) {
       return true;
     }
-    if (monitors.work_areas.empty()) return false;
+    if (monitors.work_areas.empty() || IsWindowVisible(window) == FALSE) {
+      return false;
+    }
     ShowWindow(window, SW_RESTORE);
     const bool moved = EnsureFengWoWindowOnScreen(window, true);
     ShowWindow(window, SW_MAXIMIZE);

@@ -36,6 +36,7 @@ bool linked_same_user = false;
 bool linked_same_logon_sid = false;
 bool linked_same_session = false;
 bool linked_token_used = false;
+bool hidden_max_guard_verified = false;
 
 struct ChildDiagnostics {
   DWORD parent_session = 0;
@@ -126,6 +127,7 @@ void SaveResults() {
       << ",\"linked_same_user_sid\":" << (linked_same_user ? "true" : "false")
       << ",\"linked_same_logon_sid\":" << (linked_same_logon_sid ? "true" : "false")
       << ",\"linked_same_session\":" << (linked_same_session ? "true" : "false")
+      << ",\"hidden_max_guard_verified\":" << (hidden_max_guard_verified ? "true" : "false")
       << ",\"child_diagnostics\":{\"parent_session_id\":"
       << child_diagnostics.parent_session
       << ",\"entered_wmain\":" << (child_diagnostics.entered_wmain ? "true" : "false")
@@ -604,6 +606,44 @@ int wmain(int argc, wchar_t** argv) {
             "Passive startup displayed a hidden window");
     Require(Contained(fixture.Bounds(), CurrentWorkArea()),
             "Passive startup did not repair hidden offscreen geometry");
+    FixtureWindow maximized(InsideCurrentWorkArea());
+    ShowWindow(maximized.handle, SW_MAXIMIZE);
+    ShowWindow(maximized.handle, SW_HIDE);
+    const RECT area = CurrentWorkArea();
+    Require(SetWindowPos(maximized.handle, nullptr, area.right + 20000,
+                         area.bottom + 20000, 1000, 700,
+                         SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSENDCHANGING) != FALSE,
+            "Cannot construct hidden maximized offscreen fixture");
+    const RECT before = maximized.Bounds();
+    Require(IsZoomed(maximized.handle) != FALSE &&
+                IsWindowVisible(maximized.handle) == FALSE,
+            "Fixture is not both maximized and hidden");
+    Require(before.left > area.right && before.top > area.bottom &&
+                MonitorFromWindow(maximized.handle, MONITOR_DEFAULTTONULL) == nullptr,
+            "Hidden maximized fixture still has an applicable monitor");
+    Require(!EnsureFengWoWindowOnScreen(maximized.handle, false),
+            "Hidden maximized relocation was not deferred");
+    Require(IsWindowVisible(maximized.handle) == FALSE &&
+                IsZoomed(maximized.handle) != FALSE &&
+                SameRect(before, maximized.Bounds()),
+            "Passive hidden maximized recovery changed visibility or geometry");
+    ActivateFengWoWindow(maximized.handle);
+    Require(IsWindowVisible(maximized.handle) != FALSE &&
+                IsIconic(maximized.handle) == FALSE &&
+                IsZoomed(maximized.handle) != FALSE &&
+                IsHungAppWindow(maximized.handle) == FALSE,
+            "Explicit activation did not restore hidden maximized fixture");
+    RECT client{};
+    Require(GetClientRect(maximized.handle, &client) != FALSE,
+            "Maximized client area unavailable");
+    SetLastError(ERROR_SUCCESS);
+    const int translated = MapWindowPoints(maximized.handle, nullptr,
+        reinterpret_cast<POINT*>(&client), 2);
+    Require(translated != 0 || GetLastError() == ERROR_SUCCESS,
+            "Maximized client screen position unavailable");
+    Require(Contained(client, CurrentWorkArea()),
+            "Recovered maximized client is outside current work area");
+    hidden_max_guard_verified = true;
   });
 
   Run("explicit-activation-restores-hidden-window", [] {
