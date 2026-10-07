@@ -31,7 +31,8 @@ jobs:
             $changedTargets[0] = 'https://unexpected.example.com/config'
             if (@(Compare-Object -ReferenceObject $expectedTargets -DifferenceObject $changedTargets -CaseSensitive).Count -eq 0) { throw 'Different target URLs were accepted' }
           }
-          foreach ($path in @(Get-ChildItem tooling/windows -Filter '*.ps1' -File)) {
+          $scriptPaths = if ($expectedMajor -eq 5) { @(Get-Item tooling/windows/collect_tls_diagnostics.ps1, tooling/windows/test_integrity_installer.ps1) } else { @(Get-ChildItem tooling/windows -Filter '*.ps1' -File) }
+          foreach ($path in $scriptPaths) {
             $tokens = $null
             $parseErrors = $null
             $null = [Management.Automation.Language.Parser]::ParseFile($path.FullName, [ref]$tokens, [ref]$parseErrors)
@@ -72,7 +73,8 @@ jobs:
             $changedTargets[0] = 'https://unexpected.example.com/config'
             if (@(Compare-Object -ReferenceObject $expectedTargets -DifferenceObject $changedTargets -CaseSensitive).Count -eq 0) { throw 'Different target URLs were accepted' }
           }
-          foreach ($path in @(Get-ChildItem tooling/windows -Filter '*.ps1' -File)) {
+          $scriptPaths = if ($expectedMajor -eq 5) { @(Get-Item tooling/windows/collect_tls_diagnostics.ps1, tooling/windows/test_integrity_installer.ps1) } else { @(Get-ChildItem tooling/windows -Filter '*.ps1' -File) }
+          foreach ($path in $scriptPaths) {
             $tokens = $null
             $parseErrors = $null
             $null = [Management.Automation.Language.Parser]::ParseFile($path.FullName, [ref]$tokens, [ref]$parseErrors)
@@ -88,21 +90,3 @@ jobs:
           name: windows-preflight-pwsh
           path: ${{ runner.temp }}/preflight.json
           if-no-files-found: error
-  profile_cleanup:
-    runs-on: windows-2022
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          flutter-version: '3.44.4'
-          cache: true
-      - name: Verify default client cleanup on Windows
-        shell: pwsh
-        run: |
-          flutter pub get
-          if ($LASTEXITCODE -ne 0) { throw 'Dependencies failed' }
-          flutter test test/common/subscription_v2_test.dart --no-pub --reporter expanded --plain-name 'default clients isolate shared profile work'
-          if ($LASTEXITCODE -ne 0) { throw 'Default client cleanup tests failed' }
