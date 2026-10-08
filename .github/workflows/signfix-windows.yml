@@ -1,0 +1,54 @@
+name: fengwo-windows-signfix
+run-name: Windows 1.0.8 signing repair · ${{ github.ref_name }}
+
+on:
+  push:
+    tags:
+      - 'fengwo-signfix-20261008-*'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  signfix:
+    runs-on: windows-2022
+    timeout-minutes: 50
+    steps:
+      - name: Checkout signing repair only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Select signing stage
+        id: stage
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_NAME -notmatch '^fengwo-signfix-20261008-(?:[a-zA-Z0-9-]+-)?(prepare|helper|build|verify)$') {
+            throw 'Tag must end in prepare, helper, build, or verify'
+          }
+          "name=$($Matches[1])" >> $env:GITHUB_OUTPUT
+
+      - name: Setup template renderer
+        if: steps.stage.outputs.name == 'prepare' || steps.stage.outputs.name == 'build'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run bounded signing stage
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ./tooling/windows/signfix_repack.ps1 -Stage '${{ steps.stage.outputs.name }}' -OutputDirectory "$env:GITHUB_WORKSPACE/artifacts/signfix/${{ steps.stage.outputs.name }}"
+
+      - name: Upload signing stage and failure evidence
+        if: always() && steps.stage.outputs.name != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: fengwo-signfix-${{ steps.stage.outputs.name }}
+          path: artifacts/signfix/${{ steps.stage.outputs.name }}/**
+          if-no-files-found: error
+          retention-days: 14
