@@ -119,10 +119,15 @@ function Get-Baseline {
   $directory = Join-Path $WorkDirectory 'baseline'
   $null = New-Item -ItemType Directory -Path $directory
   $null = Invoke-Bounded 'gh' @('run', 'download', '37602827410', '--name', 'fengwo-windows-amd64', '--dir', $directory) 'download-baseline' 300
+  $pinnedHashes = @{
+    'fengwo-windows-amd64-release-unsigned.zip' = '75071df1a50e40fe6d4d0a82d60289036bd9ab7130bd99ee497d6f617b04aa00'
+    'fengwo-windows-amd64-setup.exe' = '9e9d374743fe9cb6ab60f13dad032ba7d4ab0afa38f90d3120c8e73a4b3528ba'
+  }
   $sums = Get-Content -LiteralPath (Join-Path $directory 'SHA256SUMS')
   foreach ($name in @('fengwo-windows-amd64-release-unsigned.zip', 'fengwo-windows-amd64-setup.exe')) {
     $matching = @($sums | Where-Object { $_ -match ('^[a-fA-F0-9]{64}\s+' + [regex]::Escape($name) + '$') })
     if ($matching.Count -ne 1 -or (Get-Sha256 (Join-Path $directory $name)) -cne ($matching[0] -split '\s+')[0].ToLowerInvariant()) { throw "Baseline artifact hash mismatch: $name" }
+    if ((Get-Sha256 (Join-Path $directory $name)) -cne $pinnedHashes[$name]) { throw "Original release artifact changed: $name" }
   }
   $payload = Join-Path $WorkDirectory 'baseline-payload'
   Expand-SafeZip (Join-Path $directory 'fengwo-windows-amd64-release-unsigned.zip') $payload
@@ -364,6 +369,8 @@ try {
       $uninstallers = @(Get-ChildItem -LiteralPath $installed -File -Filter 'unins*.exe')
       if ($uninstallers.Count -ne 1) { throw 'Expected exactly one installed uninstaller' }
       $null = Assert-Signature $uninstallers[0].FullName -Owned
+      $uninstallerCache = Assert-Cache (Join-Path $inputs 'signed-uninstaller')
+      if ((Get-Sha256 $uninstallers[0].FullName) -cne (Get-Sha256 $uninstallerCache.FullName)) { throw 'Installed uninstaller differs from the signed cache' }
       $null = Assert-CoreBinding $installed -Helper
       $loadScript = Join-Path $WorkDirectory 'load-rust-api.ps1'
       @'
