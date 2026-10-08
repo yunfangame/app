@@ -7,7 +7,7 @@ on:
       - 'fengwo-signfix-20261008-*'
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 jobs:
