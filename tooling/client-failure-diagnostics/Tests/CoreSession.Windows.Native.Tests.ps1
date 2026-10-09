@@ -88,7 +88,23 @@ function New-NativeCoreFixture([bool]$NeverConnect) {
     $value = 'false'
     if ($NeverConnect) { $value = 'true' }
     $definition = $source.Replace('__FIXTURE_CLASS__', ('FengWoNativeCoreFixture_' + $suffix)).Replace('__NEVER_CONNECT__', $value)
-    Add-FwDiagnosticType -TypeDefinition $definition -OutputAssembly $path -OutputType ConsoleApplication
+    $parameters = New-Object System.CodeDom.Compiler.CompilerParameters
+    $parameters.CompilerOptions='/langversion:5'
+    $parameters.GenerateExecutable=$true
+    $parameters.GenerateInMemory=$false
+    $parameters.OutputAssembly=$path
+    [void]$parameters.ReferencedAssemblies.Add('System.dll')
+    [void]$parameters.ReferencedAssemblies.Add('System.Core.dll')
+    $provider = New-Object Microsoft.CSharp.CSharpCodeProvider
+    try {
+        $result = $provider.CompileAssemblyFromSource($parameters, [string[]]@($definition))
+        if ($result.Errors.HasErrors) {
+            $codes = @($result.Errors | Where-Object {-not $_.IsWarning} | ForEach-Object {$_.ErrorNumber})
+            throw ('NATIVE_FIXTURE_COMPILATION_FAILED: ' + ($codes -join ','))
+        }
+        if (-not [IO.File]::Exists($path)) { throw 'NATIVE_FIXTURE_EXECUTABLE_MISSING' }
+    }
+    finally { $provider.Dispose() }
     return $path
 }
 
