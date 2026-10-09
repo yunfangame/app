@@ -1,5 +1,5 @@
 {
-  "SourceFreeze": "20261009-Windows-agent-second-frozen-HKCU",
+  "SourceFreeze": "20261009-Windows-agent-final-HKCU-Advapi32",
   "Files": {
     "plugins/proxy/windows/proxy_plugin.cpp": "1dfd8b90f8d504ff9d871285038cc39c8f89253b011d4d04a0dad267199c808c",
     "plugins/proxy/windows/proxy_session.h": "f19f458f9df8fe886e934c62930b0ebc2f76ee7abcd3ea525ec62cc7cfaffb6a",
@@ -10,7 +10,7 @@
     "plugins/proxy/windows/proxy_plugin_c_api.cpp": "d0296820ac7a1fb23b57ec9581eaa14ace2f57b60c47c6a9a9ca3b681677139c",
     "plugins/proxy/windows/include/proxy/proxy_plugin_c_api.h": "baee01c5feb603572f2c5a6c9bdc2dc36558ba8e1756a31fd5bef37aee4528b4",
     "plugins/proxy/windows/proxy_task_runner.h": "0077fa07953ee61b7c07758b5ef5854db07635fd6eee6107b33a16fd25cacabc",
-    "plugins/proxy/windows/CMakeLists.txt": "b0638d22dbd3b27809599223a3982682cbc3a5f5b3ddd9ea0227f337345e4a39"
+    "plugins/proxy/windows/CMakeLists.txt": "4a80fd083ae76deb398ba98392f42ca7537f6a26c469f3f35ece771b1203ba2b"
   },
   "NativeTests": [
     {
