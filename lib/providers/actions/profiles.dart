@@ -160,6 +160,7 @@ class ProfilesAction extends _$ProfilesAction {
     bool removeLegacyXboardProfiles = false,
     Future<Profile> Function(Profile profile, Uint8List bytes)? loader,
     Future<void> Function(int profileId)? effectClearer,
+    bool Function()? isCurrent,
   }) => _profileMutationScheduler.run(
     () => _syncSubscriptionProfileBytes(
       bytes,
@@ -169,6 +170,7 @@ class ProfilesAction extends _$ProfilesAction {
       removeLegacyXboardProfiles: removeLegacyXboardProfiles,
       loader: loader,
       effectClearer: effectClearer,
+      isCurrent: isCurrent,
     ),
   );
 
@@ -180,6 +182,7 @@ class ProfilesAction extends _$ProfilesAction {
     bool removeLegacyXboardProfiles = false,
     Future<Profile> Function(Profile profile, Uint8List bytes)? loader,
     Future<void> Function(int profileId)? effectClearer,
+    bool Function()? isCurrent,
   }) async {
     if (!isSubscriptionV2ProfileSource(sourceId)) {
       throw ArgumentError.value(sourceId, 'sourceId', 'Invalid V2 source');
@@ -202,32 +205,57 @@ class ProfilesAction extends _$ProfilesAction {
     }
     final sourceProfile =
         existingProfile ?? Profile.normal(label: label, url: sourceId);
-    final updatedProfile =
-        await (loader ?? (profile, content) => profile.saveFile(content))(
-          sourceProfile,
-          bytes,
-        );
+    void ensureCurrent() {
+      if (isCurrent?.call() == false) {
+        throw StateError('profile_sync_superseded');
+      }
+    }
+
+    ensureCurrent();
+    final sourceSnapshot = isCurrent == null
+        ? null
+        : await _captureProfileFile(sourceProfile.id);
+    late final Profile updatedProfile;
+    try {
+      ensureCurrent();
+      updatedProfile =
+          await (loader ??
+              (profile, content) => profile.saveFile(
+                content,
+                isCurrent: isCurrent,
+              ))(sourceProfile, bytes);
+      ensureCurrent();
+    } catch (error, stackTrace) {
+      if (sourceSnapshot != null) await _restoreProfileFile(sourceSnapshot);
+      Error.throwWithStackTrace(error, stackTrace);
+    }
     ref.read(profilesProvider.notifier).put(updatedProfile);
     ref.read(currentProfileIdProvider.notifier).value = updatedProfile.id;
     await ref
         .read(setupActionProvider.notifier)
         .applyProfile(force: true, silence: true);
+    ensureCurrent();
     if (replacingUrl != null && replacingUrl != sourceId) {
       await removeSubscriptionProfile(
         replacingUrl,
         effectClearer: effectClearer,
+        isCurrent: isCurrent,
       );
     }
+    ensureCurrent();
     if (removeLegacyXboardProfiles) {
       await removeLegacyXboardSubscriptionProfiles(
         effectClearer: effectClearer,
+        isCurrent: isCurrent,
       );
     }
+    ensureCurrent();
     return updatedProfile;
   }
 
   Future<void> removeLegacyXboardSubscriptionProfiles({
     Future<void> Function(int profileId)? effectClearer,
+    bool Function()? isCurrent,
   }) async {
     final legacyProfiles = ref
         .read(profilesProvider)
@@ -236,9 +264,13 @@ class ProfilesAction extends _$ProfilesAction {
         )
         .toList(growable: false);
     for (final profile in legacyProfiles) {
+      if (isCurrent?.call() == false) {
+        throw StateError('profile_sync_superseded');
+      }
       await removeSubscriptionProfile(
         profile.url,
         effectClearer: effectClearer,
+        isCurrent: isCurrent,
       );
     }
   }
@@ -246,7 +278,15 @@ class ProfilesAction extends _$ProfilesAction {
   Future<void> removeSubscriptionProfile(
     String url, {
     Future<void> Function(int profileId)? effectClearer,
+    bool Function()? isCurrent,
   }) async {
+    void ensureCurrent() {
+      if (isCurrent?.call() == false) {
+        throw StateError('profile_sync_superseded');
+      }
+    }
+
+    ensureCurrent();
     final matchingProfiles = ref
         .read(profilesProvider)
         .where((profile) => profile.url == url)
@@ -258,7 +298,9 @@ class ProfilesAction extends _$ProfilesAction {
       await ref.read(setupActionProvider.notifier).setRunning(false);
     }
     for (final profile in matchingProfiles) {
+      ensureCurrent();
       await ref.read(profilesProvider.notifier).del(profile.id);
+      ensureCurrent();
       await (effectClearer ?? clearEffect)(profile.id);
     }
   }

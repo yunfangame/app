@@ -31,7 +31,7 @@ class StartupConnectionCoordinator {
     return _active = StartupConnectionAttempt._(enabled, isCurrent);
   }
 
-  bool _isCurrent(StartupConnectionAttempt attempt) {
+  bool isCurrent(StartupConnectionAttempt attempt) {
     if (_disposed ||
         !identical(attempt, _active) ||
         !attempt._enabled ||
@@ -56,7 +56,7 @@ class StartupConnectionCoordinator {
     required void Function(Object error) onProbeError,
     required void Function(Object error) onConnectionError,
   }) {
-    if (!_isCurrent(attempt) || !authenticated || !routingReady) {
+    if (!isCurrent(attempt) || !authenticated || !routingReady) {
       return Future<void>.value();
     }
     final pending = attempt._execution;
@@ -87,7 +87,7 @@ class StartupConnectionCoordinator {
     required void Function(Object error) onConnectionError,
   }) async {
     bool canContinue() {
-      if (!_isCurrent(attempt)) return false;
+      if (!isCurrent(attempt)) return false;
       if (!canProceed()) {
         attempt._cancel();
         return false;

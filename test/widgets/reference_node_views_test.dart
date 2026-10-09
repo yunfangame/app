@@ -18,6 +18,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/api_health_fixture.dart';
+
 void main() {
   setUp(() {
     globalState.clearXboardSession();
@@ -468,6 +470,9 @@ void main() {
           delays: {'Node A': -1},
           child: FengWoNodeStatusView(
             authService: XboardAuthService(
+              apiHealthService: ApiHealthFixture(
+                Uri.parse('https://api.example.com'),
+              ),
               nodesRequester: (_, _) => request.future,
             ),
           ),
@@ -510,6 +515,9 @@ void main() {
       backendNodes: [_backendNode(true)],
       child: FengWoNodeStatusView(
         authService: XboardAuthService(
+          apiHealthService: ApiHealthFixture(
+            Uri.parse('https://api.example.com'),
+          ),
           nodesRequester: (_, _) => request.future,
         ),
       ),

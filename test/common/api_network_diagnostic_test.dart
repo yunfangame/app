@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:fl_clash/common/api_health.dart';
 import 'package:fl_clash/common/api_network_diagnostic.dart';
+import 'package:fl_clash/common/api_request_router.dart';
 import 'package:fl_clash/common/xboard_auth.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -204,62 +205,98 @@ void main() {
     });
   }
 
-  test('login network fallback succeeds with safe attempt logs', () async {
-    final events = <Map<String, Object?>>[];
-    var requests = 0;
-    final service = XboardAuthService(
-      endpointLoader: () async => [
-        Uri.parse('https://first.example.com'),
-        Uri.parse('https://second.example.com'),
-      ],
-      loginRequester: (_, _, _) async {
-        requests++;
-        if (requests == 1) {
-          throw _dioError(
-            const SocketException(
-              'customer@example.com secret-password private.example',
-              osError: OSError('secret-error', 10054),
-            ),
+  test(
+    'a later login uses a healthy entry and preserves safe attempt logs',
+    () async {
+      final events = <Map<String, Object?>>[];
+      var requests = 0;
+      final hosts = <String>[];
+      final service = XboardAuthService(
+        requestRouter: ApiRequestRouter(),
+        endpointLoader: () async => [
+          Uri.parse('https://first.example.com'),
+          Uri.parse('https://second.example.com'),
+        ],
+        loginRequester: (endpoint, _, _) async {
+          requests++;
+          hosts.add(endpoint.host);
+          if (requests == 1) {
+            throw _dioError(
+              const SocketException(
+                'customer@example.com secret-password private.example',
+                osError: OSError('secret-error', 10054),
+              ),
+            );
+          }
+          return const XboardLoginResponse(
+            statusCode: 200,
+            data: {
+              'data': {
+                'token': 'secret-token',
+                'auth_data': 'Bearer secret-auth',
+              },
+            },
           );
-        }
-        return const XboardLoginResponse(
+        },
+        subscriptionRequester: (_, _) async => const XboardLoginResponse(
           statusCode: 200,
           data: {
             'data': {
-              'token': 'secret-token',
-              'auth_data': 'Bearer secret-auth',
+              'subscribe_url': 'https://private.example/subscribe?token=secret',
             },
           },
-        );
-      },
-      subscriptionRequester: (_, _) async => const XboardLoginResponse(
-        statusCode: 200,
-        data: {
-          'data': {
-            'subscribe_url': 'https://private.example/subscribe?token=secret',
-          },
-        },
-      ),
-      diagnosticRecorder: (event, fields) =>
-          events.add({'event': event, ...fields}),
-    );
-    await service.login(
-      email: 'customer@example.com',
-      password: 'secret-password',
-    );
-    expect(requests, 2);
-    expect(events.map((event) => event['event']), [
-      'auth.api.attempt.failed',
-      'auth.api.attempt.succeeded',
-    ]);
-    expect(events.first['reason'], 'connection_reset');
-    expect(events.first['os_error_code'], 10054);
-    expect(events.first['attempt_id'], isNot(events.last['attempt_id']));
-    final serialized = jsonEncode(events);
-    for (final forbidden in ['secret', 'customer', 'example.com', 'Bearer']) {
-      expect(serialized, isNot(contains(forbidden)));
-    }
-  });
+        ),
+        diagnosticRecorder: (event, fields) =>
+            events.add({'event': event, ...fields}),
+      );
+      await expectLater(
+        service.login(
+          email: 'customer@example.com',
+          password: 'secret-password',
+        ),
+        throwsA(
+          isA<XboardAuthException>()
+              .having(
+                (error) => error.diagnostic?.failure,
+                'reason',
+                ApiNetworkFailure.connectionReset,
+              )
+              .having(
+                (error) => error.diagnostic?.osErrorCode,
+                'os_error_code',
+                10054,
+              ),
+        ),
+      );
+      expect(requests, 1);
+      expect(service.currentSession, isNull);
+      await service.login(
+        email: 'customer@example.com',
+        password: 'secret-password',
+      );
+      expect(requests, 2);
+      expect(hosts, ['first.example.com', 'second.example.com']);
+      final attempts = events
+          .where((event) => event['event'].toString().startsWith('auth.api.'))
+          .toList();
+      expect(attempts.map((event) => event['event']), [
+        'auth.api.attempt.failed',
+        'auth.api.attempt.succeeded',
+      ]);
+      expect(attempts.first['reason'], 'connection_reset');
+      expect(attempts.first['os_error_code'], 10054);
+      expect(attempts.first['attempt_id'], isNot(attempts.last['attempt_id']));
+      final routingFailures = events.where(
+        (event) => event['event'] == 'api.request.route.failed',
+      );
+      expect(routingFailures, hasLength(1));
+      expect(routingFailures.single['candidate_count'], 2);
+      final serialized = jsonEncode(events);
+      for (final forbidden in ['secret', 'customer', 'example.com', 'Bearer']) {
+        expect(serialized, isNot(contains(forbidden)));
+      }
+    },
+  );
 
   test(
     'diagnostic recorder failure never changes the network result',

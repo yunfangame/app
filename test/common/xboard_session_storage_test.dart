@@ -14,6 +14,85 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({});
   });
 
+  test(
+    'expired offline snapshot cannot write after preference loading',
+    () async {
+      final preferences = await SharedPreferences.getInstance();
+      final entered = Completer<void>();
+      final release = Completer<SharedPreferences>();
+      var current = true;
+      final storage = XboardSessionStorage(
+        preferencesLoader: () {
+          entered.complete();
+          return release.future;
+        },
+      );
+      final update = storage.saveOfflineCache(
+        session: _offlineSession('old@example.com'),
+        nodes: const [],
+        isCurrent: () => current,
+      );
+      final rejected = expectLater(update, throwsStateError);
+      await entered.future;
+      current = false;
+      release.complete(preferences);
+      await rejected;
+      expect(await XboardSessionStorage().loadOfflineCache(), isNull);
+    },
+  );
+
+  test('late old offline write retains a newer account cache', () async {
+    final preferences = await SharedPreferences.getInstance();
+    final controlled = _ManagedProfilePreferences(preferences)
+      ..pauseNextString = true;
+    final storage = XboardSessionStorage(
+      preferencesLoader: () async => controlled,
+    );
+    var current = true;
+    final update = storage.saveOfflineCache(
+      session: _offlineSession('old@example.com'),
+      nodes: const [],
+      isCurrent: () => current,
+    );
+    final rejected = expectLater(update, throwsStateError);
+    await controlled.writeStarted.future;
+    current = false;
+    await XboardSessionStorage().saveOfflineCache(
+      session: _offlineSession('new@example.com'),
+      nodes: const [],
+    );
+    controlled.writeRelease.complete();
+    await rejected;
+    expect(
+      (await XboardSessionStorage().loadOfflineCache())?.subscription.email,
+      'new@example.com',
+    );
+  });
+
+  test(
+    'logout during cache persistence removes the late old snapshot',
+    () async {
+      final preferences = await SharedPreferences.getInstance();
+      final controlled = _ManagedProfilePreferences(preferences)
+        ..pauseNextString = true;
+      final storage = XboardSessionStorage(
+        preferencesLoader: () async => controlled,
+      );
+      var current = true;
+      final update = storage.saveOfflineCache(
+        session: _offlineSession('old@example.com'),
+        nodes: const [],
+        isCurrent: () => current,
+      );
+      final rejected = expectLater(update, throwsStateError);
+      await controlled.writeStarted.future;
+      current = false;
+      controlled.writeRelease.complete();
+      await rejected;
+      expect(await XboardSessionStorage().loadOfflineCache(), isNull);
+    },
+  );
+
   test('remember me keeps account metadata and secrets separately', () async {
     final storage = XboardSessionStorage();
 
@@ -483,6 +562,7 @@ class _ManagedProfilePreferences extends Fake implements SharedPreferences {
   final writeRelease = Completer<void>();
   String? pausedValue;
   String? rejectedValue;
+  bool pauseNextString = false;
 
   @override
   String? getString(String key) => inner.getString(key);
@@ -490,7 +570,8 @@ class _ManagedProfilePreferences extends Fake implements SharedPreferences {
   @override
   Future<bool> setString(String key, String value) async {
     final result = await inner.setString(key, value);
-    if (value == pausedValue) {
+    if (value == pausedValue || pauseNextString) {
+      pauseNextString = false;
       writeStarted.complete();
       await writeRelease.future;
     }
@@ -499,4 +580,23 @@ class _ManagedProfilePreferences extends Fake implements SharedPreferences {
 
   @override
   Future<bool> remove(String key) => inner.remove(key);
+}
+
+XboardLoginResult _offlineSession(String email) {
+  final endpoint = Uri.parse('https://api.example.com');
+  return XboardLoginResult(
+    endpoint: endpoint,
+    token: 'test-token',
+    authData: 'test-auth',
+    isAdmin: false,
+    subscription: XboardSubscriptionData(
+      endpoint: endpoint,
+      subscribeUrl: null,
+      email: email,
+      uploadBytes: 0,
+      downloadBytes: 0,
+      transferEnableBytes: 100,
+      rawData: const {},
+    ),
+  );
 }

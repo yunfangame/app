@@ -173,6 +173,130 @@ void main() {
     );
 
     test(
+      'secure sync restores old bytes and does not adopt a logged out response',
+      () async {
+        final profile = Profile.normal(url: 'fengwo-v2:old-account');
+        final file = File(await appPath.getProfilePath(profile.id.toString()));
+        await file.safeWriteAsBytes(utf8.encode('previous configuration'));
+        final setup = _TestSetupAction();
+        final container = ProviderContainer(
+          overrides: [
+            currentProfileIdProvider.overrideWithBuild((_, _) => profile.id),
+            profilesProvider.overrideWith(() => _TestProfiles([profile])),
+            setupActionProvider.overrideWith(() => setup),
+          ],
+        );
+        addTearDown(container.dispose);
+        var current = true;
+        await expectLater(
+          container
+              .read(profilesActionProvider.notifier)
+              .syncSubscriptionProfileBytes(
+                Uint8List.fromList(utf8.encode('old response')),
+                sourceId: profile.url,
+                isCurrent: () => current,
+                loader: (candidate, bytes) async {
+                  await file.safeWriteAsBytes(bytes);
+                  current = false;
+                  return candidate.copyWith(label: 'Expired');
+                },
+              ),
+          throwsStateError,
+        );
+        expect(await file.readAsString(), 'previous configuration');
+        expect(container.read(profilesProvider), [profile]);
+        expect(container.read(currentProfileIdProvider), profile.id);
+        expect(setup.applyCount, 0);
+      },
+    );
+
+    test(
+      'secure queued old account cannot delete the new account profile',
+      () async {
+        final old = Profile.normal(url: 'fengwo-v2:old-account');
+        final latest = Profile.normal(url: 'https://api.example/s/new-account');
+        final setup = _TestSetupAction();
+        final container = ProviderContainer(
+          overrides: [
+            currentProfileIdProvider.overrideWithBuild((_, _) => old.id),
+            profilesProvider.overrideWith(() => _TestProfiles([old, latest])),
+            setupActionProvider.overrideWith(() => setup),
+          ],
+        );
+        addTearDown(container.dispose);
+        container.listen(currentProfileIdProvider, (_, _) {});
+        final entered = Completer<void>();
+        final released = Completer<Profile>();
+        var current = true;
+        final update = container
+            .read(profilesActionProvider.notifier)
+            .syncSubscriptionProfileBytes(
+              Uint8List.fromList([1]),
+              sourceId: old.url,
+              replacingUrl: latest.url,
+              removeLegacyXboardProfiles: true,
+              isCurrent: () => current,
+              loader: (profile, _) {
+                entered.complete();
+                return released.future;
+              },
+            );
+        final rejected = expectLater(update, throwsStateError);
+        await entered.future;
+        current = false;
+        container.read(currentProfileIdProvider.notifier).value = latest.id;
+        released.complete(old);
+        await rejected;
+        expect(container.read(profilesProvider), [old, latest]);
+        expect(container.read(currentProfileIdProvider), latest.id);
+        expect(setup.applyCount, 0);
+      },
+    );
+
+    test(
+      'account replacement during apply cannot clean up its profile',
+      () async {
+        final old = Profile.normal(url: 'fengwo-v2:old-account');
+        final latest = Profile.normal(
+          url: 'https://api.example/sakula/new-token',
+        );
+        final setup = _TestSetupAction();
+        final container = ProviderContainer(
+          overrides: [
+            currentProfileIdProvider.overrideWithBuild((_, _) => old.id),
+            profilesProvider.overrideWith(() => _TestProfiles([old, latest])),
+            setupActionProvider.overrideWith(() => setup),
+          ],
+        );
+        addTearDown(container.dispose);
+        container.listen(currentProfileIdProvider, (_, _) {});
+        var current = true;
+        setup.onApply = () async {
+          current = false;
+          container.read(profilesProvider.notifier).reorder([latest]);
+          container.read(currentProfileIdProvider.notifier).value = latest.id;
+        };
+        final cleared = <int>[];
+        await expectLater(
+          container
+              .read(profilesActionProvider.notifier)
+              .syncSubscriptionProfileBytes(
+                Uint8List.fromList([1]),
+                sourceId: old.url,
+                removeLegacyXboardProfiles: true,
+                isCurrent: () => current,
+                loader: (profile, _) async => profile,
+                effectClearer: (id) async => cleared.add(id),
+              ),
+          throwsStateError,
+        );
+        expect(container.read(profilesProvider), [latest]);
+        expect(container.read(currentProfileIdProvider), latest.id);
+        expect(cleared, isEmpty);
+      },
+    );
+
+    test(
       'manual update saves the successful API source after loading',
       () async {
         final session = _profileUpdateSession();
@@ -431,6 +555,7 @@ class _TestProfiles extends Profiles {
 
 class _TestSetupAction extends SetupAction {
   int applyCount = 0;
+  Future<void> Function()? onApply;
 
   @override
   Future<void> applyProfile({
@@ -439,5 +564,6 @@ class _TestSetupAction extends SetupAction {
     Future<void> Function()? preloadInvoke,
   }) async {
     applyCount++;
+    await onApply?.call();
   }
 }

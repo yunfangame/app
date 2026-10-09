@@ -1347,5 +1347,13 @@
         "type": "String"
       }
     }
-  }
+  },
+  "planAccessExpiredTitle": "Your plan has expired",
+  "planAccessEmptyTitle": "Your plan traffic is exhausted",
+  "planAccessExpiredBody": "Your plan has expired and cannot connect. Renew your plan, then connect again.",
+  "planAccessEmptyBody": "Your remaining plan traffic is 0. Reset traffic or upgrade your plan to connect. Renewal usually extends validity without immediately resetting traffic.",
+  "planResetRemaining": "Next traffic reset in {days} days {hours} hours",
+  "planResetWithinHour": "Next traffic reset in less than 1 hour",
+  "planResetPending": "Traffic reset is due. Refresh your plan information.",
+  "@planResetRemaining": {"placeholders": {"days": {"type": "int"}, "hours": {"type": "int"}}}
 }

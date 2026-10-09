@@ -88,6 +88,36 @@ void main() {
   );
 
   group('CommonAction.startAfterLogin', () {
+    test(
+      'starts immediately without requesting a subscription refresh',
+      () async {
+        final previousRefresh = globalState.refreshXboardSubscription;
+        final pendingRefresh = Completer<bool>();
+        var refreshRequests = 0;
+        globalState.refreshXboardSubscription = () {
+          refreshRequests++;
+          return pendingRefresh.future;
+        };
+        addTearDown(() {
+          globalState.refreshXboardSubscription = previousRefresh;
+          pendingRefresh.complete(false);
+        });
+        final setup = _RecordingSetupAction();
+        final container = _loginContainer(setup);
+        final action = container.read(commonActionProvider.notifier);
+
+        final automatic = action.startAfterLogin(isCurrent: () => true);
+        expect(setup.automaticStarts, 1);
+        expect(refreshRequests, 0);
+        await automatic;
+
+        final manual = action.toggleRunning();
+        expect(setup.manualStarts, [(running: true, initialize: false)]);
+        expect(refreshRequests, 0);
+        await manual;
+        expect(container.read(networkSettingProvider).systemProxy, isFalse);
+      },
+    );
     for (final scenario in [
       (
         name: 'stale session',

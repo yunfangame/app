@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/api_health_fixture.dart';
+
 void main() {
   testWidgets(
     'invite page renders desktop layout and submits withdrawal ticket',
@@ -229,6 +231,7 @@ XboardAuthService _testService({
   int commissionRecordCount = 1,
 }) {
   return XboardAuthService(
+    apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
     inviteFetchRequester: (endpoint, authData) async {
       return const XboardLoginResponse(
         statusCode: 200,

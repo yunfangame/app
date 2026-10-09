@@ -4,6 +4,18 @@ import 'package:fl_clash/common/startup_connection_coordinator.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('connection wait cannot revive a cancelled startup intent', () async {
+    final coordinator = StartupConnectionCoordinator();
+    var current = true;
+    final attempt = coordinator.begin(enabled: true, isCurrent: () => current);
+    expect(coordinator.isCurrent(attempt), isTrue);
+    current = false;
+    expect(coordinator.isCurrent(attempt), isFalse);
+    current = true;
+    expect(coordinator.isCurrent(attempt), isFalse);
+    coordinator.dispose();
+  });
+
   for (final authenticatedFirst in [true, false]) {
     test(
       'waits for ${authenticatedFirst ? 'routing after authentication' : 'authentication after routing'}',

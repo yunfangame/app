@@ -497,8 +497,13 @@ class XboardSessionStorage {
     required XboardLoginResult session,
     required List<XboardNodeData> nodes,
     DateTime? verifiedAt,
+    bool Function()? isCurrent,
   }) async {
     final preferences = await _preferencesLoader();
+    if (isCurrent?.call() == false) {
+      throw StateError('offline_cache_superseded');
+    }
+    final previous = preferences.getString(_offlineCacheKey);
     final payload = <String, Object?>{
       'verified_at': (verifiedAt ?? DateTime.now()).toUtc().toIso8601String(),
       'is_admin': session.isAdmin,
@@ -506,9 +511,18 @@ class XboardSessionStorage {
       'subscription': _subscriptionToJson(session.subscription),
       'nodes': nodes.map(_nodeToJson).toList(growable: false),
     };
-    await _checkPreference(
-      preferences.setString(_offlineCacheKey, jsonEncode(payload)),
-    );
+    final encoded = jsonEncode(payload);
+    await _checkPreference(preferences.setString(_offlineCacheKey, encoded));
+    if (isCurrent?.call() == false) {
+      if (preferences.getString(_offlineCacheKey) == encoded) {
+        await _checkPreference(
+          previous == null
+              ? preferences.remove(_offlineCacheKey)
+              : preferences.setString(_offlineCacheKey, previous),
+        );
+      }
+      throw StateError('offline_cache_superseded');
+    }
   }
 
   Future<XboardOfflineCache?> loadOfflineCache() async {

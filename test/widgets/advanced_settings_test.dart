@@ -9,6 +9,7 @@ import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/application_setting.dart';
 import 'package:fl_clash/views/settings/fengwo_advanced_settings.dart';
+import 'package:fl_clash/widgets/inherited.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -548,6 +549,235 @@ void main() {
     },
   );
 
+  for (final platform in [
+    TargetPlatform.android,
+    TargetPlatform.macOS,
+    TargetPlatform.windows,
+  ]) {
+    testWidgets(
+      'campus config refreshes once per active entry on $platform',
+      (tester) async {
+        final active = ValueNotifier(false);
+        addTearDown(active.dispose);
+        var loads = 0;
+        var restarts = 0;
+        final container = await _pumpCampusSettings(
+          tester,
+          pageActive: active,
+          initial: AppSettingProps(
+            campusNetworkEnabled: true,
+            campusOperator: 'line_2',
+            campusHostsByOperator: _campusConfig(2).hostsByOperator,
+          ),
+          loadConfig: () async => _campusConfig(++loads == 1 ? 2 : 5),
+          restartCore: () async => restarts++,
+        );
+        expect(loads, 0);
+        active.value = true;
+        await tester.pumpAndSettle();
+        expect(loads, 1);
+        expect(restarts, 0);
+        container
+            .read(appSettingProvider.notifier)
+            .update((settings) => settings.copyWith(closeConnections: true));
+        await tester.pumpAndSettle();
+        expect(loads, 1);
+        active.value = false;
+        await tester.pumpAndSettle();
+        expect(loads, 1);
+        active.value = true;
+        await tester.pumpAndSettle();
+        expect(loads, 2);
+        final settings = container.read(appSettingProvider);
+        expect(settings.campusHostsByOperator, hasLength(5));
+        expect(settings.campusOperator, 'line_2');
+        expect(settings.campusNetworkEnabled, isTrue);
+        expect(settings.closeConnections, isTrue);
+        expect(restarts, 1);
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant({platform}),
+    );
+  }
+
+  testWidgets('rapid campus re-entry discards the old response and refreshes', (
+    tester,
+  ) async {
+    final active = ValueNotifier(true);
+    addTearDown(active.dispose);
+    final responses = <Completer<CampusNetworkConfig>>[];
+    var restarts = 0;
+    final container = await _pumpCampusSettings(
+      tester,
+      pageActive: active,
+      initial: AppSettingProps(
+        campusNetworkEnabled: true,
+        campusOperator: 'line_3',
+        campusHostsByOperator: _campusConfig(3).hostsByOperator,
+      ),
+      loadConfig: () {
+        final response = Completer<CampusNetworkConfig>();
+        responses.add(response);
+        return response.future;
+      },
+      restartCore: () async => restarts++,
+    );
+    expect(responses, hasLength(1));
+    active.value = false;
+    await tester.pump();
+    active.value = true;
+    await tester.pump();
+    responses.first.complete(_campusConfig(1));
+    await tester.pumpAndSettle();
+    expect(responses, hasLength(2));
+    expect(
+      container.read(appSettingProvider).campusHostsByOperator,
+      hasLength(3),
+    );
+    expect(container.read(appSettingProvider).campusOperator, 'line_3');
+    expect(restarts, 0);
+    responses.last.complete(_campusConfig(2));
+    await tester.pumpAndSettle();
+    expect(
+      container.read(appSettingProvider).campusHostsByOperator,
+      hasLength(2),
+    );
+    expect(container.read(appSettingProvider).campusOperator, 'line_1');
+    expect(restarts, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'failed campus re-entry keeps settings and permits the next refresh',
+    (tester) async {
+      final active = ValueNotifier(true);
+      addTearDown(active.dispose);
+      var loads = 0;
+      var restarts = 0;
+      final container = await _pumpCampusSettings(
+        tester,
+        pageActive: active,
+        initial: AppSettingProps(
+          campusNetworkEnabled: true,
+          campusOperator: 'line_2',
+          campusHostsByOperator: _campusConfig(2).hostsByOperator,
+        ),
+        loadConfig: () async {
+          loads++;
+          if (loads == 2) throw const FormatException('Invalid remote config');
+          return _campusConfig(loads == 1 ? 2 : 5);
+        },
+        restartCore: () async => restarts++,
+      );
+      final before = container.read(appSettingProvider);
+      active.value = false;
+      await tester.pump();
+      active.value = true;
+      await tester.pumpAndSettle();
+      expect(loads, 2);
+      expect(container.read(appSettingProvider), before);
+      expect(restarts, 0);
+      expect(
+        tester
+            .widget<Switch>(
+              find.byKey(const ValueKey('advanced-campus-network-switch')),
+            )
+            .onChanged,
+        isNotNull,
+      );
+      active.value = false;
+      await tester.pump();
+      active.value = true;
+      await tester.pumpAndSettle();
+      expect(loads, 3);
+      expect(
+        container.read(appSettingProvider).campusHostsByOperator,
+        hasLength(5),
+      );
+      expect(restarts, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final dispose in [false, true]) {
+    testWidgets(
+      'campus response cannot apply after ${dispose ? 'disposal' : 'leaving the page'}',
+      (tester) async {
+        final active = ValueNotifier(true);
+        addTearDown(active.dispose);
+        final response = Completer<CampusNetworkConfig>();
+        var restarts = 0;
+        final container = await _pumpCampusSettings(
+          tester,
+          pageActive: active,
+          initial: AppSettingProps(
+            campusNetworkEnabled: true,
+            campusOperator: 'line_2',
+            campusHostsByOperator: _campusConfig(2).hostsByOperator,
+          ),
+          loadConfig: () => response.future,
+          restartCore: () async => restarts++,
+        );
+        final before = container.read(appSettingProvider);
+        if (dispose) {
+          await tester.pumpWidget(const SizedBox.shrink());
+        } else {
+          active.value = false;
+          await tester.pump();
+        }
+        response.complete(_campusConfig(5));
+        await tester.pumpAndSettle();
+        expect(container.read(appSettingProvider), before);
+        expect(restarts, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets(
+    'campus re-entry refreshes after an in-progress enable operation',
+    (tester) async {
+      final active = ValueNotifier(true);
+      addTearDown(active.dispose);
+      final enabling = Completer<CampusNetworkConfig>();
+      var loads = 0;
+      var restarts = 0;
+      final container = await _pumpCampusSettings(
+        tester,
+        pageActive: active,
+        loadConfig: () {
+          loads++;
+          if (loads == 2) return enabling.future;
+          return Future.value(_campusConfig(loads == 1 ? 2 : 5));
+        },
+        restartCore: () async => restarts++,
+      );
+      final campusSwitch = find.byKey(
+        const ValueKey('advanced-campus-network-switch'),
+      );
+      await tester.ensureVisible(campusSwitch);
+      await tester.pumpAndSettle();
+      await tester.tap(campusSwitch);
+      await tester.pump();
+      expect(loads, 2);
+      active.value = false;
+      await tester.pump();
+      active.value = true;
+      await tester.pump();
+      enabling.complete(_campusConfig(2));
+      await tester.pumpAndSettle();
+      expect(loads, 3);
+      expect(container.read(appSettingProvider).campusNetworkEnabled, isTrue);
+      expect(
+        container.read(appSettingProvider).campusHostsByOperator,
+        hasLength(5),
+      );
+      expect(restarts, 2);
+      expect(tester.widget<Switch>(campusSwitch).onChanged, isNotNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('advanced settings use one scroll view on a narrow dark screen', (
     tester,
   ) async {
@@ -679,6 +909,7 @@ Future<ProviderContainer> _pumpCampusSettings(
   required CampusNetworkConfigLoader loadConfig,
   AppSettingProps initial = const AppSettingProps(),
   CampusNetworkCoreRestarter? restartCore,
+  ValueNotifier<bool>? pageActive,
   Size size = const Size(1280, 1000),
 }) async {
   tester.view.physicalSize = size;
@@ -702,9 +933,14 @@ Future<ProviderContainer> _pumpCampusSettings(
     UncontrolledProviderScope(
       container: container,
       child: _TestApp(
-        child: FengWoAdvancedSettingsView(
-          campusNetworkConfigLoader: loadConfig,
-          campusNetworkCoreRestarter: restartCore ?? () async {},
+        child: ValueListenableBuilder<bool>(
+          valueListenable: pageActive ?? const AlwaysStoppedAnimation(true),
+          builder: (_, active, child) =>
+              PageActivityScope(isActive: active, child: child!),
+          child: FengWoAdvancedSettingsView(
+            campusNetworkConfigLoader: loadConfig,
+            campusNetworkCoreRestarter: restartCore ?? () async {},
+          ),
         ),
       ),
     ),

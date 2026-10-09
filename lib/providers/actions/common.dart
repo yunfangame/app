@@ -21,7 +21,7 @@ class CommonAction extends _$CommonAction {
     await ref.read(setupActionProvider.notifier).startAutomatically();
   }
 
-  void toggleRunning() {
+  Future<void> toggleRunning() async {
     final running =
         !ref.read(isStartProvider) && !ref.read(connectionPendingProvider);
     ref

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -11,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_health.dart';
 import 'api_network_diagnostic.dart';
+import 'api_request_router.dart';
 import 'local_secret_store.dart';
 
 const _subscriptionV2Version = 1;
@@ -65,12 +67,16 @@ class SubscriptionV2RemoteConfig {
     required this.keyId,
     required this.serverEncryptionPublicKey,
     required this.serverSigningPublicKey,
+    this.trustedGateways = const [],
+    this.enforceGatewayTrust = false,
   });
 
   final String gatewayPath;
   final String keyId;
   final List<int> serverEncryptionPublicKey;
   final List<int> serverSigningPublicKey;
+  final List<Uri> trustedGateways;
+  final bool enforceGatewayTrust;
 }
 
 class SubscriptionV2Profile {
@@ -205,7 +211,12 @@ class SubscriptionV2Client {
     DateTime Function()? now,
     Random? random,
     ApiDiagnosticRecorder? diagnosticRecorder,
-  }) : _apiHealthService = apiHealthService ?? ApiHealthService(),
+    ApiRequestRouter? requestRouter,
+    Duration gatewayRequestTimeout = const Duration(seconds: 20),
+    Duration operationTimeout = const Duration(seconds: 45),
+  }) : assert(gatewayRequestTimeout > Duration.zero),
+       assert(operationTimeout > Duration.zero),
+       _apiHealthService = apiHealthService ?? ApiHealthService(),
        _dio =
            dio ??
            Dio(
@@ -219,6 +230,17 @@ class SubscriptionV2Client {
        _requester = requester,
        _now = now ?? DateTime.now,
        _random = random ?? Random.secure(),
+       _gatewayRequestTimeout = gatewayRequestTimeout,
+       _operationTimeout = operationTimeout,
+       _requestRouter = requestRouter ?? ApiRequestRouter.shared,
+       _shareProfileRequests =
+           valueStore == null &&
+           requester == null &&
+           dio == null &&
+           now == null &&
+           random == null &&
+           gatewayRequestTimeout == const Duration(seconds: 20) &&
+           operationTimeout == const Duration(seconds: 45),
        _diagnosticRecorder = diagnosticRecorder ?? recordApiDiagnosticEvent;
 
   final ApiHealthService _apiHealthService;
@@ -228,6 +250,13 @@ class SubscriptionV2Client {
   final DateTime Function() _now;
   final Random _random;
   final ApiDiagnosticRecorder _diagnosticRecorder;
+  final Duration _gatewayRequestTimeout;
+  final Duration _operationTimeout;
+  final ApiRequestRouter _requestRouter;
+  final bool _shareProfileRequests;
+  final _pendingProfiles = <String, Future<SubscriptionV2Profile?>>{};
+  static final _sharedPendingProfiles =
+      <String, Future<SubscriptionV2Profile?>>{};
 
   Future<void> clearCredential(String userToken) =>
       _valueStore.delete(_credentialKey(userToken));
@@ -242,16 +271,23 @@ class SubscriptionV2Client {
         await _apiHealthService.loadConfig(),
       );
       if (config == null) return;
-      final gateway = _buildGatewayUri(endpoint, config.gatewayPath);
+      var gateway = _gatewayCandidates(endpoint, config).first;
       final credential = await _loadCredential(credentialKey, config, gateway);
       if (credential == null) return;
       final identity = await _loadIdentity();
+      Object? probeToken;
+      gateway = _gatewayCandidates(
+        endpoint,
+        config,
+        reserveRecoveryProbe: true,
+        onProbeToken: (token) => probeToken = token,
+      ).first;
       await _sendSigned(config, gateway, identity, {
         'op': 'revoke_device',
         'timestamp': _timestamp,
         'nonce': _randomBase64(18),
         'device_id': credential.deviceId,
-      });
+      }, probeToken: probeToken);
     } finally {
       await _valueStore.delete(credentialKey);
     }
@@ -265,35 +301,118 @@ class SubscriptionV2Client {
     bool allowTokenRegistration = true,
   }) async {
     final config = await _loadSubscriptionV2Config('config_read');
-    final gateway = _buildGatewayUri(endpoint, config.gatewayPath);
-    final identity = await _loadIdentity();
-    final credentialKey = _credentialKey(userToken);
-    var credential = await _loadCredential(credentialKey, config, gateway);
-    try {
-      if (credential == null) {
-        if (!allowTokenRegistration) {
+    final gateways = _gatewayCandidates(endpoint, config);
+    final trustedGateways =
+        config.trustedGateways.map((gateway) => gateway.toString()).toList()
+          ..sort();
+    final requestKey = dart_crypto.sha256
+        .convert(
+          utf8.encode(
+            canonicalSubscriptionV2Json({
+              'credential': _credentialKey(userToken),
+              'key_id': config.keyId,
+              'encryption_key': config.serverEncryptionPublicKey,
+              'signing_key': config.serverSigningPublicKey,
+              'gateways': trustedGateways.isEmpty
+                  ? [gateways.first.toString()]
+                  : trustedGateways,
+              'require_https': endpoint.scheme == 'https',
+              'allow_token_registration': allowTokenRegistration,
+              'app_version': appVersion,
+              'platform': platform ?? Platform.operatingSystem,
+            }),
+          ),
+        )
+        .toString();
+    final pending = _shareProfileRequests
+        ? _sharedPendingProfiles
+        : _pendingProfiles;
+    final existing = pending[requestKey];
+    if (existing != null) return existing;
+    late _SubscriptionV2Identity identity;
+    _SubscriptionV2Credential? credential;
+    final future = _withGatewayFailover<SubscriptionV2Profile?>(
+      gateways: gateways,
+      prepare: (scope) async {
+        identity = await _loadIdentity(scope: scope);
+        credential = await _loadCredential(
+          _credentialKey(userToken),
+          config,
+          gateways.first,
+        );
+        scope.ensureActive();
+        if (credential == null && !allowTokenRegistration) {
           throw const SubscriptionV2Exception('device_not_registered');
         }
-        credential = await _registerDevice(
-          config: config,
-          gateway: gateway,
-          identity: identity,
-          credentialKey: credentialKey,
-          userToken: userToken,
-          appVersion: appVersion,
-          platform: platform ?? Platform.operatingSystem,
-        );
-      }
+      },
+      selectGateways: (attempted, scope) => _gatewayCandidates(
+        endpoint,
+        config,
+        reserveRecoveryProbe: true,
+        excludedGateways: attempted,
+        onProbeToken: (token) => scope.probeToken = token,
+      ),
+      operation: (gateway, scope) => _fetchProfileAtGateway(
+        config: config,
+        gateway: gateway,
+        userToken: userToken,
+        appVersion: appVersion,
+        platform: platform,
+        allowTokenRegistration: allowTokenRegistration,
+        identity: identity,
+        initialCredential: credential,
+        rememberCredential: (value) => credential = value,
+        scope: scope,
+      ),
+    );
+    pending[requestKey] = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(pending[requestKey], future)) pending.remove(requestKey);
+    }
+  }
+
+  Future<SubscriptionV2Profile?> _fetchProfileAtGateway({
+    required SubscriptionV2RemoteConfig config,
+    required Uri gateway,
+    required String userToken,
+    required String appVersion,
+    required String? platform,
+    required bool allowTokenRegistration,
+    required _SubscriptionV2Identity identity,
+    required _SubscriptionV2Credential? initialCredential,
+    required void Function(_SubscriptionV2Credential credential)
+    rememberCredential,
+    required _SubscriptionV2RequestScope scope,
+  }) async {
+    final credentialKey = _credentialKey(userToken);
+    var credential = initialCredential;
+    try {
+      credential ??= await _registerDevice(
+        config: config,
+        gateway: gateway,
+        identity: identity,
+        credentialKey: credentialKey,
+        userToken: userToken,
+        appVersion: appVersion,
+        platform: platform ?? Platform.operatingSystem,
+        scope: scope,
+      );
+      rememberCredential(credential);
       return await _fetchWithCredential(
         config: config,
         gateway: gateway,
         identity: identity,
         credential: credential,
         userToken: userToken,
+        scope: scope,
       );
     } on SubscriptionV2Exception catch (error) {
       if (error.code == 'not_in_gray_allowlist') return null;
       if (error.code != 'device_not_registered') rethrow;
+      scope.allowGatewayFallback = false;
+      scope.ensureActive();
       await _valueStore.delete(credentialKey);
       if (!allowTokenRegistration) rethrow;
       final registered = await _registerDevice(
@@ -304,13 +423,16 @@ class SubscriptionV2Client {
         userToken: userToken,
         appVersion: appVersion,
         platform: platform ?? Platform.operatingSystem,
+        scope: scope,
       );
+      rememberCredential(registered);
       return _fetchWithCredential(
         config: config,
         gateway: gateway,
         identity: identity,
         credential: registered,
         userToken: userToken,
+        scope: scope,
       );
     }
   }
@@ -321,6 +443,7 @@ class SubscriptionV2Client {
     required _SubscriptionV2Identity identity,
     required _SubscriptionV2Credential credential,
     required String userToken,
+    _SubscriptionV2RequestScope? scope,
   }) async {
     final issued = await _sendSignedAndTrack(
       stage: 'ticket_issue',
@@ -333,6 +456,7 @@ class SubscriptionV2Client {
       config: config,
       gateway: gateway,
       identity: identity,
+      scope: scope,
     );
     final ticket = _requiredString(issued, 'ticket');
     final redeemed = await _sendSignedAndTrack(
@@ -347,6 +471,7 @@ class SubscriptionV2Client {
       config: config,
       gateway: gateway,
       identity: identity,
+      scope: scope,
     );
     if (_requiredString(redeemed, 'content_encoding') != 'base64url') {
       throw const SubscriptionV2Exception('unsupported_content_encoding');
@@ -373,8 +498,15 @@ class SubscriptionV2Client {
     String? platform,
   }) async {
     final config = await _loadSubscriptionV2Config('config_read');
-    final gateway = _buildGatewayUri(endpoint, config.gatewayPath);
+    _gatewayCandidates(endpoint, config);
     final identity = await _loadIdentity();
+    Object? probeToken;
+    final gateway = _gatewayCandidates(
+      endpoint,
+      config,
+      reserveRecoveryProbe: true,
+      onProbeToken: (token) => probeToken = token,
+    ).first;
     try {
       final data = await _sendSigned(config, gateway, identity, {
         'op': 'login_device',
@@ -385,7 +517,7 @@ class SubscriptionV2Client {
         'device_public_key': _encodeBase64Url(identity.publicKey.bytes),
         'platform': platform ?? Platform.operatingSystem,
         'app_version': appVersion,
-      });
+      }, probeToken: probeToken);
       final token = _requiredString(data, 'token');
       final authData = _requiredString(data, 'auth_data');
       final deviceId = _requiredString(data, 'device_id');
@@ -403,7 +535,7 @@ class SubscriptionV2Client {
       final credentialData = jsonEncode(credential.toJson());
       await _writeCredentialData(_credentialKey(token), credentialData);
       return SubscriptionV2Login(
-        endpoint: endpoint,
+        endpoint: Uri.parse(gateway.origin),
         token: token,
         authData: authData,
         isAdmin: data['is_admin'] == true || data['is_admin'] == 1,
@@ -465,22 +597,41 @@ class SubscriptionV2Client {
     if (config == null) {
       throw const SubscriptionV2Exception('secure_config_disabled');
     }
-    final gateway = _buildGatewayUri(endpoint, config.gatewayPath);
-    final credential = await _loadCredential(
-      _credentialKey(userToken),
-      config,
-      gateway,
+    final gateways = _gatewayCandidates(endpoint, config);
+    late _SubscriptionV2Credential credential;
+    late _SubscriptionV2Identity identity;
+    return _withGatewayFailover<Map<String, Object?>>(
+      gateways: gateways,
+      prepare: (scope) async {
+        final loaded = await _loadCredential(
+          _credentialKey(userToken),
+          config,
+          gateways.first,
+        );
+        scope.ensureActive();
+        if (loaded == null) {
+          throw const SubscriptionV2Exception('device_not_registered');
+        }
+        credential = loaded;
+        identity = await _loadIdentity(scope: scope);
+      },
+      selectGateways: (attempted, scope) => _gatewayCandidates(
+        endpoint,
+        config,
+        reserveRecoveryProbe: true,
+        excludedGateways: attempted,
+        onProbeToken: (token) => scope.probeToken = token,
+      ),
+      allowRetry: const {'get_nodes', 'get_summary'}.contains(operation),
+      operation: (gateway, scope) async {
+        return _sendSigned(config, gateway, identity, {
+          'op': operation,
+          'timestamp': _timestamp,
+          'nonce': _randomBase64(18),
+          'device_id': credential.deviceId,
+        }, scope: scope);
+      },
     );
-    if (credential == null) {
-      throw const SubscriptionV2Exception('device_not_registered');
-    }
-    final identity = await _loadIdentity();
-    return _sendSigned(config, gateway, identity, {
-      'op': operation,
-      'timestamp': _timestamp,
-      'nonce': _randomBase64(18),
-      'device_id': credential.deviceId,
-    });
   }
 
   Future<_SubscriptionV2Credential> _registerDevice({
@@ -491,7 +642,10 @@ class SubscriptionV2Client {
     required String userToken,
     required String appVersion,
     required String platform,
+    _SubscriptionV2RequestScope? scope,
   }) async {
+    final allowGatewayFallback = scope?.allowGatewayFallback;
+    if (scope != null) scope.allowGatewayFallback = false;
     final data = await _sendSigned(config, gateway, identity, {
       'op': 'register_device',
       'timestamp': _timestamp,
@@ -500,14 +654,19 @@ class SubscriptionV2Client {
       'device_public_key': _encodeBase64Url(identity.publicKey.bytes),
       'platform': platform,
       'app_version': appVersion,
-    });
+    }, scope: scope);
     final credential = _SubscriptionV2Credential(
       deviceId: _requiredString(data, 'device_id'),
       expiresAt: _requiredInt(data, 'expires_at'),
       keyId: config.keyId,
       gateway: gateway.toString(),
     );
+    scope?.ensureActive();
     await _valueStore.write(credentialKey, jsonEncode(credential.toJson()));
+    scope?.ensureActive();
+    if (scope != null) {
+      scope.allowGatewayFallback = allowGatewayFallback!;
+    }
     return credential;
   }
 
@@ -515,88 +674,161 @@ class SubscriptionV2Client {
     SubscriptionV2RemoteConfig config,
     Uri gateway,
     _SubscriptionV2Identity identity,
-    Map<String, Object?> payload,
-  ) async {
+    Map<String, Object?> payload, {
+    _SubscriptionV2RequestScope? scope,
+    Object? probeToken,
+  }) async {
+    final requestProbeToken = probeToken ?? scope?.probeToken;
     final signature = await Ed25519().sign(
       utf8.encode(canonicalSubscriptionV2Json(payload)),
       keyPair: identity.keyPair,
     );
     final signed = Map<String, Object?>.from(payload)
       ..['signature'] = _encodeBase64Url(signature.bytes);
-    return _sendEncrypted(config, gateway, signed);
+    scope?.ensureActive();
+    return _sendEncrypted(
+      config,
+      gateway,
+      signed,
+      scope: scope,
+      probeToken: requestProbeToken,
+    );
   }
 
   Future<Map<String, Object?>> _sendEncrypted(
     SubscriptionV2RemoteConfig config,
     Uri gateway,
-    Map<String, Object?> payload,
-  ) async {
-    final exchange = X25519();
-    final ephemeral = await exchange.newKeyPair();
-    final ephemeralPublic = await ephemeral.extractPublicKey();
-    final shared = await exchange.sharedSecretKey(
-      keyPair: ephemeral,
-      remotePublicKey: SimplePublicKey(
-        config.serverEncryptionPublicKey,
-        type: KeyPairType.x25519,
-      ),
-    );
-    final requestId = _randomHex(16);
-    final encodedPublicKey = _encodeBase64Url(ephemeralPublic.bytes);
-    final requestAad = utf8.encode(
-      canonicalSubscriptionV2Json({
-        'epk': encodedPublicKey,
+    Map<String, Object?> payload, {
+    _SubscriptionV2RequestScope? scope,
+    Object? probeToken,
+  }) async {
+    try {
+      scope?.ensureActive();
+      final exchange = X25519();
+      final ephemeral = await exchange.newKeyPair();
+      final ephemeralPublic = await ephemeral.extractPublicKey();
+      final shared = await exchange.sharedSecretKey(
+        keyPair: ephemeral,
+        remotePublicKey: SimplePublicKey(
+          config.serverEncryptionPublicKey,
+          type: KeyPairType.x25519,
+        ),
+      );
+      final requestId = _randomHex(16);
+      final encodedPublicKey = _encodeBase64Url(ephemeralPublic.bytes);
+      final requestAad = utf8.encode(
+        canonicalSubscriptionV2Json({
+          'epk': encodedPublicKey,
+          'kid': config.keyId,
+          'request_id': requestId,
+          'v': _subscriptionV2Version,
+        }),
+      );
+      final requestKey = await _deriveKey(
+        shared,
+        config.keyId,
+        'request',
+        requestId,
+      );
+      final nonce = _randomBytes(12);
+      final encrypted = await AesGcm.with256bits().encrypt(
+        utf8.encode(canonicalSubscriptionV2Json(payload)),
+        secretKey: requestKey,
+        nonce: nonce,
+        aad: requestAad,
+      );
+      final envelope = <String, Object?>{
+        'v': _subscriptionV2Version,
         'kid': config.keyId,
         'request_id': requestId,
-        'v': _subscriptionV2Version,
-      }),
-    );
-    final requestKey = await _deriveKey(
-      shared,
-      config.keyId,
-      'request',
-      requestId,
-    );
-    final nonce = _randomBytes(12);
-    final encrypted = await AesGcm.with256bits().encrypt(
-      utf8.encode(canonicalSubscriptionV2Json(payload)),
-      secretKey: requestKey,
-      nonce: nonce,
-      aad: requestAad,
-    );
-    final envelope = <String, Object?>{
-      'v': _subscriptionV2Version,
-      'kid': config.keyId,
-      'request_id': requestId,
-      'epk': encodedPublicKey,
-      'nonce': _encodeBase64Url(encrypted.nonce),
-      'ciphertext': _encodeBase64Url(encrypted.cipherText),
-      'tag': _encodeBase64Url(encrypted.mac.bytes),
-    };
-    final requestRef = _subscriptionV2RequestRef(requestId);
-    late final Map<String, Object?> response;
-    try {
-      response = await (_requester ?? _request)(gateway, envelope);
-    } on SubscriptionV2Exception catch (error) {
-      throw error.withRequestRef(requestRef);
-    }
-    try {
-      return await _decryptResponse(
-        config: config,
-        requestId: requestId,
-        shared: shared,
-        response: response,
-        stage: payload['op'] == 'get_nodes'
-            ? 'get_nodes_decrypt'
-            : 'config_decrypt',
-      );
-    } on SubscriptionV2Exception catch (error) {
-      throw error.withRequestRef(requestRef);
-    } catch (_) {
-      throw SubscriptionV2Exception(
-        'invalid_response_payload',
-        requestRef: requestRef,
-      );
+        'epk': encodedPublicKey,
+        'nonce': _encodeBase64Url(encrypted.nonce),
+        'ciphertext': _encodeBase64Url(encrypted.cipherText),
+        'tag': _encodeBase64Url(encrypted.mac.bytes),
+      };
+      final requestRef = _subscriptionV2RequestRef(requestId);
+      late final Map<String, Object?> response;
+      try {
+        scope?.ensureActive();
+        final requester = _requester;
+        response = requester == null
+            ? await _request(gateway, envelope, scope: scope)
+            : await requester(
+                gateway,
+                envelope,
+              ).timeout(_requestTimeout(scope));
+        scope?.ensureActive();
+      } on SubscriptionV2Exception catch (error) {
+        _recordGatewayFailure(
+          config,
+          gateway,
+          error,
+          scope: scope,
+          probeToken: probeToken,
+        );
+        throw error.withRequestRef(requestRef);
+      } on TimeoutException catch (error) {
+        final failure = SubscriptionV2Exception(
+          'gateway_unavailable',
+          requestRef: requestRef,
+          diagnostic: classifyApiNetworkFailure(
+            error,
+            stage: 'secure_gateway',
+            endpoint: gateway,
+          ),
+        );
+        _recordGatewayFailure(
+          config,
+          gateway,
+          failure,
+          scope: scope,
+          probeToken: probeToken,
+        );
+        throw failure;
+      }
+      try {
+        final data = await _decryptResponse(
+          config: config,
+          requestId: requestId,
+          shared: shared,
+          response: response,
+          stage: payload['op'] == 'get_nodes'
+              ? 'get_nodes_decrypt'
+              : 'config_decrypt',
+        );
+        scope?.ensureActive();
+        _requestRouter.recordSuccess(
+          gateway,
+          candidates: _trustedGatewayCandidates(config, gateway),
+          probeToken: probeToken,
+        );
+        return data;
+      } on SubscriptionV2Exception catch (error) {
+        throw error.withRequestRef(requestRef);
+      } on TimeoutException catch (error) {
+        throw SubscriptionV2Exception(
+          'gateway_unavailable',
+          requestRef: requestRef,
+          diagnostic: classifyApiNetworkFailure(
+            error,
+            stage: 'secure_gateway',
+            endpoint: gateway,
+          ),
+        );
+      } catch (_) {
+        throw SubscriptionV2Exception(
+          'invalid_response_payload',
+          requestRef: requestRef,
+        );
+      }
+    } finally {
+      if (scope?.isActive ?? true) {
+        _requestRouter.releaseRecoveryProbe(
+          gateway,
+          candidates: _trustedGatewayCandidates(config, gateway),
+          probeToken: probeToken,
+        );
+      }
     }
   }
 
@@ -702,12 +934,12 @@ class SubscriptionV2Client {
       }
       rethrow;
     } catch (error) {
-      _recordSubscriptionV2Stage(
-        '${stage}_failed',
-        errorCode: _errorCode(error),
-      );
+      final errorCode = error is TimeoutException
+          ? 'gateway_unavailable'
+          : _errorCode(error);
+      _recordSubscriptionV2Stage('${stage}_failed', errorCode: errorCode);
       throw SubscriptionV2Exception(
-        _errorCode(error),
+        errorCode,
         diagnostic: classifyApiNetworkFailure(error, stage: stage),
       );
     }
@@ -715,8 +947,9 @@ class SubscriptionV2Client {
 
   Future<Map<String, Object?>> _request(
     Uri endpoint,
-    Map<String, Object?> envelope,
-  ) async {
+    Map<String, Object?> envelope, {
+    _SubscriptionV2RequestScope? scope,
+  }) async {
     final stopwatch = Stopwatch()..start();
     final attemptId = newApiDiagnosticAttemptId();
     final requestId = envelope['request_id'];
@@ -724,17 +957,30 @@ class SubscriptionV2Client {
         ? _subscriptionV2RequestRef(requestId)
         : null;
     ApiNetworkDiagnostic? diagnostic;
+    final cancelToken = CancelToken();
+    scope?.add(cancelToken);
     try {
-      final response = await _dio.postUri<Object?>(
-        endpoint,
-        data: envelope,
-        options: Options(
-          responseType: ResponseType.json,
-          headers: const {'Cache-Control': 'no-store'},
-          validateStatus: (status) =>
-              status != null && status >= 200 && status < 600,
-        ),
-      );
+      final response = await _dio
+          .postUri<Object?>(
+            endpoint,
+            data: envelope,
+            options: Options(
+              responseType: ResponseType.json,
+              headers: const {'Cache-Control': 'no-store'},
+              followRedirects: false,
+              validateStatus: (status) =>
+                  status != null && status >= 200 && status < 600,
+            ),
+            cancelToken: cancelToken,
+          )
+          .timeout(
+            _requestTimeout(scope),
+            onTimeout: () {
+              cancelToken.cancel('Secure gateway request deadline');
+              throw TimeoutException('Secure gateway request deadline');
+            },
+          );
+      scope?.ensureActive();
       if ((response.statusCode ?? 0) < 200 ||
           (response.statusCode ?? 0) >= 300 ||
           response.data is! Map) {
@@ -772,6 +1018,7 @@ class SubscriptionV2Client {
       );
     } finally {
       stopwatch.stop();
+      scope?.remove(cancelToken);
       if (diagnostic != null) {
         emitApiDiagnosticEvent(
           _diagnosticRecorder,
@@ -782,8 +1029,11 @@ class SubscriptionV2Client {
     }
   }
 
-  Future<_SubscriptionV2Identity> _loadIdentity() async {
+  Future<_SubscriptionV2Identity> _loadIdentity({
+    _SubscriptionV2RequestScope? scope,
+  }) async {
     final stored = await _valueStore.read(_deviceSeedKey);
+    scope?.ensureActive();
     List<int>? seed;
     if (stored != null) {
       try {
@@ -795,14 +1045,17 @@ class SubscriptionV2Client {
     }
     if (seed == null) {
       final generated = await Ed25519().newKeyPair();
+      scope?.ensureActive();
       seed = await generated.extractPrivateKeyBytes();
+      scope?.ensureActive();
       await _valueStore.write(_deviceSeedKey, _encodeBase64Url(seed));
+      scope?.ensureActive();
     }
     final keyPair = await Ed25519().newKeyPairFromSeed(seed);
-    return _SubscriptionV2Identity(
-      keyPair: keyPair,
-      publicKey: await keyPair.extractPublicKey(),
-    );
+    scope?.ensureActive();
+    final publicKey = await keyPair.extractPublicKey();
+    scope?.ensureActive();
+    return _SubscriptionV2Identity(keyPair: keyPair, publicKey: publicKey);
   }
 
   Future<_SubscriptionV2Credential?> _loadCredential(
@@ -827,8 +1080,18 @@ class SubscriptionV2Client {
         return null;
       }
       final credential = _SubscriptionV2Credential.fromJson(decoded);
+      final gateways = config.trustedGateways
+          .map((value) => value.toString())
+          .toSet();
+      final requestedGateway = gateway.toString();
+      final gatewayMatches =
+          credential.gateway == requestedGateway ||
+          (gateways.contains(credential.gateway) &&
+              gateways.contains(requestedGateway));
       if (credential.keyId != config.keyId ||
-          credential.gateway != gateway.toString() ||
+          !gatewayMatches ||
+          (config.enforceGatewayTrust &&
+              !gateways.contains(requestedGateway)) ||
           credential.expiresAt <= _timestamp + 30) {
         _recordSubscriptionV2Stage(
           '${operationRef}_failed',
@@ -912,10 +1175,17 @@ class SubscriptionV2Client {
     required SubscriptionV2RemoteConfig config,
     required Uri gateway,
     required _SubscriptionV2Identity identity,
+    _SubscriptionV2RequestScope? scope,
   }) async {
     _recordSubscriptionV2Stage(stage);
     try {
-      final response = await _sendSigned(config, gateway, identity, operation);
+      final response = await _sendSigned(
+        config,
+        gateway,
+        identity,
+        operation,
+        scope: scope,
+      );
       _recordSubscriptionV2Stage(
         '${stage}_ok',
         contentBytes: _estimatedByteLength(response),
@@ -987,6 +1257,182 @@ class SubscriptionV2Client {
     return origin.resolve(gatewayPath);
   }
 
+  List<Uri> _gatewayCandidates(
+    Uri endpoint,
+    SubscriptionV2RemoteConfig config, {
+    bool reserveRecoveryProbe = false,
+    Set<Uri> excludedGateways = const {},
+    void Function(Object? token)? onProbeToken,
+  }) {
+    final requested = _buildGatewayUri(endpoint, config.gatewayPath);
+    if (!const {'http', 'https'}.contains(requested.scheme) ||
+        requested.host.isEmpty ||
+        requested.userInfo.isNotEmpty ||
+        (config.enforceGatewayTrust &&
+            !config.trustedGateways.contains(requested))) {
+      throw const SubscriptionV2Exception('untrusted_gateway');
+    }
+    final candidates = _trustedGatewayCandidates(config, requested).toSet();
+    final eligible = candidates
+        .where(
+          (gateway) =>
+              !excludedGateways.contains(gateway) &&
+              (requested.scheme != 'https' || gateway.scheme == 'https'),
+        )
+        .toSet();
+    final routed = _requestRouter.orderCandidates(
+      candidates,
+      preferred: requested,
+      eligibleCandidates: eligible,
+      reserveRecoveryProbe: reserveRecoveryProbe,
+    );
+    if (routed.isEmpty && reserveRecoveryProbe) {
+      throw const SubscriptionV2Exception('gateway_unavailable');
+    }
+    final ordered = routed.where(eligible.contains).take(4).toList();
+    if (ordered.isEmpty) {
+      throw const SubscriptionV2Exception('untrusted_gateway');
+    }
+    if (reserveRecoveryProbe) {
+      onProbeToken?.call(
+        _requestRouter.recoveryProbeToken(
+          ordered.first,
+          candidates: candidates,
+        ),
+      );
+    }
+    return List.unmodifiable(ordered);
+  }
+
+  Iterable<Uri> _trustedGatewayCandidates(
+    SubscriptionV2RemoteConfig config,
+    Uri requested,
+  ) => {requested, ...config.trustedGateways};
+
+  void _recordGatewayFailure(
+    SubscriptionV2RemoteConfig config,
+    Uri gateway,
+    SubscriptionV2Exception error, {
+    _SubscriptionV2RequestScope? scope,
+    Object? probeToken,
+  }) {
+    if (scope?.isActive == false) return;
+    _requestRouter.recordFailure(
+      gateway,
+      candidates: _trustedGatewayCandidates(config, gateway),
+      error: error.diagnostic ?? error,
+      statusCode: error.statusCode,
+      probeToken: probeToken,
+    );
+  }
+
+  bool _canRetryGateway(SubscriptionV2Exception error) {
+    if (error.code != 'gateway_unavailable') return false;
+    if (error.statusCode case final status?) {
+      return const {502, 503, 504}.contains(status);
+    }
+    final failure = error.diagnostic?.failure;
+    return const {
+      ApiNetworkFailure.network,
+      ApiNetworkFailure.timeout,
+      ApiNetworkFailure.dns,
+      ApiNetworkFailure.connectionRefused,
+      ApiNetworkFailure.connectionReset,
+    }.contains(failure);
+  }
+
+  Duration _requestTimeout(_SubscriptionV2RequestScope? scope) {
+    if (scope == null) return _gatewayRequestTimeout;
+    final remaining = scope.remaining;
+    return remaining < _gatewayRequestTimeout
+        ? remaining
+        : _gatewayRequestTimeout;
+  }
+
+  Future<T> _withGatewayFailover<T>({
+    required List<Uri> gateways,
+    required Future<void> Function(_SubscriptionV2RequestScope scope) prepare,
+    required List<Uri> Function(
+      Set<Uri> attempted,
+      _SubscriptionV2RequestScope scope,
+    )
+    selectGateways,
+    required Future<T> Function(Uri gateway, _SubscriptionV2RequestScope scope)
+    operation,
+    bool allowRetry = true,
+  }) async {
+    final scope = _SubscriptionV2RequestScope(_operationTimeout);
+    var activeGateway = gateways.first;
+    final attempted = <Uri>{};
+    SubscriptionV2Exception? previousFailure;
+    Future<T> run() async {
+      await prepare(scope);
+      scope.ensureActive();
+      for (var index = 0; index < gateways.length; index++) {
+        scope.ensureActive();
+        final previousGateway = activeGateway;
+        activeGateway = selectGateways(attempted, scope).first;
+        attempted.add(activeGateway);
+        if (previousFailure case final error?) {
+          emitApiDiagnosticEvent(
+            _diagnosticRecorder,
+            'subscription_v2.gateway.retry',
+            {
+              'endpoint_ref': apiDiagnosticEndpointRef(previousGateway),
+              'next_endpoint_ref': apiDiagnosticEndpointRef(activeGateway),
+              'error_code': subscriptionV2DiagnosticErrorCode(error),
+              'http_status': ?error.statusCode,
+            },
+          );
+        }
+        try {
+          final result = await operation(activeGateway, scope);
+          scope.ensureActive();
+          return result;
+        } on SubscriptionV2Exception catch (error) {
+          if (!allowRetry ||
+              !scope.allowGatewayFallback ||
+              !_canRetryGateway(error) ||
+              index == gateways.length - 1) {
+            rethrow;
+          }
+          previousFailure = error;
+        }
+      }
+      throw const SubscriptionV2Exception('gateway_unavailable');
+    }
+
+    try {
+      return await run().timeout(
+        _operationTimeout,
+        onTimeout: () {
+          scope.cancel();
+          throw SubscriptionV2Exception(
+            'gateway_unavailable',
+            diagnostic: classifyApiNetworkFailure(
+              TimeoutException('Secure gateway operation deadline'),
+              stage: 'secure_gateway',
+              endpoint: activeGateway,
+              elapsedMilliseconds: scope.elapsedMilliseconds,
+            ),
+          );
+        },
+      );
+    } on TimeoutException catch (error) {
+      throw SubscriptionV2Exception(
+        'gateway_unavailable',
+        diagnostic: classifyApiNetworkFailure(
+          error,
+          stage: 'secure_gateway',
+          endpoint: activeGateway,
+          elapsedMilliseconds: scope.elapsedMilliseconds,
+        ),
+      );
+    } finally {
+      scope.cancel();
+    }
+  }
+
   int get _timestamp => _now().toUtc().millisecondsSinceEpoch ~/ 1000;
 
   String _credentialKey(String userToken) =>
@@ -1035,6 +1481,14 @@ SubscriptionV2RemoteConfig? parseSubscriptionV2RemoteConfig(Object? source) {
     keyId: keyId,
     serverEncryptionPublicKey: List.unmodifiable(encryptionKey),
     serverSigningPublicKey: List.unmodifiable(signingKey),
+    trustedGateways: List.unmodifiable({
+      for (final endpoint in parseApiEndpoints(source))
+        if (endpoint.userInfo.isEmpty)
+          endpoint
+              .replace(path: '/', query: null, fragment: null)
+              .resolve(gatewayPath),
+    }),
+    enforceGatewayTrust: source.containsKey('hosts'),
   );
 }
 
@@ -1082,6 +1536,48 @@ int _requiredInt(Map<String, Object?> data, String key) {
     throw SubscriptionV2Exception('invalid_$key');
   }
   return value;
+}
+
+class _SubscriptionV2RequestScope {
+  _SubscriptionV2RequestScope(this.timeout);
+
+  final Duration timeout;
+  final _stopwatch = Stopwatch()..start();
+  final _tokens = <CancelToken>{};
+  bool _active = true;
+  bool allowGatewayFallback = true;
+  Object? probeToken;
+
+  int get elapsedMilliseconds => _stopwatch.elapsedMilliseconds;
+
+  bool get isActive => _active && _stopwatch.elapsed < timeout;
+
+  Duration get remaining {
+    ensureActive();
+    return timeout - _stopwatch.elapsed;
+  }
+
+  void ensureActive() {
+    if (!isActive) {
+      throw TimeoutException('Secure gateway operation deadline');
+    }
+  }
+
+  void add(CancelToken token) {
+    ensureActive();
+    _tokens.add(token);
+  }
+
+  void remove(CancelToken token) => _tokens.remove(token);
+
+  void cancel() {
+    _active = false;
+    _stopwatch.stop();
+    for (final token in _tokens.toList()) {
+      token.cancel('Secure gateway operation deadline');
+    }
+    _tokens.clear();
+  }
 }
 
 class _SubscriptionV2Identity {

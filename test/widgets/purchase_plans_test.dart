@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/api_health_fixture.dart';
+
 void main() {
   testWidgets('plan store filters real XBoard plans and renders HTML content', (
     tester,
@@ -152,6 +154,7 @@ void main() {
 
 XboardAuthService _testPlanService() {
   return XboardAuthService(
+    apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
     plansRequester: (endpoint, authData) async {
       return const XboardLoginResponse(
         statusCode: 200,
@@ -192,6 +195,7 @@ XboardAuthService _testPlanService() {
 
 XboardAuthService _testPaymentService({int orderStatus = 0}) {
   return XboardAuthService(
+    apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
     plansRequester: _testPlanServiceRequester,
     paymentMethodsRequester: (endpoint, authData) async {
       return const XboardLoginResponse(

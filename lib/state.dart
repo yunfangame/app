@@ -57,7 +57,24 @@ class GlobalState {
   final xboardMarqueeController = XboardMarqueeController();
   final xboardTicketController = XboardTicketController();
 
-  XboardSubscriptionData? get xboardSubscription => xboardSession?.subscription;
+  final xboardSubscriptionNotifier = ValueNotifier<XboardSubscriptionData?>(
+    null,
+  );
+  XboardLoginResult? _subscriptionSnapshotSession;
+
+  XboardSubscriptionData? get xboardSubscription =>
+      identical(_subscriptionSnapshotSession, xboardSession)
+      ? xboardSubscriptionNotifier.value ?? xboardSession?.subscription
+      : xboardSession?.subscription;
+
+  void updateXboardSubscriptionSnapshot(
+    XboardLoginResult session,
+    XboardSubscriptionData subscription,
+  ) {
+    if (!identical(session, xboardSession)) return;
+    _subscriptionSnapshotSession = session;
+    xboardSubscriptionNotifier.value = subscription;
+  }
 
   bool get isOfflineMode => offlineModeNotifier.value;
 
@@ -99,6 +116,7 @@ class GlobalState {
   }) {
     _xboardSessionRevision++;
     xboardSession = session;
+    updateXboardSubscriptionSnapshot(session, session.subscription);
     _xboardNodesRequestRevision++;
     _replaceXboardNodes(nodes, fresh: nodesStatusFresh);
     xboardSessionRevisionNotifier.value = _xboardSessionRevision;
@@ -149,6 +167,7 @@ class GlobalState {
     _xboardSessionRevision++;
     _xboardAnnouncementPromptPending = false;
     xboardSession = null;
+    xboardSubscriptionNotifier.value = null;
     _xboardNodesRequestRevision++;
     _replaceXboardNodes(const [], fresh: false);
     xboardSessionRevisionNotifier.value = _xboardSessionRevision;

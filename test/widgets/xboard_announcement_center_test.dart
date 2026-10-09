@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../support/api_health_fixture.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -107,6 +109,7 @@ void main() {
     globalState.container = container;
     var requests = 0;
     final service = XboardAuthService(
+      apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
       noticesRequester: (endpoint, authData) async {
         requests++;
         return const XboardLoginResponse(

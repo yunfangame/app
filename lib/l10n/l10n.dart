@@ -11032,6 +11032,76 @@ class AppLocalizations {
       args: [entry],
     );
   }
+
+  /// `Your plan has expired`
+  String get planAccessExpiredTitle {
+    return Intl.message(
+      'Your plan has expired',
+      name: 'planAccessExpiredTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Your plan traffic is exhausted`
+  String get planAccessEmptyTitle {
+    return Intl.message(
+      'Your plan traffic is exhausted',
+      name: 'planAccessEmptyTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Your plan has expired and cannot connect. Renew your plan, then connect again.`
+  String get planAccessExpiredBody {
+    return Intl.message(
+      'Your plan has expired and cannot connect. Renew your plan, then connect again.',
+      name: 'planAccessExpiredBody',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Your remaining plan traffic is 0. Reset traffic or upgrade your plan to connect. Renewal usually extends validity without immediately resetting traffic.`
+  String get planAccessEmptyBody {
+    return Intl.message(
+      'Your remaining plan traffic is 0. Reset traffic or upgrade your plan to connect. Renewal usually extends validity without immediately resetting traffic.',
+      name: 'planAccessEmptyBody',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Next traffic reset in {days} days {hours} hours`
+  String planResetRemaining(int days, int hours) {
+    return Intl.message(
+      'Next traffic reset in $days days $hours hours',
+      name: 'planResetRemaining',
+      desc: '',
+      args: [days, hours],
+    );
+  }
+
+  /// `Next traffic reset in less than 1 hour`
+  String get planResetWithinHour {
+    return Intl.message(
+      'Next traffic reset in less than 1 hour',
+      name: 'planResetWithinHour',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Traffic reset is due. Refresh your plan information.`
+  String get planResetPending {
+    return Intl.message(
+      'Traffic reset is due. Refresh your plan information.',
+      name: 'planResetPending',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<AppLocalizations> {

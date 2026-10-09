@@ -392,9 +392,7 @@ class _AccountStatusCard extends StatelessWidget {
         : null;
     final nextReset = nextResetAt == null
         ? null
-        : DateFormat.yMd(
-            Localizations.localeOf(context).toLanguageTag(),
-          ).format(nextResetAt);
+        : subscriptionResetRemaining(context, nextResetAt);
     return _MobileCard(
       colors: colors,
       padding: const EdgeInsets.all(12),
@@ -444,7 +442,7 @@ class _AccountStatusCard extends StatelessWidget {
                     if (nextReset != null) ...[
                       const SizedBox(height: 2),
                       Text(
-                        l10n.nextPlanResetAt(nextReset),
+                        nextReset,
                         key: const ValueKey('fengwo-mobile-next-plan-reset'),
                         maxLines: stacked ? null : 1,
                         overflow: stacked
@@ -571,6 +569,13 @@ class _MobileRunningStatus extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    return ValueListenableBuilder<XboardSubscriptionData?>(
+      valueListenable: globalState.xboardSubscriptionNotifier,
+      builder: (context, _, _) => _buildDashboard(context, ref),
+    );
+  }
+
+  Widget _buildDashboard(BuildContext context, WidgetRef ref) {
     final l10n = context.appLocalizations;
     final runTime = ref.watch(runTimeProvider);
     return Column(

@@ -6,6 +6,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'api_health.dart';
+import 'api_request_router.dart';
+import 'xboard_api_request.dart';
 import 'xboard_auth.dart';
 
 const xboardMarqueeUnreadPath = '/api/v1/app/site-message/unread';
@@ -97,6 +100,10 @@ class XboardMarqueeApi {
     Dio? dio,
     XboardMarqueeUnreadRequester? unreadRequester,
     XboardMarqueeReadRequester? readRequester,
+    ApiHealthService? apiHealthService,
+    ApiRequestRouter? router,
+    Duration requestTimeout = const Duration(seconds: 20),
+    Duration operationTimeout = const Duration(seconds: 45),
   }) : _dio =
            dio ??
            Dio(
@@ -107,11 +114,21 @@ class XboardMarqueeApi {
              ),
            ),
        _unreadRequester = unreadRequester,
-       _readRequester = readRequester;
+       _readRequester = readRequester,
+       _executor = XboardApiRequestExecutor(
+         apiHealthService: apiHealthService,
+         router: router,
+         singleEndpointSimulation:
+             apiHealthService == null &&
+             (unreadRequester != null || readRequester != null || dio != null),
+         requestTimeout: requestTimeout,
+         operationTimeout: operationTimeout,
+       );
 
   final Dio _dio;
   final XboardMarqueeUnreadRequester? _unreadRequester;
   final XboardMarqueeReadRequester? _readRequester;
+  final XboardApiRequestExecutor _executor;
 
   Future<List<XboardMarqueeMessage>> fetchUnread({
     required Uri endpoint,
@@ -119,12 +136,17 @@ class XboardMarqueeApi {
     int limit = xboardMarqueeLimit,
   }) async {
     final requestEndpoint = endpoint.resolve(xboardMarqueeUnreadPath);
-    final payload = await (_unreadRequester ?? _requestUnread)(
-      requestEndpoint,
-      token,
-      limit,
+    return _executor.run(
+      endpoint: requestEndpoint,
+      allowRetry: true,
+      request: (target, cancelToken) async {
+        final unreadRequester = _unreadRequester;
+        final payload = unreadRequester != null
+            ? await unreadRequester(target, token, limit)
+            : await _requestUnread(target, token, limit, cancelToken);
+        return parseXboardMarqueeUnreadResponse(payload);
+      },
     );
-    return parseXboardMarqueeUnreadResponse(payload);
   }
 
   Future<void> markRead({
@@ -133,24 +155,44 @@ class XboardMarqueeApi {
     required XboardMarqueeMessage message,
   }) async {
     final requestEndpoint = endpoint.resolve(xboardMarqueeReadPath);
-    await (_readRequester ?? _requestRead)(requestEndpoint, token, message);
+    await _executor.run<void>(
+      endpoint: requestEndpoint,
+      allowRetry: false,
+      request: (target, cancelToken) async {
+        final readRequester = _readRequester;
+        if (readRequester != null) {
+          await readRequester(target, token, message);
+        } else {
+          await _requestRead(target, token, message, cancelToken);
+        }
+      },
+    );
   }
 
-  Future<Object?> _requestUnread(Uri endpoint, String token, int limit) async {
+  Future<Object?> _requestUnread(
+    Uri endpoint,
+    String token,
+    int limit,
+    CancelToken cancelToken,
+  ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
       data: {'token': token, 'limit': limit},
+      cancelToken: cancelToken,
       options: Options(
         contentType: Headers.jsonContentType,
         responseType: ResponseType.json,
+        followRedirects: false,
         validateStatus: (status) => status != null,
       ),
     );
     if (response.statusCode == null ||
         response.statusCode! < 200 ||
         response.statusCode! >= 300) {
-      throw XboardMarqueeException(
-        'Unread site-message request failed (${response.statusCode ?? 0})',
+      throw DioException.badResponse(
+        statusCode: response.statusCode ?? 0,
+        requestOptions: response.requestOptions,
+        response: response,
       );
     }
     return response.data;
@@ -160,20 +202,29 @@ class XboardMarqueeApi {
     Uri endpoint,
     String token,
     XboardMarqueeMessage message,
+    CancelToken cancelToken,
   ) async {
     final response = await _dio.postUri<Object?>(
       endpoint,
       data: {'token': token, 'message_id': message.id},
+      cancelToken: cancelToken,
       options: Options(
         contentType: Headers.jsonContentType,
         responseType: ResponseType.json,
+        followRedirects: false,
         validateStatus: (status) => status != null,
       ),
     );
     if (response.statusCode == null ||
         response.statusCode! < 200 ||
-        response.statusCode! >= 300 ||
-        !_isSuccessfulReadResponse(response.data)) {
+        response.statusCode! >= 300) {
+      throw DioException.badResponse(
+        statusCode: response.statusCode ?? 0,
+        requestOptions: response.requestOptions,
+        response: response,
+      );
+    }
+    if (!_isSuccessfulReadResponse(response.data)) {
       throw XboardMarqueeException(
         'Read site-message request failed (${response.statusCode ?? 0})',
       );

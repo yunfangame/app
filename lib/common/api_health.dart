@@ -181,6 +181,7 @@ class ApiHealthService {
   final Duration initialRemoteWait;
   final List<Duration> configRetryDelays;
   Future<void>? _backgroundRefresh;
+  static int _configRefreshSequence = 0;
 
   static List<Uri> _buildConfigUris(
     String configUrl,
@@ -243,8 +244,10 @@ class ApiHealthService {
     }
   }
 
-  Future<Object?> loadConfig() async {
-    final verified = await _loadRemoteConfigWithRetries();
+  Future<Object?> loadConfig({bool forceRefresh = false}) async {
+    final verified = await _loadRemoteConfigWithRetries(
+      forceRefresh: forceRefresh,
+    );
     if (verified.endpoints.isNotEmpty) await _saveVerifiedCache(verified);
     return verified.config;
   }
@@ -295,10 +298,20 @@ class ApiHealthService {
 
   Future<Uri?> loadLastSuccessfulEndpoint() => _preferenceStore.load();
 
-  Future<List<Uri>> loadCandidateEndpoints() async {
+  Future<List<Uri>> loadCandidateEndpoints() =>
+      _loadCandidateEndpoints(allowLastSuccessfulFallback: true);
+
+  Future<List<Uri>> loadVerifiedCandidateEndpoints() =>
+      _loadCandidateEndpoints(allowLastSuccessfulFallback: false);
+
+  Future<List<Uri>> _loadCandidateEndpoints({
+    required bool allowLastSuccessfulFallback,
+  }) async {
     Uri? lastSuccessful;
     try {
-      lastSuccessful = await loadLastSuccessfulEndpoint();
+      lastSuccessful = await loadLastSuccessfulEndpoint().timeout(
+        const Duration(seconds: 1),
+      );
     } catch (_) {}
     final cached = await _loadVerifiedCache();
     if (cached != null) {
@@ -336,7 +349,7 @@ class ApiHealthService {
       await _saveVerifiedCache(emergency);
       return _prioritizeLastSuccessful(emergency.endpoints, lastSuccessful);
     } on ApiRemoteConfigException catch (emergencyFailure) {
-      if (lastSuccessful != null) {
+      if (allowLastSuccessfulFallback && lastSuccessful != null) {
         emitApiDiagnosticEvent(_diagnosticRecorder, 'api.config.fallback', {
           'source': 'last_successful_endpoint',
           'candidate_count': 1,
@@ -365,6 +378,7 @@ class ApiHealthService {
 
   Future<_VerifiedRemoteConfig> _loadRemoteConfigWithRetries({
     bool requireEndpoints = false,
+    bool forceRefresh = false,
   }) async {
     if (_configUris.isEmpty) {
       throw const ApiRemoteConfigException(
@@ -375,6 +389,9 @@ class ApiHealthService {
         ),
       );
     }
+    final refreshNonce = forceRefresh
+        ? '${DateTime.now().microsecondsSinceEpoch}-${++_configRefreshSequence}'
+        : null;
     final retryDelays = configRetryDelays.isEmpty
         ? const [Duration.zero]
         : configRetryDelays;
@@ -382,7 +399,10 @@ class ApiHealthService {
     for (final delay in retryDelays) {
       if (delay > Duration.zero) await Future<void>.delayed(delay);
       try {
-        return await _loadRemoteConfigRound(requireEndpoints: requireEndpoints);
+        return await _loadRemoteConfigRound(
+          requireEndpoints: requireEndpoints,
+          refreshNonce: refreshNonce,
+        );
       } on ApiRemoteConfigException catch (error) {
         lastFailure = lastFailure == null
             ? error
@@ -395,6 +415,7 @@ class ApiHealthService {
 
   Future<_VerifiedRemoteConfig> _loadRemoteConfigRound({
     required bool requireEndpoints,
+    String? refreshNonce,
   }) {
     final completer = Completer<_VerifiedRemoteConfig>();
     final failures = <ApiRemoteConfigException>[];
@@ -405,6 +426,7 @@ class ApiHealthService {
           final verified = await _loadVerifiedRemoteConfig(
             configUri,
             requireEndpoints: requireEndpoints,
+            refreshNonce: refreshNonce,
           );
           if (!completer.isCompleted) completer.complete(verified);
         } catch (error) {
@@ -426,11 +448,25 @@ class ApiHealthService {
   Future<_VerifiedRemoteConfig> _loadVerifiedRemoteConfig(
     Uri configUri, {
     required bool requireEndpoints,
+    String? refreshNonce,
   }) async {
     final stopwatch = Stopwatch()..start();
     final attemptId = newApiDiagnosticAttemptId();
     try {
-      final payload = await (_configLoader ?? _loadRemoteConfig)(configUri);
+      final requestUri = refreshNonce == null
+          ? configUri
+          : configUri.replace(
+              queryParameters: {
+                ...configUri.queryParametersAll,
+                '_fengwo_refresh': refreshNonce,
+              },
+            );
+      final payload = _configLoader != null
+          ? await _configLoader(requestUri)
+          : await _loadRemoteConfig(
+              requestUri,
+              forceRefresh: refreshNonce != null,
+            );
       final verified = await _verifyPayload(
         payload,
         source: configUri,
@@ -468,12 +504,16 @@ class ApiHealthService {
 
   Future<_VerifiedRemoteConfig?> _loadVerifiedCache() async {
     try {
-      final payload = await _configCacheStore.load();
+      final payload = await _configCacheStore.load().timeout(
+        const Duration(seconds: 1),
+      );
       if (payload == null) return null;
       return await _verifyPayload(payload, requireEndpoints: true);
+    } on TimeoutException {
+      return null;
     } catch (_) {
       try {
-        await _configCacheStore.clear();
+        await _configCacheStore.clear().timeout(const Duration(seconds: 1));
       } catch (_) {}
       return null;
     }
@@ -548,10 +588,12 @@ class ApiHealthService {
 
   Future<void> _saveVerifiedCache(_VerifiedRemoteConfig verified) async {
     try {
-      await _configCacheStore.save(
-        encryptedConfig: verified.encryptedPayload,
-        candidateCount: verified.endpoints.length,
-      );
+      await _configCacheStore
+          .save(
+            encryptedConfig: verified.encryptedPayload,
+            candidateCount: verified.endpoints.length,
+          )
+          .timeout(const Duration(seconds: 1));
     } catch (_) {}
   }
 
@@ -642,7 +684,10 @@ class ApiHealthService {
     return priority[right.failure]! > priority[left.failure]! ? right : left;
   }
 
-  Future<Object?> _loadRemoteConfig(Uri configUri) async {
+  Future<Object?> _loadRemoteConfig(
+    Uri configUri, {
+    bool forceRefresh = false,
+  }) async {
     final dio = Dio(
       BaseOptions(
         connectTimeout: const Duration(seconds: 5),
@@ -661,6 +706,12 @@ class ApiHealthService {
       final response = await dio.getUri<List<int>>(
         configUri,
         options: Options(
+          headers: forceRefresh
+              ? const {
+                  'Cache-Control': 'no-cache, no-store, max-age=0',
+                  'Pragma': 'no-cache',
+                }
+              : null,
           validateStatus: (status) =>
               status != null && status >= 200 && status < 300,
         ),

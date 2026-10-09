@@ -47,16 +47,27 @@ class _FengWoAdvancedSettingsViewState
   final Set<GeoResource> _updatingResources = {};
   bool _updatingAll = false;
   bool _updatingCampusNetwork = false;
+  bool _wasPageActive = false;
+  bool _pendingCampusNetworkRefresh = false;
+  int _campusNetworkEntryRevision = 0;
   bool _exportingLogs = false;
   bool _diagnosingNetwork = false;
   NetworkDiagnosticReport? _networkDiagnosticReport;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final isPageActive = PageActivityScope.isActiveOf(context);
+    if (_wasPageActive == isPageActive) return;
+    _wasPageActive = isPageActive;
+    final revision = ++_campusNetworkEntryRevision;
+    if (!isPageActive) {
+      _pendingCampusNetworkRefresh = false;
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        unawaited(_refreshCampusNetworkConfigOnEntry());
+      if (mounted && revision == _campusNetworkEntryRevision) {
+        unawaited(_refreshCampusNetworkConfigOnEntry(revision));
       }
     });
   }
@@ -105,7 +116,9 @@ class _FengWoAdvancedSettingsViewState
     if (loader != null) {
       return loader();
     }
-    final remoteConfig = await ApiHealthService().loadConfig();
+    final remoteConfig = await ApiHealthService().loadConfig(
+      forceRefresh: true,
+    );
     return CampusNetworkConfig.fromRemote(remoteConfig);
   }
 
@@ -130,12 +143,26 @@ class _FengWoAdvancedSettingsViewState
     );
   }
 
-  Future<void> _refreshCampusNetworkConfigOnEntry() async {
-    if (_updatingCampusNetwork) return;
+  void _finishCampusNetworkUpdate() {
+    if (!mounted) return;
+    setState(() => _updatingCampusNetwork = false);
+    if (_pendingCampusNetworkRefresh && _wasPageActive) {
+      _pendingCampusNetworkRefresh = false;
+      unawaited(
+        _refreshCampusNetworkConfigOnEntry(_campusNetworkEntryRevision),
+      );
+    }
+  }
+
+  Future<void> _refreshCampusNetworkConfigOnEntry(int revision) async {
+    if (_updatingCampusNetwork) {
+      _pendingCampusNetworkRefresh = true;
+      return;
+    }
     setState(() => _updatingCampusNetwork = true);
     try {
       final config = await _loadCampusNetworkConfig();
-      if (!mounted) return;
+      if (!mounted || revision != _campusNetworkEntryRevision) return;
       final previous = ref.read(appSettingProvider);
       final next = _applyCampusNetworkConfig(previous, config);
       ref.read(appSettingProvider.notifier).value = next;
@@ -148,7 +175,7 @@ class _FengWoAdvancedSettingsViewState
         logLevel: LogLevel.warning,
       );
     } finally {
-      if (mounted) setState(() => _updatingCampusNetwork = false);
+      _finishCampusNetworkUpdate();
     }
   }
 
@@ -199,7 +226,7 @@ class _FengWoAdvancedSettingsViewState
         context.showNotifier(context.appLocalizations.campusNetworkApplyFailed);
       }
     } finally {
-      if (mounted) setState(() => _updatingCampusNetwork = false);
+      _finishCampusNetworkUpdate();
     }
   }
 
@@ -249,7 +276,7 @@ class _FengWoAdvancedSettingsViewState
         context.showNotifier(context.appLocalizations.campusNetworkApplyFailed);
       }
     } finally {
-      if (mounted) setState(() => _updatingCampusNetwork = false);
+      _finishCampusNetworkUpdate();
     }
   }
 
