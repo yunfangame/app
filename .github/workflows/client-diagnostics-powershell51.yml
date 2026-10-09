@@ -1,0 +1,76 @@
+name: Client diagnostics - Windows PowerShell 5.1
+
+on:
+  push:
+    branches:
+      - codex/client-diagnostics-powershell51-20261009
+    paths:
+      - 'tooling/client-failure-diagnostics/**'
+      - '.github/workflows/client-diagnostics-powershell51.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  powershell51:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run six local regression suites and native runtime smoke under Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+            throw 'Windows PowerShell 5.1 Desktop is required'
+          }
+          $reportRoot = Join-Path $env:RUNNER_TEMP 'fwdiag-powershell51'
+          [void](New-Item -ItemType Directory -Path $reportRoot -Force)
+          $toolRoot = Join-Path $env:GITHUB_WORKSPACE 'tooling/client-failure-diagnostics'
+          $utf8 = New-Object Text.UTF8Encoding($false)
+          $metadata = [ordered]@{
+            edition = $PSVersionTable.PSEdition
+            powershell_version = $PSVersionTable.PSVersion.ToString()
+            clr_version = $PSVersionTable.CLRVersion.ToString()
+            os_version = [Environment]::OSVersion.VersionString
+            process_64_bit = [Environment]::Is64BitProcess
+            commit = $env:GITHUB_SHA
+          }
+          [IO.File]::WriteAllText((Join-Path $reportRoot 'environment.json'), ($metadata | ConvertTo-Json -Depth 5), $utf8)
+          $hashes = @(Get-ChildItem -LiteralPath $toolRoot -Recurse -File | Where-Object { $_.Extension -in @('.ps1', '.cs', '.cmd') } | ForEach-Object {
+            [ordered]@{ path = $_.FullName.Substring($toolRoot.Length).TrimStart('\'); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+          })
+          [IO.File]::WriteAllText((Join-Path $reportRoot 'source-hashes.json'), ($hashes | ConvertTo-Json -Depth 5), $utf8)
+          $nativePowerShell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $results = New-Object 'System.Collections.Generic.List[object]'
+          foreach ($suite in @('Discovery', 'CoreSession', 'ClientLogic', 'Observation', 'Protocol', 'Report', 'WindowsRuntimeSmoke')) {
+            $testPath = Join-Path (Join-Path $toolRoot 'Tests') ($suite + '.Tests.ps1')
+            $stdout = Join-Path $reportRoot ($suite + '.stdout.log')
+            $stderr = Join-Path $reportRoot ($suite + '.stderr.log')
+            $arguments = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $testPath + '"'
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            $exitCode = -1
+            $exceptionType = $null
+            try {
+              $process = Start-Process -FilePath $nativePowerShell -ArgumentList $arguments -NoNewWindow -PassThru -Wait -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+              $exitCode = $process.ExitCode
+            } catch {
+              $exceptionType = $_.Exception.GetType().Name
+            }
+            $results.Add([pscustomobject]@{ suite = $suite; exit_code = $exitCode; elapsed_ms = $watch.ElapsedMilliseconds; exception_type = $exceptionType })
+            Write-Host ($suite + ' exit=' + $exitCode)
+            foreach ($file in @($stdout, $stderr)) { if (Test-Path -LiteralPath $file) { Get-Content -LiteralPath $file } }
+          }
+          [IO.File]::WriteAllText((Join-Path $reportRoot 'results.json'), ($results.ToArray() | ConvertTo-Json -Depth 5), $utf8)
+          $failures = @($results | Where-Object { $_.exit_code -ne 0 })
+          if ($failures.Count -gt 0) { throw ('Failed suites: ' + (($failures | ForEach-Object { $_.suite }) -join ', ')) }
+      - name: Upload exact runtime source hashes and suite logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-diagnostics-powershell51-${{ github.run_id }}
+          path: ${{ runner.temp }}/fwdiag-powershell51
+          if-no-files-found: error
+          retention-days: 7
