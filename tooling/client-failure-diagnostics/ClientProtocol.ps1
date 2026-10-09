@@ -11,9 +11,9 @@ function Add-FwDiagnosticType {
     if ($Path) { $arguments.Path=$Path }
     elseif ($TypeDefinition) { $arguments.TypeDefinition=$TypeDefinition }
     else { throw 'DIAGNOSTIC_TYPE_SOURCE_MISSING' }
-    if ($OutputAssembly) { $arguments.OutputAssembly=$OutputAssembly; $arguments.OutputType=$OutputType }
     $metadata = Get-Command Add-Type
     if ($metadata.Parameters.ContainsKey('CompilerOptions')) {
+        if ($OutputAssembly) { $arguments.OutputAssembly=$OutputAssembly; $arguments.OutputType=$OutputType }
         $options = @('/langversion:5')
         if ($PSVersionTable.PSVersion.Major -ge 7) { $options += '/nowarn:SYSLIB0014' }
         $arguments.CompilerOptions=$options

@@ -45,7 +45,7 @@ jobs:
           [IO.File]::WriteAllText((Join-Path $reportRoot 'source-hashes.json'), ($hashes | ConvertTo-Json -Depth 5), $utf8)
           $nativePowerShell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
           $results = New-Object 'System.Collections.Generic.List[object]'
-          foreach ($suite in @('Discovery', 'CoreSession', 'CoreSession.Windows.Native', 'ClientLogic', 'Observation', 'Protocol', 'Report', 'WindowsRuntimeSmoke')) {
+          foreach ($suite in @('Discovery', 'CoreSession', 'CoreSession.Windows.Native', 'ClientLogic', 'Observation', 'Protocol', 'Report', 'WindowsRuntimeSmoke', 'WindowsCollectorSmoke')) {
             $testPath = Join-Path (Join-Path $toolRoot 'Tests') ($suite + '.Tests.ps1')
             $stdout = Join-Path $reportRoot ($suite + '.stdout.log')
             $stderr = Join-Path $reportRoot ($suite + '.stderr.log')

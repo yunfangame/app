@@ -42,7 +42,15 @@ try {
     $otherRows=@($other.Listeners | Where-Object { $_.Port -eq $port -and $_.OwnerProcessId -eq $parentId })
     Assert-Runtime ($other.Status -eq 'COMPLETE' -and $other.ListenerQueryStatus -eq 'COMPLETE' -and $otherRows.Count -eq 1) 'Alternate local installation snapshot still discovers original listener owner'
     Assert-Runtime ($otherRows[0].OwnerRole -eq 'other_installation_or_application' -and $otherRows[0].OwnerVerified -eq $true) 'Unlaunched copied executable cannot claim original listener'
-    $safe=@{Owned=$owned;AlternateInstallation=$other} | ConvertTo-Json -Depth 10
+    $defaultBudgetSamples=New-Object 'System.Collections.Generic.List[object]'
+    foreach ($attempt in @(1,2,3)) {
+        $watch=[Diagnostics.Stopwatch]::StartNew()
+        $defaultSnapshot=Get-FwClientRuntimeSnapshot -Client ([pscustomobject]@{ExePath=$parentPath}) -Ports @($port)
+        $watch.Stop()
+        $defaultBudgetSamples.Add([pscustomobject]@{Attempt=$attempt;TimeoutMs=2500;ElapsedMs=$watch.ElapsedMilliseconds;Status=$defaultSnapshot.Status;ListenerQueryStatus=$defaultSnapshot.ListenerQueryStatus;Reason=$defaultSnapshot.Reason})
+        Write-Host ('DEFAULT_RUNTIME_BUDGET attempt='+$attempt+' elapsed_ms='+$watch.ElapsedMilliseconds+' status='+$defaultSnapshot.Status+' listener_query='+$defaultSnapshot.ListenerQueryStatus+' reason='+$defaultSnapshot.Reason)
+    }
+    $safe=@{Owned=$owned;AlternateInstallation=$other;DefaultBudgetSamples=$defaultBudgetSamples.ToArray()} | ConvertTo-Json -Depth 10
     Assert-Runtime (-not $safe.Contains($parentPath) -and -not $safe.Contains($fixture)) 'Native snapshot evidence excludes executable and fixture paths'
     if ($env:RUNNER_TEMP) {
         $report=Join-Path $env:RUNNER_TEMP 'fwdiag-powershell51'
