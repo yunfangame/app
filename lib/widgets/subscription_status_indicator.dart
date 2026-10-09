@@ -12,6 +12,18 @@ import 'package:intl/intl.dart';
 const subscriptionLowTrafficThresholdBytes = 10 * bytesPerGigabyte;
 const subscriptionExpiryWarningWindow = Duration(days: 7);
 
+String subscriptionResetRemaining(
+  BuildContext context,
+  DateTime resetAt, {
+  DateTime? now,
+}) {
+  final l10n = context.appLocalizations;
+  final remaining = resetAt.difference(now ?? DateTime.now());
+  if (remaining <= Duration.zero) return l10n.planResetPending;
+  if (remaining.inHours == 0) return l10n.planResetWithinHour;
+  return l10n.planResetRemaining(remaining.inDays, remaining.inHours % 24);
+}
+
 @immutable
 class SubscriptionStatusEvaluation {
   const SubscriptionStatusEvaluation({
@@ -938,16 +950,7 @@ class _TrafficResetNoticeDialogState extends State<_TrafficResetNoticeDialog> {
     } else if (!hasSchedule) {
       schedule = l10n.subscriptionResetScheduleUnavailable;
     } else {
-      final remaining = resetAt.difference(now);
-      final date = DateFormat.yMd(
-        Localizations.localeOf(context).toLanguageTag(),
-      ).add_Hm().format(resetAt);
-      schedule = remaining < const Duration(days: 1)
-          ? l10n.subscriptionResetWithinDay(date)
-          : l10n.subscriptionResetCountdown(
-              (remaining.inMicroseconds / Duration.microsecondsPerDay).ceil(),
-              date,
-            );
+      schedule = subscriptionResetRemaining(context, resetAt, now: now);
     }
     return AlertDialog(
       key: const ValueKey('subscription-reset-notice-dialog'),

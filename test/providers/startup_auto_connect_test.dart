@@ -86,6 +86,61 @@ void main() {
     },
   );
 
+  for (final expired in [false, true]) {
+    for (final automatic in [false, true]) {
+      test(
+        '${automatic ? 'automatic' : 'manual'} connection starts with ${expired ? 'expired' : 'exhausted'} cached plan without querying the account',
+        () async {
+          final previousSession = globalState.xboardSession;
+          final previousRefresh = globalState.refreshXboardSubscription;
+          addTearDown(() {
+            globalState.xboardSession = previousSession;
+            globalState.refreshXboardSubscription = previousRefresh;
+          });
+          final endpoint = Uri.parse('https://api.example.com');
+          globalState.xboardSession = XboardLoginResult(
+            endpoint: endpoint,
+            token: 'account',
+            authData: 'account',
+            isAdmin: false,
+            subscription: XboardSubscriptionData(
+              endpoint: endpoint,
+              subscribeUrl: null,
+              uploadBytes: expired ? 0 : 100,
+              downloadBytes: 0,
+              transferEnableBytes: 100,
+              expiredAtEpochSeconds: expired ? 1 : null,
+              rawData: {
+                'transfer_enable': 100,
+                'u': expired ? 0 : 100,
+                'd': 0,
+              },
+            ),
+          );
+          var queries = 0;
+          globalState.refreshXboardSubscription = () async {
+            queries++;
+            throw StateError('connection must not query account data');
+          };
+          final harness = _Harness();
+          if (automatic) {
+            await harness.common.startAfterLogin(isCurrent: () => true);
+          } else {
+            await harness.common.toggleRunning();
+          }
+          expect(queries, 0);
+          expect(harness.setup.automaticStarts, automatic ? 1 : 0);
+          expect(harness.setup.manualRequests, automatic ? isEmpty : [true]);
+          expect(harness.setup.transitions, [true]);
+          expect(
+            harness.container.read(networkSettingProvider).systemProxy,
+            isTrue,
+          );
+        },
+      );
+    }
+  }
+
   for (final guard in ['cancelled', 'not_ready', 'running', 'pending']) {
     test(
       'login startup skips a $guard attempt without changing proxy',

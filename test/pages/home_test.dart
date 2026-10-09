@@ -588,6 +588,138 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final size in [const Size(1400, 1000), const Size(390, 844)]) {
+    testWidgets(
+      'retained advanced settings refresh campus config on reentry at $size',
+      (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        const initialHosts = {
+          'telecom': {'node.example.com': '192.0.2.1'},
+        };
+        const refreshedHosts = {
+          'mobile': {'node.example.com': '192.0.2.2'},
+        };
+        var loadCalls = 0;
+        var restartCalls = 0;
+        final updateService = AppUpdateService(
+          mainConfigLoader: () async => const {},
+        );
+        addTearDown(updateService.close);
+        final container = ProviderContainer(
+          overrides: [
+            appUpdateServiceProvider.overrideWithValue(updateService),
+            appSettingProvider.overrideWithBuild(
+              (_, _) => const AppSettingProps(
+                campusNetworkEnabled: true,
+                campusOperator: 'telecom',
+                campusHostsByOperator: initialHosts,
+              ),
+            ),
+            navigationItemsStateProvider.overrideWithValue(
+              NavigationItemsState(
+                value: [
+                  NavigationItem(
+                    icon: const Icon(Icons.home),
+                    label: PageLabel.dashboard,
+                    builder: (_) => const Text('dashboard-page'),
+                  ),
+                  NavigationItem(
+                    icon: const Icon(Icons.tune),
+                    label: PageLabel.resources,
+                    builder: (_) => FengWoAdvancedSettingsView(
+                      campusNetworkConfigLoader: () async {
+                        loadCalls++;
+                        return CampusNetworkConfig(
+                          loadCalls == 1 ? initialHosts : refreshedHosts,
+                        );
+                      },
+                      campusNetworkCoreRestarter: () async {
+                        restartCalls++;
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        globalState.container = container;
+        container.read(viewSizeProvider.notifier).value = size;
+        container
+            .read(currentPageLabelProvider.notifier)
+            .toPage(PageLabel.resources);
+
+        try {
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: const _TestApp(child: HomePage()),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          final settingsView = find.byType(FengWoAdvancedSettingsView);
+          final retainedState = tester.state(settingsView);
+          expect(loadCalls, 1);
+          expect(restartCalls, 0);
+          expect(
+            container.read(appSettingProvider).campusHostsByOperator,
+            initialHosts,
+          );
+
+          container
+              .read(appSettingProvider.notifier)
+              .update((state) => state.copyWith(openLogs: !state.openLogs));
+          await tester.pumpAndSettle();
+          expect(tester.state(settingsView), same(retainedState));
+          expect(loadCalls, 1);
+
+          container
+              .read(currentPageLabelProvider.notifier)
+              .toPage(PageLabel.dashboard);
+          await tester.pumpAndSettle();
+          expect(find.text('dashboard-page'), findsOneWidget);
+          expect(
+            tester.state(
+              find.byType(FengWoAdvancedSettingsView, skipOffstage: false),
+            ),
+            same(retainedState),
+          );
+          expect(loadCalls, 1);
+
+          container
+              .read(currentPageLabelProvider.notifier)
+              .toPage(PageLabel.resources);
+          await tester.pumpAndSettle();
+
+          expect(tester.state(settingsView), same(retainedState));
+          expect(loadCalls, 2);
+          final settings = container.read(appSettingProvider);
+          expect(settings.campusHostsByOperator, refreshedHosts);
+          expect(settings.campusOperator, 'mobile');
+          expect(settings.campusNetworkEnabled, isTrue);
+          expect(restartCalls, 1);
+
+          container
+              .read(appSettingProvider.notifier)
+              .update((state) => state.copyWith(openLogs: !state.openLogs));
+          await tester.pumpAndSettle();
+          expect(loadCalls, 2);
+          expect(restartCalls, 1);
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+        }
+      },
+    );
+  }
+
   testWidgets(
     'desktop navigation keeps arrow traversal after keyboard page changes',
     (tester) async {

@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/api_health_fixture.dart';
+
 void main() {
   testWidgets('orders page paginates, shows details, and cancels an order', (
     tester,
@@ -101,6 +103,7 @@ XboardAuthService _testService({
   VoidCallback? onCancelled,
 }) {
   return XboardAuthService(
+    apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
     ordersRequester: (endpoint, authData) async {
       onRequested?.call();
       return XboardLoginResponse(

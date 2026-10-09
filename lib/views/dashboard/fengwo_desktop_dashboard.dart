@@ -121,12 +121,14 @@ class _FengWoDesktopDashboardState
   void initState() {
     super.initState();
     globalState.xboardNodesRevisionNotifier.addListener(_metadataChanged);
+    globalState.xboardSubscriptionNotifier.addListener(_metadataChanged);
     globalState.offlineModeNotifier.addListener(_metadataChanged);
   }
 
   @override
   void dispose() {
     globalState.xboardNodesRevisionNotifier.removeListener(_metadataChanged);
+    globalState.xboardSubscriptionNotifier.removeListener(_metadataChanged);
     globalState.offlineModeNotifier.removeListener(_metadataChanged);
     super.dispose();
   }

@@ -1402,5 +1402,13 @@
         "type": "String"
       }
     }
-  }
+  },
+  "planAccessExpiredTitle": "Срок действия тарифа истёк",
+  "planAccessEmptyTitle": "Трафик тарифа исчерпан",
+  "planAccessExpiredBody": "Срок действия тарифа истёк, подключение недоступно. Продлите тариф и подключитесь снова.",
+  "planAccessEmptyBody": "Осталось 0 трафика. Сбросьте трафик или перейдите на другой тариф. Продление обычно продлевает срок действия без немедленного сброса трафика.",
+  "planResetRemaining": "До сброса трафика: {days} дн. {hours} ч.",
+  "planResetWithinHour": "До сброса трафика менее 1 часа",
+  "planResetPending": "Время сброса наступило. Обновите сведения о тарифе.",
+  "@planResetRemaining": {"placeholders": {"days": {"type": "int"}, "hours": {"type": "int"}}}
 }

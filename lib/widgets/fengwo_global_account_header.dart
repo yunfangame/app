@@ -31,9 +31,7 @@ class FengWoGlobalAccountHeader extends StatelessWidget {
         : null;
     final nextReset = nextResetAt == null
         ? null
-        : DateFormat.yMd(
-            Localizations.localeOf(context).toLanguageTag(),
-          ).format(nextResetAt);
+        : subscriptionResetRemaining(context, nextResetAt);
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 720;
@@ -86,7 +84,7 @@ class FengWoGlobalAccountHeader extends StatelessWidget {
                         if (nextReset != null) ...[
                           const SizedBox(height: 2),
                           Text(
-                            l10n.nextPlanResetAt(nextReset),
+                            nextReset,
                             key: const ValueKey(
                               'fengwo-global-next-plan-reset',
                             ),

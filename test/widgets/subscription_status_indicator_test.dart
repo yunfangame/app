@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/api_health_fixture.dart';
+
 void main() {
   final now = DateTime(2026, 8, 29, 12);
 
@@ -675,7 +677,7 @@ void main() {
           resetIn: const Duration(days: 2, hours: 1),
           unlimited: false,
           expired: false,
-          expected: '还有 3 天',
+          expected: '还有 2 天 1 小时',
           forfeiture: true,
         ),
         (
@@ -689,7 +691,14 @@ void main() {
           resetIn: const Duration(hours: 23),
           unlimited: false,
           expired: false,
-          expected: '不足 1 天',
+          expected: '还有 0 天 23 小时',
+          forfeiture: true,
+        ),
+        (
+          resetIn: const Duration(minutes: 30),
+          unlimited: false,
+          expired: false,
+          expected: '不到 1 小时',
           forfeiture: true,
         ),
         (
@@ -815,6 +824,7 @@ void main() {
       ..xboardSession = _session(subscription);
     addTearDown(globalState.clearXboardSession);
     final service = XboardAuthService(
+      apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
       plansRequester: (_, _) async {
         lookups++;
         throw StateError('must not look up');
@@ -852,7 +862,10 @@ void main() {
       ..xboardSession = _session(subscription);
     addTearDown(globalState.clearXboardSession);
     final pending = Completer<XboardLoginResponse>();
-    final service = XboardAuthService(plansRequester: (_, _) => pending.future);
+    final service = XboardAuthService(
+      apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
+      plansRequester: (_, _) => pending.future,
+    );
     await tester.pumpWidget(
       _TestApp(
         child: SubscriptionPlanActionBar(
@@ -930,7 +943,10 @@ void main() {
       ..xboardSession = _session(subscription);
     addTearDown(globalState.clearXboardSession);
     final pending = Completer<XboardLoginResponse>();
-    final service = XboardAuthService(plansRequester: (_, _) => pending.future);
+    final service = XboardAuthService(
+      apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
+      plansRequester: (_, _) => pending.future,
+    );
     await tester.pumpWidget(
       _TestApp(
         child: SubscriptionPlanActionBar(
@@ -1036,6 +1052,7 @@ XboardLoginResult _session(XboardSubscriptionData subscription) {
 
 XboardAuthService _paymentService(List<String> periods) {
   return XboardAuthService(
+    apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
     plansRequester: (endpoint, authData) async {
       expect(endpoint.queryParameters['id'], '1');
       return const XboardLoginResponse(

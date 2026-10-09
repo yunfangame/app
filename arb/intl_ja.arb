@@ -1402,5 +1402,13 @@
         "type": "String"
       }
     }
-  }
+  },
+  "planAccessExpiredTitle": "プランの有効期限が切れました",
+  "planAccessEmptyTitle": "プランの通信量を使い切りました",
+  "planAccessExpiredBody": "プランの有効期限が切れているため接続できません。更新後に再接続してください。",
+  "planAccessEmptyBody": "プランの残り通信量は0です。通信量のリセットまたはプランのアップグレードで接続できます。通常、更新は有効期限の延長のみで、通信量はすぐにリセットされません。",
+  "planResetRemaining": "次の通信量リセットまで {days} 日 {hours} 時間",
+  "planResetWithinHour": "次の通信量リセットまで1時間未満",
+  "planResetPending": "通信量リセット時刻になりました。プラン情報を更新してください。",
+  "@planResetRemaining": {"placeholders": {"days": {"type": "int"}, "hours": {"type": "int"}}}
 }
