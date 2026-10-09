@@ -20,6 +20,8 @@ list(APPEND PLUGIN_SOURCES
   "proxy_plugin.cpp"
   "proxy_plugin.h"
   "proxy_task_runner.h"
+  "proxy_settings.h"
+  "proxy_session.h"
 )
 
 # Define the plugin library target. Its name must not be changed (see comment
@@ -98,4 +100,19 @@ add_custom_command(TARGET ${TEST_RUNNER} POST_BUILD
 # Enable automatic test discovery.
 include(GoogleTest)
 gtest_discover_tests(${TEST_RUNNER})
+
+add_executable(proxy_session_test test/proxy_session_test.cpp)
+apply_standard_settings(proxy_session_test)
+add_test(NAME proxy_session_test COMMAND proxy_session_test)
+
+add_executable(proxy_session_windows_test test/proxy_session_windows_test.cpp)
+apply_standard_settings(proxy_session_windows_test)
+target_link_libraries(proxy_session_windows_test PRIVATE wininet)
+
+add_executable(proxy_winhttp_compatibility_test
+  test/proxy_winhttp_compatibility_test.cpp
+)
+apply_standard_settings(proxy_winhttp_compatibility_test)
+target_compile_options(proxy_winhttp_compatibility_test PRIVATE /utf-8)
+target_link_libraries(proxy_winhttp_compatibility_test PRIVATE wininet winhttp)
 endif()

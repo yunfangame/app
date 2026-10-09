@@ -6,7 +6,29 @@
 #include <string>
 #include <vector>
 
+#include "proxy_session.h"
+
 namespace proxy::settings {
+
+inline std::wstring NormalizeBypassList(const std::wstring& value) {
+  std::wstring normalized;
+  size_t start = 0;
+  while (true) {
+    const auto end = value.find(L';', start);
+    auto rule = value.substr(start, end == std::wstring::npos ? end : end - start);
+    const auto first = rule.find_first_not_of(L" \t\r\n");
+    if (first != std::wstring::npos) {
+      const auto last = rule.find_last_not_of(L" \t\r\n");
+      if (rule.substr(first, last - first + 1) == L"::1") {
+        rule.replace(first, 3, L"[::1]");
+      }
+    }
+    normalized += rule;
+    if (end == std::wstring::npos) return normalized;
+    normalized += L';';
+    start = end + 1;
+  }
+}
 
 inline bool ToAnsi(const wchar_t* value, std::string& output) {
   output.clear();
@@ -52,7 +74,8 @@ inline bool SetConnectionOptions(
     if (options[i].dwOption == INTERNET_PER_CONN_FLAGS) {
       options[i].Value.dwValue = list.pOptions[i].Value.dwValue;
     } else if (options[i].dwOption == INTERNET_PER_CONN_PROXY_SERVER ||
-               options[i].dwOption == INTERNET_PER_CONN_PROXY_BYPASS) {
+               options[i].dwOption == INTERNET_PER_CONN_PROXY_BYPASS ||
+               options[i].dwOption == INTERNET_PER_CONN_AUTOCONFIG_URL) {
       if (!ToAnsi(list.pOptions[i].Value.pszValue, strings[i])) {
         error = ERROR_NO_UNICODE_TRANSLATION;
         return false;
@@ -75,6 +98,119 @@ inline bool SetConnectionOptions(
   }
   error = ERROR_SUCCESS;
   return true;
+}
+
+inline bool QueryConnection(
+    const std::wstring& connection, ConnectionConfiguration& configuration,
+    DWORD& error,
+    decltype(&InternetQueryOptionW) queryWide = InternetQueryOptionW,
+    decltype(&InternetQueryOptionA) queryAnsi = InternetQueryOptionA) {
+  INTERNET_PER_CONN_OPTIONW options[4] = {};
+  options[0].dwOption = INTERNET_PER_CONN_FLAGS_UI;
+  options[1].dwOption = INTERNET_PER_CONN_PROXY_SERVER;
+  options[2].dwOption = INTERNET_PER_CONN_PROXY_BYPASS;
+  options[3].dwOption = INTERNET_PER_CONN_AUTOCONFIG_URL;
+  INTERNET_PER_CONN_OPTION_LISTW list = {};
+  list.dwSize = sizeof(list);
+  list.pszConnection = connection.empty() ? nullptr : const_cast<wchar_t*>(connection.c_str());
+  list.dwOptionCount = 4;
+  list.pOptions = options;
+  auto freeWide = [&]() {
+    for (size_t i = 1; i < 4; ++i) {
+      GlobalFree(options[i].Value.pszValue);
+      options[i].Value.pszValue = nullptr;
+    }
+  };
+  DWORD size = sizeof(list);
+  BOOL success = queryWide(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, &size);
+  error = success ? ERROR_SUCCESS : GetLastError();
+  if (success) {
+    configuration.flags = options[0].Value.dwValue;
+    configuration.server = options[1].Value.pszValue == nullptr ? L"" : options[1].Value.pszValue;
+    configuration.bypass = options[2].Value.pszValue == nullptr ? L"" : options[2].Value.pszValue;
+    configuration.auto_config_url = options[3].Value.pszValue == nullptr ? L"" : options[3].Value.pszValue;
+    freeWide();
+    return true;
+  }
+  freeWide();
+  if (error != ERROR_INVALID_PARAMETER) return false;
+  std::string connectionAnsi;
+  if (!ToAnsi(list.pszConnection, connectionAnsi)) {
+    error = ERROR_NO_UNICODE_TRANSLATION;
+    return false;
+  }
+  INTERNET_PER_CONN_OPTIONA ansiOptions[4] = {};
+  for (size_t i = 0; i < 4; ++i) ansiOptions[i].dwOption = options[i].dwOption;
+  INTERNET_PER_CONN_OPTION_LISTA ansi = {};
+  ansi.dwSize = sizeof(ansi);
+  ansi.pszConnection = connection.empty() ? nullptr : connectionAnsi.data();
+  ansi.dwOptionCount = 4;
+  ansi.pOptions = ansiOptions;
+  auto freeAnsi = [&]() {
+    for (size_t i = 1; i < 4; ++i) {
+      GlobalFree(ansiOptions[i].Value.pszValue);
+      ansiOptions[i].Value.pszValue = nullptr;
+    }
+  };
+  size = sizeof(ansi);
+  success = queryAnsi(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &ansi, &size);
+  error = success ? ERROR_SUCCESS : GetLastError();
+  if (!success && error == ERROR_INVALID_PARAMETER) {
+    freeAnsi();
+    ansiOptions[0].dwOption = INTERNET_PER_CONN_FLAGS;
+    ansi.dwOptionError = 0;
+    size = sizeof(ansi);
+    success = queryAnsi(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &ansi, &size);
+    error = success ? ERROR_SUCCESS : GetLastError();
+  }
+  if (success) {
+    configuration.flags = ansiOptions[0].Value.dwValue;
+    std::wstring* values[] = {&configuration.server, &configuration.bypass,
+                             &configuration.auto_config_url};
+    for (size_t i = 1; i < 4; ++i) {
+      auto& value = *values[i - 1];
+      value.clear();
+      const auto text = ansiOptions[i].Value.pszValue;
+      if (text == nullptr || *text == '\0') continue;
+      const int length = MultiByteToWideChar(CP_ACP, 0, text, -1, nullptr, 0);
+      if (length <= 0) {
+        success = FALSE;
+        error = GetLastError();
+        break;
+      }
+      std::vector<wchar_t> buffer(length);
+      if (!MultiByteToWideChar(CP_ACP, 0, text, -1, buffer.data(), length)) {
+        success = FALSE;
+        error = GetLastError();
+        break;
+      }
+      value.assign(buffer.data());
+    }
+  }
+  freeAnsi();
+  return success != FALSE;
+}
+
+inline bool WriteConnection(
+    const std::wstring& connection, const ConnectionConfiguration& configuration,
+    DWORD& error, bool& fallback,
+    decltype(&InternetSetOptionW) setWide = InternetSetOptionW,
+    decltype(&InternetSetOptionA) setAnsi = InternetSetOptionA) {
+  INTERNET_PER_CONN_OPTIONW options[4] = {};
+  options[0].dwOption = INTERNET_PER_CONN_FLAGS;
+  options[0].Value.dwValue = configuration.flags;
+  options[1].dwOption = INTERNET_PER_CONN_PROXY_SERVER;
+  options[1].Value.pszValue = const_cast<wchar_t*>(configuration.server.c_str());
+  options[2].dwOption = INTERNET_PER_CONN_PROXY_BYPASS;
+  options[2].Value.pszValue = const_cast<wchar_t*>(configuration.bypass.c_str());
+  options[3].dwOption = INTERNET_PER_CONN_AUTOCONFIG_URL;
+  options[3].Value.pszValue = const_cast<wchar_t*>(configuration.auto_config_url.c_str());
+  INTERNET_PER_CONN_OPTION_LISTW list = {};
+  list.dwSize = sizeof(list);
+  list.dwOptionCount = 4;
+  list.pOptions = options;
+  return SetConnectionOptions(list, connection.empty() ? nullptr
+      : const_cast<wchar_t*>(connection.c_str()), error, fallback, setWide, setAnsi);
 }
 
 inline bool QueryProxy(

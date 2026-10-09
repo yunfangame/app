@@ -1,0 +1,41 @@
+name: Windows native proxy ownership validation
+
+on:
+  push:
+    branches:
+      - codex/proxy-native-ownership-validation-20261009
+    paths:
+      - 'plugins/proxy/windows/**'
+      - '.ci/proxy-native/**'
+      - '.github/workflows/proxy-native-ownership-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-native-proxy:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile actual production proxy plugin translation units
+        shell: pwsh
+        run: |
+          ./.ci/proxy-native/Test-NativeProxy.ps1 -Mode Compile -EvidenceDirectory "$env:RUNNER_TEMP/proxy-native-evidence"
+      - name: Run isolated native proxy policy and WinINet restoration scenarios
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          FENGWO_PROXY_MUTATING_TEST: '1'
+        run: |
+          ./.ci/proxy-native/Test-NativeProxy.ps1 -Mode Native -EvidenceDirectory "$env:RUNNER_TEMP/proxy-native-evidence"
+      - name: Upload source hashes and native verification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-native-ownership-${{ github.run_id }}
+          path: ${{ runner.temp }}/proxy-native-evidence
+          if-no-files-found: error
+          retention-days: 14

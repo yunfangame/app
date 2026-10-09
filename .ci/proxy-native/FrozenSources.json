@@ -1,0 +1,25 @@
+{
+  "SourceFreeze": "20261009-Windows-agent-frozen",
+  "Files": {
+    "plugins/proxy/windows/proxy_plugin.cpp": "1dfd8b90f8d504ff9d871285038cc39c8f89253b011d4d04a0dad267199c808c",
+    "plugins/proxy/windows/proxy_session.h": "f19f458f9df8fe886e934c62930b0ebc2f76ee7abcd3ea525ec62cc7cfaffb6a",
+    "plugins/proxy/windows/proxy_settings.h": "3bd8b882f4ed13b82b013249115ae346eaea05af30e1269285ad1616e01c8f67",
+    "plugins/proxy/windows/test/proxy_session_test.cpp": "d80f4163f2dc127afda80fa3f0fd127124f2932b59c937cbb27efd1f4363600a",
+    "plugins/proxy/windows/test/proxy_session_windows_test.cpp": "4b48005809fb7499f08cc9dbcd87b2a18d064aa7d507adb329faa8f872be9165",
+    "plugins/proxy/windows/proxy_plugin.h": "3313d20045ada4f35379493a2fd7e516bc369f4688ceee60ca8c89abf0311ba4",
+    "plugins/proxy/windows/proxy_plugin_c_api.cpp": "d0296820ac7a1fb23b57ec9581eaa14ace2f57b60c47c6a9a9ca3b681677139c",
+    "plugins/proxy/windows/include/proxy/proxy_plugin_c_api.h": "baee01c5feb603572f2c5a6c9bdc2dc36558ba8e1756a31fd5bef37aee4528b4",
+    "plugins/proxy/windows/proxy_task_runner.h": "0077fa07953ee61b7c07758b5ef5854db07635fd6eee6107b33a16fd25cacabc",
+    "plugins/proxy/windows/CMakeLists.txt": "b0638d22dbd3b27809599223a3982682cbc3a5f5b3ddd9ea0227f337345e4a39"
+  },
+  "NativeTests": [
+    {
+      "Name": "proxy_session_policy",
+      "Source": "plugins/proxy/windows/test/proxy_session_test.cpp"
+    },
+    {
+      "Name": "proxy_session_wininet",
+      "Source": "plugins/proxy/windows/test/proxy_session_windows_test.cpp"
+    }
+  ]
+}
