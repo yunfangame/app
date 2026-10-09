@@ -49,8 +49,9 @@ if ($Child) {
     exit 0
 }
 
-Add-Type -Path $SessionPath -CompilerOptions '/langversion:5'
-Add-Type -CompilerOptions '/langversion:5' -TypeDefinition @'
+. (Join-Path (Split-Path $PSScriptRoot -Parent) 'ClientProtocol.ps1')
+Add-FwDiagnosticType -Path $SessionPath
+Add-FwDiagnosticType -TypeDefinition @'
 using System;
 using System.IO;
 using System.Threading;

@@ -47,7 +47,7 @@ try {
   Add-Result 'node-001' 'protocol.http' 'UNKNOWN' @{TargetId='client-target';Note='<script>fixture-no-execution</script>'}
   Write-FwClientReport @($node) 'partial'
   $html=[IO.File]::ReadAllText((Join-Path $fixture '检测报告.html'))
-  Assert-Report ($html.Contains('&lt;script&gt;') -and -not $html.Contains('<script>')) 'HTML evidence executes script'
+  Assert-Report (($html.Contains('&lt;script&gt;') -or $html.Contains('\u003cscript\u003e')) -and -not $html.Contains('<script>')) 'HTML evidence executes script'
   Assert-Report ($html.Contains('随后出现同阶段成功记录') -and $html.Contains('1, 3')) 'Recovered finding or identical-config aliases not shown'
  }
  Case 'All emitted files exclude internal raw node credentials and paths' {

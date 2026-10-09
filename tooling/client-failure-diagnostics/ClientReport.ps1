@@ -106,6 +106,6 @@ function Write-FwClientReport($Nodes,[string]$Completion) {
     [void]$html.Append('<h2>对照检测</h2><p>如果多种协议在本线路失败，仍需先排除套餐授权、服务端入口和出口故障。使用同一电脑、同一账号和同一版本，换另一家运营商热点再运行一次；两份报告配合服务端同时间日志，才能进一步判断线路或协议干扰。</p><small>'+(Convert-FwHtml $footer)+'</small></main></html>')
     [IO.File]::WriteAllLines((Join-Path $script:ReportRoot 'summary.txt'),$lines.ToArray(),$script:Utf8)
     [IO.File]::WriteAllText((Join-Path $script:ReportRoot '检测报告.html'),$html.ToString(),$script:Utf8)
-    $report=@{Version='3.0';Completion=$Completion;Time=$time;Account=$script:Account;Observation=$script:Observation;Nodes=$conclusions.ToArray();Results=@($script:Events.ToArray());CoreErrorCategories=$script:CoreLogCounts;CoreWarnings=$script:CoreWarnings.ToArray();AttributionBoundary='LOCAL_EVIDENCE_NOT_ISP_BLOCK_CONFIRMATION'}
+    $report=@{Version='3.0';Completion=$Completion;Time=$time;Account=$script:Account;Observation=$script:Observation;Nodes=$conclusions.ToArray();Results=@($script:Events.ToArray());CoreErrorCategories=$script:CoreLogCounts;CoreWarnings=$script:CoreWarnings.ToArray();CoreWarningCoverage=@{Retained=$script:CoreWarnings.Count;Dropped=$script:CoreWarningsDropped};AttributionBoundary='LOCAL_EVIDENCE_NOT_ISP_BLOCK_CONFIRMATION'}
     [IO.File]::WriteAllText((Join-Path $script:ReportRoot 'report.json'),($report | ConvertTo-Json -Depth 24),$script:Utf8)
 }

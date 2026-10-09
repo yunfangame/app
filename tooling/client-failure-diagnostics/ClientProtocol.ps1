@@ -1,10 +1,42 @@
 ﻿$script:FwProtocolModuleRoot = $PSScriptRoot
 
-function Initialize-FwHttpProbe {
-    if (-not ('FengWoHttpProbe' -as [type])) {
+function Add-FwDiagnosticType {
+    param(
+        [string]$Path,
+        [string]$TypeDefinition,
+        [string]$OutputAssembly,
+        [string]$OutputType = 'Library'
+    )
+    $arguments = @{}
+    if ($Path) { $arguments.Path=$Path }
+    elseif ($TypeDefinition) { $arguments.TypeDefinition=$TypeDefinition }
+    else { throw 'DIAGNOSTIC_TYPE_SOURCE_MISSING' }
+    if ($OutputAssembly) { $arguments.OutputAssembly=$OutputAssembly; $arguments.OutputType=$OutputType }
+    $metadata = Get-Command Add-Type
+    if ($metadata.Parameters.ContainsKey('CompilerOptions')) {
         $options = @('/langversion:5')
         if ($PSVersionTable.PSVersion.Major -ge 7) { $options += '/nowarn:SYSLIB0014' }
-        Add-Type -Path (Join-Path $script:FwProtocolModuleRoot 'HttpProbe.cs') -CompilerOptions $options
+        $arguments.CompilerOptions=$options
+    }
+    else {
+        $parameters = New-Object System.CodeDom.Compiler.CompilerParameters
+        $parameters.CompilerOptions='/langversion:5'
+        [void]$parameters.ReferencedAssemblies.Add('System.dll')
+        [void]$parameters.ReferencedAssemblies.Add('System.Core.dll')
+        if ($OutputAssembly) {
+            $parameters.OutputAssembly=$OutputAssembly
+            $parameters.GenerateExecutable=($OutputType -eq 'ConsoleApplication' -or $OutputType -eq 'WindowsApplication')
+            $parameters.GenerateInMemory=$false
+        }
+        else { $parameters.GenerateInMemory=$true }
+        $arguments.CompilerParameters=$parameters
+    }
+    Add-Type @arguments
+}
+
+function Initialize-FwHttpProbe {
+    if (-not ('FengWoHttpProbe' -as [type])) {
+        Add-FwDiagnosticType -Path (Join-Path $script:FwProtocolModuleRoot 'HttpProbe.cs')
     }
 }
 

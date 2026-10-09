@@ -14,7 +14,12 @@ foreach ($file in @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter '*.p
 }
 Assert-Runtime $true 'All PowerShell files are UTF-8 BOM and parse under Desktop 5.1'
 $codeFiles=@('ClientCoreSession.cs','NetworkProbe.cs','HttpProbe.cs' | ForEach-Object { Join-Path $root $_ })
-Add-Type -Path $codeFiles -CompilerOptions '/langversion:5'
+$compiler=New-Object CodeDom.Compiler.CompilerParameters
+$compiler.GenerateInMemory=$true
+$compiler.CompilerOptions='/langversion:5'
+[void]$compiler.ReferencedAssemblies.Add('System.dll')
+[void]$compiler.ReferencedAssemblies.Add('System.Core.dll')
+Add-Type -Path $codeFiles -CompilerParameters $compiler
 Assert-Runtime ((('FengWoDiagnosticCoreSession' -as [type]) -ne $null) -and (('FengWoNetworkProbe' -as [type]) -ne $null) -and (('FengWoHttpProbe' -as [type]) -ne $null)) 'All three C# helpers compile in C# 5 against Windows .NET Framework'
 . (Join-Path $root 'Collect-Client.ps1') -LibraryOnly -NonInteractive
 $parentProcess=[Diagnostics.Process]::GetCurrentProcess()

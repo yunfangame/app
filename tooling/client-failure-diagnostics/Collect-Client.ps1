@@ -19,6 +19,7 @@ $LibraryOnly=$runLibraryOnly;$NonInteractive=$runNonInteractive;$AllowNonWindows
 $script:RpcSequence=0
 $script:CoreLogCounts=@{}
 $script:CoreWarnings=New-Object 'System.Collections.Generic.List[object]'
+$script:CoreWarningsDropped=0
 $script:Observation=$null;$script:Account=$null;$script:SelectedClient=$null
 
 function Get-ConfigMapCount($Value) {
@@ -65,7 +66,7 @@ function Add-FwCoreMessages($Reply) {
         if ($category -eq 'OTHER' -and -not $nodeMatch.Success) { continue }
         if (-not $script:CoreLogCounts.ContainsKey($category)) { $script:CoreLogCounts[$category]=0 }
         $script:CoreLogCounts[$category]++
-        if ($script:CoreWarnings.Count -ge 3000) { continue }
+        if ($script:CoreWarnings.Count -ge 3000) { $script:CoreWarningsDropped++;continue }
         $detail=[pscustomobject]@{Time=[DateTime]::UtcNow.ToString('o');NodeId=$nodeId;Category=$category;ErrorTokens=@(Get-SafeCoreError $errorText);Source='OWNED_DIAGNOSTIC_CORE';OtherTextOmitted=$true}
         $script:CoreWarnings.Add($detail)
         Add-Result $nodeId 'protocol.core.error' 'INFO' $detail
@@ -214,13 +215,22 @@ function Write-ClientSummary($Nodes,$Completion) {
     Write-FwClientReport $Nodes $Completion
 }
 
+function New-FwReportDirectory([string]$PrimaryRoot,[string]$FallbackRoot) {
+    $name='FengWo-Client-Timeout-Report-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[Guid]::NewGuid().ToString('N').Substring(0,6)
+    foreach ($base in @($PrimaryRoot,$FallbackRoot,[IO.Path]::GetTempPath())) {
+        if (-not $base -or -not (Test-Path -LiteralPath $base -PathType Container)) { continue }
+        $candidate=Join-Path $base $name
+        try { [void](New-Item -ItemType Directory -Path $candidate -ErrorAction Stop);return $candidate } catch {}
+    }
+    throw 'REPORT_DIRECTORY_UNWRITABLE'
+}
+
 if ($LibraryOnly) { return }
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -and -not $AllowNonWindows) { throw 'WINDOWS_REQUIRED' }
 $session=$null;$workDir=$null;$nodes=@();$completion='completed'
 try {
     $desktop=[Environment]::GetFolderPath('Desktop');if (-not $desktop -or -not (Test-Path -LiteralPath $desktop)) { $desktop=$packageRoot }
-    $script:ReportRoot=Join-Path $desktop ('FengWo-Client-Timeout-Report-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[Guid]::NewGuid().ToString('N').Substring(0,6))
-    [void](New-Item -ItemType Directory -Path $script:ReportRoot)
+    $script:ReportRoot=New-FwReportDirectory $desktop $packageRoot
     $script:Watch.Restart()
     Write-Host '蜂窝客户端自动诊断：无需输入节点。请保持客户端已登录。' -ForegroundColor Cyan
     Write-Host '检测账号缓存、日志、进程、端口及全部本地节点。节点较多时约 5～15 分钟。'
@@ -347,7 +357,7 @@ try {
     $script:Observation.Findings=@(Get-FwFailureFindings $script:Observation @($script:Events.ToArray() | Where-Object { $_.Stage -eq 'protocol.http' }))
 
 } catch {
-    $completion='partial';$reason='COLLECTOR_ERROR';$safeErrors=@('DIAGNOSTIC_DEADLINE','CLIENT_NOT_FOUND','BUNDLED_CORE_NOT_FOUND','NO_READABLE_CONFIG','NO_NODE_ENDPOINTS_IN_LOCAL_CONFIG','ISOLATED_CONFIG_APPLY_FAILED','ISOLATED_LISTENER_NOT_READY','CORE_RPC_TIMEOUT','CORE_RPC_ERROR')
+    $completion='partial';$reason='COLLECTOR_ERROR';$safeErrors=@('DIAGNOSTIC_DEADLINE','CLIENT_NOT_FOUND','BUNDLED_CORE_NOT_FOUND','NO_READABLE_CONFIG','NO_NODE_ENDPOINTS_IN_LOCAL_CONFIG','ISOLATED_CONFIG_APPLY_FAILED','ISOLATED_LISTENER_NOT_READY','CORE_RPC_TIMEOUT','CORE_RPC_ERROR','REPORT_DIRECTORY_UNWRITABLE')
     if ($safeErrors -contains $_.Exception.Message) { $reason=$_.Exception.Message }
     Write-Host ('部分检测未完成：'+$reason+'。已有结果仍会保留。') -ForegroundColor Yellow
     if ($script:ReportRoot) { Add-Result 'collector' 'error' 'UNKNOWN' @{Reason=$reason;ErrorType=$_.Exception.GetType().Name;NativeErrorCodes=@(Get-FwNativeExceptionCodes $_.Exception);Line=$_.InvocationInfo.ScriptLineNumber} }

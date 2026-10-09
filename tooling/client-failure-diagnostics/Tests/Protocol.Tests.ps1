@@ -7,7 +7,7 @@ $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $root 'ClientProtocol.ps1')
 Initialize-FwHttpProbe
 
-Add-Type -CompilerOptions '/langversion:5' -TypeDefinition @'
+Add-FwDiagnosticType -TypeDefinition @'
 using System;
 using System.IO;
 using System.Net;
