@@ -8,6 +8,8 @@
 
 #include "../proxy_settings.h"
 
+#pragma comment(lib, "advapi32")
+
 using proxy::settings::ConnectionBackend;
 using proxy::settings::ConnectionConfiguration;
 using proxy::settings::ProxySession;
@@ -44,11 +46,49 @@ bool Notify(SessionOperationDetails& details) {
   return true;
 }
 
+void VerifyRegistry(const ConnectionConfiguration& configuration) {
+  HKEY key = nullptr;
+  Require(RegOpenKeyExW(HKEY_CURRENT_USER,
+          L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+          0, KEY_QUERY_VALUE, &key) == ERROR_SUCCESS, "Cannot read current-user proxy registry");
+  DWORD enabled = 0;
+  DWORD type = 0;
+  DWORD size = sizeof(enabled);
+  auto enabled_status = RegQueryValueExW(key, L"ProxyEnable", nullptr, &type,
+      reinterpret_cast<LPBYTE>(&enabled), &size);
+  if (enabled_status == ERROR_FILE_NOT_FOUND) {
+    enabled_status = ERROR_SUCCESS;
+    enabled = 0;
+    type = REG_DWORD;
+  }
+  const bool enabled_valid = enabled_status == ERROR_SUCCESS && type == REG_DWORD;
+  DWORD server_type = 0;
+  DWORD server_size = 0;
+  auto server_status = RegQueryValueExW(key, L"ProxyServer", nullptr, &server_type,
+                                       nullptr, &server_size);
+  std::wstring server;
+  bool server_valid = server_status == ERROR_FILE_NOT_FOUND;
+  if (server_status == ERROR_SUCCESS && (server_type == REG_SZ || server_type == REG_EXPAND_SZ)) {
+    std::vector<wchar_t> buffer(server_size / sizeof(wchar_t) + 1, L'\0');
+    server_status = RegQueryValueExW(key, L"ProxyServer", nullptr, &server_type,
+                                    reinterpret_cast<LPBYTE>(buffer.data()), &server_size);
+    server_valid = server_status == ERROR_SUCCESS;
+    if (server_valid) server.assign(buffer.data());
+  }
+  RegCloseKey(key);
+  Require(enabled_valid && server_valid, "Current-user proxy registry has invalid values");
+  Require((enabled != 0) == configuration.HasManualProxy(),
+          "WinINet FLAGS_UI disagrees with registry ProxyEnable");
+  Require(enabled == 0 || server == configuration.server,
+          "WinINet proxy address disagrees with registry ProxyServer");
+}
+
 ConnectionConfiguration Read() {
   ConnectionConfiguration configuration;
   DWORD error = 0;
   Require(proxy::settings::QueryConnection(L"", configuration, error),
           "Cannot query complete WinINet configuration");
+  VerifyRegistry(configuration);
   return configuration;
 }
 
@@ -173,6 +213,7 @@ struct NativeFixture {
         reads++;
         DWORD native_error = 0;
         const bool success = proxy::settings::QueryConnection(name, configuration, native_error);
+        if (success && name.empty()) VerifyRegistry(configuration);
         error = native_error;
         return success;
       },
@@ -245,7 +286,7 @@ int main() {
             "Requires an isolated CI Windows account");
     TypedFallback();
     ActualWindowsSession();
-    std::cout << "PASS: typed complete W/ANSI fallback and real WinINet session restoration\n";
+    std::cout << "PASS: typed complete W/ANSI fallback, real WinINet restoration and registry corroboration\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "FAIL: " << error.what() << '\n';
