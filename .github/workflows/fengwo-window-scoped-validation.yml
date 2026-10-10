@@ -1,0 +1,94 @@
+name: fengwo-window-scoped-validation
+
+on:
+  push:
+    branches:
+      - codex/windows-scoped-validation-20261010-afb98756
+
+permissions:
+  contents: read
+
+jobs:
+  windows-native:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record every native input hash
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @('windows/runner/window_visibility.h', 'windows/runner/window_visibility.cpp', 'windows/runner/win32_window.h', 'windows/runner/win32_window.cpp', 'windows/runner/flutter_window.h', 'windows/runner/flutter_window.cpp', 'windows/runner/main.cpp', 'windows/runner/utils.h', 'windows/runner/utils.cpp', 'windows/runner/resource.h', 'windows/runner/CMakeLists.txt', 'plugins/window_ext/windows/window_ext_plugin.h', 'plugins/window_ext/windows/window_ext_plugin.cpp', 'plugins/window_ext/windows/window_ext_plugin_c_api.cpp', 'plugins/window_ext/windows/include/window_ext/window_ext_plugin_c_api.h', '.ci/native-window-activation/test_native.ps1', '.ci/native-window-activation/native_window_tests.cpp')
+          $manifest = [ordered]@{}
+          foreach ($file in $files) { $manifest[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() }
+          $evidence = Join-Path $env:RUNNER_TEMP 'window-native-evidence'
+          [void](New-Item -ItemType Directory -Force -Path $evidence)
+          [ordered]@{ commit = $env:GITHUB_SHA; source_hashes = $manifest } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $evidence 'all-inputs.json') -Encoding UTF8
+      - name: Strict production runner and window plugin compilation
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path $env:RUNNER_TEMP 'window-native-evidence/compile'
+          & ./.ci/native-window-activation/test_native.ps1 -CompileOnly -EvidenceDirectory $evidence
+          $report = Get-Content -LiteralPath (Join-Path $evidence 'verification.json') -Raw | ConvertFrom-Json
+          if ($report.passed -ne $true -or $report.object_count -ne 7) { throw 'Strict compilation did not preserve seven verified objects' }
+      - name: Twelve native scenarios with explicit UAC environment gap
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path $env:RUNNER_TEMP 'window-native-evidence/runtime'
+          $failure = $null
+          try { & ./.ci/native-window-activation/test_native.ps1 -EvidenceDirectory $evidence } catch { $failure = $_ }
+          $report = Get-Content -LiteralPath (Join-Path $evidence 'verification.json') -Raw | ConvertFrom-Json
+          $execution = Get-Content -LiteralPath (Join-Path $evidence 'execution.json') -Raw | ConvertFrom-Json
+          if ($report.test_count -ne 12 -or @($report.tests).Count -ne 12 -or $report.failed_count -ne 0 -or $execution.timed_out -ne $false -or $report.child_exit_code -ne 0) { throw 'Native window verification failed or omitted a scenario' }
+          $skipped = @($report.tests | Where-Object skipped)
+          if ($skipped.Count -gt 0) {
+            if ($skipped.Count -ne 1 -or $report.passed_count -ne 11 -or $report.skipped_count -ne 1 -or $execution.exit_code -ne 1 -or $skipped[0].name -ne 'registered-message-rejects-payload-and-medium-activates-high') { throw 'Unexpected native scenario was not verified' }
+            Write-Warning ('UNVERIFIED: genuine medium-to-high UAC boundary: ' + $skipped[0].error)
+          } elseif ($failure) { throw $failure }
+          $global:LASTEXITCODE = 0
+          ('Native window scenarios: ' + $report.passed_count + ' passed, ' + $report.failed_count + ' failed, ' + $report.skipped_count + ' unverified due to environment.') | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: window-native-evidence
+          path: ${{ runner.temp }}/window-native-evidence
+          if-no-files-found: error
+          retention-days: 14
+  windows-readonly-tools:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shell: powershell
+            major: 5
+          - shell: pwsh
+            major: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify NoLaunch and InspectOnly on Windows PowerShell 5.1
+        if: matrix.shell == 'powershell'
+        shell: powershell
+        timeout-minutes: 7
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./.ci/window-scoped/test_readonly_tools.ps1 -ExpectedMajor 5 -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'readonly-tools-evidence')
+      - name: Verify NoLaunch and InspectOnly on PowerShell 7
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        timeout-minutes: 7
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./.ci/window-scoped/test_readonly_tools.ps1 -ExpectedMajor 7 -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'readonly-tools-evidence')
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: readonly-tools-${{ matrix.shell }}
+          path: ${{ runner.temp }}/readonly-tools-evidence
+          if-no-files-found: error
+          retention-days: 14
