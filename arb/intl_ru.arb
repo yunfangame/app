@@ -1355,5 +1355,26 @@
   "planResetRemaining": "До сброса трафика: {days} дн. {hours} ч.",
   "planResetWithinHour": "До сброса трафика менее 1 часа",
   "planResetPending": "Время сброса наступило. Обновите сведения о тарифе.",
-  "@planResetRemaining": {"placeholders": {"days": {"type": "int"}, "hours": {"type": "int"}}}
+  "@planResetRemaining": {"placeholders": {"days": {"type": "int"}, "hours": {"type": "int"}}},
+  "subscriptionEntryReminderTitle": "Напоминание о тарифе",
+  "subscriptionEntryReminderRemaining": "Осталось трафика: {remaining} ГБ",
+  "subscriptionEntryReminderLowTraffic": "Осталось менее 10 ГБ.",
+  "subscriptionEntryReminderExpiring": "Тариф истекает {date} (менее чем через 3 дня).",
+  "subscriptionEntryReminderDontRemind": "Больше не напоминать",
+  "subscriptionEntryReminderDontRemindScope": "Автоматические напоминания отключаются только для этого аккаунта в этом клиенте.",
+  "subscriptionEntryReminderDismiss": "Понятно",
+  "@subscriptionEntryReminderRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "String"
+      }
+    }
+  },
+  "@subscriptionEntryReminderExpiring": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  }
 }

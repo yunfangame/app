@@ -157,34 +157,39 @@ class MessageLookup extends MessageLookupByLibrary {
   static String m59(count) => "${count} items have been selected";
 
   static String m60(date) =>
+      "Your plan expires on ${date}, in less than 3 days.";
+
+  static String m61(remaining) => "Remaining traffic: ${remaining} GB";
+
+  static String m62(date) =>
       "Your plan expired on ${date}. Renew it to continue using the service.";
 
-  static String m61(date) =>
+  static String m63(date) =>
       "Your plan expires on ${date}, in less than 7 days. Renew it soon.";
 
-  static String m62(remaining) =>
+  static String m64(remaining) =>
       "Only ${remaining} GB remains, which is below 10 GB. Purchase or renew a plan soon.";
 
-  static String m63(days, date) =>
+  static String m65(days, date) =>
       "The next traffic reset is in ${days} days (${date}).";
 
-  static String m64(date) =>
+  static String m66(date) =>
       "The next traffic reset is in less than 1 day (${date}).";
 
-  static String m65(code) =>
+  static String m67(code) =>
       "Could not enable the system proxy (${code}). The switch was reverted. Export logs for diagnosis";
 
-  static String m66(code) =>
+  static String m68(code) =>
       "Could not disable the system proxy (${code}). Disable it manually in Windows Settings";
 
-  static String m67(count) => "${count} orders";
+  static String m69(count) => "${count} orders";
 
-  static String m68(ip) =>
+  static String m70(ip) =>
       "IP ${ip} will be able to log in to this account again.";
 
-  static String m69(label) => "${label} must be a url";
+  static String m71(label) => "${label} must be a url";
 
-  static String m70(count) =>
+  static String m72(count) =>
       "${Intl.plural(count, one: '1 year ago', other: '${count} years ago')}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
@@ -2393,12 +2398,30 @@ class MessageLookup extends MessageLookupByLibrary {
     "submitWithdrawalTicket": MessageLookupByLibrary.simpleMessage(
       "Submit withdrawal ticket",
     ),
-    "subscriptionExpiredWarning": m60,
-    "subscriptionExpiringWarning": m61,
+    "subscriptionEntryReminderDismiss": MessageLookupByLibrary.simpleMessage(
+      "Got it",
+    ),
+    "subscriptionEntryReminderDontRemind": MessageLookupByLibrary.simpleMessage(
+      "Don\'t remind me again",
+    ),
+    "subscriptionEntryReminderDontRemindScope":
+        MessageLookupByLibrary.simpleMessage(
+          "This only disables automatic plan reminders for this account in this client.",
+        ),
+    "subscriptionEntryReminderExpiring": m60,
+    "subscriptionEntryReminderLowTraffic": MessageLookupByLibrary.simpleMessage(
+      "Less than 10 GB remains.",
+    ),
+    "subscriptionEntryReminderRemaining": m61,
+    "subscriptionEntryReminderTitle": MessageLookupByLibrary.simpleMessage(
+      "Plan reminder",
+    ),
+    "subscriptionExpiredWarning": m62,
+    "subscriptionExpiringWarning": m63,
     "subscriptionImportFailed": MessageLookupByLibrary.simpleMessage(
       "Failed to load subscription nodes. Check your network and try again",
     ),
-    "subscriptionLowTrafficWarning": m62,
+    "subscriptionLowTrafficWarning": m64,
     "subscriptionNormalTooltip": MessageLookupByLibrary.simpleMessage(
       "Plan status is normal. Click to view details",
     ),
@@ -2408,7 +2431,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionResetContinue": MessageLookupByLibrary.simpleMessage(
       "Continue with reset",
     ),
-    "subscriptionResetCountdown": m63,
+    "subscriptionResetCountdown": m65,
     "subscriptionResetExpired": MessageLookupByLibrary.simpleMessage(
       "Your plan has expired. Renew it first; the reset schedule will follow the updated plan information.",
     ),
@@ -2424,7 +2447,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionResetSuccess": MessageLookupByLibrary.simpleMessage(
       "Subscription reset and synchronized",
     ),
-    "subscriptionResetWithinDay": m64,
+    "subscriptionResetWithinDay": m66,
     "subscriptionStatusNormalMessage": MessageLookupByLibrary.simpleMessage(
       "Your remaining traffic and plan validity are both in a normal state.",
     ),
@@ -2470,11 +2493,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "system": MessageLookupByLibrary.simpleMessage("System"),
     "systemApp": MessageLookupByLibrary.simpleMessage("System APP"),
     "systemProxy": MessageLookupByLibrary.simpleMessage("System proxy"),
-    "systemProxyApplyFailed": m65,
+    "systemProxyApplyFailed": m67,
     "systemProxyDesc": MessageLookupByLibrary.simpleMessage(
       "Attach HTTP proxy to VpnService",
     ),
-    "systemProxyDisableFailed": m66,
+    "systemProxyDisableFailed": m68,
     "systemProxyStaleCleaned": MessageLookupByLibrary.simpleMessage(
       "The system proxy left by the previous abnormal exit was cleared",
     ),
@@ -2561,7 +2584,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "tools": MessageLookupByLibrary.simpleMessage("Tools"),
     "totalCommission": MessageLookupByLibrary.simpleMessage("Total commission"),
     "totalLoginCount": MessageLookupByLibrary.simpleMessage("Login count"),
-    "totalOrders": m67,
+    "totalOrders": m69,
     "totalTrafficLabel": MessageLookupByLibrary.simpleMessage("Total"),
     "tproxyPort": MessageLookupByLibrary.simpleMessage("Tproxy Port"),
     "trafficDetailRecords": MessageLookupByLibrary.simpleMessage(
@@ -2591,7 +2614,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "turnOn": MessageLookupByLibrary.simpleMessage("Turn On"),
     "twoYearBilling": MessageLookupByLibrary.simpleMessage("2 years"),
     "unblockLoginIp": MessageLookupByLibrary.simpleMessage("Unblock"),
-    "unblockLoginIpMessage": m68,
+    "unblockLoginIpMessage": m70,
     "unblockLoginIpTitle": MessageLookupByLibrary.simpleMessage(
       "Unblock this IP?",
     ),
@@ -2621,7 +2644,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "urlDesc": MessageLookupByLibrary.simpleMessage(
       "Obtain profile through URL",
     ),
-    "urlTip": m69,
+    "urlTip": m71,
     "useHosts": MessageLookupByLibrary.simpleMessage("Use hosts"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage("Use system hosts"),
     "usedTrafficLabel": MessageLookupByLibrary.simpleMessage("Used"),
@@ -2700,7 +2723,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "A support ticket will be created in the system for an administrator to process.",
     ),
     "yearlyBilling": MessageLookupByLibrary.simpleMessage("Yearly"),
-    "yearsAgo": m70,
+    "yearsAgo": m72,
     "zh_CN": MessageLookupByLibrary.simpleMessage("Simplified Chinese"),
     "zoomIn": MessageLookupByLibrary.simpleMessage("Zoom in"),
     "zoomOut": MessageLookupByLibrary.simpleMessage("Zoom out"),

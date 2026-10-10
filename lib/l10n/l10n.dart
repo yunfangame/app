@@ -11102,6 +11102,76 @@ class AppLocalizations {
       args: [],
     );
   }
+
+  /// `Plan reminder`
+  String get subscriptionEntryReminderTitle {
+    return Intl.message(
+      'Plan reminder',
+      name: 'subscriptionEntryReminderTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Remaining traffic: {remaining} GB`
+  String subscriptionEntryReminderRemaining(String remaining) {
+    return Intl.message(
+      'Remaining traffic: $remaining GB',
+      name: 'subscriptionEntryReminderRemaining',
+      desc: '',
+      args: [remaining],
+    );
+  }
+
+  /// `Less than 10 GB remains.`
+  String get subscriptionEntryReminderLowTraffic {
+    return Intl.message(
+      'Less than 10 GB remains.',
+      name: 'subscriptionEntryReminderLowTraffic',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Your plan expires on {date}, in less than 3 days.`
+  String subscriptionEntryReminderExpiring(String date) {
+    return Intl.message(
+      'Your plan expires on $date, in less than 3 days.',
+      name: 'subscriptionEntryReminderExpiring',
+      desc: '',
+      args: [date],
+    );
+  }
+
+  /// `Don't remind me again`
+  String get subscriptionEntryReminderDontRemind {
+    return Intl.message(
+      'Don\'t remind me again',
+      name: 'subscriptionEntryReminderDontRemind',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This only disables automatic plan reminders for this account in this client.`
+  String get subscriptionEntryReminderDontRemindScope {
+    return Intl.message(
+      'This only disables automatic plan reminders for this account in this client.',
+      name: 'subscriptionEntryReminderDontRemindScope',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Got it`
+  String get subscriptionEntryReminderDismiss {
+    return Intl.message(
+      'Got it',
+      name: 'subscriptionEntryReminderDismiss',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<AppLocalizations> {

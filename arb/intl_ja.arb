@@ -1355,5 +1355,26 @@
   "planResetRemaining": "次の通信量リセットまで {days} 日 {hours} 時間",
   "planResetWithinHour": "次の通信量リセットまで1時間未満",
   "planResetPending": "通信量リセット時刻になりました。プラン情報を更新してください。",
-  "@planResetRemaining": {"placeholders": {"days": {"type": "int"}, "hours": {"type": "int"}}}
+  "@planResetRemaining": {"placeholders": {"days": {"type": "int"}, "hours": {"type": "int"}}},
+  "subscriptionEntryReminderTitle": "契約のリマインダー",
+  "subscriptionEntryReminderRemaining": "残りの通信量：{remaining} GB",
+  "subscriptionEntryReminderLowTraffic": "残りの通信量は 10 GB 未満です。",
+  "subscriptionEntryReminderExpiring": "契約は {date} に終了します（残り 3 日未満）。",
+  "subscriptionEntryReminderDontRemind": "今後は通知しない",
+  "subscriptionEntryReminderDontRemindScope": "このクライアントの現在のアカウントに対する自動通知のみ無効になります。",
+  "subscriptionEntryReminderDismiss": "確認しました",
+  "@subscriptionEntryReminderRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "String"
+      }
+    }
+  },
+  "@subscriptionEntryReminderExpiring": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  }
 }

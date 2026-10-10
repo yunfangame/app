@@ -7,6 +7,7 @@ import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/account/fengwo_tickets.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:fl_clash/widgets/app_update_controls.dart';
+import 'package:fl_clash/widgets/subscription_entry_reminder_host.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -29,7 +30,7 @@ class HomePage extends ConsumerWidget {
     if (!hasViewSize) {
       return const SizedBox.shrink();
     }
-    return XboardAnnouncementCenterHost(
+    final home = XboardAnnouncementCenterHost(
       child: HomeBackScopeContainer(
         child: AppSidebarContainer(
           child: Material(
@@ -155,6 +156,7 @@ class HomePage extends ConsumerWidget {
         ),
       ),
     );
+    return SubscriptionEntryReminderHost(child: home);
   }
 }
 
