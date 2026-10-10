@@ -11,6 +11,7 @@ $bundle = (Resolve-Path -LiteralPath $BundleDirectory).Path
 $binaries = New-Object 'Collections.Generic.List[object]'
 $excludedBootstrappers = New-Object 'Collections.Generic.List[object]'
 $managedArchitectureIndependent = New-Object 'Collections.Generic.List[object]'
+$importChecks = New-Object 'Collections.Generic.List[object]'
 $failure = $null
 
 function Get-FwAnyCpuIdentity {
@@ -68,6 +69,13 @@ function Get-FwAnyCpuIdentity {
 }
 
 try {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+    $installation = (& $vswhere -latest -products '*' -property installationPath | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $installation) { throw 'Visual Studio could not be located for native import verification' }
+    $dumpbinCandidates = @(Get-ChildItem -Path (Join-Path $installation 'VC/Tools/MSVC/*/bin/Hostarm64/arm64/dumpbin.exe') -File | Sort-Object { [version]$_.Directory.Parent.Parent.Parent.Name } -Descending)
+    if ($dumpbinCandidates.Count -eq 0) { throw 'The native ARM64 import verification tool is missing' }
+    $dumpbin = $dumpbinCandidates[0].FullName
+    if (-not (Get-FwPeIdentity $dumpbin).arm64) { throw 'Import verification requires native ARM64 dumpbin' }
     foreach ($name in @('FengWo.exe', 'FlClashCore.exe', 'FlClashHelperService.exe', 'flutter_windows.dll', 'rust_api.dll', 'wifi_ssid_plugin.dll', 'quickjs_c_bridge.dll', 'manifest.json')) {
         if (-not (Test-Path -LiteralPath (Join-Path $bundle $name) -PathType Leaf)) { throw ('Required ARM64 bundle file is missing: ' + $name) }
     }
@@ -97,14 +105,21 @@ try {
         $identity.path = $relative
         $binaries.Add($identity)
         if (-not $identity.arm64) { throw ('Non-ARM64 native payload: ' + $relative + ' (' + $identity.machine + ')') }
+        $imports = & $dumpbin /IMPORTS $file.FullName 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) { throw ('The native payload imports could not be inspected: ' + $relative) }
+        $importLog = Join-Path $EvidenceDirectory ('imports/' + $relative + '.txt')
+        [void][IO.Directory]::CreateDirectory((Split-Path -Parent $importLog))
+        [IO.File]::WriteAllText($importLog, $imports, [Text.UTF8Encoding]::new($false))
+        if ($imports -match '(?im)^\s*vcruntime140_1\.dll\s*$') { throw ('An ARM64 native payload depends on the excluded x64 CRT: ' + $relative) }
+        $importChecks.Add([ordered]@{ path = $relative; ordinary_and_delay_imports_inspected = $true; excluded_x64_crt_dependency = $false })
     }
     if ($binaries.Count -lt 8) { throw 'The native bundle inspection was incomplete' }
     $installer = Get-FwPeIdentity $InstallerPath
     $signature = Get-AuthenticodeSignature -LiteralPath $InstallerPath
-    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'package.json') ([ordered]@{ version = $ExpectedVersion; architecture = 'arm64'; installer = $installer; installer_bootstrapper_is_application_architecture_proof = $false; authenticode_status = $signature.Status.ToString(); payload = @($binaries.ToArray()); separate_runtime_bootstrappers = @($excludedBootstrappers.ToArray()); managed_architecture_independent = @($managedArchitectureIndependent.ToArray()); core_manifest_sha256 = $manifest.coreSha256 })
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'package.json') ([ordered]@{ version = $ExpectedVersion; architecture = 'arm64'; installer = $installer; installer_bootstrapper_is_application_architecture_proof = $false; authenticode_status = $signature.Status.ToString(); payload = @($binaries.ToArray()); import_checks = @($importChecks.ToArray()); separate_runtime_bootstrappers = @($excludedBootstrappers.ToArray()); managed_architecture_independent = @($managedArchitectureIndependent.ToArray()); core_manifest_sha256 = $manifest.coreSha256 })
 } catch {
     $failure = $_.Exception.Message
 } finally {
-    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'bundle-verification.json') ([ordered]@{ passed = ($null -eq $failure); failure = $failure; environment = $environment; native_payload_count = $binaries.Count; payload = @($binaries.ToArray()); separate_runtime_bootstrappers = @($excludedBootstrappers.ToArray()); managed_architecture_independent = @($managedArchitectureIndependent.ToArray()) })
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'bundle-verification.json') ([ordered]@{ passed = ($null -eq $failure); failure = $failure; environment = $environment; native_payload_count = $binaries.Count; payload = @($binaries.ToArray()); import_checks = @($importChecks.ToArray()); separate_runtime_bootstrappers = @($excludedBootstrappers.ToArray()); managed_architecture_independent = @($managedArchitectureIndependent.ToArray()) })
 }
 if ($failure) { throw $failure }

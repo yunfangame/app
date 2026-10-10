@@ -30,7 +30,10 @@ void main() {
     );
   });
 
-  Future<Directory> createFixture({String? missingLibrary}) async {
+  Future<Directory> createFixture({
+    String? missingLibrary,
+    String architecture = 'x64',
+  }) async {
     final root = await Directory.systemTemp.createTemp('fengwo runtime cmake ');
     addTearDown(() => root.delete(recursive: true));
     Future<void> write(String relativePath, String content) async {
@@ -48,8 +51,14 @@ void main() {
       'windows/packaging/exe/install_integrity_code.iss',
       'integrity logic',
     );
-    await write('.dart_tool/windows_runtime/x64/vc_runtime.iss', 'metadata');
-    await write('.dart_tool/windows_runtime/x64/vc_redist.exe', 'installer');
+    await write(
+      '.dart_tool/windows_runtime/$architecture/vc_runtime.iss',
+      'metadata',
+    );
+    await write(
+      '.dart_tool/windows_runtime/$architecture/vc_redist.exe',
+      'installer',
+    );
     for (final name in [
       'vcruntime140.dll',
       'vcruntime140_1.dll',
@@ -57,8 +66,10 @@ void main() {
     ]) {
       if (name != missingLibrary) await write('crt/$name', name);
     }
-    await write('modules/InstallRequiredSystemLibraries.cmake', r'''
-set(CMAKE_MSVC_ARCH x64)
+    await write(
+      'modules/InstallRequiredSystemLibraries.cmake',
+      'set(CMAKE_MSVC_ARCH $architecture)\n'
+          r'''
 if(DEFINED MSVC_REDIST_DIR)
   set(test_runtime_dir "${MSVC_REDIST_DIR}")
 else()
@@ -68,7 +79,8 @@ set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS
   "${test_runtime_dir}/vcruntime140.dll"
   "${test_runtime_dir}/vcruntime140_1.dll"
   "${test_runtime_dir}/msvcp140.dll")
-''');
+''',
+    );
     await write('CMakeLists.txt', r'''
 cmake_minimum_required(VERSION 3.14)
 project(RuntimeBundleTest NONE)
@@ -132,6 +144,54 @@ include(windows/packaging/vc_runtime.cmake)
   ]) {
     test('CMake refuses incomplete redistribution without $library', () async {
       final root = await createFixture(missingLibrary: library);
+      final result = await configure(root, 'Release');
+      expect(result.exitCode, isNot(0));
+      expect(result.stderr.toString(), contains(library));
+    });
+  }
+
+  test('CMake excludes the x64 FH4 runtime from the ARM64 bundle', () async {
+    final root = await createFixture(architecture: 'arm64');
+    final result = await configure(root, 'Release');
+    expect(result.exitCode, 0, reason: result.stderr.toString());
+    final installed = await Process.run('cmake', [
+      '--install',
+      p.join(root.path, 'build-Release'),
+      '--config',
+      'Release',
+      '--component',
+      'Runtime',
+    ]);
+    expect(installed.exitCode, 0, reason: installed.stderr.toString());
+    for (final relative in [
+      'vcruntime140.dll',
+      'msvcp140.dll',
+      'prerequisites/vc_redist.exe',
+      'prerequisites/vc_runtime.iss',
+    ]) {
+      expect(File(p.join(root.path, 'Release', relative)).existsSync(), isTrue);
+    }
+    expect(
+      File(p.join(root.path, 'Release', 'vcruntime140_1.dll')).existsSync(),
+      isFalse,
+    );
+  });
+
+  test('CMake accepts ARM64 CRT without the x64 FH4 runtime', () async {
+    final root = await createFixture(
+      architecture: 'arm64',
+      missingLibrary: 'vcruntime140_1.dll',
+    );
+    final result = await configure(root, 'Release');
+    expect(result.exitCode, 0, reason: result.stderr.toString());
+  });
+
+  for (final library in ['vcruntime140.dll', 'msvcp140.dll']) {
+    test('CMake refuses ARM64 CRT without $library', () async {
+      final root = await createFixture(
+        architecture: 'arm64',
+        missingLibrary: library,
+      );
       final result = await configure(root, 'Release');
       expect(result.exitCode, isNot(0));
       expect(result.stderr.toString(), contains(library));

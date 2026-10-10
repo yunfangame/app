@@ -17,29 +17,32 @@ function Get-VcRuntimeSignature {
 }
 
 function Write-Fixture {
+  param([string]$Architecture = 'x64')
   $dll = @{ CompanyName = 'Microsoft Corporation'; FileVersion = '14.44.35211.0' } | ConvertTo-Json
   foreach ($name in @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll')) {
+    [IO.File]::Delete((Join-Path $fixture $name))
+    if ($Architecture -ieq 'arm64' -and $name -ceq 'vcruntime140_1.dll') { continue }
     [IO.File]::WriteAllText((Join-Path $fixture $name), $dll)
   }
   $installer = Join-Path $fixture 'prerequisites/vc_redist.exe'
   $metadata = @{
     CompanyName = 'Microsoft Corporation'
-    ProductName = 'Microsoft Visual C++ v14 Redistributable (x64)'
+    ProductName = "Microsoft Visual C++ v14 Redistributable ($Architecture)"
     FileVersion = '14.50.35719.0'
     ProductVersion = '14.50.35719.0'
   } | ConvertTo-Json
   [IO.File]::WriteAllText($installer, $metadata)
   $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
-  $defines = "#define VcRuntimeArchitecture `"x64`"`n#define VcRuntimeMinimumVersion `"14.50.35719.0`"`n#define VcRuntimeInstallerSHA256 `"$hash`"`n"
+  $defines = "#define VcRuntimeArchitecture `"$Architecture`"`n#define VcRuntimeMinimumVersion `"14.50.35719.0`"`n#define VcRuntimeInstallerSHA256 `"$hash`"`n"
   [IO.File]::WriteAllText((Join-Path $fixture 'prerequisites/vc_runtime.iss'), $defines)
   [IO.File]::WriteAllText((Join-Path $fixture 'prerequisites/vc_runtime_code.iss'), 'fixture')
   [IO.File]::WriteAllText((Join-Path $fixture 'prerequisites/install_integrity_code.iss'), 'fixture')
 }
 
 function Assert-BundleRejected {
-  param([string]$Pattern)
+  param([string]$Pattern, [string]$Architecture = 'x64')
   $failure = $null
-  try { Assert-VcRuntimeBundle -BundleDirectory $fixture -Architecture x64 | Out-Null } catch { $failure = $_ }
+  try { Assert-VcRuntimeBundle -BundleDirectory $fixture -Architecture $Architecture | Out-Null } catch { $failure = $_ }
   if ($null -eq $failure -or $failure.Exception.Message -notmatch $Pattern) {
     throw "Expected bundle rejection matching $Pattern; got $failure"
   }
@@ -82,6 +85,20 @@ try {
   Write-Fixture
   [IO.File]::Delete((Join-Path $fixture 'prerequisites/install_integrity_code.iss'))
   Assert-BundleRejected 'Windows install integrity logic is missing'
+  Write-Fixture -Architecture arm64
+  Assert-VcRuntimeBundle -BundleDirectory $fixture -Architecture arm64
+  foreach ($name in @('vcruntime140.dll', 'msvcp140.dll')) {
+    Write-Fixture -Architecture arm64
+    [IO.File]::Delete((Join-Path $fixture $name))
+    Assert-BundleRejected 'Missing bundled runtime' -Architecture arm64
+  }
+  Write-Fixture -Architecture arm64
+  [IO.File]::WriteAllText((Join-Path $fixture 'vcruntime140_1.dll'), 'stale x64 runtime')
+  Assert-BundleRejected 'ARM64 bundle must not include' -Architecture arm64
+  Write-Fixture -Architecture arm64
+  $path = Join-Path $fixture 'prerequisites/vc_redist.exe'
+  [IO.File]::WriteAllText($path, [IO.File]::ReadAllText($path).Replace('(arm64)', '(x64)'))
+  Assert-BundleRejected 'architecture does not match' -Architecture arm64
   Write-Output 'VC++ runtime bundle verification tests passed'
 } finally {
   [IO.Directory]::Delete($fixture, $true)
