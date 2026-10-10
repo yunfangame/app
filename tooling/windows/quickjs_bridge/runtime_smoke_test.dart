@@ -90,7 +90,8 @@ void main() {
         timeout: const Duration(seconds: 3),
       );
       expect(result.isError, isFalse);
-      expect(jsonDecode(result.stringResult), {'answer': 42, 'name': '蜂窝'});
+      expect(result.rawResult, isA<Future<dynamic>>());
+      expect(await result.rawResult, {'answer': 42, 'name': '蜂窝'});
     } finally {
       runtime.dispose();
     }
