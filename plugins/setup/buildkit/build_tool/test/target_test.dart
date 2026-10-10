@@ -3,6 +3,48 @@ import 'package:build_tool/src/target.dart';
 import 'package:test/test.dart';
 
 void main() {
+  group('resolveWindowsTargets', () {
+    test('uses the native host architecture without an override', () {
+      expect(Target.resolveWindowsTargets(hostArch: 'arm64'),
+          [Target.windowsArm64]);
+      expect(Target.resolveWindowsTargets(hostArch: 'amd64'),
+          [Target.windowsAmd64]);
+    });
+
+    test('uses an explicit Windows Core and Helper target', () {
+      expect(
+        Target.resolveWindowsTargets(archName: 'arm64', hostArch: 'amd64'),
+        [Target.windowsArm64],
+      );
+      expect(
+        Target.resolveWindowsTargets(archName: 'amd64', hostArch: 'arm64'),
+        [Target.windowsAmd64],
+      );
+    });
+
+    test('rejects unsupported Windows targets', () {
+      for (final arch in ['arm', 'x86', 'riscv64']) {
+        expect(
+          () => Target.resolveWindowsTargets(archName: arch, hostArch: 'amd64'),
+          throwsA(isA<BuildException>()),
+        );
+      }
+    });
+
+    test('resolves the matching MSVC target for the Windows Helper', () {
+      expect(Target.windowsArm64.windowsRustTriple, 'aarch64-pc-windows-msvc');
+      expect(Target.windowsAmd64.windowsRustTriple, 'x86_64-pc-windows-msvc');
+      expect(
+        () => Target.macosArm64.windowsRustTriple,
+        throwsA(isA<BuildException>()),
+      );
+      expect(
+        () => const Target(goos: 'windows', goarch: 'arm').windowsRustTriple,
+        throwsA(isA<BuildException>()),
+      );
+    });
+  });
+
   group('resolveAndroidTargets', () {
     test('defaults to all Android targets', () {
       final targets = Target.resolveAndroidTargets();

@@ -12,17 +12,35 @@ import 'util.dart';
 
 final _log = Logger('rust_builder');
 
+typedef RustCommandRunner = ProcessResult Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+  Map<String, String>? environment,
+});
+
+typedef RustCommandStreamRunner = Future<void> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+  Map<String, String>? environment,
+});
+
 class RustBuilder {
   final String rootDir;
   final BuildConfig config;
   final BuildCache cache;
   final BuildNotice notice;
+  final RustCommandRunner commandRunner;
+  final RustCommandStreamRunner commandStreamRunner;
 
   RustBuilder({
     required this.rootDir,
     required this.config,
     required this.cache,
     required this.notice,
+    this.commandRunner = runCommand,
+    this.commandStreamRunner = runCommandStream,
   });
 
   String get _helperPath => p.join(rootDir, config.helperDir);
@@ -34,7 +52,18 @@ class RustBuilder {
     bool force = false,
     Future<void> Function()? beforeBuild,
   }) async {
-    final args = ['build', '--features', 'windows-service', '--release'];
+    final rustTarget = target.windowsRustTriple;
+    final targetDir = p.join(_helperPath, 'target');
+    final args = [
+      'build',
+      '--features',
+      'windows-service',
+      '--release',
+      '--target',
+      rustTarget,
+      '--target-dir',
+      targetDir,
+    ];
     final env = {
       'CORE_SHA256': coreSha256,
       'CORE_NAME': '${config.coreName}${target.executableExtension}',
@@ -43,6 +72,7 @@ class RustBuilder {
     final srcPath = p.join(
       _helperPath,
       'target',
+      rustTarget,
       'release',
       'helper${target.executableExtension}',
     );
@@ -67,7 +97,7 @@ class RustBuilder {
         _log.info('Building Rust helper: $target');
         _log.info(kSeparator);
 
-        await runCommandStream(
+        await commandStreamRunner(
           'cargo',
           args,
           workingDirectory: _helperPath,
@@ -100,13 +130,13 @@ class RustBuilder {
       ..addValue('environment', _rustEnvironment())
       ..addValue('config', config.toFingerprintMap());
 
-    final cargoVersion = runCommand(
+    final cargoVersion = commandRunner(
       'cargo',
       ['--version'],
       workingDirectory: _helperPath,
     );
     builder.addValue('cargo_version', (cargoVersion.stdout as String).trim());
-    final rustVersion = runCommand(
+    final rustVersion = commandRunner(
       'rustc',
       ['-Vv'],
       workingDirectory: _helperPath,

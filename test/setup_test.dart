@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:test/test.dart';
@@ -21,6 +22,122 @@ Load command 11
       sdk 26.5
 ''';
   group('setup.dart', () {
+    test('selects Windows architecture from the native Dart ABI', () {
+      expect(setup.windowsArchitectureForAbi(Abi.windowsArm64), 'arm64');
+      expect(setup.windowsArchitectureForAbi(Abi.windowsX64), 'amd64');
+      expect(
+        () => setup.windowsArchitectureForAbi(Abi.windowsIA32),
+        throwsArgumentError,
+      );
+    });
+
+    test('accepts the native Windows packaging architecture', () {
+      for (final arch in ['amd64', 'arm64']) {
+        expect(
+          setup.resolveBuildArchitecture(platform: 'windows', hostArch: arch),
+          arch,
+        );
+        expect(
+          setup.resolveBuildArchitecture(
+            platform: 'windows',
+            hostArch: arch,
+            requestedArch: arch,
+          ),
+          arch,
+        );
+      }
+    });
+
+    test('rejects cross architecture Windows packaging before building', () {
+      for (final host in ['amd64', 'arm64']) {
+        expect(
+          () => setup.resolveBuildArchitecture(
+            platform: 'windows',
+            hostArch: host,
+            requestedArch: host == 'amd64' ? 'arm64' : 'amd64',
+          ),
+          throwsA(
+            isA<ArgumentError>().having(
+              (error) => error.message,
+              'message',
+              contains('native'),
+            ),
+          ),
+        );
+      }
+      expect(
+        () => setup.resolveBuildArchitecture(
+          platform: 'windows',
+          hostArch: 'amd64',
+          requestedArch: 'arm',
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('keeps Android packaging independent of the host architecture', () {
+      expect(
+        setup.resolveBuildArchitecture(
+          platform: 'android',
+          hostArch: 'amd64',
+          requestedArch: 'arm64',
+        ),
+        'amd64',
+      );
+      expect(
+        setup.createPackageEnvironment(
+          platform: 'android',
+          arch: 'amd64',
+          androidArch: 'arm64',
+        ),
+        {'ANDROID_ARCH': 'arm64'},
+      );
+      expect(
+        setup.createPackageEnvironment(platform: 'android', arch: 'arm64'),
+        isEmpty,
+      );
+    });
+
+    test('propagates the verified Windows ABI to the packager', () {
+      expect(
+        setup.createPackageEnvironment(platform: 'windows', arch: 'arm64'),
+        {'PROCESSOR_ARCHITECTURE': 'ARM64'},
+      );
+      expect(
+        setup.createPackageEnvironment(platform: 'windows', arch: 'amd64'),
+        {'PROCESSOR_ARCHITECTURE': 'AMD64'},
+      );
+      expect(
+        () => setup.createPackageEnvironment(platform: 'windows', arch: 'arm'),
+        throwsArgumentError,
+      );
+      expect(
+        setup.createFlutterBuildArgs(platform: 'windows', verbose: false),
+        ['dart-define-from-file=env.json'],
+      );
+    });
+
+    test(
+      'prepares VC runtime for the selected Windows package architecture',
+      () {
+        for (final entry in {'amd64': 'x64', 'arm64': 'arm64'}.entries) {
+          final args = setup.windowsRuntimePreparationArgs(
+            'fixture',
+            entry.key,
+          );
+          expect(args[args.indexOf('-Architecture') + 1], entry.value);
+          expect(
+            args.last,
+            endsWith('windows_runtime${Platform.pathSeparator}${entry.value}'),
+          );
+        }
+        expect(
+          () => setup.windowsRuntimePreparationArgs('fixture', 'arm'),
+          throwsArgumentError,
+        );
+      },
+    );
+
     test('Windows Wi-Fi support loads wlanapi only when available', () {
       final source = File(
         'plugins/wifi_ssid/windows/wifi_ssid_plugin.cpp',

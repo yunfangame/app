@@ -1,11 +1,3 @@
-# buildkit.cmake — Build Go core as part of the native Linux/Windows build
-#
-# Include this from a plugin's CMakeLists.txt and call:
-#   apply_buildkit()
-#
-# This adds a custom command that runs build_tool before the native target is linked.
-
-# Resolve at include-time so CMAKE_CURRENT_LIST_DIR is this file's directory
 get_filename_component(BUILDKIT_DIR "${CMAKE_CURRENT_LIST_DIR}" DIRECTORY)
 
 function(apply_buildkit)
@@ -15,17 +7,26 @@ function(apply_buildkit)
     set(_launcher "${BUILDKIT_DIR}/run_build_tool.sh")
   endif()
 
-  # Project root is one level up from CMAKE_SOURCE_DIR (the top-level CMakeLists.txt
-  # lives in linux/ or windows/, so project root is the parent).
   get_filename_component(PROJECT_ROOT "${CMAKE_SOURCE_DIR}" DIRECTORY)
 
-  # The output files the build_tool produces
   if(WIN32)
     set(_outputs
       "${PROJECT_ROOT}/libclash/windows/FlClashCore.exe"
+      "${PROJECT_ROOT}/libclash/windows/FlClashHelperService.exe"
       "${PROJECT_ROOT}/libclash/windows/manifest.json"
     )
-    set(_platform_args "windows")
+    if(FLUTTER_TARGET_PLATFORM STREQUAL "windows-arm64")
+      set(_windows_arch "arm64")
+    elseif(FLUTTER_TARGET_PLATFORM STREQUAL "windows-x64")
+      set(_windows_arch "amd64")
+    elseif(NOT DEFINED FLUTTER_TARGET_PLATFORM AND CMAKE_GENERATOR_PLATFORM STREQUAL "ARM64")
+      set(_windows_arch "arm64")
+    elseif(NOT DEFINED FLUTTER_TARGET_PLATFORM AND CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
+      set(_windows_arch "amd64")
+    else()
+      message(FATAL_ERROR "Unsupported Windows Flutter target: ${FLUTTER_TARGET_PLATFORM}")
+    endif()
+    set(_platform_args "windows" "--arch" "${_windows_arch}")
   else()
     set(_outputs "${PROJECT_ROOT}/libclash/linux/FlClashCore")
     set(_platform_args "linux")
@@ -45,8 +46,6 @@ function(apply_buildkit)
     VERBATIM
   )
 
-  # Match Cargokit's symbolic-output and ALL-target structure so the native
-  # generator reevaluates this build rule on each build.
   set_source_files_properties("${_phony}" PROPERTIES SYMBOLIC TRUE)
   add_custom_target(setup_buildkit_build ALL DEPENDS ${_outputs})
 endfunction()

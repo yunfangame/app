@@ -1,3 +1,4 @@
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -34,8 +35,11 @@ String _findProjectRoot() {
 
 Future<String> _hostGoArch() async {
   if (Platform.isWindows) {
-    final pa = Platform.environment['PROCESSOR_ARCHITECTURE'] ?? 'AMD64';
-    return pa.toUpperCase() == 'ARM64' ? 'arm64' : 'amd64';
+    return switch (Abi.current()) {
+      Abi.windowsArm64 => 'arm64',
+      Abi.windowsX64 => 'amd64',
+      final abi => throw BuildException('Unsupported Windows Dart ABI: $abi'),
+    };
   }
   final result = await Process.run('uname', ['-m']);
   final machine = (result.stdout as String).trim();
@@ -179,13 +183,10 @@ class BuildWindowsCommand extends BuildCommand {
     final debug = Environment.isDebug;
     final config = BuildConfig.load(rootDir: _rootDir);
 
-    final arch = archName ?? await _hostGoArch();
-    final targets =
-        Target.forPlatform('windows').where((t) => t.goarch == arch).toList();
-
-    if (targets.isEmpty) {
-      throw BuildException('Invalid arch: $arch');
-    }
+    final targets = Target.resolveWindowsTargets(
+      archName: archName,
+      hostArch: archName ?? await _hostGoArch(),
+    );
 
     final cache = BuildCache(rootDir: _rootDir);
     final notice = BuildNotice();
