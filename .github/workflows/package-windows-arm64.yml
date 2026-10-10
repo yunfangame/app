@@ -99,6 +99,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Actual ARM64 Dart FFI Javascript smoke failed' }
           dart pub global activate -s git https://github.com/chen08209/flutter_distributor.git --git-ref c30ce409bef798c4f5fcedc45293eb4bc33da597 --git-path packages/flutter_distributor
           if ($LASTEXITCODE -ne 0) { throw 'Pinned packaging tool failed' }
+          $fengwoPackageCache = if ($env:PUB_CACHE) { $env:PUB_CACHE } else { Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Pub/Cache' }
+          $fengwoPackageBin = Join-Path $fengwoPackageCache 'bin'
+          if (-not (Test-Path -LiteralPath (Join-Path $fengwoPackageBin 'flutter_distributor.bat') -PathType Leaf)) { throw 'The activated packaging launcher is missing' }
+          $fengwoPackageBin | Add-Content -LiteralPath $env:GITHUB_PATH
       - name: Analyze and test architecture and desktop lifecycle contracts
         shell: pwsh
         run: |
