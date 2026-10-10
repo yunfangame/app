@@ -178,7 +178,7 @@ jobs:
         timeout-minutes: 10
         run: |
           $ErrorActionPreference = 'Stop'
-          cmake -S windows -B build/windows/arm64 -G $env:FENGWO_ARM64_CMAKE_GENERATOR -A ARM64 -Dinclude_proxy_tests=ON '-DCMAKE_POLICY_VERSION_MINIMUM=3.5'
+          cmake -S windows -B build/windows/arm64 -G $env:FENGWO_ARM64_CMAKE_GENERATOR -A ARM64 '-DFLUTTER_TARGET_PLATFORM=windows-arm64' -Dinclude_proxy_tests=ON '-DCMAKE_POLICY_VERSION_MINIMUM=3.5'
           if ($LASTEXITCODE -ne 0) { throw 'ARM64 system proxy configuration failed' }
           cmake --build build/windows/arm64 --config Release --target proxy_test proxy_winhttp_compatibility_test
           if ($LASTEXITCODE -ne 0) { throw 'ARM64 system proxy tests did not compile' }
