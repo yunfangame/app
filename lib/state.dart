@@ -484,7 +484,7 @@ class GlobalState {
     )) {
       window?.hide();
     } else {
-      window?.show();
+      window?.show(restoreToActiveScreen: false);
     }
     await _showCrashRecoveryTip();
     await _showCrashlyticsTip();

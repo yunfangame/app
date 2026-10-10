@@ -4,6 +4,99 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:proxy/proxy.dart';
 
 void main() {
+  CoreMethodException windowsBindError(
+    Object? osErrorCode, {
+    String? reason = 'bind_failed',
+    String listener = 'mixed',
+    String code = 'listener_not_ready',
+  }) => CoreMethodException(
+    code: code,
+    message: 'Local listener is not ready',
+    details: {
+      'listener': listener,
+      'reason': reason,
+      'os_error_code': osErrorCode,
+    },
+  );
+
+  for (final entry in <int, (DesktopProxyFailureKind, String, bool)>{
+    10048: (DesktopProxyFailureKind.addressInUse, 'address_in_use', true),
+    10013: (
+      DesktopProxyFailureKind.listenerAccessDenied,
+      'access_denied',
+      true,
+    ),
+    5: (DesktopProxyFailureKind.listenerAccessDenied, 'access_denied', true),
+    10049: (
+      DesktopProxyFailureKind.addressNotAvailable,
+      'address_not_available',
+      false,
+    ),
+  }.entries) {
+    test('recognizes legacy Windows bind error ${entry.key}', () {
+      final failure = DesktopProxyFailure.fromError(
+        windowsBindError(entry.key),
+        port: 7890,
+        isWindows: true,
+      );
+
+      expect(failure.kind, entry.value.$1);
+      expect(failure.reason, entry.value.$2);
+      expect(failure.canChangePort, entry.value.$3);
+      expect(failure.osErrorCode, entry.key);
+      expect(failure.diagnosticCode, 'listener_not_ready (${entry.key})');
+    });
+  }
+
+  test('accepts a numeric Windows code from a legacy JSON response', () {
+    final failure = DesktopProxyFailure.fromError(
+      windowsBindError('10048', reason: null),
+      port: 7890,
+      isWindows: true,
+    );
+
+    expect(failure.kind, DesktopProxyFailureKind.addressInUse);
+    expect(failure.canChangePort, isTrue);
+  });
+
+  test('Windows fallback cannot reclassify other platforms or stages', () {
+    for (final error in [
+      windowsBindError(10048, listener: 'tun'),
+      windowsBindError(10048, listener: 'other'),
+      windowsBindError(10048, code: 'parse_config_failed'),
+      windowsBindError(10048, reason: 'invalid_bind_address'),
+    ]) {
+      final failure = DesktopProxyFailure.fromError(
+        error,
+        port: 7890,
+        isWindows: true,
+      );
+      expect(failure.canChangePort, isFalse);
+      expect(failure.kind, isNot(DesktopProxyFailureKind.addressInUse));
+    }
+    for (final code in [5, 10013, 10048, 10049]) {
+      final failure = DesktopProxyFailure.fromError(
+        windowsBindError(code),
+        port: 7890,
+        isWindows: false,
+      );
+      expect(failure.kind, DesktopProxyFailureKind.configurationFailed);
+      expect(failure.canChangePort, isFalse);
+    }
+  });
+
+  test('unknown or invalid OS codes cannot claim a port conflict', () {
+    for (final code in <Object?>[null, -1, 10048.5, 'invalid', 10050]) {
+      final failure = DesktopProxyFailure.fromError(
+        windowsBindError(code),
+        port: 7890,
+        isWindows: true,
+      );
+      expect(failure.kind, DesktopProxyFailureKind.configurationFailed);
+      expect(failure.canChangePort, isFalse);
+    }
+  });
+
   for (final entry in <String, (DesktopProxyFailureKind, bool)>{
     'address_in_use': (DesktopProxyFailureKind.addressInUse, true),
     'access_denied': (DesktopProxyFailureKind.listenerAccessDenied, true),

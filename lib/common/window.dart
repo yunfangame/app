@@ -5,12 +5,17 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/config.dart';
 import 'package:flutter/material.dart';
 import 'package:screen_retriever/screen_retriever.dart';
+import 'package:window_ext/window_ext.dart';
 import 'package:window_manager/window_manager.dart';
 
 class Window {
   static Window? _instance;
+  final bool _isWindows;
 
-  Window._internal();
+  Window._internal() : _isWindows = system.isWindows;
+
+  @visibleForTesting
+  Window.forTesting({required bool isWindows}) : _isWindows = isWindows;
 
   factory Window() {
     _instance ??= Window._internal();
@@ -69,8 +74,24 @@ class Window {
     }
   }
 
-  Future<void> show() async {
+  Future<void> show({bool restoreToActiveScreen = true}) async {
     render?.resume();
+    if (_isWindows && restoreToActiveScreen) {
+      try {
+        final requested = await windowExtManager.restoreToActiveScreen();
+        if (!requested) {
+          commonPrint.log(
+            'window recovery request failed',
+            logLevel: LogLevel.warning,
+          );
+        }
+      } catch (error) {
+        commonPrint.log(
+          'window recovery request failed: $error',
+          logLevel: LogLevel.warning,
+        );
+      }
+    }
     await windowManager.show();
     await windowManager.focus();
     await windowManager.setSkipTaskbar(false);
@@ -94,10 +115,17 @@ class Window {
   Future<void> showInitFailure() async {
     try {
       await windowManager.ensureInitialized();
-      if (await windowManager.isVisible()) return;
-      await windowManager.waitUntilReadyToShow(
-        const WindowOptions(size: Size(680, 580), center: true),
-      );
+      final isVisible = await windowManager.isVisible();
+      if (isVisible && !_isWindows) return;
+      if (!isVisible) {
+        await windowManager.waitUntilReadyToShow(
+          const WindowOptions(size: Size(680, 580), center: true),
+        );
+      }
+      if (_isWindows) {
+        await show();
+        return;
+      }
       await windowManager.show();
       await windowManager.focus();
     } catch (error) {

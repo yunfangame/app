@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -83,6 +84,109 @@ func requireListenerFailure(t *testing.T, err error, protocol string) *listenerF
 	return failure
 }
 
+func requireConflictReason(t *testing.T, failure *listenerFailure) {
+	t.Helper()
+	want := "address_in_use"
+	if runtime.GOOS == "windows" && failure.OSErrorCode == 10013 {
+		want = "access_denied"
+	}
+	if failure.Reason != want {
+		t.Fatalf("conflict reason = %q, want %q: %+v", failure.Reason, want, failure)
+	}
+}
+
+func TestListenerBindErrorReasonWindowsNativeCodes(t *testing.T) {
+	for _, tc := range []struct {
+		code syscall.Errno
+		want string
+	}{
+		{10048, "address_in_use"},
+		{10013, "access_denied"},
+		{10049, "address_not_available"},
+		{5, "access_denied"},
+		{10022, ""},
+	} {
+		t.Run(fmt.Sprint(tc.code), func(t *testing.T) {
+			err := fmt.Errorf("listener failed: %w", &net.OpError{
+				Op:  "listen",
+				Net: "tcp",
+				Err: &os.SyscallError{Syscall: "bind", Err: tc.code},
+			})
+			if got := listenerBindErrorReason(err, "windows"); got != tc.want {
+				t.Fatalf("Windows error %d reason = %q, want %q", tc.code, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestListenerBindErrorReasonDoesNotMapWindowsCodesOnOtherPlatforms(t *testing.T) {
+	for _, goos := range []string{"darwin", "linux", "android"} {
+		for _, code := range []syscall.Errno{10048, 10013, 10049, 5} {
+			t.Run(fmt.Sprintf("%s-%d", goos, code), func(t *testing.T) {
+				err := &net.OpError{
+					Op:  "listen",
+					Net: "udp",
+					Err: &os.SyscallError{Syscall: "bind", Err: code},
+				}
+				if got := listenerBindErrorReason(err, goos); got != "" {
+					t.Fatalf("non-Windows error %d reason = %q", code, got)
+				}
+			})
+		}
+	}
+}
+
+func TestListenerBindErrorReasonPreservesNativeErrnoClassification(t *testing.T) {
+	for _, tc := range []struct {
+		code syscall.Errno
+		want string
+	}{
+		{syscall.EADDRINUSE, "address_in_use"},
+		{syscall.EACCES, "access_denied"},
+		{syscall.EPERM, "access_denied"},
+		{syscall.EADDRNOTAVAIL, "address_not_available"},
+	} {
+		t.Run(fmt.Sprint(tc.code), func(t *testing.T) {
+			err := &net.OpError{
+				Op:  "listen",
+				Net: "tcp",
+				Err: &os.SyscallError{Syscall: "bind", Err: tc.code},
+			}
+			if got := listenerBindErrorReason(err, runtime.GOOS); got != tc.want {
+				t.Fatalf("native error %d reason = %q, want %q", tc.code, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMixedListenerFailurePreservesNativeCodeAndProtocol(t *testing.T) {
+	for _, network := range []string{"tcp", "udp"} {
+		for _, code := range []syscall.Errno{10048, 10013, 10049, 5, 10022} {
+			t.Run(fmt.Sprintf("%s-%d", network, code), func(t *testing.T) {
+				general := &config.General{Inbound: config.Inbound{MixedPort: 7890}}
+				err := &net.OpError{
+					Op:  "listen",
+					Net: network,
+					Err: &os.SyscallError{Syscall: "bind", Err: code},
+				}
+				failure := mixedListenerFailure(general, listener.MixedListenerResult{
+					Network: network,
+					Error:   err,
+				})
+				wantReason := listenerBindErrorReason(err, runtime.GOOS)
+				if wantReason == "" {
+					wantReason = "bind_failed"
+				}
+				if failure.OSErrorCode != uint64(code) || failure.Protocol != network ||
+					failure.Reason != wantReason || failure.Port != 7890 || failure.Stage != "bind_failed" ||
+					failure.Listener != "mixed" || failure.TCPReady || failure.UDPReady {
+					t.Fatalf("native bind diagnostics changed: %+v", failure)
+				}
+			})
+		}
+	}
+}
+
 func TestListenerMissingConfigFailsWithoutRunning(t *testing.T) {
 	prepareListenerTest(t)
 	failure := requireListenerFailure(t, startListenerWithResult(), "config")
@@ -97,6 +201,7 @@ func TestListenerRejectsForeignTCPPort(t *testing.T) {
 	port := foreign.Addr().(*net.TCPAddr).Port
 	setListenerTestConfig(port)
 	failure := requireListenerFailure(t, startListenerWithResult(), "tcp")
+	requireConflictReason(t, failure)
 	if failure.OSErrorCode == 0 || failure.Port != port || failure.BindAddress != "127.0.0.1" {
 		t.Fatalf("missing safe bind diagnostics: %+v", failure)
 	}
@@ -120,6 +225,7 @@ func TestListenerRejectsForeignUDPPortAndCleansTCP(t *testing.T) {
 	t.Cleanup(func() { _ = foreign.Close() })
 	setListenerTestConfig(port)
 	failure := requireListenerFailure(t, startListenerWithResult(), "udp")
+	requireConflictReason(t, failure)
 	if failure.OSErrorCode == 0 {
 		t.Fatalf("UDP bind error missing OS error: %+v", failure)
 	}
@@ -177,7 +283,8 @@ func TestListenerPortUpdateFailureStopsOldOwnedPort(t *testing.T) {
 	}
 	foreign := bindTestTCP(t, 0)
 	blockedPort := foreign.Addr().(*net.TCPAddr).Port
-	requireListenerFailure(t, updateConfig(&UpdateParams{MixedPort: &blockedPort}), "tcp")
+	failure := requireListenerFailure(t, updateConfig(&UpdateParams{MixedPort: &blockedPort}), "tcp")
+	requireConflictReason(t, failure)
 	if listener.GetPorts().MixedPort != 0 {
 		t.Fatal("failed port update retained mixed listener ownership")
 	}
