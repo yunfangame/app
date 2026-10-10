@@ -152,7 +152,7 @@ jobs:
       - name: Verify installer prerequisite policies for both architectures
         shell: pwsh
         run: |
-          ./tooling/windows/test_vc_runtime_installer.ps1 | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/installer-prerequisite-tests.txt')
+          ./tooling/windows/test_vc_runtime_installer.ps1 6>&1 | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/installer-prerequisite-tests.txt')
       - name: Verify every native payload PE and exact Core hash
         shell: pwsh
         run: |
