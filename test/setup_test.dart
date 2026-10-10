@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../setup.dart' as setup;
@@ -190,12 +191,16 @@ Load command 11
 
       final output = await setup.copyLinuxPreflightScript(root.path);
 
-      expect(output.path, '${root.path}/dist/fengwo-linux-preflight.sh');
+      expect(
+        output.path,
+        p.join(root.path, 'dist', 'fengwo-linux-preflight.sh'),
+      );
       expect(await output.readAsString(), await source.readAsString());
     });
 
     test('Linux preflight script has valid Bash syntax', () async {
-      final result = await Process.run('bash', [
+      final bash = Platform.environment['FENGWO_SETUP_TEST_BASH'] ?? 'bash';
+      final result = await Process.run(bash, [
         '-n',
         'tooling/linux/fengwo-linux-preflight.sh',
       ]);
