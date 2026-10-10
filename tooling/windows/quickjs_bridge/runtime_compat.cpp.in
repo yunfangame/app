@@ -1,0 +1,46 @@
+#define jsEval fengwo_upstream_jsEval
+#define jsCall fengwo_upstream_jsCall
+#define jsExecutePendingJob fengwo_upstream_jsExecutePendingJob
+#include "@QUICKJS_RUNTIME_INCLUDE@"
+#undef jsEval
+#undef jsCall
+#undef jsExecutePendingJob
+
+class FengwoExecutionScope {
+ public:
+  explicit FengwoExecutionScope(JSRuntime* runtime)
+      : opaque_(static_cast<RuntimeOpaque*>(JS_GetRuntimeOpaque(runtime))),
+        previous_start_(opaque_ == nullptr ? 0 : opaque_->start) {
+    if (opaque_ != nullptr && opaque_->timeout > 0 && previous_start_ == 0) {
+      opaque_->start = clock();
+      if (opaque_->start == 0) opaque_->start = 1;
+    }
+  }
+
+  ~FengwoExecutionScope() {
+    if (opaque_ != nullptr) opaque_->start = previous_start_;
+  }
+
+ private:
+  RuntimeOpaque* opaque_;
+  int64_t previous_start_;
+};
+
+extern "C" __declspec(dllexport) JSValue* jsEval(
+    JSContext* context, const char* input, size_t length, const char* filename,
+    int32_t flags) {
+  FengwoExecutionScope scope(JS_GetRuntime(context));
+  return fengwo_upstream_jsEval(context, input, length, filename, flags);
+}
+
+extern "C" __declspec(dllexport) JSValue* jsCall(
+    JSContext* context, JSValueConst* function, JSValueConst* object,
+    int32_t argument_count, JSValueConst* arguments) {
+  FengwoExecutionScope scope(JS_GetRuntime(context));
+  return fengwo_upstream_jsCall(context, function, object, argument_count, arguments);
+}
+
+extern "C" __declspec(dllexport) int32_t jsExecutePendingJob(JSRuntime* runtime) {
+  FengwoExecutionScope scope(runtime);
+  return fengwo_upstream_jsExecutePendingJob(runtime);
+}
