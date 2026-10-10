@@ -77,8 +77,9 @@ void main() {
           '--target',
           'aarch64-pc-windows-msvc',
           '--target-dir',
-          p.join(root.path, 'services', 'helper', 'target'),
         ]));
+    expect(p.normalize(builds.single.last),
+        p.join(root.path, 'services', 'helper', 'target'));
     expect(output.readAsStringSync(), 'aarch64-pc-windows-msvc:core-a');
     expect(buildEnvironments.single,
         {'CORE_SHA256': 'core-a', 'CORE_NAME': 'FlClashCore.exe'});
