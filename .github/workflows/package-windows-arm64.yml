@@ -1,0 +1,208 @@
+name: fengwo-windows-arm64-package
+run-name: Windows ARM64 stable 1.0.8 · ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - fengwo-package-windows-arm64-*
+    branches:
+      - codex/windows-arm64-compat
+    paths:
+      - .github/workflows/package-windows-arm64.yml
+      - tooling/windows/arm64/**
+      - tooling/windows/prepare_arm64_javascript.ps1
+      - tooling/windows/quickjs_bridge/**
+      - tooling/windows/test_prepare_arm64_javascript.ps1
+      - setup.dart
+      - plugins/setup/buildkit/**
+      - windows/packaging/exe/**
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-11-arm
+    timeout-minutes: 120
+    env:
+      FENGWO_PROXY_MUTATING_TEST: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Bootstrap native pinned Flutter
+        shell: pwsh
+        run: |
+          git config --global core.longpaths true
+          ./tooling/windows/arm64/prepare_flutter.ps1 -SdkDirectory (Join-Path $env:RUNNER_TEMP 'flutter-arm64-3.44.4') -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'arm64-evidence/toolchain')
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.4'
+          architecture: arm64
+          cache-dependency-path: core/go.sum
+      - name: Verify native Rust and select the installed Visual Studio generator
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rust = rustc -Vv | Out-String
+          if ($LASTEXITCODE -ne 0 -or $rust -notmatch '(?m)^host: aarch64-pc-windows-msvc\s*$') { throw 'Native ARM64 MSVC Rust toolchain is required' }
+          $rust | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/toolchain/rust.txt') -Encoding UTF8
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $installation = (& $vswhere -latest -products '*' -format json | ConvertFrom-Json)[0]
+          if (-not $installation) { throw 'Visual Studio is unavailable' }
+          $major = ([version]$installation.installationVersion).Major
+          $generator = switch ($major) { 17 { 'Visual Studio 17 2022' }; 18 { 'Visual Studio 18 2026' }; default { throw 'Unsupported Visual Studio generator' } }
+          ('FENGWO_ARM64_CMAKE_GENERATOR=' + $generator) | Add-Content -LiteralPath $env:GITHUB_ENV
+          $ninja = Join-Path $installation.installationPath 'Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe'
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+            if (-not (Test-Path -LiteralPath $ninja -PathType Leaf)) { throw 'Ninja is required for native build tool tests' }
+            (Split-Path -Parent $ninja) | Add-Content -LiteralPath $env:GITHUB_PATH
+          }
+          $gitRoot = Split-Path -Parent (Split-Path -Parent (Get-Command git).Source)
+          $gitBash = Join-Path $gitRoot 'bin/bash.exe'
+          if (-not (Test-Path -LiteralPath $gitBash -PathType Leaf)) { throw 'Git Bash is required for setup shell checks' }
+          (Split-Path -Parent $gitBash) | Add-Content -LiteralPath $env:GITHUB_PATH
+          . ./tooling/windows/arm64/common.ps1
+          $sourceFiles = @(git ls-files -- .github/workflows/package-windows-arm64.yml tooling/windows/arm64 tooling/windows/prepare_arm64_javascript.ps1 tooling/windows/quickjs_bridge tooling/windows/test_prepare_arm64_javascript.ps1 setup.dart plugins/setup/buildkit windows/packaging/exe)
+          $sourceManifest = @($sourceFiles | ForEach-Object { [ordered]@{ path = $_; sha256 = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant() } })
+          Save-FwArmEvidence (Join-Path $env:RUNNER_TEMP 'arm64-evidence/source-manifest.json') ([ordered]@{ source_sha = $env:GITHUB_SHA; files = $sourceManifest })
+          Save-FwArmEvidence (Join-Path $env:RUNNER_TEMP 'arm64-evidence/toolchain/compiler.json') ([ordered]@{ generator = $generator; installation_version = $installation.installationVersion; installation_path = $installation.installationPath; go = (& go version | Out-String).Trim(); cmake = (& cmake --version | Out-String).Trim() })
+      - name: Prepare production build keys
+        shell: pwsh
+        env:
+          AES_KEY: ${{ secrets.REMOTE_CONFIG_AES_KEY }}
+          SIGNING_PUBLIC_KEY: ${{ secrets.REMOTE_CONFIG_SIGNING_PUBLIC_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:AES_KEY) -or [string]::IsNullOrWhiteSpace($env:SIGNING_PUBLIC_KEY)) { throw 'Production remote configuration keys are required' }
+          [void][IO.Directory]::CreateDirectory((Join-Path $PWD 'tooling/remote_config'))
+          $keys = @{ aesKey = $env:AES_KEY; signingPublicKey = $env:SIGNING_PUBLIC_KEY } | ConvertTo-Json -Compress
+          [IO.File]::WriteAllText((Join-Path $PWD 'tooling/remote_config/keys.json'), $keys, [Text.UTF8Encoding]::new($false))
+      - name: Restore packages and prepare native ARM64 Javascript
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          flutter pub get
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter dependencies failed' }
+          ./tooling/windows/prepare_arm64_javascript.ps1 -ProjectRoot $PWD -CmakePath (Get-Command cmake).Source -Generator $env:FENGWO_ARM64_CMAKE_GENERATOR -Configuration Release
+          flutter pub get
+          if ($LASTEXITCODE -ne 0) { throw 'ARM64 package overrides failed' }
+          Copy-Item -LiteralPath .dart_tool/windows_arm64_javascript/manifest.json -Destination (Join-Path $env:RUNNER_TEMP 'arm64-evidence/quickjs-native-manifest.json')
+          Copy-Item -LiteralPath .dart_tool/windows_arm64_javascript/build/Testing/Temporary/LastTest.log -Destination (Join-Path $env:RUNNER_TEMP 'arm64-evidence/quickjs-native-ctest.log')
+          ./tooling/windows/test_prepare_arm64_javascript.ps1
+          $env:PATH = (Join-Path $PWD '.dart_tool/windows_arm64_javascript/build/Release') + [IO.Path]::PathSeparator + $env:PATH
+          flutter test --no-pub --reporter expanded --timeout=30s tooling/windows/quickjs_bridge/runtime_smoke_test.dart | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/quickjs-dart-ffi-tests.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'Actual ARM64 Dart FFI Javascript smoke failed' }
+          dart pub global activate -s git https://github.com/chen08209/flutter_distributor.git --git-ref c30ce409bef798c4f5fcedc45293eb4bc33da597 --git-path packages/flutter_distributor
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned packaging tool failed' }
+      - name: Analyze and test architecture and desktop lifecycle contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          flutter analyze --no-pub --no-fatal-infos
+          if ($LASTEXITCODE -ne 0) { throw 'Static analysis failed' }
+          flutter test --no-pub --reporter expanded test/setup_test.dart test/core/desktop test/core/service_test.dart test/core/protocol_contract_test.dart test/manager/core_manager_test.dart test/providers/system_action_test.dart test/providers/windows_tun_authorization_test.dart test/common/subscription_entry_reminder_test.dart test/widgets/subscription_entry_reminder_dialog_test.dart test/widgets/subscription_entry_reminder_host_test.dart
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop lifecycle regression failed' }
+          Push-Location plugins/setup/buildkit/build_tool
+          try {
+            dart pub get
+            if ($LASTEXITCODE -ne 0) { throw 'Build tool dependencies failed' }
+            dart test
+            if ($LASTEXITCODE -ne 0) { throw 'Architecture propagation tests failed' }
+            dart analyze
+            if ($LASTEXITCODE -ne 0) { throw 'Build tool analysis failed' }
+          } finally { Pop-Location }
+          dart tooling/apply_core_patches.dart
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Core patch verification failed' }
+          Push-Location core
+          try {
+            $env:CGO_ENABLED = '0'
+            go test -count=1 -v .
+            if ($LASTEXITCODE -ne 0) { throw 'Native ARM64 Core tests failed' }
+            go vet .
+            if ($LASTEXITCODE -ne 0) { throw 'Core analysis failed' }
+          } finally { Pop-Location }
+          cargo test --manifest-path services/helper/Cargo.toml --features windows-service
+          if ($LASTEXITCODE -ne 0) { throw 'Native ARM64 Helper tests failed' }
+      - name: Build ARM64 stable installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dart setup.dart windows --arch arm64 --env stable --targets exe
+          if ($LASTEXITCODE -ne 0) { throw 'ARM64 release packaging failed' }
+          $installers = @(Get-ChildItem dist -Filter '*windows*.exe' -File)
+          if ($installers.Count -ne 1) { throw 'Expected one ARM64 installer' }
+          if ($installers[0].Name -notmatch 'arm64') { throw 'The generated installer name does not identify ARM64' }
+          Rename-Item -LiteralPath $installers[0].FullName -NewName 'fengwo-windows-arm64-setup.exe'
+      - name: Verify every native payload PE and exact Core hash
+        shell: pwsh
+        run: |
+          ./tooling/windows/verify_vc_runtime_bundle.ps1 -Architecture arm64 -BundleDirectory build/windows/arm64/runner/Release
+          ./tooling/windows/arm64/verify_bundle.ps1 -BundleDirectory build/windows/arm64/runner/Release -InstallerPath dist/fengwo-windows-arm64-setup.exe -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'arm64-evidence/package')
+      - name: Verify native named-pipe Helper Core and Wintun adapter
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          ./tooling/windows/arm64/test_core_runtime.ps1 -BundleDirectory build/windows/arm64/runner/Release -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'arm64-evidence/core-runtime')
+      - name: Verify installed overwrite and native application launch
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          ./tooling/windows/arm64/test_installed_package.ps1 -InstallerPath dist/fengwo-windows-arm64-setup.exe -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'arm64-evidence/installation')
+      - name: Verify native Helper repair and service overwrite
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          ./tooling/windows/test_helper_service_repair.ps1 -InstallerPath dist/fengwo-windows-arm64-setup.exe -OutputDirectory (Join-Path $env:RUNNER_TEMP 'arm64-evidence/helper-repair')
+      - name: Build and run the native ARM64 system proxy tests
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake -S windows -B build/windows/arm64 -G $env:FENGWO_ARM64_CMAKE_GENERATOR -A ARM64 -Dinclude_proxy_tests=ON
+          if ($LASTEXITCODE -ne 0) { throw 'ARM64 system proxy configuration failed' }
+          cmake --build build/windows/arm64 --config Release --target proxy_test proxy_winhttp_compatibility_test
+          if ($LASTEXITCODE -ne 0) { throw 'ARM64 system proxy tests did not compile' }
+          . ./tooling/windows/arm64/common.ps1
+          foreach ($name in @('proxy_test.exe', 'proxy_winhttp_compatibility_test.exe')) {
+            if (-not (Get-FwPeIdentity (Join-Path $PWD ('build/windows/arm64/plugins/proxy/Release/' + $name))).arm64) { throw 'System proxy test is not an ARM64 native executable' }
+          }
+          ctest --test-dir build/windows/arm64/plugins/proxy -C Release --output-on-failure --no-tests=error -R Proxy
+          if ($LASTEXITCODE -ne 0) { throw 'Native ARM64 system proxy tests failed' }
+          $raw = Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-raw-bypass.txt'
+          $normalized = Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-normalized-bypass.txt'
+          [IO.File]::WriteAllText($raw, 'localhost;*.local;127.*;10.*;172.16.*;192.168.*;::1', [Text.UTF8Encoding]::new($false))
+          & ./build/windows/arm64/plugins/proxy/Release/proxy_winhttp_compatibility_test.exe $raw $normalized | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-result.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'Native ARM64 proxy read/write/restore verification failed' }
+      - name: Record release manifest
+        shell: pwsh
+        run: |
+          . ./tooling/windows/arm64/common.ps1
+          $installer = Get-Item dist/fengwo-windows-arm64-setup.exe
+          $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          Save-FwArmEvidence (Join-Path $PWD 'dist/windows-arm64-build.json') ([ordered]@{ version = '1.0.8'; architecture = 'arm64'; source_branch = 'codex/windows-arm64-compat'; source_sha = $env:GITHUB_SHA; run_id = $env:GITHUB_RUN_ID; installer_name = $installer.Name; installer_bytes = $installer.Length; installer_sha256 = $hash; native_runner = 'windows-11-arm'; real_customer_account_tested = $false; old_x64_to_arm64_migration_verified = $false })
+          ($hash + '  ' + $installer.Name) | Set-Content -LiteralPath dist/ARM64-SHA256SUMS -Encoding utf8NoBOM
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fengwo-windows-arm64-1.0.8
+          path: |
+            dist/fengwo-windows-arm64-setup.exe
+            dist/windows-arm64-build.json
+            dist/ARM64-SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fengwo-windows-arm64-native-bundle
+          path: build/windows/arm64/runner/Release
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fengwo-windows-arm64-verification
+          path: ${{ runner.temp }}/arm64-evidence
+          if-no-files-found: error
+          retention-days: 14
