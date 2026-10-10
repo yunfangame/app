@@ -1410,5 +1410,26 @@
   "planResetRemaining": "Next traffic reset in {days} days {hours} hours",
   "planResetWithinHour": "Next traffic reset in less than 1 hour",
   "planResetPending": "Traffic reset is due. Refresh your plan information.",
-  "@planResetRemaining": {"placeholders": {"days": {"type": "int"}, "hours": {"type": "int"}}}
+  "@planResetRemaining": {"placeholders": {"days": {"type": "int"}, "hours": {"type": "int"}}},
+  "subscriptionEntryReminderTitle": "Plan reminder",
+  "subscriptionEntryReminderRemaining": "Remaining traffic: {remaining} GB",
+  "subscriptionEntryReminderLowTraffic": "Less than 10 GB remains.",
+  "subscriptionEntryReminderExpiring": "Your plan expires on {date}, in less than 3 days.",
+  "subscriptionEntryReminderDontRemind": "Don't remind me again",
+  "subscriptionEntryReminderDontRemindScope": "This only disables automatic plan reminders for this account in this client.",
+  "subscriptionEntryReminderDismiss": "Got it",
+  "@subscriptionEntryReminderRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "String"
+      }
+    }
+  },
+  "@subscriptionEntryReminderExpiring": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  }
 }

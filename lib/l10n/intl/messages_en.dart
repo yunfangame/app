@@ -161,37 +161,42 @@ class MessageLookup extends MessageLookupByLibrary {
   static String m61(count) => "${count} items have been selected";
 
   static String m62(date) =>
+      "Your plan expires on ${date}, in less than 3 days.";
+
+  static String m63(remaining) => "Remaining traffic: ${remaining} GB";
+
+  static String m64(date) =>
       "Your plan expired on ${date}. Renew it to continue using the service.";
 
-  static String m63(date) =>
+  static String m65(date) =>
       "Your plan expires on ${date}, in less than 7 days. Renew it soon.";
 
-  static String m64(remaining) =>
+  static String m66(remaining) =>
       "Only ${remaining} GB remains, which is below 10 GB. Purchase or renew a plan soon.";
 
-  static String m65(days, date) =>
+  static String m67(days, date) =>
       "The next traffic reset is in ${days} days (${date}).";
 
-  static String m66(date) =>
+  static String m68(date) =>
       "The next traffic reset is in less than 1 day (${date}).";
 
-  static String m67(code) =>
+  static String m69(code) =>
       "Could not enable the system proxy (${code}). The switch was reverted. Export logs for diagnosis";
 
-  static String m68(code) =>
+  static String m70(code) =>
       "Could not disable the system proxy (${code}). Disable it manually in Windows Settings";
 
-  static String m69(count) => "${count} orders";
+  static String m71(count) => "${count} orders";
 
-  static String m70(port) =>
+  static String m72(port) =>
       "The internal helper service port ${port} is occupied by another program. Close the conflicting program and its helper service, then retry, or export logs for support. Changing the proxy port or authorizing again will not release this port.";
 
-  static String m71(ip) =>
+  static String m73(ip) =>
       "IP ${ip} will be able to log in to this account again.";
 
-  static String m72(label) => "${label} must be a url";
+  static String m74(label) => "${label} must be a url";
 
-  static String m73(count) =>
+  static String m75(count) =>
       "${Intl.plural(count, one: '1 year ago', other: '${count} years ago')}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
@@ -2483,12 +2488,30 @@ class MessageLookup extends MessageLookupByLibrary {
     "submitWithdrawalTicket": MessageLookupByLibrary.simpleMessage(
       "Submit withdrawal ticket",
     ),
-    "subscriptionExpiredWarning": m62,
-    "subscriptionExpiringWarning": m63,
+    "subscriptionEntryReminderDismiss": MessageLookupByLibrary.simpleMessage(
+      "Got it",
+    ),
+    "subscriptionEntryReminderDontRemind": MessageLookupByLibrary.simpleMessage(
+      "Don\'t remind me again",
+    ),
+    "subscriptionEntryReminderDontRemindScope":
+        MessageLookupByLibrary.simpleMessage(
+          "This only disables automatic plan reminders for this account in this client.",
+        ),
+    "subscriptionEntryReminderExpiring": m62,
+    "subscriptionEntryReminderLowTraffic": MessageLookupByLibrary.simpleMessage(
+      "Less than 10 GB remains.",
+    ),
+    "subscriptionEntryReminderRemaining": m63,
+    "subscriptionEntryReminderTitle": MessageLookupByLibrary.simpleMessage(
+      "Plan reminder",
+    ),
+    "subscriptionExpiredWarning": m64,
+    "subscriptionExpiringWarning": m65,
     "subscriptionImportFailed": MessageLookupByLibrary.simpleMessage(
       "Failed to load subscription nodes. Check your network and try again",
     ),
-    "subscriptionLowTrafficWarning": m64,
+    "subscriptionLowTrafficWarning": m66,
     "subscriptionNormalTooltip": MessageLookupByLibrary.simpleMessage(
       "Plan status is normal. Click to view details",
     ),
@@ -2498,7 +2521,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionResetContinue": MessageLookupByLibrary.simpleMessage(
       "Continue with reset",
     ),
-    "subscriptionResetCountdown": m65,
+    "subscriptionResetCountdown": m67,
     "subscriptionResetExpired": MessageLookupByLibrary.simpleMessage(
       "Your plan has expired. Renew it first; the reset schedule will follow the updated plan information.",
     ),
@@ -2514,7 +2537,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionResetSuccess": MessageLookupByLibrary.simpleMessage(
       "Subscription reset and synchronized",
     ),
-    "subscriptionResetWithinDay": m66,
+    "subscriptionResetWithinDay": m68,
     "subscriptionStatusNormalMessage": MessageLookupByLibrary.simpleMessage(
       "Your remaining traffic and plan validity are both in a normal state.",
     ),
@@ -2560,11 +2583,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "system": MessageLookupByLibrary.simpleMessage("System"),
     "systemApp": MessageLookupByLibrary.simpleMessage("System APP"),
     "systemProxy": MessageLookupByLibrary.simpleMessage("System proxy"),
-    "systemProxyApplyFailed": m67,
+    "systemProxyApplyFailed": m69,
     "systemProxyDesc": MessageLookupByLibrary.simpleMessage(
       "Attach HTTP proxy to VpnService",
     ),
-    "systemProxyDisableFailed": m68,
+    "systemProxyDisableFailed": m70,
     "systemProxyStaleCleaned": MessageLookupByLibrary.simpleMessage(
       "The system proxy left by the previous abnormal exit was cleared",
     ),
@@ -2651,7 +2674,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "tools": MessageLookupByLibrary.simpleMessage("Tools"),
     "totalCommission": MessageLookupByLibrary.simpleMessage("Total commission"),
     "totalLoginCount": MessageLookupByLibrary.simpleMessage("Login count"),
-    "totalOrders": m69,
+    "totalOrders": m71,
     "totalTrafficLabel": MessageLookupByLibrary.simpleMessage("Total"),
     "tproxyPort": MessageLookupByLibrary.simpleMessage("Tproxy Port"),
     "trafficDetailRecords": MessageLookupByLibrary.simpleMessage(
@@ -2692,7 +2715,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "tunFailureHelp": MessageLookupByLibrary.simpleMessage(
       "The virtual adapter has been turned off. The failure details are recorded in the exported logs. Retry authorization, or choose system proxy for applications that support it.",
     ),
-    "tunHelperPortInUse": m70,
+    "tunHelperPortInUse": m72,
     "tunPermissionDenied": MessageLookupByLibrary.simpleMessage(
       "Permission to create the virtual adapter was denied.",
     ),
@@ -2744,7 +2767,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "turnOn": MessageLookupByLibrary.simpleMessage("Turn On"),
     "twoYearBilling": MessageLookupByLibrary.simpleMessage("2 years"),
     "unblockLoginIp": MessageLookupByLibrary.simpleMessage("Unblock"),
-    "unblockLoginIpMessage": m71,
+    "unblockLoginIpMessage": m73,
     "unblockLoginIpTitle": MessageLookupByLibrary.simpleMessage(
       "Unblock this IP?",
     ),
@@ -2774,7 +2797,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "urlDesc": MessageLookupByLibrary.simpleMessage(
       "Obtain profile through URL",
     ),
-    "urlTip": m72,
+    "urlTip": m74,
     "useHosts": MessageLookupByLibrary.simpleMessage("Use hosts"),
     "useSystemHosts": MessageLookupByLibrary.simpleMessage("Use system hosts"),
     "usedTrafficLabel": MessageLookupByLibrary.simpleMessage("Used"),
@@ -2853,7 +2876,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "A support ticket will be created in the system for an administrator to process.",
     ),
     "yearlyBilling": MessageLookupByLibrary.simpleMessage("Yearly"),
-    "yearsAgo": m73,
+    "yearsAgo": m75,
     "zh_CN": MessageLookupByLibrary.simpleMessage("Simplified Chinese"),
     "zoomIn": MessageLookupByLibrary.simpleMessage("Zoom in"),
     "zoomOut": MessageLookupByLibrary.simpleMessage("Zoom out"),

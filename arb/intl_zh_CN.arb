@@ -1410,5 +1410,26 @@
   "planResetRemaining": "距离下次流量重置还有 {days} 天 {hours} 小时",
   "planResetWithinHour": "距离下次流量重置不到 1 小时",
   "planResetPending": "已到流量重置时间，请刷新套餐信息",
-  "@planResetRemaining": {"placeholders": {"days": {"type": "int"}, "hours": {"type": "int"}}}
+  "@planResetRemaining": {"placeholders": {"days": {"type": "int"}, "hours": {"type": "int"}}},
+  "subscriptionEntryReminderTitle": "套餐提醒",
+  "subscriptionEntryReminderRemaining": "剩余流量：{remaining} GB",
+  "subscriptionEntryReminderLowTraffic": "剩余流量已不足 10 GB。",
+  "subscriptionEntryReminderExpiring": "套餐将于 {date} 到期（剩余不足 3 天）。",
+  "subscriptionEntryReminderDontRemind": "不再提醒",
+  "subscriptionEntryReminderDontRemindScope": "“不再提醒”仅对当前账号在本客户端生效。",
+  "subscriptionEntryReminderDismiss": "知道了",
+  "@subscriptionEntryReminderRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "String"
+      }
+    }
+  },
+  "@subscriptionEntryReminderExpiring": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  }
 }
