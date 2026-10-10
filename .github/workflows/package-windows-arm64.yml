@@ -17,6 +17,7 @@ on:
       - setup.dart
       - test/setup_test.dart
       - plugins/setup/buildkit/**
+      - windows/CMakeLists.txt
       - windows/packaging/exe/**
 
 permissions:
@@ -67,10 +68,11 @@ jobs:
           (Split-Path -Parent $gitBash) | Add-Content -LiteralPath $env:GITHUB_PATH
           ('FENGWO_SETUP_TEST_BASH=' + $gitBash) | Add-Content -LiteralPath $env:GITHUB_ENV
           . ./tooling/windows/arm64/common.ps1
-          $sourceFiles = @(git ls-files -- .github/workflows/package-windows-arm64.yml tooling/windows/arm64 tooling/windows/prepare_arm64_javascript.ps1 tooling/windows/quickjs_bridge tooling/windows/test_prepare_arm64_javascript.ps1 setup.dart test/setup_test.dart plugins/setup/buildkit windows/packaging/exe)
+          $sourceFiles = @(git ls-files -- .github/workflows/package-windows-arm64.yml tooling/windows/arm64 tooling/windows/prepare_arm64_javascript.ps1 tooling/windows/quickjs_bridge tooling/windows/test_prepare_arm64_javascript.ps1 setup.dart test/setup_test.dart plugins/setup/buildkit windows/CMakeLists.txt windows/packaging/exe)
           $sourceManifest = @($sourceFiles | ForEach-Object { [ordered]@{ path = $_; sha256 = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant() } })
           Save-FwArmEvidence (Join-Path $env:RUNNER_TEMP 'arm64-evidence/source-manifest.json') ([ordered]@{ source_sha = $env:GITHUB_SHA; files = $sourceManifest })
           Save-FwArmEvidence (Join-Path $env:RUNNER_TEMP 'arm64-evidence/toolchain/compiler.json') ([ordered]@{ generator = $generator; installation_version = $installation.installationVersion; installation_path = $installation.installationPath; go = (& go version | Out-String).Trim(); cmake = (& cmake --version | Out-String).Trim() })
+          ./tooling/windows/arm64/test_webview_coroutines.ps1 -Generator $generator -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'arm64-evidence/webview-coroutines')
       - name: Prepare production build keys
         shell: pwsh
         env:
