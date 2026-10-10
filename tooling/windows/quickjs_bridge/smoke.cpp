@@ -67,6 +67,10 @@ int wmain(int argc, wchar_t* argv[]) {
       if (actual != expected) throw std::runtime_error("Unexpected evaluation result");
     };
     check_eval("1 + 2", "3");
+    check_eval("JSON.stringify([Math.floor(2.9), Math.ceil(-2.9), Math.trunc(-2.9), Math.abs(-3), Math.pow(2,3), Math.log2(8), Math.atan2(0,1)])",
+               "[2,-2,-2,3,8,3,0]");
+    check_eval("JSON.stringify([Math.atan2(1), (function(a,b){return [a,typeof b]})(7), (function(a,b){return a+b}).bind(null,3)(4), /([a-z]+)([0-9]+)/.exec('abc42').slice(1)])",
+               "[null,[7,\"undefined\"],7,[\"abc\",\"42\"]]");
     check_eval("'蜂窝 ARM64 🚀'", "蜂窝 ARM64 🚀");
     check_eval("function main(c) { c.name='蜂窝'; c.port=7890; return c; } JSON.stringify(main({mode:'rule'}))",
                "{\"mode\":\"rule\",\"name\":\"蜂窝\",\"port\":7890}");

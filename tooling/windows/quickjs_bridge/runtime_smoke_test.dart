@@ -17,6 +17,21 @@ void main() {
     final runtime = getJavascriptRuntime(xhr: false);
     try {
       expect(runtime.evaluate('1 + 2').stringResult, '3');
+      final mathResult = runtime.evaluate(
+        'JSON.stringify([Math.floor(2.9), Math.ceil(-2.9), Math.trunc(-2.9), Math.abs(-3), Math.log2(8), Math.atan2(0,1)])',
+      );
+      expect(mathResult.isError, isFalse);
+      expect(jsonDecode(mathResult.stringResult), [2, -2, -2, 3, 3, 0]);
+      final stackResult = runtime.evaluate(
+        'JSON.stringify([Math.atan2(1), (function(a,b){return [a,typeof b]})(7), (function(a,b){return a+b}).bind(null,3)(4), /([a-z]+)([0-9]+)/.exec("abc42").slice(1)])',
+      );
+      expect(stackResult.isError, isFalse);
+      expect(jsonDecode(stackResult.stringResult), [
+        null,
+        [7, 'undefined'],
+        7,
+        ['abc', '42'],
+      ]);
       expect(runtime.evaluate('"蜂窝 ARM64 🚀"').stringResult, '蜂窝 ARM64 🚀');
     } finally {
       runtime.dispose();
@@ -87,6 +102,7 @@ void main() {
       final result = runtime.evaluate('while (true) {}');
       expect(result.isError, isTrue);
       expect(result.stringResult.toLowerCase(), contains('interrupted'));
+      expect(runtime.evaluate('1 + 2').stringResult, '3');
     } finally {
       runtime.dispose();
     }

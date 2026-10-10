@@ -19,7 +19,9 @@ add_library(fengwo_quickjs_engine STATIC
   "${QUICKJS_SOURCE_DIR}/quickjs.c"
 )
 target_compile_definitions(fengwo_quickjs_engine PRIVATE "CONFIG_VERSION=\"${QUICKJS_VERSION}\"")
-target_compile_options(fengwo_quickjs_engine PRIVATE /utf-8)
+target_compile_options(fengwo_quickjs_engine PRIVATE /utf-8 /we4013 /we4047 /we4311 /we4312
+  "/FI${CMAKE_CURRENT_SOURCE_DIR}/msvc_compat.h"
+)
 
 file(TO_CMAKE_PATH "${QUICKJS_RUNTIME_SOURCE}" QUICKJS_RUNTIME_INCLUDE)
 configure_file(runtime_compat.cpp.in "${CMAKE_CURRENT_BINARY_DIR}/runtime_compat.cpp" @ONLY)

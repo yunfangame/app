@@ -81,6 +81,41 @@ function Assert-FengwoJavascriptOverrideAvailable {
   }
 }
 
+function ConvertTo-FengwoJavascriptMsvcSource {
+  param([string]$Source)
+  $stackReturn = 'return _AddressOfReturnAddress();'
+  if ([regex]::Matches($Source, [regex]::Escape($stackReturn)).Count -ne 1) { throw 'Unexpected QuickJS stack pointer source contract' }
+  $Source = $Source.Replace($stackReturn, 'return (uintptr_t)_AddressOfReturnAddress();')
+  $classReturn = '(?s)(JSClassID JS_GetClassID\(JSValueConst obj\)\s*\{.*?if \(JS_VALUE_GET_TAG\(obj\) != JS_TAG_OBJECT\)\s*)return NULL;'
+  if ([regex]::Matches($Source, $classReturn).Count -ne 1) { throw 'Unexpected QuickJS class identifier source contract' }
+  $Source = [regex]::Replace($Source, $classReturn, '${1}return 0;')
+  $mathPattern = '(?s)static const JSCFunctionListEntry js_math_funcs\[\] = \{.*?\n\};'
+  $mathMatches = [regex]::Matches($Source, $mathPattern)
+  if ($mathMatches.Count -ne 1) { throw 'Unexpected QuickJS Math source contract' }
+  $mathTable = $mathMatches[0].Value
+  $functions = @('fabs', 'floor', 'ceil', 'sqrt', 'acos', 'asin', 'atan', 'atan2', 'cos', 'exp', 'log', 'sin', 'tan', 'trunc', 'cosh', 'sinh', 'tanh', 'acosh', 'asinh', 'atanh', 'expm1', 'log1p', 'log2', 'log10', 'cbrt')
+  $wrappers = [Collections.Generic.List[string]]::new()
+  foreach ($function in $functions) {
+    $entry = '(JS_CFUNC_SPECIAL_DEF\("[a-z0-9]+",\s*[12],\s*(f_f(?:_f)?),\s*)' + $function + '(\s*\))'
+    $matches = [regex]::Matches($mathTable, $entry)
+    if ($matches.Count -ne 1) { throw "Unexpected QuickJS Math function source contract: $function" }
+    $parameters = if ($matches[0].Groups[2].Value -eq 'f_f_f') { 'double a, double b' } else { 'double a' }
+    $arguments = if ($matches[0].Groups[2].Value -eq 'f_f_f') { 'a, b' } else { 'a' }
+    $wrappers.Add("static double fengwo_math_${function}($parameters) { return ${function}($arguments); }")
+    $mathTable = [regex]::Replace($mathTable, $entry, ('${1}fengwo_math_' + $function + '${3}'))
+  }
+  $replacement = ($wrappers -join "`n") + "`n`n" + $mathTable
+  return $Source.Replace($mathMatches[0].Value, $replacement)
+}
+
+function Update-FengwoJavascriptMsvcCompatibility {
+  param([string]$EngineDirectory)
+  $sourcePath = Join-Path $EngineDirectory 'quickjs.c'
+  Assert-FengwoJavascriptPinnedHash -Path $sourcePath -Expected '9dcf97180ca4d1f74cef4825c13c2a261b7809bf0157944d294dbbd3e0fefbdf'
+  $source = Get-Content -LiteralPath $sourcePath -Raw
+  [IO.File]::WriteAllText($sourcePath, (ConvertTo-FengwoJavascriptMsvcSource -Source $source), [Text.UTF8Encoding]::new($false))
+}
+
 function Invoke-FengwoJavascriptCmake {
   param([string]$Executable, [string[]]$Arguments)
   & $Executable @Arguments
@@ -111,6 +146,7 @@ function Invoke-FengwoArm64JavascriptPreparation {
   $bridgeSource = Join-Path $sources "quickjs-c-bridge-$bridgeCommit"
   $runtimeSource = Join-Path $sources "android-js-runtimes-$runtimeCommit"
   $runtimeCpp = Join-Path $runtimeSource 'quickjs/src/main/c/quickjs_runtime.cpp'
+  Update-FengwoJavascriptMsvcCompatibility -EngineDirectory (Join-Path $bridgeSource 'cxx/quickjs')
   $ffiSource = Get-Content -LiteralPath (Join-Path $packageSource 'lib/quickjs/ffi.dart') -Raw
   $symbolPattern = '>\(\s*[''"]([A-Za-z_][A-Za-z0-9_]*)[''"]\s*\)'
   $symbols = @([regex]::Matches($ffiSource, $symbolPattern) | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
@@ -148,6 +184,8 @@ function Invoke-FengwoArm64JavascriptPreparation {
     bridge_source_sha256 = $bridgeHash
     runtime_source_commit = $runtimeCommit
     runtime_source_sha256 = $runtimeHash
+    msvc_compatibility_revision = 1
+    compiled_engine_source_sha256 = (Get-FileHash -LiteralPath (Join-Path $bridgeSource 'cxx/quickjs/quickjs.c') -Algorithm SHA256).Hash.ToLowerInvariant()
     machine = 'ARM64'
     required_ffi_exports = $symbols.Count
     bridge_sha256 = (Get-FileHash -LiteralPath $library -Algorithm SHA256).Hash.ToLowerInvariant()
