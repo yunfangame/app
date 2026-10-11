@@ -21,6 +21,7 @@ on:
       - test/setup_test.dart
       - test/windows_runtime_bundle_test.dart
       - plugins/setup/buildkit/**
+      - plugins/proxy/windows/**
       - windows/CMakeLists.txt
       - windows/packaging/**
 
@@ -72,7 +73,7 @@ jobs:
           (Split-Path -Parent $gitBash) | Add-Content -LiteralPath $env:GITHUB_PATH
           ('FENGWO_SETUP_TEST_BASH=' + $gitBash) | Add-Content -LiteralPath $env:GITHUB_ENV
           . ./tooling/windows/arm64/common.ps1
-          $sourceFiles = @(git ls-files -- .github/workflows/package-windows-arm64.yml tooling/windows/arm64 tooling/windows/prepare_arm64_javascript.ps1 tooling/windows/quickjs_bridge tooling/windows/test_prepare_arm64_javascript.ps1 tooling/windows/verify_vc_runtime_bundle.ps1 tooling/windows/test_vc_runtime_bundle.ps1 tooling/windows/test_vc_runtime_installer.ps1 setup.dart test/setup_test.dart test/windows_runtime_bundle_test.dart plugins/setup/buildkit windows/CMakeLists.txt windows/packaging)
+          $sourceFiles = @(git ls-files -- .github/workflows/package-windows-arm64.yml tooling/windows/arm64 tooling/windows/prepare_arm64_javascript.ps1 tooling/windows/quickjs_bridge tooling/windows/test_prepare_arm64_javascript.ps1 tooling/windows/test_vc_runtime_installer.ps1 tooling/windows/verify_vc_runtime_bundle.ps1 tooling/windows/test_vc_runtime_bundle.ps1 setup.dart test/setup_test.dart test/windows_runtime_bundle_test.dart plugins/setup/buildkit plugins/proxy/windows windows/CMakeLists.txt windows/packaging)
           $sourceManifest = @($sourceFiles | ForEach-Object { [ordered]@{ path = $_; sha256 = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant() } })
           Save-FwArmEvidence (Join-Path $env:RUNNER_TEMP 'arm64-evidence/source-manifest.json') ([ordered]@{ source_sha = $env:GITHUB_SHA; files = $sourceManifest })
           Save-FwArmEvidence (Join-Path $env:RUNNER_TEMP 'arm64-evidence/toolchain/compiler.json') ([ordered]@{ generator = $generator; installation_version = $installation.installationVersion; installation_path = $installation.installationPath; go = (& go version | Out-String).Trim(); cmake = (& cmake --version | Out-String).Trim() })
@@ -140,6 +141,7 @@ jobs:
           cargo test --manifest-path services/helper/Cargo.toml --features windows-service
           if ($LASTEXITCODE -ne 0) { throw 'Native ARM64 Helper tests failed' }
       - name: Build ARM64 stable installer
+        id: build_arm64
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -186,7 +188,7 @@ jobs:
           foreach ($name in @('proxy_test.exe', 'proxy_winhttp_compatibility_test.exe')) {
             if (-not (Get-FwPeIdentity (Join-Path $PWD ('build/windows/arm64/plugins/proxy/Release/' + $name))).arm64) { throw 'System proxy test is not an ARM64 native executable' }
           }
-          ctest --test-dir build/windows/arm64/plugins/proxy -C Release --output-on-failure --no-tests=error -R Proxy
+          ctest --test-dir build/windows/arm64/plugins/proxy -C Release --output-on-failure --no-tests=error -R Proxy | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-ctest.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Native ARM64 system proxy tests failed' }
           $raw = Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-raw-bypass.txt'
           $normalized = Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-normalized-bypass.txt'
@@ -216,6 +218,15 @@ jobs:
           path: build/windows/arm64/runner/Release
           if-no-files-found: error
           retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: failure() && steps.build_arm64.outcome == 'success'
+        with:
+          name: fengwo-windows-arm64-diagnostics
+          path: |
+            dist/*windows*.exe
+            build/windows/arm64/runner/Release
+          if-no-files-found: error
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         if: always()
         with:

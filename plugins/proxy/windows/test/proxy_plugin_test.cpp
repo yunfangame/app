@@ -8,6 +8,7 @@
 #include <future>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <variant>
 #include <cstring>
 
@@ -181,15 +182,29 @@ TEST(ProxyPlugin, InspectProxyRejectsMissingExpectedPort) {
 TEST(ProxyPlugin, SessionEndRejectsFurtherProxyOperations) {
   ProxyPlugin plugin;
   plugin.HandleWindowProc(nullptr, WM_ENDSESSION, TRUE, 0);
-  auto future = InvokeProxy(plugin, "InspectProxy", {
-      {EncodableValue("expectedPort"), EncodableValue(7890)}});
+  auto completion = std::make_shared<
+      std::promise<std::pair<std::string, std::string>>>();
+  auto future = completion->get_future();
+  plugin.HandleMethodCall(
+      MethodCall(
+          "InspectProxy",
+          std::make_unique<EncodableValue>(EncodableMap{
+              {EncodableValue("expectedPort"), EncodableValue(7890)}})),
+      std::make_unique<MethodResultFunctions<>>(
+          [completion](const EncodableValue*) {
+            completion->set_value({"success", ""});
+          },
+          [completion](const std::string& code, const std::string& message,
+                       const EncodableValue*) {
+            completion->set_value({code, message});
+          },
+          [completion]() {
+            completion->set_value({"not_implemented", ""});
+          }));
   ASSERT_EQ(future.wait_for(std::chrono::seconds(1)), std::future_status::ready);
-  try {
-    future.get();
-    FAIL() << "Proxy operations must be rejected after session end";
-  } catch (const std::runtime_error& error) {
-    EXPECT_NE(std::string(error.what()).find("proxy_shutdown"), std::string::npos);
-  }
+  const auto reply = future.get();
+  EXPECT_EQ(reply.first, "proxy_shutdown");
+  EXPECT_EQ(reply.second, "The system proxy worker is shutting down");
 }
 
 TEST(ProxyPlugin, DetailedStartAndStopRoundTripCurrentUserProxy) {
