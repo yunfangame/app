@@ -1,0 +1,144 @@
+name: fengwo-windows-real-chain
+run-name: Real packaged Windows chain proxy · ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - 'codex/windows-full-flclash-check-*'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: real-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            runner: windows-2022
+            built_run: '38135140143'
+            built_sha: '80fa7c1216a3c09439a75c7578f5c3739df1c841'
+            artifact: fengwo-desktop-x64-coexistence-unsigned-38135140143
+            installer_name: fengwo-windows-x64-coexistence-unsigned.exe
+            installer_bytes: 63959362
+            installer_sha: f6f40f1b97cb0cadb8137a9007ca8873a6e69642392fc015b8bcc4965e0c6a0e
+          - architecture: arm64
+            runner: windows-11-arm
+            built_run: '38135139974'
+            built_sha: 'bf9a7fe7ff6fbbd2ff1dbb161cf26033882f30d4'
+            artifact: fengwo-windows-arm64-1.0.8
+            installer_name: fengwo-windows-arm64-setup.exe
+            installer_bytes: 54359123
+            installer_sha: f1b8e570a4f94462b096d9b4cedc21c156c70032ad12c30194781612a97e5007
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      FENGWO_PROXY_MUTATING_TEST: '1'
+      BUILT_RUN: ${{ matrix.built_run }}
+      BUILT_SHA: ${{ matrix.built_sha }}
+      INSTALLER_NAME: ${{ matrix.installer_name }}
+      INSTALLER_BYTES: ${{ matrix.installer_bytes }}
+      INSTALLER_SHA: ${{ matrix.installer_sha }}
+      TEST_ARCH: ${{ matrix.architecture }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout isolated validation source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up fixture Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          architecture: ${{ matrix.architecture }}
+
+      - name: Download the exact verified installer
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ matrix.built_run }}
+          name: ${{ matrix.artifact }}
+          path: ${{ runner.temp }}/built-package
+
+      - name: Download ARM build provenance
+        if: matrix.architecture == 'arm64'
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ matrix.built_run }}
+          name: fengwo-windows-arm64-verification
+          path: ${{ runner.temp }}/built-provenance
+
+      - name: Verify source installer hash and native payload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./tooling/windows/arm64/common.ps1
+          $environment = Assert-FwNativeRunner -Architecture $env:TEST_ARCH
+          $evidence = Join-Path $env:RUNNER_TEMP 'real-chain-evidence'
+          [void][IO.Directory]::CreateDirectory($evidence)
+          $run = Invoke-RestMethod -Uri ('https://api.github.com/repos/' + $env:GITHUB_REPOSITORY + '/actions/runs/' + $env:BUILT_RUN) -Headers @{ Authorization = 'Bearer ' + $env:GH_TOKEN; Accept = 'application/vnd.github+json' }
+          if ($run.conclusion -cne 'success' -or $run.head_sha -cne $env:BUILT_SHA) { throw 'The reused build run did not match the successful fixed source' }
+          $installers = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'built-package') -Recurse -File -Filter $env:INSTALLER_NAME)
+          if ($installers.Count -ne 1) { throw 'The verified installer was not unique' }
+          $installer = $installers[0]
+          if ($installer.Length -ne [long]$env:INSTALLER_BYTES -or (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:INSTALLER_SHA) { throw 'The actual installer hash or byte count differed from the verified package' }
+          $metadataRoot = if ($env:TEST_ARCH -ceq 'arm64') { Join-Path $env:RUNNER_TEMP 'built-provenance' } else { Join-Path $env:RUNNER_TEMP 'built-package' }
+          $manifests = @(Get-ChildItem $metadataRoot -Recurse -File -Filter 'source-manifest.json')
+          $packages = @(Get-ChildItem $metadataRoot -Recurse -File -Filter 'package.json')
+          if ($manifests.Count -ne 1 -or $packages.Count -ne 1) { throw 'Unique built-source and package manifests were required' }
+          $manifest = Get-Content $manifests[0].FullName -Raw | ConvertFrom-Json -AsHashtable
+          $package = Get-Content $packages[0].FullName -Raw | ConvertFrom-Json -AsHashtable
+          if ($manifest['source_sha'] -cne $env:BUILT_SHA) { throw 'The build source manifest did not match its verified run' }
+          $chainSourceHash = (Get-FileHash 'lib/common/chain_proxy.dart' -Algorithm SHA256).Hash.ToLowerInvariant()
+          $chainSource = @($manifest['files'] | Where-Object path -ceq 'lib/common/chain_proxy.dart')
+          if ($chainSource.Count -ne 1 -or $chainSource[0]['sha256'] -cne $chainSourceHash) { throw 'The production chain generator differs from the reused package source' }
+          $packageHash = if ($env:TEST_ARCH -ceq 'arm64') { $package['installer']['sha256'] } else { $package['installer_sha256'] }
+          $packageBytes = if ($env:TEST_ARCH -ceq 'arm64') { $package['installer']['bytes'] } else { $package['installer_bytes'] }
+          if ($packageHash -cne $env:INSTALLER_SHA -or [long]$packageBytes -ne [long]$env:INSTALLER_BYTES) { throw 'Built package metadata did not match the actual installer' }
+          $bundle = Join-Path $env:RUNNER_TEMP 'real-chain-installed'
+          $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR=' + $bundle), '/TASKS=', ('/LOG=' + (Join-Path $evidence 'installation.log')))
+          $process = Start-Process -FilePath $installer.FullName -ArgumentList $arguments -PassThru
+          if (-not $process.WaitForExit(120000) -or $process.ExitCode -ne 0) { throw 'Installing the exact packaged payload failed' }
+          foreach ($name in @('FengWo.exe', 'FengWoCore.exe', 'FengWoHelperService.exe')) {
+            $identity = Get-FwPeIdentity (Join-Path $bundle $name)
+            $native = if ($env:TEST_ARCH -ceq 'arm64') { $identity.arm64 } else { $identity.x64 }
+            if (-not $native) { throw ('The installed product payload was not native: ' + $name) }
+          }
+          $version = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $bundle 'FengWo.exe'))
+          if ($version.CompanyName -cne 'FengWo' -or $version.ProductName -cne '蜂窝加速器') { throw 'The installed product identity did not verify' }
+          Save-FwArmEvidence (Join-Path $evidence 'provenance.json') ([ordered]@{ package_build_sha = $env:BUILT_SHA; built_run_id = $env:BUILT_RUN; verification_source_sha = $env:GITHUB_SHA; installer_sha256 = $env:INSTALLER_SHA; installer_bytes = [long]$env:INSTALLER_BYTES; generator_sha256 = $chainSourceHash; architecture = $env:TEST_ARCH; actual_installed_payload = $true; synthetic_credentials_only = $true; customer_data_uploaded = $false; environment = $environment })
+
+      - name: Verify actual packaged chain and twenty repeated activations
+        run: |
+          python -m unittest discover -s tooling/windows/real -p '*_test.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'The controlled SOCKS fixture regression failed' }
+          ./tooling/windows/real/test_chain_native.ps1 -BundleDirectory (Join-Path $env:RUNNER_TEMP 'real-chain-installed') -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'real-chain-evidence') -Architecture $env:TEST_ARCH
+
+      - name: Uninstall only the isolated product
+        if: always()
+        run: |
+          $uninstaller = Join-Path $env:RUNNER_TEMP 'real-chain-installed/unins000.exe'
+          if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
+            $process = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/LOG=' + (Join-Path $env:RUNNER_TEMP 'real-chain-evidence/uninstallation.log'))) -PassThru
+            if (-not $process.WaitForExit(120000) -or $process.ExitCode -ne 0) { throw 'The isolated test installation did not uninstall normally' }
+          }
+
+      - name: Upload synthetic verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fengwo-real-chain-${{ matrix.architecture }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/real-chain-evidence
+          if-no-files-found: error
+          retention-days: 7
