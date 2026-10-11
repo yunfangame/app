@@ -1,4 +1,5 @@
 #include <winsock2.h>
+#include <ws2tcpip.h>
 
 #include <flutter/method_call.h>
 #include <flutter/method_result_functions.h>
@@ -94,20 +95,35 @@ class ActualProxySnapshot {
 
 class LoopbackListener {
  public:
-  LoopbackListener() {
+  explicit LoopbackListener(bool ipv6_only = false) {
     WSADATA data = {};
     initialized_ = WSAStartup(MAKEWORD(2, 2), &data) == 0;
     if (!initialized_) return;
-    socket_ = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    const int family = ipv6_only ? AF_INET6 : AF_INET;
+    socket_ = socket(family, SOCK_STREAM, IPPROTO_TCP);
     if (socket_ == INVALID_SOCKET) return;
-    sockaddr_in address = {};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    if (bind(socket_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0 ||
+    sockaddr_storage endpoint = {};
+    int size = 0;
+    if (ipv6_only) {
+      const DWORD enabled = 1;
+      if (setsockopt(socket_, IPPROTO_IPV6, IPV6_V6ONLY,
+                     reinterpret_cast<const char*>(&enabled), sizeof(enabled)) != 0) return;
+      auto* address = reinterpret_cast<sockaddr_in6*>(&endpoint);
+      address->sin6_family = AF_INET6;
+      address->sin6_addr.u.Byte[15] = 1;
+      size = sizeof(sockaddr_in6);
+    } else {
+      auto* address = reinterpret_cast<sockaddr_in*>(&endpoint);
+      address->sin_family = AF_INET;
+      address->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+      size = sizeof(sockaddr_in);
+    }
+    if (bind(socket_, reinterpret_cast<sockaddr*>(&endpoint), size) != 0 ||
         listen(socket_, SOMAXCONN) != 0) return;
-    int size = sizeof(address);
-    if (getsockname(socket_, reinterpret_cast<sockaddr*>(&address), &size) == 0) {
-      port_ = ntohs(address.sin_port);
+    if (getsockname(socket_, reinterpret_cast<sockaddr*>(&endpoint), &size) == 0) {
+      port_ = ipv6_only
+          ? ntohs(reinterpret_cast<const sockaddr_in6*>(&endpoint)->sin6_port)
+          : ntohs(reinterpret_cast<const sockaddr_in*>(&endpoint)->sin_port);
     }
   }
 
@@ -447,6 +463,22 @@ TEST(ProxyPlugin, StaleRepairPreservesLiveListener) {
   ASSERT_TRUE(original.captured());
   LoopbackListener listener;
   ASSERT_GT(listener.port(), 0);
+  const auto external = ExternalProxy(listener.port());
+  ASSERT_TRUE(ActualProxySnapshot::Apply(external));
+  ProxyPlugin plugin;
+  const auto result = InvokeDetailed(plugin, "RepairStaleProxyDetailed", {
+      {EncodableValue("expectedPort"), EncodableValue(listener.port())}});
+  EXPECT_TRUE(Succeeded(result));
+  EXPECT_EQ(std::get<std::string>(result.at(EncodableValue("stage"))), "skipped_active_listener");
+  EXPECT_EQ(ActualProxySnapshot::Read(), external);
+}
+
+TEST(ProxyPlugin, StaleRepairPreservesIpv6OnlyLiveListener) {
+  if (!AllowProxyMutation()) GTEST_SKIP() << "Requires an isolated CI account";
+  ActualProxySnapshot original;
+  ASSERT_TRUE(original.captured());
+  LoopbackListener listener(true);
+  ASSERT_GT(listener.port(), 0) << "The isolated Windows account must support IPv6 loopback listeners";
   const auto external = ExternalProxy(listener.port());
   ASSERT_TRUE(ActualProxySnapshot::Apply(external));
   ProxyPlugin plugin;

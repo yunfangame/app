@@ -274,6 +274,72 @@ void IndependentRasOwnership() {
           f.values[L"VPN"] == foreign, "each RAS connection has independent ownership");
 }
 
+void UnchangedFailedWriteDoesNotAcquireExternalProxy() {
+  Fixture f;
+  f.fail_write = L"";
+  ProxySession session;
+  const auto failed = session.Start(Manual(), f.Backend());
+  Require(!failed.success && failed.stage == "apply_default" && failed.errorCode == 5 &&
+          f.values[L""] == Original() && !session.HasPendingCleanup(),
+          "confirmed unchanged failed write does not acquire ownership");
+  f.values[L""] = Manual();
+  f.fail_write = L"never";
+  const auto writes = f.writes;
+  const auto stopped = session.Stop(std::nullopt, f.Backend());
+  Require(stopped.success && stopped.writeSkipped && f.writes == writes &&
+          f.values[L""] == Manual(), "external same configuration survives ordinary stop");
+}
+
+void UnchangedRetryPreservesPreviouslyAppliedOwnership() {
+  Fixture f;
+  ProxySession session;
+  Require(session.Start(Manual(), f.Backend()).success, "previous application succeeds");
+  f.fail_write = L"";
+  const auto failed = session.Start(Manual(7891), f.Backend());
+  Require(!failed.success && failed.errorCode == 5 && session.HasPendingCleanup() &&
+          f.values[L""] == Manual(), "unchanged retry retains the previous real application");
+  f.fail_write = L"never";
+  Require(session.Stop(std::nullopt, f.Backend()).success && f.values[L""] == Original() &&
+          !session.HasPendingCleanup(), "previous owned application still restores its original snapshot");
+}
+
+void UnchangedRestoreDoesNotAcquireForeignMixedSettings() {
+  Fixture f;
+  ProxySession session;
+  Require(session.Start(Manual(), f.Backend()).success, "foreign restoration scenario starts");
+  f.fail_write = L"";
+  const auto failed = session.Stop(std::nullopt, f.Backend());
+  Require(!failed.success && failed.errorCode == 5 && session.HasPendingCleanup() &&
+          f.values[L""] == Manual(), "unchanged failed restore keeps only prior application ownership");
+  auto foreign = Manual();
+  foreign.flags = Original().flags;
+  f.values[L""] = foreign;
+  f.fail_write = L"never";
+  const auto writes = f.writes;
+  const auto stopped = session.Stop(std::nullopt, f.Backend());
+  Require(stopped.success && stopped.restoreAbandoned && stopped.writeSkipped &&
+          f.writes == writes && f.values[L""] == foreign,
+          "unchanged failed restore cannot claim subsequent foreign mixed settings");
+}
+
+void PartialAndUnknownWritesRemainOwned() {
+  for (const bool unknown : {false, true}) {
+    Fixture f;
+    f.fail_write = L"";
+    f.partial_on_failure = !unknown;
+    f.change_on_failure = unknown;
+    f.read_failure_after_write = unknown;
+    ProxySession session;
+    const auto failed = session.Start(Manual(), f.Backend());
+    Require(!failed.success && failed.errorCode == 5 && session.HasPendingCleanup(),
+            "actual partial writes and unknown readbacks retain recoverable ownership");
+    f.fail_write = L"never";
+    f.read_failure_after_write = false;
+    Require(session.Stop(std::nullopt, f.Backend()).success && f.values[L""] == Original() &&
+            !session.HasPendingCleanup(), "partial or unknown applications restore the original snapshot");
+  }
+}
+
 }
 
 #ifdef FENGWO_PROXY_SESSION_STANDALONE
@@ -288,7 +354,11 @@ int main() {
     FailedReadbackAndRestoreRetry();
     NotificationFailureRetriesWithoutRepeatedWrite();
     IndependentRasOwnership();
-    std::cout << "PASS: 9 proxy session suites\n";
+    UnchangedFailedWriteDoesNotAcquireExternalProxy();
+    UnchangedRetryPreservesPreviouslyAppliedOwnership();
+    UnchangedRestoreDoesNotAcquireForeignMixedSettings();
+    PartialAndUnknownWritesRemainOwned();
+    std::cout << "PASS: 13 proxy session suites\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "FAIL: " << error.what() << '\n';
@@ -307,4 +377,8 @@ TEST(ProxySession, PartialFailuresRemainRecoverable) { PartialFailuresRemainReco
 TEST(ProxySession, FailedReadbackAndRestoreRetry) { FailedReadbackAndRestoreRetry(); }
 TEST(ProxySession, NotificationFailureRetriesWithoutRepeatedWrite) { NotificationFailureRetriesWithoutRepeatedWrite(); }
 TEST(ProxySession, IndependentRasOwnership) { IndependentRasOwnership(); }
+TEST(ProxySession, UnchangedFailedWriteDoesNotAcquireExternalProxy) { UnchangedFailedWriteDoesNotAcquireExternalProxy(); }
+TEST(ProxySession, UnchangedRetryPreservesPreviouslyAppliedOwnership) { UnchangedRetryPreservesPreviouslyAppliedOwnership(); }
+TEST(ProxySession, UnchangedRestoreDoesNotAcquireForeignMixedSettings) { UnchangedRestoreDoesNotAcquireForeignMixedSettings(); }
+TEST(ProxySession, PartialAndUnknownWritesRemainOwned) { PartialAndUnknownWritesRemainOwned(); }
 #endif

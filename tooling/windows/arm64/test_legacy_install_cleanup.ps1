@@ -29,6 +29,12 @@ $failure = $null
 $created = $false
 $caseRegistryCreated = $false
 $caseProtocolsCreated = [Collections.Generic.List[string]]::new()
+$caseAutoLaunchCreated = $false
+$caseAutoLaunchCommands = [Collections.Generic.List[string]]::new()
+$caseAutoLaunchApprovals = [Collections.Generic.List[string]]::new()
+$autoLaunchPaths = @('Software\Microsoft\Windows\CurrentVersion\Run', 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run', 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32')
+$enabledApproval = [byte[]](2, 0, 0, 0, 11, 22, 33, 44, 55, 66, 77, 88)
+$disabledApproval = [byte[]](3, 0, 0, 0, 88, 77, 66, 55, 44, 33, 22, 11)
 $serviceCreated = $false
 $serviceProcess = $null
 $serviceCommand = $null
@@ -121,6 +127,96 @@ function Assert-LegacyProtocolUnchanged([string]$Scheme, [object]$Before, [strin
     if (($Before | ConvertTo-Json -Depth 30 -Compress) -cne ($after | ConvertTo-Json -Depth 30 -Compress)) { throw ('The protected protocol registration changed: ' + $Stage + '/' + $Scheme) }
 }
 
+function Read-LegacyAutoLaunchValue([string]$Path, [string]$Name, [string]$View) {
+    $base = Open-LegacyRegistry 'CurrentUser' $View
+    try {
+        $key = $base.OpenSubKey($Path)
+        if (-not $key) { return $null }
+        try {
+            if ($key.GetValueNames() -notcontains $Name) { return $null }
+            $value = $key.GetValue($Name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            if ($value -is [byte[]]) { $value = [Convert]::ToBase64String($value) }
+            return [ordered]@{ value = $value; kind = $key.GetValueKind($Name).ToString() }
+        } finally { $key.Dispose() }
+    } finally { $base.Dispose() }
+}
+
+function Get-LegacyAutoLaunchSnapshot {
+    $values = @()
+    foreach ($view in @('Registry64', 'Registry32')) {
+        foreach ($path in $script:autoLaunchPaths) {
+            foreach ($name in @('FengWo', 'FlClash')) { $values += [ordered]@{ view = $view; path = $path; name = $name; state = (Read-LegacyAutoLaunchValue $path $name $view) } }
+        }
+    }
+    return $values
+}
+
+function Write-LegacyAutoLaunch([string]$Name, [string]$Executable, [byte[]]$Approved) {
+    if ($Name -cnotin @('FengWo', 'FlClash')) { throw 'Unexpected synthetic auto-launch identity' }
+    $command = '"' + $Executable + '"'
+    if (-not $script:caseAutoLaunchCommands.Contains($command)) { $script:caseAutoLaunchCommands.Add($command) }
+    $approval = [Convert]::ToBase64String($Approved)
+    if (-not $script:caseAutoLaunchApprovals.Contains($approval)) { $script:caseAutoLaunchApprovals.Add($approval) }
+    $script:caseAutoLaunchCreated = $true
+    foreach ($view in @('Registry64', 'Registry32')) {
+        $base = Open-LegacyRegistry 'CurrentUser' $view
+        try {
+            $run = $base.CreateSubKey($script:autoLaunchPaths[0])
+            try { $run.SetValue($Name, $command, [Microsoft.Win32.RegistryValueKind]::String) } finally { $run.Dispose() }
+            foreach ($path in $script:autoLaunchPaths[1..2]) {
+                $key = $base.CreateSubKey($path)
+                try { $key.SetValue($Name, $Approved, [Microsoft.Win32.RegistryValueKind]::Binary) } finally { $key.Dispose() }
+            }
+        } finally { $base.Dispose() }
+    }
+}
+
+function Assert-LegacyAutoLaunchMigrated([string]$Directory, [byte[]]$Approved, [string]$Stage) {
+    $after = Get-LegacyAutoLaunchSnapshot
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory ($Stage + '-auto-launch.json')) $after
+    $command = '"' + (Join-Path $Directory 'FengWo.exe') + '"'
+    $approval = [Convert]::ToBase64String($Approved)
+    foreach ($entry in $after) {
+        if ($entry.name -ceq 'FlClash') { if ($null -ne $entry.state) { throw 'An owned old auto-launch value survived migration' }; continue }
+        $expected = if ($entry.path -ceq $script:autoLaunchPaths[0]) { $command } else { $approval }
+        $kind = if ($entry.path -ceq $script:autoLaunchPaths[0]) { 'String' } else { 'Binary' }
+        if (-not $entry.state -or $entry.state.value -cne $expected -or $entry.state.kind -cne $kind) { throw 'Owned auto-launch migration did not preserve its exact command and enable state' }
+    }
+}
+
+function Assert-LegacyAutoLaunchUnchanged([object]$Before, [string]$Stage, [string]$Name = '') {
+    $after = Get-LegacyAutoLaunchSnapshot
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory ($Stage + '-auto-launch.json')) $after
+    $first = @($Before | Where-Object { -not $Name -or $_.name -ceq $Name })
+    $second = @($after | Where-Object { -not $Name -or $_.name -ceq $Name })
+    if (($first | ConvertTo-Json -Depth 10 -Compress) -cne ($second | ConvertTo-Json -Depth 10 -Compress)) { throw 'A protected auto-launch command or enable state changed' }
+}
+
+function Remove-LegacyAutoLaunchFixtures {
+    if (-not $script:caseAutoLaunchCreated) { return }
+    foreach ($view in @('Registry64', 'Registry32')) {
+        $base = Open-LegacyRegistry 'CurrentUser' $view
+        try {
+            foreach ($path in $script:autoLaunchPaths) {
+                $key = $base.OpenSubKey($path, $true)
+                if (-not $key) { continue }
+                try {
+                    foreach ($name in @('FengWo', 'FlClash')) {
+                        if ($key.GetValueNames() -notcontains $name) { continue }
+                        $value = $key.GetValue($name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                        $owned = if ($path -ceq $script:autoLaunchPaths[0]) { $value -is [string] -and $script:caseAutoLaunchCommands.Contains($value) } else { $value -is [byte[]] -and $script:caseAutoLaunchApprovals.Contains([Convert]::ToBase64String($value)) }
+                        if (-not $owned) { throw 'The synthetic auto-launch owner changed; refusing fixture cleanup' }
+                        $key.DeleteValue($name, $false)
+                    }
+                } finally { $key.Dispose() }
+            }
+        } finally { $base.Dispose() }
+    }
+    $script:caseAutoLaunchCreated = $false
+    $script:caseAutoLaunchCommands.Clear()
+    $script:caseAutoLaunchApprovals.Clear()
+}
+
 function Start-LegacyService([string]$Directory, [string]$Case) {
     if (Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'") { throw 'An existing service prevents this SCM fixture stage' }
     $executable = Join-Path $Directory 'FlClashHelperService.exe'
@@ -160,6 +256,7 @@ function Assert-LegacyRegistryUnchanged([object]$Before, [string]$Stage) {
 }
 
 function Remove-LegacyCase([string]$Case) {
+    Remove-LegacyAutoLaunchFixtures
     if ($script:serviceCreated) {
         $service = Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'"
         if ($service) {
@@ -221,6 +318,9 @@ try {
             }
         } finally { $base.Dispose() }
     }
+    foreach ($entry in @(Get-LegacyAutoLaunchSnapshot)) {
+        if ($null -ne $entry.state) { throw 'A pre-existing FengWo or FlClash auto-launch value prevents isolation' }
+    }
     [void][IO.Directory]::CreateDirectory($root)
     $created = $true
     [void](Invoke-LegacyChild $powershell51 @('-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.ToString()') 'powershell51-version')
@@ -255,6 +355,8 @@ try {
             $foreignProtocolBefore = Read-LegacyRegistryTree 'Software\Classes\flclash' 'CurrentUser'
             $currentProtocolBefore = Read-LegacyRegistryTree 'Software\Classes\fengwo' 'CurrentUser'
             Save-FwArmEvidence (Join-Path $EvidenceDirectory ($case + '-foreign-uri-before.json')) $foreignProtocolBefore
+            $caseAutoLaunchCommands.Add('"' + (Join-Path $honey 'FengWo.exe') + '"')
+            Write-LegacyAutoLaunch 'FlClash' (Join-Path $honey 'FlClash.exe') $enabledApproval
         }
         Start-LegacyService $(if ($case -cin @('owned-service-foreign-guid', 'owned-legacy-guid')) { $honey } else { $foreign }) $case
         try {
@@ -289,6 +391,7 @@ try {
                 if (($externalBefore | ConvertTo-Json -Depth 30 -Compress) -cne ($after | ConvertTo-Json -Depth 30 -Compress)) { throw 'Finalize changed the external service' }
             }
             if ($ownedGuid) {
+                Assert-LegacyAutoLaunchMigrated $honey $enabledApproval ($case + '-enabled-migration')
                 if ($null -ne (Read-LegacyRegistryTree $registryPath)) { throw 'Finalize left the trusted owned legacy GUID' }
                 foreach ($scheme in @('clash', 'clashmeta')) {
                     if ($null -ne (Read-LegacyRegistryTree ('Software\Classes\' + $scheme) 'CurrentUser')) { throw 'Finalize left an owned old Honey URI registration' }
@@ -302,14 +405,44 @@ try {
                     if ($null -ne (Read-LegacyRegistryTree ('Software\Classes\' + $scheme) 'CurrentUser')) { throw 'Uninstall left a proven Honey URI registration' }
                 }
                 Assert-LegacyProtocolUnchanged 'flclash' $foreignProtocolBefore ($case + '-after-uninstall')
+                foreach ($entry in @(Get-LegacyAutoLaunchSnapshot)) {
+                    if ($null -ne $entry.state) { throw 'Uninstall left a proven Honey auto-launch value' }
+                }
+                Write-LegacyAutoLaunch 'FlClash' (Join-Path $honey 'FlClash.exe') $disabledApproval
+                Invoke-RealLegacyCleanup $honey 'finalize' $evidence ($case + '-disabled-migration')
+                Assert-LegacyAutoLaunchMigrated $honey $disabledApproval ($case + '-disabled-migration')
+                Copy-Item -LiteralPath $fixtureExecutable -Destination (Join-Path $foreign 'FengWo.exe')
+                Write-LegacyAutoLaunch 'FengWo' (Join-Path $foreign 'FengWo.exe') $disabledApproval
+                Write-LegacyAutoLaunch 'FlClash' (Join-Path $honey 'FlClash.exe') $enabledApproval
+                $foreignTargetBefore = Get-LegacyAutoLaunchSnapshot
+                Invoke-RealLegacyCleanup $honey 'finalize' $evidence ($case + '-foreign-autolaunch-target')
+                Assert-LegacyAutoLaunchUnchanged $foreignTargetBefore ($case + '-foreign-autolaunch-target')
+                Invoke-RealLegacyCleanup $honey 'uninstall' $evidence ($case + '-foreign-autolaunch-target-uninstall')
+                Assert-LegacyAutoLaunchUnchanged $foreignTargetBefore ($case + '-foreign-autolaunch-target-uninstall') 'FengWo'
+                foreach ($entry in @(Get-LegacyAutoLaunchSnapshot)) { if ($entry.name -ceq 'FlClash' -and $null -ne $entry.state) { throw 'Uninstall left the owned old auto-launch value beside a foreign new target' } }
+                Remove-LegacyAutoLaunchFixtures
+                Write-LegacyAutoLaunch 'FlClash' (Join-Path $foreign 'FlClash.exe') $enabledApproval
+                Write-LegacyAutoLaunch 'FengWo' (Join-Path $honey 'FengWo.exe') $disabledApproval
+                $foreignOriginalBefore = Get-LegacyAutoLaunchSnapshot
+                Invoke-RealLegacyCleanup $honey 'finalize' $evidence ($case + '-foreign-original-autolaunch')
+                Assert-LegacyAutoLaunchUnchanged $foreignOriginalBefore ($case + '-foreign-original-autolaunch')
+                Invoke-RealLegacyCleanup $honey 'uninstall' $evidence ($case + '-foreign-original-autolaunch-uninstall')
+                Assert-LegacyAutoLaunchUnchanged $foreignOriginalBefore ($case + '-foreign-original-autolaunch-uninstall') 'FlClash'
+                foreach ($entry in @(Get-LegacyAutoLaunchSnapshot)) { if ($entry.name -ceq 'FengWo' -and $null -ne $entry.state) { throw 'Uninstall left the owned new auto-launch value beside the original FlClash target' } }
+                Remove-LegacyAutoLaunchFixtures
                 Copy-Item -LiteralPath $fixtureExecutable -Destination (Join-Path $honey 'FlClash.exe') -Force
                 Write-LegacyProtocol 'clashmeta' (Join-Path $honey 'FlClash.exe')
                 $wrongBrandBefore = Read-LegacyRegistryTree 'Software\Classes\clashmeta' 'CurrentUser'
+                Write-LegacyAutoLaunch 'FlClash' (Join-Path $honey 'FlClash.exe') $disabledApproval
+                $wrongAutoLaunchBefore = Get-LegacyAutoLaunchSnapshot
                 Invoke-RealLegacyCleanup $honey 'finalize' $evidence ($case + '-foreign-brand-finalize') $true
                 Assert-LegacyProtocolUnchanged 'clashmeta' $wrongBrandBefore ($case + '-foreign-brand')
                 Assert-LegacyProtocolUnchanged 'flclash' $foreignProtocolBefore ($case + '-foreign-brand')
+                Assert-LegacyAutoLaunchUnchanged $wrongAutoLaunchBefore ($case + '-foreign-brand')
+                Invoke-RealLegacyCleanup $honey 'uninstall' $evidence ($case + '-foreign-brand-uninstall') $true
+                Assert-LegacyAutoLaunchUnchanged $wrongAutoLaunchBefore ($case + '-foreign-brand-uninstall')
             } else { Assert-LegacyRegistryUnchanged $before ($case + '-after-finalize') }
-            $checks.Add([ordered]@{ name = $case; passed = $true; powershell = $version; stopped = ($case -cin @('owned-service-foreign-guid', 'owned-legacy-guid')); foreign_guid_preserved = (-not $ownedGuid); owned_guid_removed = $ownedGuid; owned_old_uri_removed = $ownedGuid; foreign_uri_preserved = $ownedGuid; same_path_foreign_brand_uri_preserved = $ownedGuid; owned_uri_uninstall_verified = $ownedGuid; native_fixture = $true })
+            $checks.Add([ordered]@{ name = $case; passed = $true; powershell = $version; stopped = ($case -cin @('owned-service-foreign-guid', 'owned-legacy-guid')); foreign_guid_preserved = (-not $ownedGuid); owned_guid_removed = $ownedGuid; owned_old_uri_removed = $ownedGuid; foreign_uri_preserved = $ownedGuid; same_path_foreign_brand_uri_preserved = $ownedGuid; owned_uri_uninstall_verified = $ownedGuid; owned_enabled_auto_launch_migrated = $ownedGuid; owned_disabled_auto_launch_migrated = $ownedGuid; foreign_auto_launch_target_preserved = $ownedGuid; foreign_original_auto_launch_preserved = $ownedGuid; same_path_foreign_brand_auto_launch_preserved = $ownedGuid; owned_auto_launch_uninstall_verified = $ownedGuid; native_fixture = $true })
         } finally { Remove-LegacyCase $case }
     }
 } catch { $failure = $_.Exception.Message } finally {

@@ -100,6 +100,8 @@ class ProxySession {
         }
         continue;
       }
+      const auto previous = found == entries_.end()
+          ? std::optional<Entry>() : std::make_optional(found->second);
       if (found == entries_.end()) {
         found = entries_.emplace(name, Entry{before, std::nullopt, std::nullopt}).first;
       }
@@ -114,7 +116,12 @@ class ProxySession {
       ConnectionConfiguration readback;
       uint32_t read_error = 0;
       const bool read = backend.read(name, readback, read_error);
-      if (read && IsMutation(readback, before, desired)) entry.applied = readback;
+      if (!written && read && readback == before) {
+        if (previous.has_value()) entry = *previous;
+        else entries_.erase(found);
+      } else if (read && IsMutation(readback, before, desired)) {
+        entry.applied = readback;
+      }
       if (!written || !read || readback != desired) {
         RecordFailure(details, !written ? (name.empty() ? "apply_default" : "apply_ras")
                       : !read ? "readback" : "readback_mismatch",
@@ -223,6 +230,7 @@ class ProxySession {
         ++it;
         continue;
       }
+      const auto previous = entry;
       notification_pending_ = true;
       wrote = true;
       entry.applied = current;
@@ -234,7 +242,11 @@ class ProxySession {
       uint32_t read_error = 0;
       const bool read = backend.read(name, readback, read_error);
       if (read && name.empty()) SetReadback(details, readback);
-      if (read && IsMutation(readback, current, restored)) entry.applied = readback;
+      if (!written && read && readback == current) {
+        entry = previous;
+      } else if (read && IsMutation(readback, current, restored)) {
+        entry.applied = readback;
+      }
       if (!written || !read || readback != restored) {
         RecordFailure(details, !written ? (name.empty() ? "restore_default" : "restore_ras")
                       : !read ? "readback" : "readback_mismatch",

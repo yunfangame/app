@@ -47,7 +47,7 @@ class AutoLaunch {
       );
     }
     launchAtStartup.setup(
-      appName: appName,
+      appName: platformAppName,
       appPath: Platform.resolvedExecutable,
     );
     return AutoLaunch.withBackend(

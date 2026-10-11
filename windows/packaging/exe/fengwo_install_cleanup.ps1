@@ -213,6 +213,101 @@ function Remove-FengWoOwnedLegacyProtocols {
     Remove-FengWoOwnedProtocols $Directory @('clash', 'clashmeta', 'flclash') $true
 }
 
+function Test-FengWoAutoLaunchCommandOwned {
+    param([string]$Command, [string]$Directory, [bool]$AllowLegacyApplication)
+    $executable = Get-FengWoServiceExecutable $Command
+    if (-not $executable) { return $false }
+    $names = @('FengWo.exe')
+    if ($AllowLegacyApplication) { $names += 'FlClash.exe' }
+    foreach ($name in $names) {
+        $expected = Join-Path $Directory $name
+        if ((Test-FengWoSamePath $executable $expected) -and (Test-FengWoApplicationFile $expected)) { return $true }
+    }
+    return $false
+}
+
+function Open-FengWoAutoLaunchRegistry {
+    param([string]$View)
+    return [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::$View)
+}
+
+function Get-FengWoAutoLaunchValue {
+    param([object]$Key, [string]$Name)
+    if (-not $Key -or $Key.GetValueNames() -notcontains $Name) { return $null }
+    return [ordered]@{ value = $Key.GetValue($Name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames); kind = $Key.GetValueKind($Name) }
+}
+
+function Set-FengWoAutoLaunchValue {
+    param([object]$Key, [string]$Name, [object]$Value)
+    if ($null -eq $Value) { $Key.DeleteValue($Name, $false) } else { $Key.SetValue($Name, $Value.value, $Value.kind) }
+}
+
+function Move-FengWoOwnedLegacyAutoLaunch {
+    param([string]$Directory)
+    if (-not (Test-FengWoApplicationFile (Join-Path $Directory 'FlClash.exe')) -or -not (Test-FengWoApplicationFile (Join-Path $Directory 'FengWo.exe'))) { return }
+    $paths = @('Software\Microsoft\Windows\CurrentVersion\Run', 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run', 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32')
+    foreach ($view in @('Registry64', 'Registry32')) {
+        $base = Open-FengWoAutoLaunchRegistry $view
+        $entries = [Collections.Generic.List[object]]::new()
+        try {
+            $run = $base.OpenSubKey($paths[0], $true)
+            if (-not $run) { continue }
+            $oldRun = Get-FengWoAutoLaunchValue $run 'FlClash'
+            $newRun = Get-FengWoAutoLaunchValue $run 'FengWo'
+            $entries.Add([ordered]@{ key = $run; old_value = $oldRun; new_value = $newRun })
+            if (-not $oldRun -or -not (Test-FengWoAutoLaunchCommandOwned ([string]$oldRun.value) $Directory $true)) { continue }
+            $oldExecutable = Get-FengWoServiceExecutable ([string]$oldRun.value)
+            if (-not (Test-FengWoSamePath $oldExecutable (Join-Path $Directory 'FlClash.exe'))) { continue }
+            if ($newRun -and -not (Test-FengWoAutoLaunchCommandOwned ([string]$newRun.value) $Directory $false)) { continue }
+            foreach ($path in $paths[1..2]) {
+                $key = $base.OpenSubKey($path, $true)
+                if (-not $key) { continue }
+                $entries.Add([ordered]@{ key = $key; old_value = (Get-FengWoAutoLaunchValue $key 'FlClash'); new_value = (Get-FengWoAutoLaunchValue $key 'FengWo') })
+            }
+            try {
+                Set-FengWoAutoLaunchValue $run 'FengWo' ([ordered]@{ value = ('"' + (Join-Path $Directory 'FengWo.exe') + '"'); kind = [Microsoft.Win32.RegistryValueKind]::String })
+                foreach ($entry in @($entries.ToArray() | Select-Object -Skip 1)) { Set-FengWoAutoLaunchValue $entry.key 'FengWo' $entry.old_value }
+                foreach ($entry in $entries.ToArray()) { Set-FengWoAutoLaunchValue $entry.key 'FlClash' $null }
+            } catch {
+                $migrationFailure = $_
+                foreach ($entry in $entries.ToArray()) {
+                    Set-FengWoAutoLaunchValue $entry.key 'FlClash' $entry.old_value
+                    Set-FengWoAutoLaunchValue $entry.key 'FengWo' $entry.new_value
+                }
+                throw $migrationFailure
+            }
+        } finally {
+            foreach ($entry in $entries.ToArray()) { $entry.key.Dispose() }
+            $base.Dispose()
+        }
+    }
+}
+
+function Remove-FengWoOwnedAutoLaunch {
+    param([string]$Directory)
+    $runPath = 'Software\Microsoft\Windows\CurrentVersion\Run'
+    $approvedPaths = @('Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run', 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32')
+    foreach ($view in @('Registry64', 'Registry32')) {
+        $base = Open-FengWoAutoLaunchRegistry $view
+        try {
+            $run = $base.OpenSubKey($runPath, $true)
+            if (-not $run) { continue }
+            try {
+                foreach ($name in @('FengWo', 'FlClash')) {
+                    $value = Get-FengWoAutoLaunchValue $run $name
+                    if (-not $value -or -not (Test-FengWoAutoLaunchCommandOwned ([string]$value.value) $Directory $true)) { continue }
+                    $run.DeleteValue($name, $false)
+                    foreach ($path in $approvedPaths) {
+                        $key = $base.OpenSubKey($path, $true)
+                        if (-not $key) { continue }
+                        try { $key.DeleteValue($name, $false) } finally { $key.Dispose() }
+                    }
+                }
+            } finally { $run.Dispose() }
+        } finally { $base.Dispose() }
+    }
+}
+
 function Invoke-FengWoInstallCleanup {
     param([string]$Directory, [string]$Action, [string]$EvidencePath)
     $directoryPath = ConvertTo-FengWoInstallPath $Directory
@@ -245,6 +340,7 @@ function Invoke-FengWoInstallCleanup {
         if ($evidence.owned_before_install -and $evidence.legacy_service_owned_before_install) {
             Remove-FengWoOwnedService 'FlClashHelperService' $directoryPath $true
         }
+        if ($evidence.owned_before_install -and $evidence.legacy_application) { Move-FengWoOwnedLegacyAutoLaunch $directoryPath }
         if ($evidence.owned_before_install) { Remove-FengWoOwnedLegacyProtocols $directoryPath }
         if ($evidence.owned_before_install -and @($evidence.legacy_registrations).Count -gt 0) {
             Remove-FengWoLegacyRegistrations $directoryPath @($evidence.legacy_registrations)
@@ -255,6 +351,7 @@ function Invoke-FengWoInstallCleanup {
         Stop-FengWoOwnedProcesses $directoryPath @('FengWo')
         Remove-FengWoOwnedService 'FengWoHelperService' $directoryPath $false
         Stop-FengWoOwnedProcesses $directoryPath @('FengWoCore', 'FengWoHelperService')
+        Remove-FengWoOwnedAutoLaunch $directoryPath
         Remove-FengWoOwnedProtocol $directoryPath
         Remove-FengWoOwnedLegacyProtocols $directoryPath
         return

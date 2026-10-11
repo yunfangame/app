@@ -2,11 +2,31 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:fl_clash/common/constant.dart';
 import 'package:fl_clash/common/windows_identity.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
+  test('keeps the Windows runtime name independent', () {
+    expect(appNameForPlatform(isWindows: true), 'FengWo');
+    expect(windowsAppName, 'FengWo');
+  });
+
+  for (final platform in ['macOS', 'Linux', 'Android']) {
+    test('preserves the existing $platform runtime name', () {
+      expect(appNameForPlatform(isWindows: false), 'FlClash');
+      expect(appName, 'FlClash');
+    });
+  }
+
+  test('preserves existing tray and helper transport identities', () {
+    expect(trayName, 'FengWo');
+    expect(helperPort, 47906);
+    expect(appHelperService, 'FengWoHelperService');
+    expect(helperProtocolVersionHeader, 'x-fengwo-helper-protocol');
+  });
+
   late Directory root;
   late Directory destination;
   late Directory legacy;

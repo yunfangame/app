@@ -9,7 +9,13 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:flutter/material.dart';
 
-const appName = 'FengWo';
+const appName = 'FlClash';
+const windowsAppName = 'FengWo';
+
+String appNameForPlatform({required bool isWindows}) =>
+    isWindows ? windowsAppName : appName;
+
+String get platformAppName => appNameForPlatform(isWindows: system.isWindows);
 const trayName = 'FengWo';
 const windowsTunDeviceName = 'FengWoMeta';
 const appHelperService = 'FengWoHelperService';
