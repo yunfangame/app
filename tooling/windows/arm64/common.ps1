@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
 function Save-FwArmEvidence {
     param([string]$Path, [object]$Value)
@@ -19,15 +19,18 @@ function Get-FwPeIdentity {
         $stream.Position = $offset
         if ($reader.ReadUInt32() -ne 0x4550) { throw ('Invalid PE signature: ' + $file.Name) }
         $machine = $reader.ReadUInt16()
-        return [ordered]@{ path = $file.FullName; machine = ('0x{0:x4}' -f $machine); arm64 = ($machine -eq 0xaa64); sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant(); bytes = $file.Length }
+        return [ordered]@{ path = $file.FullName; machine = ('0x{0:x4}' -f $machine); arm64 = ($machine -eq 0xaa64); x64 = ($machine -eq 0x8664); sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant(); bytes = $file.Length }
     } finally {
         $reader.Dispose()
         $stream.Dispose()
     }
 }
 
-function Assert-FwArmRunner {
-    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows' -or $env:RUNNER_ARCH -ine 'ARM64') { throw 'An isolated native ARM64 GitHub Actions Windows runner is required' }
+function Assert-FwNativeRunner {
+    param([ValidateSet('arm64', 'x64')][string]$Architecture = 'arm64')
+    $runnerArchitecture = if ($Architecture -eq 'arm64') { 'ARM64' } else { 'X64' }
+    $expectedMachine = if ($Architecture -eq 'arm64') { 0xaa64 } else { 0x8664 }
+    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows' -or $env:RUNNER_ARCH -ine $runnerArchitecture) { throw ('An isolated native ' + $runnerArchitecture + ' GitHub Actions Windows runner is required') }
     if (-not ('FengWoArm64Environment' -as [type])) {
         Add-Type -TypeDefinition @'
 using System;
@@ -47,12 +50,22 @@ public static class FengWoArm64Environment {
 '@
     }
     $machines = [FengWoArm64Environment]::Machines($PID)
-    if ($machines[1] -ne 0xaa64) { throw 'The Windows kernel does not report ARM64 hardware' }
-    return [ordered]@{ os = [Environment]::OSVersion.VersionString; os_native_machine = ('0x{0:x4}' -f $machines[1]); powershell_process_machine = ('0x{0:x4}' -f $machines[0]); powershell = $PSVersionTable.PSVersion.ToString(); runner_arch = $env:RUNNER_ARCH; runner_image = $env:ImageOS; image_version = $env:ImageVersion; commit = $env:GITHUB_SHA }
+    if ($machines[0] -ne 0 -or $machines[1] -ne $expectedMachine) { throw ('PowerShell or the Windows kernel is not native ' + $runnerArchitecture) }
+    return [ordered]@{ os = [Environment]::OSVersion.VersionString; os_native_machine = ('0x{0:x4}' -f $machines[1]); powershell_process_machine = ('0x{0:x4}' -f $machines[0]); powershell = $PSVersionTable.PSVersion.ToString(); runner_arch = $env:RUNNER_ARCH; architecture = $Architecture; runner_image = $env:ImageOS; image_version = $env:ImageVersion; commit = $env:GITHUB_SHA }
+}
+
+function Assert-FwArmRunner {
+    return Assert-FwNativeRunner -Architecture 'arm64'
+}
+
+function Assert-FwNativeProcess {
+    param([int]$ProcessId, [ValidateSet('arm64', 'x64')][string]$Architecture = 'arm64')
+    $expectedMachine = if ($Architecture -eq 'arm64') { 0xaa64 } else { 0x8664 }
+    $machines = [FengWoArm64Environment]::Machines($ProcessId)
+    if ($machines[0] -ne 0 -or $machines[1] -ne $expectedMachine) { throw ('The tested process is emulated or is not on native ' + $Architecture + ' Windows') }
 }
 
 function Assert-FwArmProcess {
     param([int]$ProcessId)
-    $machines = [FengWoArm64Environment]::Machines($ProcessId)
-    if ($machines[0] -ne 0 -or $machines[1] -ne 0xaa64) { throw 'The tested process is emulated or is not on native ARM64 Windows' }
+    Assert-FwNativeProcess -ProcessId $ProcessId -Architecture 'arm64'
 }

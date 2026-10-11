@@ -72,12 +72,16 @@ namespace FengWoCoexistenceTests
         [DllImport("kernel32.dll")]
         private static extern IntPtr GlobalFree(IntPtr memory);
 
-        public ProxyFixture()
+        public ProxyFixture(string architecture = "arm64")
         {
+            string runnerArchitecture;
+            if (architecture == "arm64") runnerArchitecture = "ARM64";
+            else if (architecture == "x64") runnerArchitecture = "X64";
+            else throw new ArgumentException("Unsupported native fixture architecture", "architecture");
             if (Environment.OSVersion.Platform != PlatformID.Win32NT ||
                 Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true" ||
-                !String.Equals(Environment.GetEnvironmentVariable("RUNNER_ARCH"), "ARM64", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("An isolated native ARM64 GitHub Actions Windows runner is required");
+                !String.Equals(Environment.GetEnvironmentVariable("RUNNER_ARCH"), runnerArchitecture, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("An isolated native " + runnerArchitecture + " GitHub Actions Windows runner is required");
             original = Capture();
         }
 
