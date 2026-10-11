@@ -241,4 +241,38 @@ void main() {
     expect(failure.canChangePort, isTrue);
     expect(failure.code, 'W-PROXY-02');
   });
+
+  test('Mac native error 5 is not treated as Windows permission denial', () {
+    final failure = DesktopProxyFailure.fromSystemProxy(
+      const ProxyOperationResult(
+        success: false,
+        operation: 'start',
+        stage: 'apply_default',
+        platform: 'macos',
+        errorCode: 5,
+      ),
+      port: 7890,
+    );
+
+    expect(failure.kind, DesktopProxyFailureKind.systemProxyWriteFailed);
+    expect(failure.code, 'M-PROXY-03');
+    expect(failure.canChangePort, isFalse);
+  });
+
+  test('Mac process permission denial retains its own failure code', () {
+    final failure = DesktopProxyFailure.fromSystemProxy(
+      const ProxyOperationResult(
+        success: false,
+        operation: 'start',
+        stage: 'apply_default',
+        platform: 'macos',
+        commandSpawnErrorCode: 13,
+      ),
+      port: 7890,
+    );
+
+    expect(failure.kind, DesktopProxyFailureKind.systemProxyAccessDenied);
+    expect(failure.code, 'M-PROXY-03');
+    expect(failure.canChangePort, isFalse);
+  });
 }

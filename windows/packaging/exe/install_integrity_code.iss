@@ -276,6 +276,8 @@ begin
   FengWoIntegrityVerificationFailed := True;
   Error := CheckFengWoInstallLocation(True, False);
   if Error <> '' then RaiseException(Error);
+  Error := FinalizeFengWoInstall;
+  if Error <> '' then RaiseException(Error);
   FengWoInstalledIntegrityVerified := True;
   FengWoIntegrityVerificationFailed := False;
 end;

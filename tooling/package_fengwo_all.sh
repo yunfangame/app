@@ -239,8 +239,9 @@ verify_macos_package() {
     exit 1
   fi
   binary="$app/Contents/MacOS/FengWo"
-  core="$app/Contents/MacOS/FlClashCore"
+  core="$app/Contents/MacOS/FengWoCore"
   /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$app/Contents/Info.plist" | grep -Fx '蜂窝加速器' >/dev/null
+  /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist" | grep -Fx 'com.fengwo.accelerator' >/dev/null
   for expected_arch in arm64 x86_64; do
     lipo -archs "$binary" | tr ' ' '\n' | grep -Fx "$expected_arch" >/dev/null
     lipo -archs "$core" | tr ' ' '\n' | grep -Fx "$expected_arch" >/dev/null
@@ -335,7 +336,9 @@ package_windows_remote() {
 verify_windows_packages() {
   local archive="$output_root/Windows/蜂窝加速器-${version}-windows-amd64.zip"
   tar -tf "$archive" >/dev/null
-  tar -tf "$archive" | grep -E 'FengWo\.exe|FlClashCore\.exe' >/dev/null
+  tar -tf "$archive" | grep -E '(^|/)FengWo\.exe$' >/dev/null
+  tar -tf "$archive" | grep -E '(^|/)FengWoCore\.exe$' >/dev/null
+  tar -tf "$archive" | grep -E '(^|/)FengWoHelperService\.exe$' >/dev/null
 }
 
 create_checksums_and_archive() {

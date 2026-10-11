@@ -140,7 +140,7 @@ function Add-Candidate {
 function Get-ClientProcesses {
     $items = New-Object 'Collections.Generic.List[object]'
     $all = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
-        $_.ProcessName -match '^(FengWo|fengwoacc|FlClash|FlClashCore|FlClashHelperService)$' -or
+        $_.ProcessName -match '^(FengWo|FengWoCore|FengWoHelperService|fengwoacc|FlClash|FlClashCore|FlClashHelperService)$' -or
         ($selectedPath -and $_.ProcessName -eq [IO.Path]::GetFileNameWithoutExtension($selectedPath))
     })
     foreach ($process in $all) {
@@ -189,7 +189,7 @@ function Collect-DataDirectory {
         $parent = Split-Path -Parent $parent
     }
     if ($result.exists) {
-        $files = @(Get-ChildItem -LiteralPath $Directory -File -Force | Where-Object { $_.Name -match '^(shared_preferences\.json|database\.sqlite|FlClash\.lock|fengwo.*secret)' } | Select-Object -First 60)
+        $files = @(Get-ChildItem -LiteralPath $Directory -File -Force | Where-Object { $_.Name -match '^(shared_preferences\.json|database\.sqlite|FlClash\.lock|fengwo.*secret|\.fengwo-legacy-migration-skipped\.json$)' } | Select-Object -First 60)
         foreach ($file in $files) {
             try {
                 $metadata = Get-FileMetadata $file.FullName
@@ -199,6 +199,12 @@ function Collect-DataDirectory {
                         $metadata.jsonValid = $true
                         $metadata.jsonRootType = $preferences.GetType().FullName
                     } catch { $metadata.jsonValid = $false; $metadata.parseError = 'JSON invalid or unreadable; content excluded.' }
+                }
+                if ($file.Name -ceq '.fengwo-legacy-migration-skipped.json' -and $file.Length -le 1024) {
+                    try {
+                        $status = [IO.File]::ReadAllText($file.FullName) | ConvertFrom-Json
+                        if ($status.version -eq 1 -and $status.reason -cin @('unsafe_database_file', 'unverifiable_database_wal', 'invalid_database_header', 'unsupported_database_schema')) { $metadata.migrationSkipReason = [string]$status.reason }
+                    } catch { }
                 }
                 $result.files += $metadata
             } catch { $collectionErrors.Add('Data file: ' + (Protect-Text $_.Exception.Message)) }
@@ -309,7 +315,7 @@ try {
         Add-Finding 'executable_not_found_or_not_selected' '没有定位到客户端程序。报告保留系统记录；请核对桌面快捷方式和实际安装目录。'
         $launch.classification = 'executable_not_found'
     }
-    $metadataCompany = 'com.follow'
+    $metadataCompany = 'FengWo'
     $metadataProduct = '蜂窝加速器'
     if ($selectedPath) {
         Write-Host ('已选择 / Selected: ' + $selectedPath)
@@ -352,7 +358,12 @@ try {
             Save-Json 'install-directory-icacls.json' (Invoke-NativeRead "$env:SystemRoot\System32\icacls.exe" ('"' + $bundle + '"'))
         }
     }
-    $dataDirectories = @(@($env:APPDATA, [Environment]::GetFolderPath('ApplicationData'), $env:LOCALAPPDATA, [Environment]::GetFolderPath('LocalApplicationData')) | Where-Object { $_ } | ForEach-Object { Join-Path (Join-Path $_ $metadataCompany) $metadataProduct } | Select-Object -Unique)
+    $metadataCompanies = @($metadataCompany)
+    if ($metadataProduct -ceq '蜂窝加速器' -and $metadataCompany -cin @('FengWo', 'com.follow')) { $metadataCompanies = @('FengWo', 'com.follow') }
+    $dataDirectories = @(@($env:APPDATA, [Environment]::GetFolderPath('ApplicationData'), $env:LOCALAPPDATA, [Environment]::GetFolderPath('LocalApplicationData')) | Where-Object { $_ } | ForEach-Object {
+        $dataRoot = $_
+        foreach ($company in $metadataCompanies) { Join-Path (Join-Path $dataRoot $company) $metadataProduct }
+    } | Select-Object -Unique)
     for ($i = 0; $i -lt $dataDirectories.Count; $i++) { Invoke-Step ('data before launch ' + $i) { Collect-DataDirectory $dataDirectories[$i] $i 'before' } }
     Invoke-Step 'processes before launch' { $script:before = Get-ClientProcesses; Save-Json 'processes-before.json' $before }
     Invoke-Step 'startup observation' {

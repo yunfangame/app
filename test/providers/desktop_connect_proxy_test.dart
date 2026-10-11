@@ -8,7 +8,7 @@ void main() {
   for (final initialized in [false, true]) {
     test(
       'desktop user start enables system proxy before connecting with initialized=$initialized',
-      () {
+      () async {
         final rig = _createRig(
           desktop: true,
           initialized: initialized,
@@ -16,7 +16,7 @@ void main() {
         );
         addTearDown(rig.container.dispose);
 
-        rig.container.read(commonActionProvider.notifier).toggleRunning();
+        await rig.container.read(commonActionProvider.notifier).toggleRunning();
 
         expect(rig.container.read(networkSettingProvider).systemProxy, isTrue);
         expect(rig.setup.requests, [
@@ -32,7 +32,7 @@ void main() {
     (name: 'cancel pending connected client', started: true, pending: true),
   ]) {
     for (final enabled in [false, true]) {
-      test('desktop ${scenario.name} keeps system proxy=$enabled', () {
+      test('desktop ${scenario.name} keeps system proxy=$enabled', () async {
         final rig = _createRig(
           desktop: true,
           initialized: false,
@@ -43,7 +43,7 @@ void main() {
         addTearDown(rig.container.dispose);
         final previous = rig.container.read(networkSettingProvider);
 
-        rig.container.read(commonActionProvider.notifier).toggleRunning();
+        await rig.container.read(commonActionProvider.notifier).toggleRunning();
 
         expect(rig.container.read(networkSettingProvider), previous);
         expect(rig.setup.requests, [
@@ -54,7 +54,7 @@ void main() {
   }
 
   for (final enabled in [false, true]) {
-    test('mobile user start preserves system proxy=$enabled', () {
+    test('mobile user start preserves system proxy=$enabled', () async {
       final rig = _createRig(
         desktop: false,
         initialized: true,
@@ -63,7 +63,7 @@ void main() {
       addTearDown(rig.container.dispose);
       final previous = rig.container.read(networkSettingProvider);
 
-      rig.container.read(commonActionProvider.notifier).toggleRunning();
+      await rig.container.read(commonActionProvider.notifier).toggleRunning();
 
       expect(rig.container.read(networkSettingProvider), previous);
       expect(rig.setup.requests, [

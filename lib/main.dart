@@ -9,6 +9,7 @@ import 'package:rust_api/rust_api.dart';
 
 import 'application.dart';
 import 'common/common.dart';
+import 'common/macos_identity.dart';
 import 'common/windows_integrity.dart';
 import 'common/windows_tls_trust.dart';
 import 'common/windows_preferences.dart';
@@ -27,7 +28,20 @@ Future<void> main() async {
         })
       : null;
   WindowsIntegritySnapshot? windowsIntegrity;
+  MacIdentityPreparation? macIdentity;
   try {
+    if (Platform.isMacOS) {
+      macIdentity = await runStartupStage<MacIdentityPreparation>(
+        stage: '准备蜂窝独立数据目录',
+        timeout: const Duration(minutes: 2),
+        operation: () => prepareMacStartupIdentity(
+          acquireLock: () async {
+            if (!await singleInstanceLock.acquire()) exit(0);
+          },
+        ),
+        onStart: (stage) => startupStage.value = '$stage…',
+      );
+    }
     if (Platform.isWindows) {
       windowsIntegrity = await runStartupStage<WindowsIntegritySnapshot?>(
         stage: '检查 Windows 运行权限',
@@ -35,8 +49,15 @@ Future<void> main() async {
         operation: () async => verifyWindowsStartupIntegrity(),
         onStart: (stage) => startupStage.value = '$stage…',
       );
+      await runStartupStage<Directory>(
+        stage: '准备蜂窝独立数据目录',
+        timeout: const Duration(minutes: 2),
+        operation: () => appPath.dataDir.future,
+        onStart: (stage) => startupStage.value = '$stage…',
+      );
       installWindowsPreferencesStore(
         store: WindowsPreferencesStore(
+          directoryLoader: () => appPath.dataDir.future,
           onDiagnostic: (error) {
             unawaited(
               diagnosticLog.record(
@@ -93,6 +114,18 @@ Future<void> main() async {
       operation: () => globalState.init(version),
       onStart: (stage) => startupStage.value = '$stage…',
     );
+    if (macIdentity != null) {
+      unawaited(
+        diagnosticLog.record(
+          'startup.macos_identity_prepared',
+          fields: {
+            'status': macIdentity.status,
+            'legacy_imported': macIdentity.legacyImported,
+            'requires_login': macIdentity.requiresLogin,
+          },
+        ),
+      );
+    }
     if (windowsIntegrity != null) {
       unawaited(
         diagnosticLog.record(

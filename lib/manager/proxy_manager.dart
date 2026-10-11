@@ -171,8 +171,7 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
             commonPrint.event(
               'system_proxy.apply.recheck',
               fields: {
-                ...verification.toDiagnosticFields(),
-                'platform': 'macos',
+                ...verification.withPlatform('macos').toDiagnosticFields(),
               },
             );
             if (!verification.success) {
@@ -199,9 +198,10 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
       }
     } else {
       _stopMacOSProxyGuard();
-      result = await _proxyClient?.stopProxyDetailed(
-        expectedPort: _isWindows || _isMacOS ? port : null,
-      );
+      result = await _proxyClient?.stopProxyDetailed(expectedPort: port);
+    }
+    if (_isWindows || _isMacOS) {
+      result = result?.withPlatform(_isWindows ? 'windows' : 'macos');
     }
     final succeeded = result?.success;
     commonPrint.event(
@@ -218,7 +218,7 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
 
     commonPrint.log(
       'update system proxy failed: ${result?.diagnosticCode} '
-      'stage=${result?.stage} win32=${result?.errorCode}',
+      'stage=${result?.stage} os_error=${result?.errorCode}',
       logLevel: LogLevel.warning,
     );
     if (!mounted) return;
@@ -226,7 +226,7 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
     if (!isStart || !systemProxy) {
       _showNotifier(
         currentAppLocalizations.systemProxyDisableFailed(
-          result?.diagnosticCode ?? 'W-PROXY-09',
+          result?.diagnosticCode ?? (_isMacOS ? 'M-PROXY-09' : 'W-PROXY-09'),
         ),
       );
       return;
@@ -268,7 +268,7 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
     if (widget.notify != null) {
       _showNotifier(
         currentAppLocalizations.systemProxyApplyFailed(
-          result?.diagnosticCode ?? 'W-PROXY-09',
+          result?.diagnosticCode ?? (_isMacOS ? 'M-PROXY-09' : 'W-PROXY-09'),
         ),
       );
     } else if (result != null) {
@@ -483,7 +483,8 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
           } else if (result.status == MacOSProxyRepairStatus.cleanupFailed) {
             _showNotifier(
               currentAppLocalizations.systemProxyDisableFailed(
-                result.cleanup?.diagnosticCode ?? 'W-PROXY-09',
+                result.cleanup?.withPlatform('macos').diagnosticCode ??
+                    'M-PROXY-09',
               ),
             );
           }
@@ -514,7 +515,7 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
       _windowsProxyGuard ??= WindowsProxyGuard(
         inspector: _proxyClient.inspectProxy,
         starter: _proxyClient.startProxyDetailed,
-        stopper: (port) => _proxyClient.stopProxyDetailed(expectedPort: port),
+        stopper: _proxyClient.repairStaleProxyDetailed,
       );
       systemProxyRefreshSignal.attach(_scheduleSystemProxyGuardCheck);
     }
@@ -522,7 +523,7 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
       _macOSProxyGuard ??= MacOSProxyGuard(
         inspector: _proxyClient.inspectProxy,
         starter: _proxyClient.startProxyDetailed,
-        stopper: (port) => _proxyClient.stopProxyDetailed(expectedPort: port),
+        stopper: _proxyClient.repairStaleProxyDetailed,
       );
       systemProxyRefreshSignal.attach(_scheduleSystemProxyGuardCheck);
     }

@@ -1,8 +1,9 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $testDirectory = Join-Path ([IO.Path]::GetTempPath()) "flclash-vc-runtime-tests-$([guid]::NewGuid().ToString('N'))"
 [void][IO.Directory]::CreateDirectory($testDirectory)
 . (Join-Path $PSScriptRoot 'prepare_vc_runtime.ps1') -Architecture x64 -OutputDirectory $testDirectory
+$script:productionCleanupSource = Get-VcRuntimeCleanupScriptSource
 
 function Assert-True {
   param([bool]$Condition, [string]$Message)
@@ -28,6 +29,11 @@ function Reset-Fixture {
   $script:productVersion = '14.50.35719.0'
   $script:lastUri = $null
   $script:vsDirectories = @()
+  $script:cleanupSource = $script:productionCleanupSource
+}
+
+function Get-VcRuntimeCleanupScriptSource {
+  return $script:cleanupSource
 }
 
 function Get-VcRuntimeVisualStudioPaths {
@@ -71,6 +77,11 @@ try {
   $result = Invoke-Fixture -Name 'success' -MinimumVersion '14.44.35211.0'
   $installer = Join-Path $result.OutputDirectory 'vc_redist.exe'
   $metadata = [IO.File]::ReadAllText((Join-Path $result.OutputDirectory 'vc_runtime.iss'))
+  $cleanup = Join-Path $result.OutputDirectory 'fengwo_install_cleanup.ps1'
+  $cleanupHash = (Get-FileHash -LiteralPath $script:productionCleanupSource -Algorithm SHA256).Hash.ToLowerInvariant()
+  Assert-True ([IO.File]::Exists($cleanup)) 'Owned installation cleanup payload was not staged'
+  Assert-True ((Get-FileHash -LiteralPath $cleanup -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $cleanupHash) 'Staged cleanup payload differs from the product source'
+  Assert-True ($result.CleanupScriptSHA256 -ceq $cleanupHash) 'Cleanup script source hash was not recorded'
   $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
   Assert-True ($script:lastUri -ceq 'https://aka.ms/vc14/vc_redist.x64.exe') 'Incorrect official download URI'
   Assert-True ($result.MinimumVersion -ceq '14.50.35719.0') 'Minimum version was not derived from the validated installer'
@@ -78,9 +89,11 @@ try {
   Assert-True ($metadata.Contains('#define VcRuntimeMinimumVersion "14.50.35719.0"')) 'Version define missing'
   Assert-True ($metadata.Contains("#define VcRuntimeInstallerSHA256 `"$hash`"")) 'SHA256 does not match the installer'
   [IO.File]::WriteAllText((Join-Path $result.OutputDirectory 'vc_runtime.iss'), 'stale metadata')
+  [IO.File]::WriteAllText($cleanup, 'stale cleanup')
   Invoke-Fixture -Name 'success' | Out-Null
   Assert-True ($script:downloadCount -eq 1) 'Valid cache unexpectedly downloaded again'
   Assert-True ([IO.File]::ReadAllText((Join-Path $result.OutputDirectory 'vc_runtime.iss')) -ceq $metadata) 'Cached metadata was not regenerated'
+  Assert-True ((Get-FileHash -LiteralPath $cleanup -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $cleanupHash) 'Valid runtime cache retained a stale cleanup script'
 
   [IO.File]::WriteAllText($installer, 'corrupt')
   Invoke-Fixture -Name 'success' | Out-Null
@@ -113,8 +126,16 @@ try {
     $caseDirectory = Join-Path $testDirectory $case.Name
     Assert-True (-not [IO.File]::Exists((Join-Path $caseDirectory 'vc_redist.exe'))) "Failed case published an installer: $($case.Name)"
     Assert-True (-not [IO.File]::Exists((Join-Path $caseDirectory 'vc_runtime.iss'))) "Failed case published metadata: $($case.Name)"
+    Assert-True (-not [IO.File]::Exists((Join-Path $caseDirectory 'fengwo_install_cleanup.ps1'))) "Failed case published cleanup: $($case.Name)"
     Assert-True (@(Get-ChildItem -LiteralPath $caseDirectory -Filter '*.tmp').Count -eq 0) "Failed case leaked partial downloads: $($case.Name)"
   }
+
+  Reset-Fixture
+  $script:cleanupSource = Join-Path $testDirectory 'missing-cleanup.ps1'
+  Assert-Throws { Invoke-Fixture -Name 'missing-cleanup' } 'owned installation cleanup script is missing'
+  Assert-True ($script:downloadCount -eq 0) 'Missing cleanup script still downloaded a runtime'
+  Assert-True (-not [IO.File]::Exists((Join-Path $testDirectory 'missing-cleanup/vc_runtime.iss'))) 'Missing cleanup published metadata'
+  Assert-True (@(Get-ChildItem -LiteralPath (Join-Path $testDirectory 'missing-cleanup') -Filter '*.tmp').Count -eq 0) 'Missing cleanup leaked staging files'
 
   Reset-Fixture
   Assert-Throws { Invoke-Fixture -Name 'too-old' -MinimumVersion '14.51.0.0' } 'older than required'
@@ -128,10 +149,13 @@ try {
   $existingMetadata = Join-Path $result.OutputDirectory 'vc_runtime.iss'
   $originalInstaller = [IO.File]::ReadAllText($existingInstaller)
   $originalMetadata = [IO.File]::ReadAllText($existingMetadata)
+  $existingCleanup = Join-Path $result.OutputDirectory 'fengwo_install_cleanup.ps1'
+  $originalCleanup = [IO.File]::ReadAllBytes($existingCleanup)
   $script:downloadFailure = $true
   Assert-Throws { Invoke-Fixture -Name 'existing' -MinimumVersion '14.51.0.0' } 'Simulated download failure'
   Assert-True ([IO.File]::ReadAllText($existingInstaller) -ceq $originalInstaller) 'Failed update changed the existing installer'
   Assert-True ([IO.File]::ReadAllText($existingMetadata) -ceq $originalMetadata) 'Failed update changed the existing metadata'
+  Assert-True ([Convert]::ToBase64String([IO.File]::ReadAllBytes($existingCleanup)) -ceq [Convert]::ToBase64String($originalCleanup)) 'Failed update changed the existing cleanup payload'
 
   $script:downloadFailure = $false
   $script:fileVersion = '14.51.100.0'
@@ -170,6 +194,23 @@ try {
   [IO.File]::WriteAllText($stagedMetadata, 'replacement metadata')
   Assert-Throws { Publish-VcRuntimeFiles -Installer $stagedInstaller -Metadata $stagedMetadata -OutputDirectory $rollbackDirectory } '.+'
   Assert-True ([IO.File]::ReadAllText($rollbackInstaller) -ceq 'previous installer') 'Failed publish did not restore the previous installer'
+
+  $cleanupRollbackDirectory = Join-Path $testDirectory 'cleanup-rollback'
+  [void][IO.Directory]::CreateDirectory($cleanupRollbackDirectory)
+  $cleanupRollbackInstaller = Join-Path $cleanupRollbackDirectory 'vc_redist.exe'
+  $cleanupRollbackMetadata = Join-Path $cleanupRollbackDirectory 'vc_runtime.iss'
+  [IO.File]::WriteAllText($cleanupRollbackInstaller, 'previous installer')
+  [IO.File]::WriteAllText($cleanupRollbackMetadata, 'previous metadata')
+  [void][IO.Directory]::CreateDirectory((Join-Path $cleanupRollbackDirectory 'fengwo_install_cleanup.ps1'))
+  $cleanupStagedInstaller = Join-Path $cleanupRollbackDirectory 'staged.exe'
+  $cleanupStagedMetadata = Join-Path $cleanupRollbackDirectory 'staged.iss'
+  $cleanupStagedScript = Join-Path $cleanupRollbackDirectory 'staged.ps1'
+  [IO.File]::WriteAllText($cleanupStagedInstaller, 'replacement installer')
+  [IO.File]::WriteAllText($cleanupStagedMetadata, 'replacement metadata')
+  [IO.File]::WriteAllText($cleanupStagedScript, 'replacement cleanup')
+  Assert-Throws { Publish-VcRuntimeFiles -Installer $cleanupStagedInstaller -Metadata $cleanupStagedMetadata -CleanupScript $cleanupStagedScript -OutputDirectory $cleanupRollbackDirectory } '.+'
+  Assert-True ([IO.File]::ReadAllText($cleanupRollbackInstaller) -ceq 'previous installer') 'Cleanup publish failure did not restore the previous installer'
+  Assert-True ([IO.File]::ReadAllText($cleanupRollbackMetadata) -ceq 'previous metadata') 'Cleanup publish failure did not restore the previous metadata'
 
   Write-Output 'VC++ runtime preparation tests passed'
 } finally {

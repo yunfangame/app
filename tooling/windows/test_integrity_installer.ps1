@@ -60,7 +60,7 @@ foreach ($entry in $productionIncludes.GetEnumerator()) {
 if ($productionCode.Contains('{{') -or $productionCode -match '(?m)^#include') {
     throw 'The complete production installer Code contains an unresolved template or include.'
 }
-$allMessages = @($template -split '\r?\n' | Where-Object { $_ -match '^(?:InstallIntegrity\w+|VcRuntime\w+|HelperStopFailed)=' }) -join "`r`n"
+$allMessages = @($template -split '\r?\n' | Where-Object { $_ -match '^(?:InstallIntegrity\w+|VcRuntime\w+|HelperStopFailed|InstallOwnershipCleanupMissing)=' }) -join "`r`n"
 $compiledProduction = [Collections.Generic.List[string]]::new()
 foreach ($architecture in @('x64', 'arm64')) {
     $fullFixture = @"
@@ -119,6 +119,11 @@ $messages
 [Files]
 Source: "$payload"; DestDir: "{app}"; DestName: "FengWo.exe"; Flags: ignoreversion
 [Code]
+function FinalizeFengWoInstall: String;
+begin
+  Result := '';
+end;
+
 function CanLaunchAfterRuntime: Boolean;
 begin
   Result := True;

@@ -48,6 +48,10 @@ void main() {
       'windows/packaging/exe/install_integrity_code.iss',
       'integrity logic',
     );
+    await write(
+      'windows/packaging/exe/fengwo_install_cleanup.ps1',
+      'cleanup logic',
+    );
     await write('.dart_tool/windows_runtime/x64/vc_runtime.iss', 'metadata');
     await write('.dart_tool/windows_runtime/x64/vc_redist.exe', 'installer');
     for (final name in [
@@ -114,6 +118,7 @@ include(windows/packaging/vc_runtime.cmake)
           'prerequisites/vc_runtime.iss',
           'prerequisites/vc_runtime_code.iss',
           'prerequisites/install_integrity_code.iss',
+          'prerequisites/fengwo_install_cleanup.ps1',
         ]) {
           expect(
             File(p.join(root.path, config, relativePath)).existsSync(),

@@ -98,6 +98,10 @@ class _WindowContainerState extends ConsumerState<WindowManager>
 
   @override
   void onWindowClose() async {
+    if (_isWindows) {
+      commonPrint.event('window.close.requested');
+      await commonPrint.flushDiagnosticEvents();
+    }
     await ref.read(systemActionProvider.notifier).handleClose();
     super.onWindowClose();
   }
@@ -348,7 +352,7 @@ class _WindowHeaderState extends State<WindowHeader> {
             ),
           ),
           if (system.isMacOS)
-            const Text(appName)
+            Text(platformAppName)
           else ...[
             Positioned(right: 0, child: _buildActions()),
           ],

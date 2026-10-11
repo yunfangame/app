@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:fl_clash/common/render.dart';
 import 'package:fl_clash/manager/window_manager.dart';
@@ -21,10 +23,18 @@ Map<String, double> _bounds(WindowProps props) => {
 
 class _SystemAction extends SystemAction {
   int refreshCalls = 0;
+  int closeCalls = 0;
+  Future<void> Function()? onClose;
 
   @override
   Future<void> refreshAutoLaunch() async {
     refreshCalls++;
+  }
+
+  @override
+  Future<void> handleClose([bool exit = true]) async {
+    closeCalls++;
+    await onClose?.call();
   }
 }
 
@@ -105,6 +115,66 @@ class _Rig {
 }
 
 void main() {
+  testWidgets('Windows close waits for its diagnostic to reach disk', (
+    tester,
+  ) async {
+    final rig = _Rig();
+    await rig.mount(tester);
+    final directory = await tester.runAsync(
+      () => Directory.systemTemp.createTemp('fengwo-window-close-'),
+    );
+    const pathChannel = MethodChannel('plugins.flutter.io/path_provider');
+    addTearDown(() async {
+      rig.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        pathChannel,
+        null,
+      );
+      await directory!.delete(recursive: true);
+    });
+    await tester.runAsync(() async {
+      final pathRequested = Completer<void>();
+      final pathReady = Completer<String>();
+      final closeCompleted = Completer<void>();
+      rig.binding.defaultBinaryMessenger.setMockMethodCallHandler(pathChannel, (
+        call,
+      ) async {
+        expect(call.method, 'getApplicationSupportDirectory');
+        if (!pathRequested.isCompleted) pathRequested.complete();
+        return pathReady.future;
+      });
+      rig.action.onClose = () async {
+        final lines = await File(
+          '${directory!.path}/diagnostics/events.jsonl',
+        ).readAsLines();
+        final entries = lines
+            .map((line) => jsonDecode(line) as Map<String, dynamic>)
+            .toList();
+        expect(entries.last['event'], 'window.close.requested');
+        closeCompleted.complete();
+      };
+
+      await rig.emit('close');
+      await pathRequested.future.timeout(const Duration(seconds: 3));
+      expect(rig.action.closeCalls, 0);
+      pathReady.complete(directory!.path);
+      await closeCompleted.future.timeout(const Duration(seconds: 3));
+    });
+
+    expect(rig.action.closeCalls, 1);
+  });
+
+  testWidgets('other platforms retain the direct close callback', (
+    tester,
+  ) async {
+    final rig = _Rig();
+    await rig.mount(tester, isWindows: false);
+
+    await rig.emit('close');
+    await tester.pump();
+
+    expect(rig.action.closeCalls, 1);
+  });
+
   testWidgets(
     'Windows show persists the current programmatically moved bounds',
     (tester) async {

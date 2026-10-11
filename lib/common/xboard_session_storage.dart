@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'macos_identity_constants.dart';
+
 import 'local_secret_store.dart';
 import 'xboard_rule_account.dart';
 
@@ -103,7 +105,7 @@ class XboardSessionStorage {
     Future<SharedPreferences> Function()? preferencesLoader,
     this.useLocalDebugStorage = false,
     this.onDiagnostic,
-  }) : _secureStorage = secureStorage ?? const FlutterSecureStorage(),
+  }) : _secureStorage = secureStorage ?? identitySecureStorage,
        _secretStore = secretStore,
        _preferencesLoader = preferencesLoader ?? SharedPreferences.getInstance;
 
