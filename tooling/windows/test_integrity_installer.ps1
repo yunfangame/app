@@ -119,6 +119,11 @@ $messages
 [Files]
 Source: "$payload"; DestDir: "{app}"; DestName: "FengWo.exe"; Flags: ignoreversion
 [Code]
+function FinalizeFengWoInstall: String;
+begin
+  Result := '';
+end;
+
 function CanLaunchAfterRuntime: Boolean;
 begin
   Result := True;

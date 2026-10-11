@@ -146,7 +146,7 @@
     },
     {
       "path": "tooling/windows/test_integrity_installer.ps1",
-      "sha256": "6e816fc0c388457c453e60b5e6068645cbf45ef34ba0c2291e498d05d777e5f3"
+      "sha256": "dc18db63e732455066c47deb7bc203615cf67fa950f4d821f1e11d4b4e1ec639"
     },
     {
       "path": "tooling/windows/test_vc_runtime_installer.ps1",
