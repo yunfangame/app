@@ -158,7 +158,7 @@
     },
     {
       "path": "windows/packaging/exe/inno_setup.iss",
-      "sha256": "3b97af9b89ad9baa93da84bb683eeab4e31ab26fd0d1265cfc24cb4997bbc420"
+      "sha256": "9cb0a7acd3743ecf1e6f22881bd2a4f0bf8e348f454e54ccd076420a667d7965"
     },
     {
       "path": "windows/packaging/exe/make_config.yaml",
