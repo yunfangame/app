@@ -112,6 +112,34 @@ void main() {
       });
     });
 
+    test('automatic proxy state survives decoding and diagnostic copies', () {
+      for (final automatic in [false, true]) {
+        final result = ProxyOperationResult.fromChannel({
+          'success': false,
+          'operation': 'inspect',
+          'stage': 'readback_mismatch',
+          'enabled': false,
+          'automaticProxyEnabled': automatic,
+        }, operation: 'inspect');
+        final tagged = result.withPlatform('macos');
+        final copied = tagged.withCommandFailure(
+          ProxyCommandResult(
+            success: false,
+            processResult: ProcessResult(1, 14, '', 'permission denied'),
+          ),
+        );
+
+        expect(result.automaticProxyEnabled, automatic);
+        expect(tagged.automaticProxyEnabled, automatic);
+        expect(copied.automaticProxyEnabled, automatic);
+        expect(
+          copied.toDiagnosticFields()['readback_automatic_proxy_enabled'],
+          automatic,
+        );
+        expect(copied.diagnosticCode, 'M-PROXY-04');
+      }
+    });
+
     test('session decisions survive native decoding and platform tagging', () {
       final result = ProxyOperationResult.fromChannel({
         'success': true,

@@ -194,6 +194,7 @@ class MacOSProxyGuard {
     if (inspection.success ||
         inspection.stage != 'readback_mismatch' ||
         inspection.enabled == null ||
+        inspection.automaticProxyEnabled == true ||
         (inspection.enabled == true &&
             inspection.server != '127.0.0.1:$port')) {
       return MacOSProxyReconcileResult(inspection: inspection);

@@ -88,7 +88,7 @@ jobs:
           $evidence = Join-Path $env:RUNNER_TEMP 'desktop-coexistence-evidence'
           flutter analyze --no-pub --no-fatal-infos | Tee-Object -FilePath (Join-Path $evidence 'flutter-analyze.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Desktop analysis failed' }
-          flutter test --no-pub --reporter expanded test/setup_test.dart test/windows_runtime_bundle_test.dart test/common/windows_identity_test.dart test/common/windows_integrity_test.dart test/common/protocol_test.dart test/common/windows_proxy_guard_test.dart test/common/window_recovery_test.dart test/core/transport_test.dart test/core/desktop test/core/service_test.dart test/core/protocol_contract_test.dart test/manager/core_manager_test.dart test/manager/proxy_manager_test.dart test/manager/window_manager_test.dart test/providers/system_action_test.dart plugins/proxy/test/proxy_test.dart plugins/proxy/test/proxy_result_test.dart plugins/proxy/test/macos_service_proxy_test.dart | Tee-Object -FilePath (Join-Path $evidence 'flutter-focused-tests.txt')
+          flutter test --no-pub --reporter expanded test/setup_test.dart test/windows_runtime_bundle_test.dart test/common/windows_identity_test.dart test/common/windows_integrity_test.dart test/common/protocol_test.dart test/common/windows_proxy_guard_test.dart test/common/window_recovery_test.dart test/core/transport_test.dart test/core/desktop test/core/service_test.dart test/core/protocol_contract_test.dart test/manager/core_manager_test.dart test/manager/proxy_manager_test.dart test/manager/window_manager_test.dart test/providers/system_action_test.dart plugins/proxy/test/proxy_test.dart plugins/proxy/test/proxy_result_test.dart plugins/proxy/test/macos_service_proxy_test.dart plugins/proxy/test/windows_proxy_repair_test.dart | Tee-Object -FilePath (Join-Path $evidence 'flutter-focused-tests.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Identity proxy and shutdown tests failed' }
           ./tooling/windows/test_prepare_vc_runtime.ps1 | Tee-Object -FilePath (Join-Path $evidence 'runtime-preparation-tests.txt')
           ./tooling/windows/test_vc_runtime_bundle.ps1 | Tee-Object -FilePath (Join-Path $evidence 'runtime-bundle-tests.txt')
@@ -189,7 +189,7 @@ jobs:
           ctest --test-dir build/windows/x64/plugins/proxy -C Release --output-on-failure --no-tests=error -R '^Proxy|^proxy_session_test$' --output-junit (Join-Path $evidence 'proxy-ctest.xml') | Tee-Object -FilePath (Join-Path $evidence 'proxy-ctest.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Native proxy tests failed' }
           [xml]$report = Get-Content -LiteralPath (Join-Path $evidence 'proxy-ctest.xml') -Raw
-          if ($report.SelectNodes('//testcase').Count -ne 51 -or $report.SelectNodes('//failure|//error|//skipped').Count -ne 0) { throw 'Expected all 50 native proxy tests and the standalone session test without skips' }
+          if ($report.SelectNodes('//testcase').Count -ne 52 -or $report.SelectNodes('//failure|//error|//skipped').Count -ne 0) { throw 'Expected all 51 native proxy tests and the standalone session test without skips' }
           & ./build/windows/x64/plugins/proxy/Release/proxy_session_windows_test.exe | Tee-Object -FilePath (Join-Path $evidence 'proxy-session-windows.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Actual WinINet session restoration failed' }
           $raw = Join-Path $evidence 'proxy-raw-bypass.txt'

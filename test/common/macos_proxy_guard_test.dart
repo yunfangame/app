@@ -33,6 +33,22 @@ void main() {
   );
 
   for (final inspection in <String, ProxyOperationResult>{
+    'external automatic proxy': ProxyOperationResult.fromChannel({
+      'success': false,
+      'operation': 'inspect',
+      'stage': 'readback_mismatch',
+      'enabled': false,
+      'automaticProxyEnabled': true,
+    }, operation: 'inspect').withPlatform('macos'),
+    'automatic proxy alongside the expected manual endpoint':
+        ProxyOperationResult.fromChannel({
+          'success': false,
+          'operation': 'inspect',
+          'stage': 'readback_mismatch',
+          'enabled': true,
+          'server': '127.0.0.1:7890',
+          'automaticProxyEnabled': true,
+        }, operation: 'inspect').withPlatform('macos'),
     'external enabled endpoint': const ProxyOperationResult(
       success: false,
       operation: 'inspect',

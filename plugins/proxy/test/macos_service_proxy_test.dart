@@ -562,6 +562,34 @@ void main() {
       },
     );
 
+    test('inspection reports external PAC and automatic discovery', () async {
+      final system = _NetworkSystem();
+      final state = system.services['Service A']!;
+      final proxy = system.proxy(verificationAttempts: 1);
+      for (final automatic in [(true, false), (false, true), (true, true)]) {
+        for (final manual in [false, true]) {
+          for (final endpoint in [state.web, state.secureWeb, state.socks]) {
+            endpoint.enabled = manual;
+            endpoint.server = '127.0.0.1';
+            endpoint.port = 7890;
+          }
+          state.pacEnabled = automatic.$1;
+          state.discovery = automatic.$2;
+          final original = state.snapshot();
+
+          final inspection = await proxy.inspectDetailed(7890);
+
+          expect(inspection.success, isFalse);
+          expect(inspection.stage, 'readback_mismatch');
+          expect(inspection.enabled, manual);
+          expect(inspection.automaticProxyEnabled, isTrue);
+          expect(inspection.platform, 'macos');
+          expect(state.snapshot(), original);
+          expect(system.writes, isEmpty);
+        }
+      }
+    });
+
     test(
       'stop restores each visited service PAC WPAD and bypass snapshot',
       () async {

@@ -146,6 +146,7 @@ class WindowsProxyGuard {
         _starter == null ||
         inspection.stage != 'readback_mismatch' ||
         inspection.enabled == null ||
+        inspection.automaticProxyEnabled == true ||
         (inspection.enabled == true &&
             inspection.server != '127.0.0.1:$port')) {
       return WindowsProxyReconcileResult(inspection: inspection);

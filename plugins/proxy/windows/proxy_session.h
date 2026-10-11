@@ -37,6 +37,7 @@ struct SessionOperationDetails {
   uint32_t errorCode = 0;
   std::wstring connectionName;
   bool enabled = false;
+  std::optional<bool> automaticProxyEnabled;
   std::wstring server;
   bool fallbackUsed = false;
   int rasFailureCount = 0;
@@ -320,6 +321,7 @@ class ProxySession {
   static void SetReadback(SessionOperationDetails& details,
                           const ConnectionConfiguration& current) {
     details.enabled = current.HasManualProxy();
+    details.automaticProxyEnabled = (current.flags & 12) != 0;
     details.server = current.server;
   }
 

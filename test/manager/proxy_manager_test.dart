@@ -186,6 +186,14 @@ class _Rig {
   final notifications = <String>[];
   late final ProviderContainer container;
   late final _Setup setup;
+  bool _disposed = false;
+
+  Future<void> dispose(WidgetTester tester) async {
+    if (_disposed) return;
+    _disposed = true;
+    await tester.pumpWidget(const SizedBox());
+    container.dispose();
+  }
 
   Future<void> mount(
     WidgetTester tester, {
@@ -221,10 +229,7 @@ class _Rig {
       ],
     );
     setup = container.read(setupActionProvider.notifier) as _Setup;
-    addTearDown(() async {
-      await tester.pumpWidget(const SizedBox());
-      container.dispose();
-    });
+    addTearDown(() => dispose(tester));
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
@@ -253,39 +258,47 @@ void main() {
     (tester) async {
       final rig = _Rig();
       late int port;
-      await tester.runAsync(() async {
-        final listener = await ServerSocket.bind(
-          InternetAddress.loopbackIPv4,
-          0,
-        );
-        port = listener.port;
-        await listener.close();
-        rig.client.inspection = ProxyOperationResult(
-          success: true,
-          operation: 'inspect',
-          stage: 'verified',
-          enabled: true,
-          server: '127.0.0.1:$port',
-        );
-        rig.client.repair = (_) async => const ProxyOperationResult(
-          success: true,
-          operation: 'stop',
-          stage: 'skipped_active_listener',
-          writeSkipped: true,
-        );
-        await rig.mount(
-          tester,
-          initiallyRunning: false,
-          injectGuard: false,
-          initialPort: port,
-        );
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-      });
-      await tester.pumpAndSettle();
-      expect(rig.client.repairPorts, [port]);
-      expect(rig.client.stopPorts, isEmpty);
-      expect(rig.client.startPorts, isEmpty);
-      expect(rig.notifications, isEmpty);
+      try {
+        await tester.runAsync(() async {
+          final repairCompleted = Completer<void>();
+          final listener = await ServerSocket.bind(
+            InternetAddress.loopbackIPv4,
+            0,
+          );
+          port = listener.port;
+          await listener.close();
+          rig.client.inspection = ProxyOperationResult(
+            success: true,
+            operation: 'inspect',
+            stage: 'verified',
+            enabled: true,
+            server: '127.0.0.1:$port',
+          );
+          rig.client.repair = (_) async {
+            repairCompleted.complete();
+            return const ProxyOperationResult(
+              success: true,
+              operation: 'stop',
+              stage: 'skipped_active_listener',
+              writeSkipped: true,
+            );
+          };
+          await rig.mount(
+            tester,
+            initiallyRunning: false,
+            injectGuard: false,
+            initialPort: port,
+          );
+          await repairCompleted.future.timeout(const Duration(seconds: 5));
+        });
+        await tester.pumpAndSettle();
+        expect(rig.client.repairPorts, [port]);
+        expect(rig.client.stopPorts, isEmpty);
+        expect(rig.client.startPorts, isEmpty);
+        expect(rig.notifications, isEmpty);
+      } finally {
+        await rig.dispose(tester);
+      }
     },
   );
 
