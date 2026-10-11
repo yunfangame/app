@@ -51,8 +51,8 @@ function Request-ChainOrigin([string]$Name, [string]$Url, [int]$Timeout = 10) {
     $clock = [Diagnostics.Stopwatch]::StartNew()
     try {
         $response = Invoke-WebRequest -Uri $Url -Proxy 'http://127.0.0.1:17980' -TimeoutSec $Timeout -Headers @{ 'X-FengWo-Chain-Case' = $Name } -SkipHttpErrorCheck
-        $body = [string]$response.Content
-        return [ordered]@{ status = [int]$response.StatusCode; body = $body; elapsed_ms = $clock.ElapsedMilliseconds; error_type = $null }
+        $body = if ($response.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($response.Content) } else { [string]$response.Content }
+        return [ordered]@{ status = [int]$response.StatusCode; body = $body; content_type = $response.Content.GetType().FullName; elapsed_ms = $clock.ElapsedMilliseconds; error_type = $null }
     } catch {
         return [ordered]@{ status = $null; body = $null; elapsed_ms = $clock.ElapsedMilliseconds; error_type = $_.Exception.GetType().Name }
     }
@@ -146,7 +146,15 @@ try {
         $results.Add([ordered]@{ name = $name; passed = $true; expected_failure = $case['failure']; restart_iteration = $case['restart_iteration']; selected_node = 'Synthetic Node'; mode = $case['mode']; wrapper_applied = $active; listener_ready_ms = $listenerReadyMs; wrapper_visible_ms = $wrapperVisibleMs; delay_ms = $(if ($delay) { $delay['value'] } else { $null }); core_pid = $core.Id; named_pipe_peer_pid = $peerPid; response_status = $response.status; response_elapsed_ms = $response.elapsed_ms; public = $public; node_connections = $node.Count; exit_connections = $exits.Count })
         Stop-ChainCore
     }
-} catch { $failure = $_.Exception.Message } finally {
+} catch {
+    $failure = $_.Exception.Message
+    if ($name -and $fixture -and -not $fixture.HasExited) {
+        try {
+            $lastSnapshot = Invoke-RestMethod -Uri ('http://127.0.0.1:31816/snapshot/' + $name) -NoProxy -TimeoutSec 5
+            Save-FwArmEvidence (Join-Path $EvidenceDirectory 'failed-case.json') ([ordered]@{ name = $name; delay = $delay; origin_response = $response; hops = $lastSnapshot })
+        } catch { $cleanupErrors.Add('The failing synthetic case snapshot could not be saved') }
+    }
+} finally {
     try { Stop-ChainCore } catch {
         $cleanupErrors.Add($_.Exception.Message)
         if ($core -and -not $core.HasExited) { $core.Kill(); [void]$core.WaitForExit(5000) }

@@ -234,6 +234,7 @@ class HttpHandler(BaseHTTPRequestHandler):
         time.sleep(0.02)
         body = b'FENGWO_CHAIN_FIXTURE_OK'
         self.send_response(200)
+        self.send_header('Content-Type', 'text/plain; charset=utf-8')
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         if not head:
