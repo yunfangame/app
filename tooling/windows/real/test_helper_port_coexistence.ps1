@@ -189,6 +189,8 @@ try {
     Assert-CoexistenceHelper $new 'new-after-old-stop'
     Assert-CoexistenceCore $new 'new-after-old-stop'
     Start-CoexistenceCore $old 'old-restart-with-new-live'
+    Assert-CoexistenceHelper $new 'new-after-old-restart'
+    Assert-CoexistenceCore $new 'new-after-old-restart'
     $checks.Add([ordered]@{ name = 'old-core-stop-restart-preserves-new-helper-and-core'; passed = $true })
     Invoke-CoexistenceChild $InstallerPath @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR=' + $BundleDirectory), '/TASKS=', ('/LOG=' + (Join-Path $EvidenceDirectory 'new-overwrite.log'))) 'new-overwrite'
     if (-not $new.lease.process.WaitForExit(5000)) { throw 'The owned overwrite did not stop its new Core' }

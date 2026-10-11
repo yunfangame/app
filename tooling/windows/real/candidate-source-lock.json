@@ -94,7 +94,7 @@
     },
     {
       "path": "test/providers/action_test.dart",
-      "sha256": "33ce0d7c9fe238ca4076f469e3822e46ccb2506dceef5ae9b64421aa1e8c908c"
+      "sha256": "1fadf0e70d37d3e59fbf63a9a350116c80febbcc81bee50116d2d30604c5fd1a"
     },
     {
       "path": "test/providers/chain_proxy_apply_test.dart",
@@ -102,15 +102,15 @@
     },
     {
       "path": "test/providers/macos_authorization_update_regression_test.dart",
-      "sha256": "719d392b22ea815c3331099a92440da285b1bbd36a0fb072d3b80b18d09ceea3"
+      "sha256": "8313550687fc97f26c28efd8e13598b7a079a52791d8e3aac8d6b5154fccdf9b"
     },
     {
       "path": "test/providers/startup_setup_regression_test.dart",
-      "sha256": "5aa6c48e9ca5c1f3a2ac8b083651d15e906332933fda754b0e6fd4842969aec4"
+      "sha256": "b054a9402d6dcba57ffebe785790bd64be4477ee285c90f925558afc01ec7ea0"
     },
     {
       "path": "test/providers/startup_tun_intent_test.dart",
-      "sha256": "1f66eb2b39c4ea373bacafb9b4d577ad6613e5a6bba629c60cf522e6e414201b"
+      "sha256": "72838f37fb9ae72cc041be4ac3a5d28e8d6a95806c1186ecd090162ca24a9524"
     },
     {
       "path": "test/providers/windows_connection_test.dart",
