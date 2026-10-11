@@ -69,6 +69,7 @@ void main() {
     () async {
       final harness = _Harness(stableProfile: null);
       addTearDown(harness.container.dispose);
+      harness.container.read(runTimeProvider.notifier).value = 0;
       harness.enableTun();
 
       await harness.core.restartCore().timeout(const Duration(seconds: 2));
@@ -90,6 +91,7 @@ void main() {
     () async {
       final harness = _Harness(stableProfile: _stableProfile);
       addTearDown(harness.container.dispose);
+      harness.container.read(runTimeProvider.notifier).value = 0;
       harness.enableTun();
       var guardChecks = 0;
       var preloadCount = 0;
@@ -126,6 +128,7 @@ void main() {
     () async {
       final harness = _Harness(stableProfile: _stableProfile);
       addTearDown(harness.container.dispose);
+      harness.container.read(runTimeProvider.notifier).value = 0;
       harness.enableTun();
       var current = true;
       final restarting = Completer<void>();
@@ -356,6 +359,15 @@ class _TestSetupAction extends SetupAction {
 
   @override
   Future<bool> isTunServiceReady() async => true;
+
+  @override
+  Future<bool> setCoreRunning(bool running) async => true;
+
+  @override
+  Future<void> verifyLocalListener(
+    int port, {
+    required bool Function() isCancelled,
+  }) async {}
 
   @override
   bool get supportsCoreSetupTimeoutRecovery => true;

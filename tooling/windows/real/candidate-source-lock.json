@@ -1,0 +1,168 @@
+{
+  "version": "1.0.8",
+  "candidate": "V2-20261012",
+  "architecture": "arm64",
+  "unsigned_test_only": true,
+  "customer_account_uploaded": false,
+  "new_helper_port": 47907,
+  "old_helper_port": 47906,
+  "desktop_default_port": 17980,
+  "files": [
+    {
+      "path": "lib/common/chain_proxy.dart",
+      "sha256": "19a2808fa92477882216dadf7c9081f9ab5b5070b6dace12ec9d0d7b61c71f04"
+    },
+    {
+      "path": "lib/common/chain_proxy_validation.dart",
+      "sha256": "6b84f116e59b92b04c6bdc52e610d0f49a7ac31694f7dd538e840143cc0c3805"
+    },
+    {
+      "path": "lib/common/constant.dart",
+      "sha256": "aed54f54ebaf535cc86cba832f53e45386a7a7bc598c498701022db3e85c42bf"
+    },
+    {
+      "path": "lib/common/migration.dart",
+      "sha256": "a86b8384959c49119afb645ca67697991df39b54af563edbb6b5e8d7a2c2a0bc"
+    },
+    {
+      "path": "lib/common/mixed_port.dart",
+      "sha256": "5921d93ed641853d2b45da631ca1960138de9e702b0af7f8b11e92aedefb7f42"
+    },
+    {
+      "path": "lib/common/preferences.dart",
+      "sha256": "653327475ddced59b56ba1fd98bee8572347c7758d833175496b446d6624e494"
+    },
+    {
+      "path": "lib/providers/actions/core.dart",
+      "sha256": "570f509d81c5f7035e5e060b7046a87394bfa9176521686d3320fb393ff25ded"
+    },
+    {
+      "path": "lib/providers/actions/setup.dart",
+      "sha256": "69b71da0a8539924ce620d9695675da29a11d0a8a07c723e46856a4539d1ffaf"
+    },
+    {
+      "path": "lib/providers/generated/action.g.dart",
+      "sha256": "eefafa690f90af50164ab8e763bfaa452e764e7116a7d0fed3e8c994d5685238"
+    },
+    {
+      "path": "lib/views/config/general.dart",
+      "sha256": "42f830f7a86d43160eb7a8c60de1408c2f7d86b9897d120a7f1b09a4cb225ff3"
+    },
+    {
+      "path": "lib/views/practical_tools/network_tool_dialogs.dart",
+      "sha256": "5d7babc9f083b6bfa4c8e4997377831f2bbaf05137ef3817416de37f34211765"
+    },
+    {
+      "path": "lib/views/settings/fengwo_advanced_settings.dart",
+      "sha256": "8a84d2a5e1ca5107491661a97f09845ba7c656ba60e20cc306ff50916f018ee2"
+    },
+    {
+      "path": "services/helper/src/service/hub.rs",
+      "sha256": "8c610799c0f1379af5c43d708cea8f46b03ca31fc0f766a1ba5e35ab3e4a2ef2"
+    },
+    {
+      "path": "test/common/chain_proxy_test.dart",
+      "sha256": "63e6d5ff64c22a82abe6b13867c116ab69c58d3b5d4ebbe4809039d0e1a7ae43"
+    },
+    {
+      "path": "test/common/chain_proxy_validation_test.dart",
+      "sha256": "6cf24151ca3bc872e515ff3d67c0c3088d650e8c061ab0ae59dc1fcdb9e09d52"
+    },
+    {
+      "path": "test/common/migration_test.dart",
+      "sha256": "655bb623d8ae68d4d8177561648723c45a71f9bab243b32bc163eaef670591ab"
+    },
+    {
+      "path": "test/common/mixed_port_test.dart",
+      "sha256": "27203060cc4a28e3163f6bcfb66afeb3a52cdcdd8a3c964c1a5184cc74afa370"
+    },
+    {
+      "path": "test/common/preferences_test.dart",
+      "sha256": "508cadda6ec9d1a3b72567ca23198a8588329f570cd622a3da795b371b164dcf"
+    },
+    {
+      "path": "test/common/windows_identity_test.dart",
+      "sha256": "5d6b95893ded39e626ba525ee26130409d89e43f2d0950258bc49f892f5ab3c4"
+    },
+    {
+      "path": "test/common/windows_upgrade_startup_test.dart",
+      "sha256": "7b4322315c3099e6c53f21d1ee6dd96c3ec014e452dfc3b49c1540b04029bcbb"
+    },
+    {
+      "path": "test/core/desktop/helper_client_test.dart",
+      "sha256": "c913b46d4c5f5cf8f3c2c36fa111ede5b40cd0731e2deac37e5b4e40ca958e6b"
+    },
+    {
+      "path": "test/providers/action_test.dart",
+      "sha256": "33ce0d7c9fe238ca4076f469e3822e46ccb2506dceef5ae9b64421aa1e8c908c"
+    },
+    {
+      "path": "test/providers/chain_proxy_apply_test.dart",
+      "sha256": "5b85c0565ebd0005570f0de3adacfef661ea4b6de1f32d8134dd16e63e44bb15"
+    },
+    {
+      "path": "test/providers/macos_authorization_update_regression_test.dart",
+      "sha256": "719d392b22ea815c3331099a92440da285b1bbd36a0fb072d3b80b18d09ceea3"
+    },
+    {
+      "path": "test/providers/startup_setup_regression_test.dart",
+      "sha256": "5aa6c48e9ca5c1f3a2ac8b083651d15e906332933fda754b0e6fd4842969aec4"
+    },
+    {
+      "path": "test/providers/startup_tun_intent_test.dart",
+      "sha256": "1f66eb2b39c4ea373bacafb9b4d577ad6613e5a6bba629c60cf522e6e414201b"
+    },
+    {
+      "path": "test/providers/windows_connection_test.dart",
+      "sha256": "2e36085c8dc5c13ca208c90d3457ba53cd5a9581828a94a18c4c3677d8558949"
+    },
+    {
+      "path": "test/providers/windows_tun_authorization_test.dart",
+      "sha256": "e25d8ea14cdadf6f1450749b170ba0dbef610fdb859fb44945c7b59ee093dcba"
+    },
+    {
+      "path": "test/widgets/advanced_settings_test.dart",
+      "sha256": "e24af3dc22e1374eb6ce9e8eda7cd1fd0640cd03ec15c3a401a94415167c87f4"
+    },
+    {
+      "path": "test/widgets/chain_proxy_dialog_test.dart",
+      "sha256": "7b9b4e581842a85725ce8946a234a7ef549acb137216a26bfdb632c90d750019"
+    },
+    {
+      "path": "test/widgets/views_smoke_test.dart",
+      "sha256": "44da10483c5bd71d237b995434549b1808a001dc87507ce138ab4878f1c891b4"
+    },
+    {
+      "path": "tooling/windows/arm64/test_core_runtime.ps1",
+      "sha256": "2e0bb40a44e2e2a909d4b122eb161acb2899eae8f6b802811358bd08b73d3d0c"
+    },
+    {
+      "path": "tooling/windows/arm64/test_flclash_coexistence.ps1",
+      "sha256": "28d462e3d1c57ee22e4620cd7c1b2262f444d2078a0a792037ad528959eb880c"
+    },
+    {
+      "path": "tooling/windows/test_helper_service_repair.ps1",
+      "sha256": "73e643ddf295de6e15dbd1431584b4ef82c1fdce8645d2ed4a213dc35a51ca89"
+    },
+    {
+      "path": "tooling/windows/test_integrity_installer.ps1",
+      "sha256": "6e816fc0c388457c453e60b5e6068645cbf45ef34ba0c2291e498d05d777e5f3"
+    },
+    {
+      "path": "tooling/windows/test_vc_runtime_installer.ps1",
+      "sha256": "2ba286a6a6bc8404eec771b6fc591dccbbcf916b94c17816078bf1b25467a956"
+    },
+    {
+      "path": "windows/packaging/exe/fengwo_install_cleanup.ps1",
+      "sha256": "ae0f29030ce2e2b2363dd7f17bd7b764f82d3ff680b2223d4e86632b7e139a25"
+    },
+    {
+      "path": "windows/packaging/exe/inno_setup.iss",
+      "sha256": "3b97af9b89ad9baa93da84bb683eeab4e31ab26fd0d1265cfc24cb4997bbc420"
+    },
+    {
+      "path": "windows/packaging/exe/make_config.yaml",
+      "sha256": "4d577e0dda5ec2bbb28c08e287f6c50fc83411d67f4a915259873eadcd9c256c"
+    }
+  ]
+}

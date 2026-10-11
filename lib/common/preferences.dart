@@ -12,6 +12,8 @@ import 'diagnostic_log.dart';
 import 'preferences_storage_error.dart';
 import 'windows_preferences.dart';
 
+const desktopMixedPortMigrationKey = 'fengwo.desktop_mixed_port_v1';
+
 class Preferences {
   static Preferences? _instance;
   final Future<SharedPreferences> Function() _loader;
@@ -117,6 +119,21 @@ class Preferences {
 
   Future<void> setVersion(int version) async {
     await _write((storage) => storage.setInt('version', version));
+  }
+
+  Future<bool> getDesktopMixedPortMigrated() async {
+    final storage = await _storage;
+    try {
+      return storage.get(desktopMixedPortMigrationKey) == true;
+    } catch (error, stack) {
+      _fail('read', error, stack);
+    }
+  }
+
+  Future<void> setDesktopMixedPortMigrated() async {
+    await _write(
+      (storage) => storage.setBool(desktopMixedPortMigrationKey, true),
+    );
   }
 
   Future<void> saveShareState(SharedState shareState) async {

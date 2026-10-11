@@ -67,6 +67,43 @@ void main() {
   }
 
   test(
+    'desktop port migration marker survives config serialization and reload',
+    () async {
+      await file.writeAsString(_savedPreferences());
+      final config = await Migration(
+        store: store,
+        migrateDesktopMixedPort: true,
+      ).run();
+      expect(config.patchClashConfig.mixedPort, 17980);
+      expect(config.currentProfileId, 71);
+      var durable =
+          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      expect(durable['flutter.$desktopMixedPortMigrationKey'], isTrue);
+      final changed = config.copyWith(
+        patchClashConfig: config.patchClashConfig.copyWith(mixedPort: 7890),
+      );
+      await preferences.saveConfig(changed);
+      durable = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      expect(durable['flutter.$desktopMixedPortMigrationKey'], isTrue);
+      SharedPreferences.resetStatic();
+      final reloadedPreferences = Preferences.forTesting(
+        loader: SharedPreferences.getInstance,
+      );
+      final restarted = await Migration(
+        store: _UpgradeStore(reloadedPreferences),
+        migrateDesktopMixedPort: true,
+      ).run();
+      expect(restarted.patchClashConfig.mixedPort, 7890);
+      expect(restarted.currentProfileId, 71);
+      expect(
+        (await SharedPreferences.getInstance()).getBool('xboard.auto_login'),
+        isTrue,
+      );
+      expect(store.restores, 0);
+    },
+  );
+
+  test(
     'truncated preferences recover the valid backup and keep the account',
     () async {
       const damaged = '{"flutter.config":';
@@ -219,4 +256,12 @@ class _UpgradeStore implements MigrationStore {
 
   @override
   Future<void> setVersion(int version) => preferences.setVersion(version);
+
+  @override
+  Future<bool> getDesktopMixedPortMigrated() =>
+      preferences.getDesktopMixedPortMigrated();
+
+  @override
+  Future<void> setDesktopMixedPortMigrated() =>
+      preferences.setDesktopMixedPortMigrated();
 }

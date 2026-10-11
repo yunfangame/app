@@ -1983,7 +1983,7 @@ void main() {
     });
 
     for (final wasRunning in [false, true]) {
-      test('Windows authorization handoff rejects a failed strict reapply, '
+      test('Windows configuration failure respects authorization boundaries, '
           'running=$wasRunning', () async {
         late _WindowsAuthorizationFailureSetupAction setupAction;
         final container = ProviderContainer(
@@ -2020,11 +2020,11 @@ void main() {
         container.read(coreActionProvider);
 
         await expectLater(
-          setupAction.applyProfile(force: true),
+          setupAction.applyProfile(force: true, propagateErrors: true),
           throwsA(same(_strictReapplyFailure)),
         );
 
-        expect(setupAction.authorizationRequestCount, 1);
+        expect(setupAction.authorizationRequestCount, wasRunning ? 1 : 0);
         expect(
           container.read(authorizedTunEnableProvider),
           TunAuthorizationState.none,
@@ -2453,6 +2453,7 @@ class _WindowsAuthorizationFailureSetupAction extends SetupAction {
   Future<void> recoverStableCoreConfiguration(
     Profile? profile, {
     required String reason,
+    bool Function()? isCurrent,
   }) async {
     ref.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
   }

@@ -17,6 +17,7 @@ $helper = Join-Path $installDirectory 'FengWoHelperService.exe'
 $heldService = [IntPtr]::Zero
 $manager = [IntPtr]::Zero
 $legacyListener = $null
+$legacyFengWoListener = $null
 $conflictListener = $null
 $results = [System.Collections.Generic.List[object]]::new()
 Add-Type @'
@@ -69,7 +70,7 @@ function Assert-Service([string]$State) {
   if ($service.StartMode -ne 'Auto' -or $service.StartName -ne 'LocalSystem') { throw 'Service repair did not restore automatic LocalSystem configuration' }
   if ($State -eq 'Running') {
     $manifest = Get-Content -LiteralPath (Join-Path $installDirectory 'manifest.json') -Raw | ConvertFrom-Json
-    $ping = Invoke-WebRequest -Uri "http://127.0.0.1:47906/ping?coreSha256=$($manifest.coreSha256)" -NoProxy
+    $ping = Invoke-WebRequest -Uri "http://127.0.0.1:47907/ping?coreSha256=$($manifest.coreSha256)" -NoProxy
     if ($ping.StatusCode -ne 200 -or $ping.Content.Trim() -ine $helper) { throw 'Repaired helper does not match the installed application' }
     if ($ping.Headers['x-fengwo-helper-protocol'] -ne '6') { throw 'Unexpected repaired helper protocol' }
   }
@@ -102,20 +103,23 @@ function Assert-Listener([System.Net.Sockets.TcpListener]$Listener) {
 
 try {
   $legacyListener = Start-ExclusiveListener -Port 47890
+  $legacyFengWoListener = Start-ExclusiveListener -Port 47906
   Install-Package
   Invoke-Helper -Command 'install'
   Assert-Service -State 'Running'
   Assert-Listener -Listener $legacyListener
-  $results.Add(@{ case = 'helper-starts-with-legacy-port-occupied'; passed = $true })
+  Assert-Listener -Listener $legacyFengWoListener
+  $results.Add(@{ case = 'helper-starts-with-legacy-port-occupied'; passed = $true; legacy_ports = @(47890, 47906); helper_port = 47907 })
 
   Invoke-Helper -Command 'stop'
-  $conflictListener = Start-ExclusiveListener -Port 47906
+  $conflictListener = Start-ExclusiveListener -Port 47907
   Invoke-Helper -Command 'install' -ExpectedCode 10048
   Assert-Service -State 'Stopped'
   $failedService = Get-CimInstance Win32_Service -Filter "Name='FengWoHelperService'"
   if ($failedService.ExitCode -ne 10048) { throw 'Service status did not preserve the port conflict error' }
   Assert-Listener -Listener $conflictListener
   Assert-Listener -Listener $legacyListener
+  Assert-Listener -Listener $legacyFengWoListener
   $results.Add(@{ case = 'occupied-helper-port-reports-10048-without-stopping-listeners'; passed = $true })
   $conflictListener.Stop()
   $conflictListener = $null
@@ -144,6 +148,7 @@ try {
   Invoke-Helper -Command 'install'
   Assert-Service -State 'Running'
   Assert-Listener -Listener $legacyListener
+  Assert-Listener -Listener $legacyFengWoListener
   $results.Add(@{ case = 'overwrite-installer-retains-service-registration'; passed = $true })
 
   Invoke-Helper -Command 'uninstall' -ExpectedCode 1072
@@ -156,10 +161,12 @@ try {
   Invoke-Helper -Command 'uninstall'
   if (Get-Service -Name FengWoHelperService -ErrorAction SilentlyContinue) { throw 'Uninstall did not remove the helper service' }
   Assert-Listener -Listener $legacyListener
+  Assert-Listener -Listener $legacyFengWoListener
   $results.Add(@{ case = 'explicit-uninstall-removes-service'; passed = $true })
 } finally {
   if ($null -ne $conflictListener) { $conflictListener.Stop() }
   if ($null -ne $legacyListener) { $legacyListener.Stop() }
+  if ($null -ne $legacyFengWoListener) { $legacyFengWoListener.Stop() }
   if ($heldService -ne [IntPtr]::Zero) { [void][FengWoScmTest]::CloseServiceHandle($heldService) }
   if ($manager -ne [IntPtr]::Zero) { [void][FengWoScmTest]::CloseServiceHandle($manager) }
   if (Test-Path -LiteralPath $helper) { & $helper uninstall 2>&1 | Write-Host }

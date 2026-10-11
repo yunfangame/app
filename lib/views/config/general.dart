@@ -1,4 +1,5 @@
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/mixed_port.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
@@ -667,7 +668,7 @@ class _PortDialogState extends ConsumerState<_PortDialog> {
         .read(patchClashConfigProvider.notifier)
         .update(
           (state) => state.copyWith(
-            mixedPort: 7890,
+            mixedPort: defaultMixedPortForPlatform(),
             port: 0,
             socksPort: 0,
             redirPort: 0,

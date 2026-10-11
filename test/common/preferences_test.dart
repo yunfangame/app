@@ -83,6 +83,19 @@ void main() {
   });
 
   test(
+    'desktop port marker is separate from serialized configuration',
+    () async {
+      final preferences = Preferences.forTesting(
+        loader: SharedPreferences.getInstance,
+      );
+      expect(await preferences.getDesktopMixedPortMigrated(), isFalse);
+      await preferences.setDesktopMixedPortMigrated();
+      await preferences.saveConfig(const Config(themeProps: defaultThemeProps));
+      expect(await preferences.getDesktopMixedPortMigrated(), isTrue);
+    },
+  );
+
+  test(
     'failed writes report failure and leave durable data unchanged',
     () async {
       final original = SharedPreferencesStorePlatform.instance;
@@ -115,6 +128,11 @@ void main() {
         throwsA(isA<PreferenceStorageException>()),
       );
       expect(store.values['flutter.version'], isNull);
+      await expectLater(
+        preferences.setDesktopMixedPortMigrated(),
+        throwsA(isA<PreferenceStorageException>()),
+      );
+      expect(store.values['flutter.$desktopMixedPortMigrationKey'], isNull);
     },
   );
 
