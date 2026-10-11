@@ -124,9 +124,14 @@ function Wait-FixtureReady([string]$Path, [int]$ExpectedPid = 0) {
 
 function Get-ForeignFileHash([string]$Path) {
     if ($Path -ine (Join-Path $foreignData 'FlClash.lock')) { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
-    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    $stream = [IO.FileStream]::new($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite, 1)
     $algorithm = [Security.Cryptography.SHA256]::Create()
-    try { return [Convert]::ToHexString($algorithm.ComputeHash($stream)).ToLowerInvariant() } finally { $algorithm.Dispose(); $stream.Dispose() }
+    try {
+        if ($stream.Length -ne 1) { throw 'The isolated original lock fixture must contain exactly one byte' }
+        $bytes = [byte[]]::new(1)
+        if ($stream.Read($bytes, 0, 1) -ne 1) { throw 'The isolated original lock fixture byte could not be read' }
+        return [Convert]::ToHexString($algorithm.ComputeHash($bytes)).ToLowerInvariant()
+    } finally { $algorithm.Dispose(); $stream.Dispose() }
 }
 
 function Get-ForeignSnapshot {
