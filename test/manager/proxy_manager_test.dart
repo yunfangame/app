@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fl_clash/common/macos_proxy_guard.dart';
 import 'package:fl_clash/common/proxy.dart'
@@ -55,6 +56,7 @@ const _serviceUnavailable = ProxyOperationResult(
 class _ProxyClient extends Proxy {
   final startPorts = <int>[];
   final stopPorts = <int?>[];
+  final staleRepairPorts = <int>[];
   final events = <String>[];
   int inspections = 0;
   Future<ProxyOperationResult> Function(int port)? start;
@@ -82,6 +84,15 @@ class _ProxyClient extends Proxy {
     final result = await (stop?.call(expectedPort) ?? Future.value(_stopped));
     events.add('stopped:$expectedPort');
     return result;
+  }
+
+  @override
+  Future<ProxyOperationResult> repairStaleProxyDetailed(
+    int expectedPort,
+  ) async {
+    staleRepairPorts.add(expectedPort);
+    events.add('repairStale:$expectedPort');
+    return _stopped;
   }
 
   @override
@@ -179,6 +190,9 @@ class _Rig {
     bool tunAuthorized = false,
     bool isWindows = true,
     bool isMacOS = false,
+    bool initiallyRunning = true,
+    bool useDefaultWindowsGuard = false,
+    int mixedPort = 7890,
     Duration macOSProxyGuardInterval = const Duration(seconds: 5),
   }) async {
     container = ProviderContainer(
@@ -187,9 +201,14 @@ class _Rig {
           (_, _) => const NetworkProps(systemProxy: true),
         ),
         patchClashConfigProvider.overrideWithBuild(
-          (_, _) => const PatchClashConfig().copyWith.tun(enable: tunRequested),
+          (_, _) => const PatchClashConfig().copyWith(
+            mixedPort: mixedPort,
+            tun: const PatchClashConfig().tun.copyWith(enable: tunRequested),
+          ),
         ),
-        runTimeProvider.overrideWithBuild((_, _) => 1),
+        runTimeProvider.overrideWithBuild(
+          (_, _) => initiallyRunning ? 1 : null,
+        ),
         authorizedTunEnableProvider.overrideWithBuild(
           (_, _) => tunAuthorized
               ? TunAuthorizationState.authorized
@@ -209,7 +228,9 @@ class _Rig {
         child: MaterialApp(
           home: ProxyManager(
             proxyClient: client,
-            windowsProxyGuard: isWindows ? guard : null,
+            windowsProxyGuard: isWindows && !useDefaultWindowsGuard
+                ? guard
+                : null,
             macOSProxyGuard: isMacOS ? macGuard : null,
             isWindows: isWindows,
             isMacOS: isMacOS,
@@ -225,6 +246,71 @@ class _Rig {
 
 void main() {
   setUpAll(() => AppLocalizations.load(const Locale('en')));
+
+  testWidgets('startup repair uses its explicit method without ordinary stop', (
+    tester,
+  ) async {
+    final port = (await tester.runAsync(() async {
+      final reservation = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final port = reservation.port;
+      await reservation.close();
+      return port;
+    }))!;
+    final rig = _Rig();
+    rig.client.inspection = ProxyOperationResult(
+      success: true,
+      operation: 'inspect',
+      stage: 'verified',
+      enabled: true,
+      server: '127.0.0.1:$port',
+    );
+
+    await rig.mount(
+      tester,
+      initiallyRunning: false,
+      useDefaultWindowsGuard: true,
+      mixedPort: port,
+    );
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    });
+    await tester.pumpAndSettle();
+
+    expect(rig.client.staleRepairPorts, [port]);
+    expect(rig.client.stopPorts, isEmpty);
+    expect(rig.client.startPorts, isEmpty);
+  });
+
+  testWidgets(
+    'settings changes while disconnected only request ordinary stop',
+    (tester) async {
+      final rig = _Rig();
+      rig.client.inspection = const ProxyOperationResult(
+        success: false,
+        operation: 'inspect',
+        stage: 'readback_mismatch',
+        enabled: true,
+        server: '127.0.0.1:17890',
+      );
+      await rig.mount(
+        tester,
+        initiallyRunning: false,
+        useDefaultWindowsGuard: true,
+      );
+      await tester.pumpAndSettle();
+      rig.container
+          .read(networkSettingProvider.notifier)
+          .update((state) => state.copyWith(systemProxy: false));
+      await tester.pumpAndSettle();
+
+      expect(rig.client.staleRepairPorts, isEmpty);
+      expect(rig.client.startPorts, isEmpty);
+      expect(rig.client.stopPorts, [7890]);
+    },
+  );
 
   testWidgets('unavailable loopback skips native enable and stops run state', (
     tester,

@@ -1,8 +1,11 @@
+#include <winsock2.h>
+
 #include "proxy_plugin.h"
 
 #include <windows.h>
 
 #include <WinInet.h>
+#include <iphlpapi.h>
 #include <Ras.h>
 #include <RasError.h>
 #include "proxy_settings.h"
@@ -36,19 +39,7 @@ struct ProxyReadback
   std::wstring server;
 };
 
-struct ProxyOperationDetails
-{
-  bool success = false;
-  std::string operation;
-  std::string stage;
-  DWORD errorCode = ERROR_SUCCESS;
-  std::wstring connectionName;
-  bool enabled = false;
-  std::wstring server;
-  bool fallbackUsed = false;
-  int rasFailureCount = 0;
-  std::string message;
-};
+using ProxyOperationDetails = proxy::settings::SessionOperationDetails;
 
 std::wstring Utf8ToWide(const std::string& value)
 {
@@ -198,61 +189,68 @@ bool ReadProxySettings(ProxyReadback& readback, DWORD& errorCode)
   return true;
 }
 
-bool SetOptionsForConnection(
-    INTERNET_PER_CONN_OPTION_LISTW& list,
-    LPWSTR connection,
-    DWORD& errorCode,
-    bool& fallbackUsed)
-{
-  return proxy::settings::SetConnectionOptions(
-      list, connection, errorCode, fallbackUsed);
-}
-
-void ApplyOptionsToRasConnections(
-    INTERNET_PER_CONN_OPTION_LISTW& list,
-    ProxyOperationDetails& details)
+bool EnumerateConnections(std::vector<std::wstring>& names, uint32_t& error)
 {
   DWORD size = 0;
   DWORD count = 0;
-  auto ret = RasEnumEntriesW(nullptr, nullptr, nullptr, &size, &count);
-  if (ret == ERROR_BUFFER_TOO_SMALL && count > 0)
+  auto status = RasEnumEntriesW(nullptr, nullptr, nullptr, &size, &count);
+  if (status == ERROR_SUCCESS && count == 0)
   {
-    std::vector<RASENTRYNAMEW> entries(count);
-    for (auto& entry : entries)
+    error = ERROR_SUCCESS;
+    return true;
+  }
+  if (status != ERROR_BUFFER_TOO_SMALL || count == 0)
+  {
+    error = status;
+    return false;
+  }
+  std::vector<RASENTRYNAMEW> entries(count);
+  for (auto& entry : entries) entry.dwSize = sizeof(entry);
+  status = RasEnumEntriesW(nullptr, nullptr, entries.data(), &size, &count);
+  error = status;
+  if (status != ERROR_SUCCESS) return false;
+  for (DWORD i = 0; i < count; ++i) names.emplace_back(entries[i].szEntryName);
+  return true;
+}
+
+bool ReadConnection(const std::wstring& name,
+                    proxy::settings::ConnectionConfiguration& configuration,
+                    uint32_t& error)
+{
+  DWORD native_error = ERROR_SUCCESS;
+  if (!proxy::settings::QueryConnection(name, configuration, native_error))
+  {
+    error = native_error;
+    return false;
+  }
+  if (name.empty())
+  {
+    ProxyReadback registry;
+    if (!ReadProxyRegistry(registry, native_error))
     {
-      entry.dwSize = sizeof(RASENTRYNAMEW);
+      error = native_error;
+      return false;
     }
-    ret = RasEnumEntriesW(nullptr, nullptr, entries.data(), &size, &count);
-    if (ret == ERROR_SUCCESS)
+    if (registry.enabled != configuration.HasManualProxy() ||
+        (registry.enabled && registry.server != configuration.server))
     {
-      for (DWORD i = 0; i < count; i++)
-      {
-        DWORD errorCode = ERROR_SUCCESS;
-        if (!SetOptionsForConnection(
-                list, entries[i].szEntryName, errorCode, details.fallbackUsed))
-        {
-          details.rasFailureCount++;
-          if (details.connectionName.empty())
-          {
-            details.connectionName = entries[i].szEntryName;
-            details.errorCode = errorCode;
-          }
-        }
-      }
-    }
-    else
-    {
-      details.rasFailureCount++;
-      details.connectionName = L"RAS_ENUM";
-      details.errorCode = ret;
+      error = ERROR_INVALID_DATA;
+      return false;
     }
   }
-  else if (ret != ERROR_SUCCESS)
-  {
-    details.rasFailureCount++;
-    details.connectionName = L"RAS_ENUM";
-    details.errorCode = ret;
-  }
+  error = ERROR_SUCCESS;
+  return true;
+}
+
+bool WriteConnection(const std::wstring& name,
+                     const proxy::settings::ConnectionConfiguration& configuration,
+                     uint32_t& error, bool& fallback)
+{
+  DWORD native_error = ERROR_SUCCESS;
+  const bool result = proxy::settings::WriteConnection(name, configuration,
+                                                       native_error, fallback);
+  error = native_error;
+  return result;
 }
 
 bool NotifySettingsChanged(ProxyOperationDetails& details)
@@ -274,124 +272,93 @@ bool NotifySettingsChanged(ProxyOperationDetails& details)
   return true;
 }
 
-bool MatchesExpectedProxy(
-    const ProxyReadback& readback,
-    bool enabled,
-    const std::wstring& server)
+proxy::settings::ConnectionBackend NativeBackend()
 {
-  return readback.enabled == enabled &&
-      (!enabled || readback.server == server);
+  return {EnumerateConnections, ReadConnection, WriteConnection, NotifySettingsChanged};
 }
 
-ProxyOperationDetails ApplyProxy(
-    bool enabled,
-    int port,
-    const flutter::EncodableList& bypassDomain)
+ProxyOperationDetails ApplyProxy(proxy::settings::ProxySession& session,
+                                int port,
+                                const flutter::EncodableList& bypassDomain)
+{
+  proxy::settings::ConnectionConfiguration desired;
+  desired.flags = PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY;
+  desired.server = Utf8ToWide("127.0.0.1:" + std::to_string(port));
+  desired.bypass = BuildBypassList(bypassDomain);
+  return session.Start(desired, NativeBackend());
+}
+
+ProxyOperationDetails StopProxy(proxy::settings::ProxySession& session,
+                               const int* expectedPort)
+{
+  return session.Stop(expectedPort == nullptr ? std::optional<int>()
+                                              : std::make_optional(*expectedPort),
+                      NativeBackend());
+}
+
+bool ReadPortListeners(int port, ULONG family, bool& listening, DWORD& error)
+{
+  DWORD size = 0;
+  auto status = GetExtendedTcpTable(nullptr, &size, FALSE, family,
+                                    TCP_TABLE_OWNER_PID_LISTENER, 0);
+  for (int attempt = 0; attempt < 3 && status == ERROR_INSUFFICIENT_BUFFER; ++attempt)
+  {
+    if (size == 0 || size > 16 * 1024 * 1024)
+    {
+      error = ERROR_INVALID_DATA;
+      return false;
+    }
+    std::vector<unsigned char> buffer(size);
+    status = GetExtendedTcpTable(buffer.data(), &size, FALSE, family,
+                                 TCP_TABLE_OWNER_PID_LISTENER, 0);
+    if (status != NO_ERROR) continue;
+    const auto expected = static_cast<DWORD>(
+        ((port & 0xff) << 8) | ((port >> 8) & 0xff));
+    if (family == AF_INET)
+    {
+      const auto* table = reinterpret_cast<const MIB_TCPTABLE_OWNER_PID*>(buffer.data());
+      for (DWORD i = 0; i < table->dwNumEntries; ++i)
+      {
+        if ((table->table[i].dwLocalPort & 0xffff) == expected) listening = true;
+      }
+    }
+    else
+    {
+      const auto* table = reinterpret_cast<const MIB_TCP6TABLE_OWNER_PID*>(buffer.data());
+      for (DWORD i = 0; i < table->dwNumEntries; ++i)
+      {
+        if ((table->table[i].dwLocalPort & 0xffff) == expected) listening = true;
+      }
+    }
+    error = ERROR_SUCCESS;
+    return true;
+  }
+  error = status == NO_ERROR ? ERROR_INVALID_DATA : status;
+  return false;
+}
+
+ProxyOperationDetails RepairStaleProxy(int expectedPort)
 {
   ProxyOperationDetails details;
-  details.operation = enabled ? "start" : "stop";
-  const auto server = enabled
-      ? Utf8ToWide("127.0.0.1:" + std::to_string(port))
-      : std::wstring();
-  const auto bypassList = BuildBypassList(bypassDomain);
-  std::vector<INTERNET_PER_CONN_OPTIONW> options(enabled ? 3 : 1);
-
-  INTERNET_PER_CONN_OPTION_LISTW list = {};
-  list.dwSize = sizeof(list);
-  list.dwOptionCount = static_cast<DWORD>(options.size());
-  list.pOptions = options.data();
-
-  options[0].dwOption = INTERNET_PER_CONN_FLAGS;
-  options[0].Value.dwValue = enabled
-      ? PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY
-      : PROXY_TYPE_DIRECT;
-  if (enabled)
+  details.operation = "stop";
+  bool listening = false;
+  DWORD error = ERROR_SUCCESS;
+  if (!ReadPortListeners(expectedPort, AF_INET, listening, error) ||
+      !ReadPortListeners(expectedPort, AF_INET6, listening, error))
   {
-    options[1].dwOption = INTERNET_PER_CONN_PROXY_SERVER;
-    options[1].Value.pszValue = const_cast<LPWSTR>(server.c_str());
-    options[2].dwOption = INTERNET_PER_CONN_PROXY_BYPASS;
-    options[2].Value.pszValue = const_cast<LPWSTR>(bypassList.c_str());
-  }
-
-  DWORD applyError = ERROR_SUCCESS;
-  const bool defaultApplied =
-      SetOptionsForConnection(list, nullptr, applyError, details.fallbackUsed);
-  if (!defaultApplied)
-  {
-    details.stage = "apply_default";
-    details.errorCode = applyError;
+    details.stage = "listener_inspection";
+    details.errorCode = error;
     return details;
   }
-  ApplyOptionsToRasConnections(list, details);
-
-  if (!NotifySettingsChanged(details))
+  if (listening)
   {
+    details.success = true;
+    details.writeSkipped = true;
+    details.stage = "skipped_active_listener";
     return details;
   }
-
-  ProxyReadback readback;
-  DWORD readError = ERROR_SUCCESS;
-  const bool readSucceeded = ReadProxySettings(readback, readError);
-
-  details.enabled = readback.enabled;
-  details.server = readback.server;
-  if (!readSucceeded)
-  {
-    details.stage = "readback";
-    details.errorCode = readError;
-    return details;
-  }
-  if (!MatchesExpectedProxy(readback, enabled, server))
-  {
-    details.stage = "readback_mismatch";
-    details.errorCode = readError;
-    return details;
-  }
-
-  if (details.rasFailureCount > 0)
-  {
-    details.stage = "apply_ras";
-    return details;
-  }
-  details.success = true;
-  details.errorCode = ERROR_SUCCESS;
-  details.stage = details.fallbackUsed
-      ? "verified_ansi_fallback"
-      : "verified";
-  return details;
-}
-
-ProxyOperationDetails StopProxy(const int* expectedPort)
-{
-  if (expectedPort != nullptr)
-  {
-    ProxyOperationDetails details;
-    details.operation = "stop";
-    ProxyReadback readback;
-    if (!ReadProxySettings(readback, details.errorCode))
-    {
-      details.stage = "readback";
-      return details;
-    }
-    details.enabled = readback.enabled;
-    details.server = readback.server;
-    if (!readback.enabled)
-    {
-      details.success = true;
-      details.stage = "already_disabled";
-      return details;
-    }
-    const auto expected = Utf8ToWide(
-        "127.0.0.1:" + std::to_string(*expectedPort));
-    if (readback.server != expected)
-    {
-      details.success = true;
-      details.stage = "skipped_foreign_proxy";
-      return details;
-    }
-  }
-  const flutter::EncodableList empty;
-  return ApplyProxy(false, 0, empty);
+  proxy::settings::ProxySession residual;
+  return StopProxy(residual, &expectedPort);
 }
 
 ProxyOperationDetails InspectProxy(const int expectedPort)
@@ -399,9 +366,11 @@ ProxyOperationDetails InspectProxy(const int expectedPort)
   ProxyOperationDetails details;
   details.operation = "inspect";
   ProxyReadback readback;
-  if (!ReadProxySettings(readback, details.errorCode))
+  DWORD error = ERROR_SUCCESS;
+  if (!ReadProxySettings(readback, error))
   {
     details.stage = "readback";
+    details.errorCode = error;
     return details;
   }
   details.enabled = readback.enabled;
@@ -435,7 +404,19 @@ flutter::EncodableValue EncodeDetails(const ProxyOperationDetails& details)
       {flutter::EncodableValue("rasFailureCount"),
        flutter::EncodableValue(details.rasFailureCount)},
       {flutter::EncodableValue("message"),
-       flutter::EncodableValue(details.message)}};
+       flutter::EncodableValue(details.message)},
+      {flutter::EncodableValue("writeSkipped"),
+       flutter::EncodableValue(details.writeSkipped)},
+      {flutter::EncodableValue("restoreAbandoned"),
+       flutter::EncodableValue(details.restoreAbandoned)},
+      {flutter::EncodableValue("snapshotCount"),
+       flutter::EncodableValue(details.snapshotCount)},
+      {flutter::EncodableValue("restoredCount"),
+       flutter::EncodableValue(details.restoredCount)},
+      {flutter::EncodableValue("skippedCount"),
+       flutter::EncodableValue(details.skippedCount)},
+      {flutter::EncodableValue("pendingCleanup"),
+       flutter::EncodableValue(details.pendingCleanup)}};
   return flutter::EncodableValue(std::move(value));
 }
 
@@ -519,7 +500,7 @@ namespace proxy
 
 struct ProxyPlugin::ProxyState
 {
-  std::optional<int> applied_port;
+  settings::ProxySession session;
 };
 
 void ProxyPlugin::RegisterWithRegistrar(
@@ -604,9 +585,8 @@ void ProxyPlugin::Shutdown()
 {
   task_runner_.Shutdown([state = state_]()
   {
-    if (!state->applied_port.has_value()) return;
-    const int port = *state->applied_port;
-    if (StopProxy(&port).success) state->applied_port.reset();
+    if (!state->session.HasPendingCleanup()) return;
+    StopProxy(state->session, nullptr);
   });
 }
 
@@ -646,18 +626,30 @@ void ProxyPlugin::HandleMethodCall(
       result->Error("bad_args", errorMessage);
       return;
     }
-    const auto port = expectedPort == nullptr
-        ? std::optional<int>() : std::make_optional(*expectedPort);
     const bool detailed = methodCall.method_name() == "StopProxyDetailed";
     Dispatch(
-        [state = state_, port, detailed]()
+        [state = state_, detailed]()
         {
-          const auto details = StopProxy(port ? &*port : nullptr);
-          if (details.success) state->applied_port.reset();
+          const auto details = StopProxy(state->session, nullptr);
           return detailed ? EncodeDetails(details)
                           : flutter::EncodableValue(details.success);
         },
         std::move(result));
+    return;
+  }
+
+  if (methodCall.method_name() == "RepairStaleProxyDetailed")
+  {
+    const int* expectedPort = nullptr;
+    std::string errorMessage;
+    if (!ParseOptionalExpectedPort(methodCall, expectedPort, errorMessage) ||
+        expectedPort == nullptr)
+    {
+      result->Error("bad_args", "RepairStaleProxyDetailed requires a valid expectedPort");
+      return;
+    }
+    Dispatch([port = *expectedPort]() { return EncodeDetails(RepairStaleProxy(port)); },
+             std::move(result));
     return;
   }
 
@@ -709,8 +701,7 @@ void ProxyPlugin::HandleMethodCall(
     Dispatch(
         [state = state_, port = *port, bypass = *bypassDomain, detailed]()
         {
-          const auto details = ApplyProxy(true, port, bypass);
-          state->applied_port = AppliedProxyPort(details.success, port);
+          const auto details = ApplyProxy(state->session, port, bypass);
           return detailed ? EncodeDetails(details)
                           : flutter::EncodableValue(details.success);
         },

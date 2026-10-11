@@ -42,6 +42,16 @@ abstract class ProxyPlatform extends PlatformInterface {
     return ProxyOperationResult.generic(success: success, operation: 'stop');
   }
 
+  Future<ProxyOperationResult> repairStaleProxyDetailed(
+    int expectedPort,
+  ) async {
+    return const ProxyOperationResult(
+      success: false,
+      operation: 'stop',
+      stage: 'unsupported',
+    );
+  }
+
   Future<ProxyOperationResult> inspectProxy(int expectedPort) async {
     return const ProxyOperationResult(
       success: false,

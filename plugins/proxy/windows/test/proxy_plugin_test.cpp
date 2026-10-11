@@ -1,3 +1,5 @@
+#include <winsock2.h>
+
 #include <flutter/method_call.h>
 #include <flutter/method_result_functions.h>
 #include <flutter/standard_method_codec.h>
@@ -47,6 +49,102 @@ std::future<EncodableValue> InvokeProxy(
                 std::make_exception_ptr(std::runtime_error("not implemented")));
           }));
   return future;
+}
+
+bool AllowProxyMutation() {
+  char actions[16] = {};
+  char allowed[16] = {};
+  GetEnvironmentVariableA("GITHUB_ACTIONS", actions, 16);
+  GetEnvironmentVariableA("FENGWO_PROXY_MUTATING_TEST", allowed, 16);
+  return std::string(actions) == "true" && std::string(allowed) == "1";
+}
+
+class ActualProxySnapshot {
+ public:
+  ActualProxySnapshot() {
+    DWORD error = 0;
+    captured_ = settings::QueryConnection(L"", original_, error);
+  }
+
+  ~ActualProxySnapshot() {
+    if (captured_) EXPECT_TRUE(Apply(original_));
+  }
+
+  bool captured() const { return captured_; }
+
+  static bool Apply(const settings::ConnectionConfiguration& value) {
+    DWORD error = 0;
+    bool fallback = false;
+    return settings::WriteConnection(L"", value, error, fallback) &&
+        InternetSetOptionW(nullptr, INTERNET_OPTION_SETTINGS_CHANGED, nullptr, 0) &&
+        InternetSetOptionW(nullptr, INTERNET_OPTION_REFRESH, nullptr, 0);
+  }
+
+  static settings::ConnectionConfiguration Read() {
+    settings::ConnectionConfiguration value;
+    DWORD error = 0;
+    EXPECT_TRUE(settings::QueryConnection(L"", value, error));
+    return value;
+  }
+
+ private:
+  settings::ConnectionConfiguration original_;
+  bool captured_ = false;
+};
+
+class LoopbackListener {
+ public:
+  LoopbackListener() {
+    WSADATA data = {};
+    initialized_ = WSAStartup(MAKEWORD(2, 2), &data) == 0;
+    if (!initialized_) return;
+    socket_ = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (socket_ == INVALID_SOCKET) return;
+    sockaddr_in address = {};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (bind(socket_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0 ||
+        listen(socket_, SOMAXCONN) != 0) return;
+    int size = sizeof(address);
+    if (getsockname(socket_, reinterpret_cast<sockaddr*>(&address), &size) == 0) {
+      port_ = ntohs(address.sin_port);
+    }
+  }
+
+  ~LoopbackListener() {
+    Close();
+    if (initialized_) WSACleanup();
+  }
+
+  int port() const { return port_; }
+
+  void Close() {
+    if (socket_ != INVALID_SOCKET) {
+      closesocket(socket_);
+      socket_ = INVALID_SOCKET;
+    }
+  }
+
+ private:
+  bool initialized_ = false;
+  SOCKET socket_ = INVALID_SOCKET;
+  int port_ = 0;
+};
+
+EncodableMap InvokeDetailed(ProxyPlugin& plugin, const std::string& method,
+                           EncodableMap arguments = {}) {
+  auto result = InvokeProxy(plugin, method, std::move(arguments));
+  EXPECT_EQ(result.wait_for(std::chrono::seconds(30)), std::future_status::ready);
+  return std::get<EncodableMap>(result.get());
+}
+
+bool Succeeded(const EncodableMap& value) {
+  return std::get<bool>(value.at(EncodableValue("success")));
+}
+
+settings::ConnectionConfiguration ExternalProxy(int port) {
+  return {PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY,
+          L"127.0.0.1:" + std::to_wstring(port), L"*.external;<local>", L""};
 }
 
 }  // namespace
@@ -208,9 +306,10 @@ TEST(ProxyPlugin, SessionEndRejectsFurtherProxyOperations) {
 }
 
 TEST(ProxyPlugin, DetailedStartAndStopRoundTripCurrentUserProxy) {
-  if (GetEnvironmentVariableA("FENGWO_PROXY_MUTATING_TEST", nullptr, 0) == 0) {
-    GTEST_SKIP() << "Requires an isolated Windows account with no existing proxy";
-  }
+  if (!AllowProxyMutation()) GTEST_SKIP() << "Requires an isolated CI account";
+  ActualProxySnapshot original;
+  ASSERT_TRUE(original.captured());
+  ASSERT_TRUE(ActualProxySnapshot::Apply({PROXY_TYPE_DIRECT, L"", L"", L""}));
   ProxyPlugin plugin;
   auto start = InvokeProxy(plugin, "StartProxyDetailed", {
       {EncodableValue("port"), EncodableValue(7890)},
@@ -231,6 +330,166 @@ TEST(ProxyPlugin, DetailedStartAndStopRoundTripCurrentUserProxy) {
   const auto& stop_map = std::get<EncodableMap>(stop_value);
   EXPECT_TRUE(std::get<bool>(stop_map.at(EncodableValue("success"))));
   EXPECT_FALSE(std::get<bool>(stop_map.at(EncodableValue("enabled"))));
+}
+
+TEST(ProxyPlugin, NoSessionStopPreservesExternalSamePortProxy) {
+  if (!AllowProxyMutation()) GTEST_SKIP() << "Requires an isolated CI account";
+  ActualProxySnapshot original;
+  ASSERT_TRUE(original.captured());
+  const auto external = ExternalProxy(7890);
+  ASSERT_TRUE(ActualProxySnapshot::Apply(external));
+  ProxyPlugin plugin;
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StopProxyDetailed", {
+      {EncodableValue("expectedPort"), EncodableValue(7890)}})));
+  EXPECT_EQ(ActualProxySnapshot::Read(), external);
+  auto legacy = InvokeProxy(plugin, "StopProxy", {});
+  ASSERT_EQ(legacy.wait_for(std::chrono::seconds(30)), std::future_status::ready);
+  EXPECT_TRUE(std::get<bool>(legacy.get()));
+  EXPECT_EQ(ActualProxySnapshot::Read(), external);
+}
+
+TEST(ProxyPlugin, NoSessionStopPreservesExternalDifferentPortProxy) {
+  if (!AllowProxyMutation()) GTEST_SKIP() << "Requires an isolated CI account";
+  ActualProxySnapshot original;
+  ASSERT_TRUE(original.captured());
+  const auto external = ExternalProxy(17890);
+  ASSERT_TRUE(ActualProxySnapshot::Apply(external));
+  ProxyPlugin plugin;
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StopProxyDetailed", {
+      {EncodableValue("expectedPort"), EncodableValue(7890)}})));
+  EXPECT_EQ(ActualProxySnapshot::Read(), external);
+}
+
+TEST(ProxyPlugin, NoSessionStopWithoutExpectedPortPreservesExternalProxy) {
+  if (!AllowProxyMutation()) GTEST_SKIP() << "Requires an isolated CI account";
+  ActualProxySnapshot original;
+  ASSERT_TRUE(original.captured());
+  const auto external = ExternalProxy(7890);
+  ASSERT_TRUE(ActualProxySnapshot::Apply(external));
+  ProxyPlugin plugin;
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StopProxyDetailed")));
+  EXPECT_EQ(ActualProxySnapshot::Read(), external);
+}
+
+TEST(ProxyPlugin, OwnedSessionRestoresOriginalDespiteLatestUiPort) {
+  if (!AllowProxyMutation()) GTEST_SKIP() << "Requires an isolated CI account";
+  ActualProxySnapshot snapshot;
+  ASSERT_TRUE(snapshot.captured());
+  const settings::ConnectionConfiguration original{
+      PROXY_TYPE_DIRECT | PROXY_TYPE_AUTO_PROXY_URL | PROXY_TYPE_AUTO_DETECT,
+      L"corp.example:8080", L"*.corp;<local>", L"https://corp.example/proxy.pac"};
+  ASSERT_TRUE(ActualProxySnapshot::Apply(original));
+  ProxyPlugin plugin;
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StartProxyDetailed", {
+      {EncodableValue("port"), EncodableValue(7890)},
+      {EncodableValue("bypassDomain"), EncodableValue(EncodableList{EncodableValue("localhost")})}})));
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StopProxyDetailed", {
+      {EncodableValue("expectedPort"), EncodableValue(7891)}})));
+  EXPECT_EQ(ActualProxySnapshot::Read(), original);
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StopProxyDetailed")));
+  EXPECT_EQ(ActualProxySnapshot::Read(), original);
+}
+
+TEST(ProxyPlugin, OwnedStopPreservesSamePortForeignTakeover) {
+  if (!AllowProxyMutation()) GTEST_SKIP() << "Requires an isolated CI account";
+  ActualProxySnapshot original;
+  ASSERT_TRUE(original.captured());
+  ASSERT_TRUE(ActualProxySnapshot::Apply({PROXY_TYPE_DIRECT, L"", L"", L""}));
+  ProxyPlugin plugin;
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StartProxyDetailed", {
+      {EncodableValue("port"), EncodableValue(7890)},
+      {EncodableValue("bypassDomain"), EncodableValue(EncodableList{EncodableValue("localhost")})}})));
+  const auto external = ExternalProxy(7890);
+  ASSERT_TRUE(ActualProxySnapshot::Apply(external));
+  const auto stop = InvokeDetailed(plugin, "StopProxyDetailed");
+  EXPECT_TRUE(Succeeded(stop));
+  EXPECT_TRUE(std::get<bool>(stop.at(EncodableValue("restoreAbandoned"))));
+  EXPECT_EQ(ActualProxySnapshot::Read(), external);
+}
+
+TEST(ProxyPlugin, UnchangedStartDoesNotAcquireExternalProxy) {
+  if (!AllowProxyMutation()) GTEST_SKIP() << "Requires an isolated CI account";
+  ActualProxySnapshot original;
+  ASSERT_TRUE(original.captured());
+  const settings::ConnectionConfiguration external{
+      PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY, L"127.0.0.1:7890", L"localhost", L""};
+  ASSERT_TRUE(ActualProxySnapshot::Apply(external));
+  ProxyPlugin plugin;
+  const auto start = InvokeDetailed(plugin, "StartProxyDetailed", {
+      {EncodableValue("port"), EncodableValue(7890)},
+      {EncodableValue("bypassDomain"), EncodableValue(EncodableList{EncodableValue("localhost")})}});
+  EXPECT_TRUE(Succeeded(start));
+  EXPECT_TRUE(std::get<bool>(start.at(EncodableValue("writeSkipped"))));
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StopProxyDetailed")));
+  EXPECT_EQ(ActualProxySnapshot::Read(), external);
+}
+
+TEST(ProxyPlugin, StaleRepairClearsOnlyDeadExpectedEndpoint) {
+  if (!AllowProxyMutation()) GTEST_SKIP() << "Requires an isolated CI account";
+  ActualProxySnapshot original;
+  ASSERT_TRUE(original.captured());
+  LoopbackListener listener;
+  ASSERT_GT(listener.port(), 0);
+  const auto external = ExternalProxy(listener.port());
+  listener.Close();
+  ASSERT_TRUE(ActualProxySnapshot::Apply(external));
+  ProxyPlugin plugin;
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "RepairStaleProxyDetailed", {
+      {EncodableValue("expectedPort"), EncodableValue(listener.port())}})));
+  auto disabled = external;
+  disabled.flags = PROXY_TYPE_DIRECT;
+  EXPECT_EQ(ActualProxySnapshot::Read(), disabled);
+}
+
+TEST(ProxyPlugin, StaleRepairPreservesLiveListener) {
+  if (!AllowProxyMutation()) GTEST_SKIP() << "Requires an isolated CI account";
+  ActualProxySnapshot original;
+  ASSERT_TRUE(original.captured());
+  LoopbackListener listener;
+  ASSERT_GT(listener.port(), 0);
+  const auto external = ExternalProxy(listener.port());
+  ASSERT_TRUE(ActualProxySnapshot::Apply(external));
+  ProxyPlugin plugin;
+  const auto result = InvokeDetailed(plugin, "RepairStaleProxyDetailed", {
+      {EncodableValue("expectedPort"), EncodableValue(listener.port())}});
+  EXPECT_TRUE(Succeeded(result));
+  EXPECT_EQ(std::get<std::string>(result.at(EncodableValue("stage"))), "skipped_active_listener");
+  EXPECT_EQ(ActualProxySnapshot::Read(), external);
+}
+
+TEST(ProxyPlugin, StaleRepairPreservesDifferentEndpoint) {
+  if (!AllowProxyMutation()) GTEST_SKIP() << "Requires an isolated CI account";
+  ActualProxySnapshot original;
+  ASSERT_TRUE(original.captured());
+  LoopbackListener listener;
+  ASSERT_GT(listener.port(), 0);
+  const auto external = ExternalProxy(7890);
+  listener.Close();
+  ASSERT_TRUE(ActualProxySnapshot::Apply(external));
+  ProxyPlugin plugin;
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "RepairStaleProxyDetailed", {
+      {EncodableValue("expectedPort"), EncodableValue(listener.port())}})));
+  EXPECT_EQ(ActualProxySnapshot::Read(), external);
+}
+
+TEST(ProxyPlugin, StaleRepairRejectsMissingOrInvalidExpectedPort) {
+  for (const auto& arguments : {EncodableMap{}, EncodableMap{
+      {EncodableValue("expectedPort"), EncodableValue(0)}}}) {
+    ProxyPlugin plugin;
+    std::string error_code;
+    std::string error_message;
+    plugin.HandleMethodCall(
+        MethodCall("RepairStaleProxyDetailed", std::make_unique<EncodableValue>(arguments)),
+        std::make_unique<MethodResultFunctions<>>(
+            [&error_code](const EncodableValue*) { error_code = "unexpected_success"; },
+            [&](const std::string& code, const std::string& message, const EncodableValue*) {
+              error_code = code;
+              error_message = message;
+            },
+            [&error_code]() { error_code = "not_implemented"; }));
+    EXPECT_EQ(error_code, "bad_args");
+    EXPECT_EQ(error_message, "RepairStaleProxyDetailed requires a valid expectedPort");
+  }
 }
 
 TEST(ProxySettings, NormalizesWindowsIpv6LoopbackBypass) {

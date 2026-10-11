@@ -22,14 +22,18 @@ on:
       - test/windows_runtime_bundle_test.dart
       - plugins/setup/buildkit/**
       - plugins/proxy/windows/**
+      - plugins/proxy/lib/**
+      - plugins/proxy/test/**
       - windows/CMakeLists.txt
       - windows/runner/Runner.rc
       - plugins/setup/windows/**
       - services/helper/**
       - lib/common/**
       - lib/main.dart
+      - lib/manager/proxy_manager.dart
       - test/common/**
       - test/core/**
+      - test/manager/proxy_manager_test.dart
       - windows/packaging/**
 
 permissions:
@@ -80,7 +84,7 @@ jobs:
           (Split-Path -Parent $gitBash) | Add-Content -LiteralPath $env:GITHUB_PATH
           ('FENGWO_SETUP_TEST_BASH=' + $gitBash) | Add-Content -LiteralPath $env:GITHUB_ENV
           . ./tooling/windows/arm64/common.ps1
-          $sourceFiles = @(git ls-files -- .github/workflows/package-windows-arm64.yml tooling/windows/arm64 tooling/windows/prepare_arm64_javascript.ps1 tooling/windows/quickjs_bridge tooling/windows/test_prepare_arm64_javascript.ps1 tooling/windows/test_vc_runtime_installer.ps1 tooling/windows/verify_vc_runtime_bundle.ps1 tooling/windows/test_vc_runtime_bundle.ps1 setup.dart test/setup_test.dart test/windows_runtime_bundle_test.dart plugins/setup/buildkit plugins/proxy/windows windows/CMakeLists.txt windows/packaging windows/runner/Runner.rc plugins/setup/windows services/helper lib/common lib/main.dart test/common test/core)
+          $sourceFiles = @(git ls-files -- .github/workflows/package-windows-arm64.yml tooling/windows/arm64 tooling/windows/prepare_arm64_javascript.ps1 tooling/windows/quickjs_bridge tooling/windows/test_prepare_arm64_javascript.ps1 tooling/windows/test_vc_runtime_installer.ps1 tooling/windows/verify_vc_runtime_bundle.ps1 tooling/windows/test_vc_runtime_bundle.ps1 setup.dart test/setup_test.dart test/windows_runtime_bundle_test.dart plugins/setup/buildkit plugins/proxy windows/CMakeLists.txt windows/packaging windows/runner/Runner.rc plugins/setup/windows services/helper lib/common lib/main.dart lib/manager/proxy_manager.dart test/common test/core test/manager/proxy_manager_test.dart)
           $sourceManifest = @($sourceFiles | ForEach-Object { [ordered]@{ path = $_; sha256 = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant() } })
           Save-FwArmEvidence (Join-Path $env:RUNNER_TEMP 'arm64-evidence/source-manifest.json') ([ordered]@{ source_sha = $env:GITHUB_SHA; files = $sourceManifest })
           Save-FwArmEvidence (Join-Path $env:RUNNER_TEMP 'arm64-evidence/toolchain/compiler.json') ([ordered]@{ generator = $generator; installation_version = $installation.installationVersion; installation_path = $installation.installationPath; go = (& go version | Out-String).Trim(); cmake = (& cmake --version | Out-String).Trim() })
@@ -123,7 +127,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           flutter analyze --no-pub --no-fatal-infos
           if ($LASTEXITCODE -ne 0) { throw 'Static analysis failed' }
-          flutter test --no-pub --reporter expanded test/setup_test.dart test/windows_runtime_bundle_test.dart test/common/windows_identity_test.dart test/common/windows_integrity_test.dart test/common/protocol_test.dart test/core/transport_test.dart test/core/desktop test/core/service_test.dart test/core/protocol_contract_test.dart test/manager/core_manager_test.dart test/providers/system_action_test.dart test/providers/windows_tun_authorization_test.dart test/common/subscription_entry_reminder_test.dart test/widgets/subscription_entry_reminder_dialog_test.dart test/widgets/subscription_entry_reminder_host_test.dart
+          flutter test --no-pub --reporter expanded test/setup_test.dart test/windows_runtime_bundle_test.dart test/common/windows_identity_test.dart test/common/windows_integrity_test.dart test/common/protocol_test.dart test/common/windows_proxy_guard_test.dart test/core/transport_test.dart test/core/desktop test/core/service_test.dart test/core/protocol_contract_test.dart test/manager/core_manager_test.dart test/manager/proxy_manager_test.dart test/providers/system_action_test.dart test/providers/windows_tun_authorization_test.dart test/common/subscription_entry_reminder_test.dart test/widgets/subscription_entry_reminder_dialog_test.dart test/widgets/subscription_entry_reminder_host_test.dart plugins/proxy/test/proxy_test.dart plugins/proxy/test/macos_service_proxy_test.dart
           if ($LASTEXITCODE -ne 0) { throw 'Desktop lifecycle regression failed' }
           ./tooling/windows/test_vc_runtime_bundle.ps1
           Push-Location plugins/setup/buildkit/build_tool

@@ -39,6 +39,10 @@ $failure = $null
 $serviceCreated = $false
 $lock = $null
 $listener = $null
+$proxyListener = $null
+$proxyGuard = $null
+$proxyBaseline = $null
+$proxyRestore = $null
 $corePipe = $null
 $coreSession = $null
 $servicePath = Join-Path $foreignDirectory 'FlClashHelperService.exe'
@@ -142,6 +146,10 @@ function Get-ForeignSnapshot {
     }
     $connections = @(Get-NetTCPConnection -State Listen -LocalPort 47890 -ErrorAction SilentlyContinue | Where-Object { $_.LocalAddress -eq '127.0.0.1' -and $_.OwningProcess -eq $PID })
     if ($connections.Count -ne 1 -or -not $listener.Server.IsBound) { throw 'The foreign loopback listener is no longer owned and listening' }
+    $proxyConnections = @(Get-NetTCPConnection -State Listen -LocalPort 7890 -ErrorAction SilentlyContinue | Where-Object { $_.LocalAddress -eq '127.0.0.1' -and $_.OwningProcess -eq $PID })
+    if ($proxyConnections.Count -ne 1 -or -not $proxyListener.Server.IsBound) { throw 'The foreign same-port proxy listener is no longer owned and listening' }
+    $systemProxy = $proxyGuard.Capture()
+    if (-not [FengWoCoexistenceTests.ProxyFixture]::Same($proxyBaseline, $systemProxy)) { throw 'The application changed the foreign native WinINet or typed HKCU proxy state' }
     if (-not $service -or $service.State -ne 'Running' -or $service.ProcessId -le 0) { throw 'The foreign SCM fixture is no longer running' }
     if ([IO.File]::ReadAllText($counterPath) -cne '0') { throw 'The installer sent STOP to the foreign SCM fixture' }
     $probe = $null
@@ -150,7 +158,7 @@ function Get-ForeignSnapshot {
         $probe.Lock(4096, 1)
         throw 'The original application lock is no longer held'
     } catch [IO.IOException] { } finally { if ($probe) { $probe.Dispose() } }
-    return [ordered]@{ processes = $processes; service = [ordered]@{ name = $service.Name; state = $service.State; pid = $service.ProcessId; path = $service.PathName; start_mode = $service.StartMode; account = $service.StartName; registry = (Read-RegistryTree 'LocalMachine' 'SYSTEM\CurrentControlSet\Services\FlClashHelperService') }; stop_count = 0; registry = $registry; files = $files; loopback_port = 47890; loopback_owner_pid = $PID; file_lock_held = $true }
+    return [ordered]@{ processes = $processes; service = [ordered]@{ name = $service.Name; state = $service.State; pid = $service.ProcessId; path = $service.PathName; start_mode = $service.StartMode; account = $service.StartName; registry = (Read-RegistryTree 'LocalMachine' 'SYSTEM\CurrentControlSet\Services\FlClashHelperService') }; stop_count = 0; registry = $registry; files = $files; loopback_port = 47890; loopback_owner_pid = $PID; same_port_proxy_listener = 7890; same_port_proxy_listener_owner_pid = $PID; system_proxy = $systemProxy; file_lock_held = $true }
 }
 
 function Assert-ForeignUnchanged([string]$Stage) {
@@ -210,6 +218,18 @@ function Stop-OwnedApplications {
     }
 }
 
+function Exit-FengWoGracefully([Diagnostics.Process]$Process, [IntPtr]$Window) {
+    if ($Process.HasExited -or $Window -eq [IntPtr]::Zero -or [FengWoTitleTest]::FindMainWindow($Process.Id) -ne $Window) { throw 'The exact owned application window is not available for graceful exit' }
+    if (-not [FengWoCoexistenceWindows]::RequestClose($Window, $Process.Id)) { throw 'The owned window rejected WM_CLOSE' }
+    if (-not $Process.WaitForExit(20000) -or $Process.ExitCode -ne 0) { throw 'The unconnected application did not exit normally after WM_CLOSE' }
+    $eventsPath = Join-Path $ownData 'diagnostics/events.jsonl'
+    $events = @(Get-Content -LiteralPath $eventsPath | ForEach-Object { try { $_ | ConvertFrom-Json -AsHashtable } catch { } })
+    $exitEvents = @($events | Where-Object { $_['event'] -ceq 'system_proxy.cleanup.completed' -and $_['fields']['reason'] -ceq 'exit' })
+    if ($exitEvents.Count -eq 0) { throw 'The normal exit did not record application system-proxy cleanup' }
+    Copy-Item -LiteralPath $eventsPath -Destination (Join-Path $EvidenceDirectory 'graceful-exit-events.jsonl')
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'graceful-exit.json') ([ordered]@{ pid = $Process.Id; exit_code = $Process.ExitCode; window = $Window.ToInt64(); wm_close = $true; forced_kill = $false; cleanup = $exitEvents })
+}
+
 function Invoke-HelperRequest([string]$Method, [string]$Path, [object]$Body = $null) {
     $arguments = @{ Uri = ('http://127.0.0.1:47906/' + $Path); Method = $Method; NoProxy = $true; TimeoutSec = 10 }
     if ($null -ne $Body) { $arguments.ContentType = 'application/json'; $arguments.Body = ($Body | ConvertTo-Json -Compress) }
@@ -229,7 +249,7 @@ try {
     }
     foreach ($scheme in @('clash', 'clashmeta', 'flclash', 'fengwo')) { foreach ($view in @('Registry64', 'Registry32')) { if ($null -ne (Read-RegistryTree 'CurrentUser' ('Software\Classes\' + $scheme) $view)) { throw ('A pre-existing URL association prevents isolation: ' + $scheme) } } }
     foreach ($path in @($runKey) + $approvedKeys) { Assert-NoRegistryValue $path 'FlClash'; Assert-NoRegistryValue $path 'FengWo'; $sharedRegistryBefore[$path] = Read-RegistryTree 'CurrentUser' $path }
-    if (Get-NetTCPConnection -State Listen -LocalPort 47890, 47906 -ErrorAction SilentlyContinue) { throw 'A pre-existing Helper port prevents isolation' }
+    if (Get-NetTCPConnection -State Listen -LocalPort 47890, 47906, 7890 -ErrorAction SilentlyContinue) { throw 'A pre-existing Helper or synthetic proxy port prevents isolation' }
     [void][IO.Directory]::CreateDirectory($foreignDirectory)
     $fixtureCreated = $true
     if (-not $FixtureExecutable) {
@@ -274,6 +294,16 @@ try {
     $lock.Lock(4096, 1)
     $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 47890)
     $listener.Start()
+    $proxyListener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 7890)
+    $proxyListener.Start()
+    Add-Type -Path (Join-Path $PSScriptRoot 'coexistence_proxy_fixture.cs')
+    $proxyGuard = [FengWoCoexistenceTests.ProxyFixture]::new()
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'system-proxy-original.json') $proxyGuard.Original
+    $proxyBaseline = $proxyGuard.SetForeign(7890)
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'system-proxy-synthetic.json') $proxyBaseline
+    [void][IO.Directory]::CreateDirectory($ownData)
+    $testConfig = @{ appSettingProps = @{ minimizeOnExit = $false; autoRun = $false; autoCheckUpdate = $false }; networkProps = @{ systemProxy = $true }; patchClashConfig = @{ 'mixed-port' = 7890 }; themeProps = @{} } | ConvertTo-Json -Depth 8 -Compress
+    [IO.File]::WriteAllText((Join-Path $ownData 'shared_preferences.json'), (@{ 'flutter.version' = 1; 'flutter.config' = $testConfig } | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
     foreach ($hive in @('LocalMachine', 'CurrentUser')) {
         $path = $uninstallRoot + $oldId + '_is1'
         $createdKeys.Add([ordered]@{ hive = $hive; path = $path })
@@ -307,6 +337,12 @@ public static class FengWoCoexistenceWindows {
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
     [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
     private static extern int GetClassNameW(IntPtr window, StringBuilder name, int capacity);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool PostMessageW(IntPtr window, uint message, IntPtr first, IntPtr second);
+    public static bool RequestClose(IntPtr window, int processId) {
+        uint owner;
+        GetWindowThreadProcessId(window, out owner);
+        return owner == processId && PostMessageW(window, 0x0010, IntPtr.Zero, IntPtr.Zero);
+    }
     public static int Count(int processId) {
         int count = 0;
         EnumWindows((window, parameter) => {
@@ -339,6 +375,8 @@ public static class FengWoCoexistenceWindows {
     $sameExecutable = @(Get-CimInstance Win32_Process -Filter "Name='FengWo.exe'" | Where-Object { $_.ExecutablePath -ieq (Join-Path $installDirectory 'FengWo.exe') })
     if ($sameExecutable.Count -ne 1 -or $sameExecutable[0].ProcessId -ne $application.Id -or [FengWoCoexistenceWindows]::Count($application.Id) -ne 1) { throw 'A repeated launch created another owned client process' }
     Assert-ForeignUnchanged 'repeat-launch'
+    Exit-FengWoGracefully $application $windowBefore
+    Assert-ForeignUnchanged 'graceful-exit'
     Stop-OwnedApplications
     Invoke-BoundedProcess (Join-Path $installDirectory 'FengWoHelperService.exe') @('install') 'owned-helper-install' 30
     $manifest = Get-Content -LiteralPath (Join-Path $installDirectory 'manifest.json') -Raw | ConvertFrom-Json
@@ -403,6 +441,14 @@ public static class FengWoCoexistenceWindows {
     foreach ($process in $foreignProcesses) {
         try { if (-not $process.HasExited) { $process.Kill(); if (-not $process.WaitForExit(5000)) { throw 'An exact foreign fixture PID did not exit during cleanup' } } } catch { $cleanupErrors.Add($_.Exception.Message) } finally { $process.Dispose() }
     }
+    if ($proxyGuard) {
+        try {
+            $proxyRestore = $proxyGuard.Restore()
+            Save-FwArmEvidence (Join-Path $EvidenceDirectory 'system-proxy-restoration.json') $proxyRestore
+            if (-not $proxyRestore.Passed) { throw ('Original system proxy restoration failed: ' + ($proxyRestore.Errors -join '; ')) }
+        } catch { $cleanupErrors.Add($_.Exception.Message) }
+    }
+    if ($proxyListener) { $proxyListener.Stop() }
     if ($listener) { $listener.Stop() }
     if ($lock) { $lock.Dispose() }
     foreach ($entry in $createdKeys) {
@@ -429,8 +475,8 @@ public static class FengWoCoexistenceWindows {
     }
     if ($fixtureCreated) { try { Remove-Item -LiteralPath $fixtureDirectory -Recurse -Force } catch { $cleanupErrors.Add($_.Exception.Message) } }
     foreach ($directory in @($ownData, $ownCache)) { if ($fixtureCreated -and (Test-Path -LiteralPath $directory)) { try { Remove-Item -LiteralPath $directory -Recurse -Force } catch { $cleanupErrors.Add($_.Exception.Message) } } }
-    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'coexistence-verification.json') ([ordered]@{ passed = (-not $failure -and $cleanupErrors.Count -eq 0 -and $checks.Count -eq 8); failure = $failure; cleanup_failures = @($cleanupErrors.ToArray()); environment = $environment; checks = @($checks.ToArray()); original_app_id = $oldId; owned_app_id = $newId; synthetic_resources_only = $true; system_proxy_or_tun_started = $false; original_service_stop_count_verified_before_fixture_cleanup = ($checks.Count -eq 8); fixture_source_sha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'flclash_fixture/flclash_fixture.cpp') -Algorithm SHA256).Hash.ToLowerInvariant() })
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'coexistence-verification.json') ([ordered]@{ passed = (-not $failure -and $cleanupErrors.Count -eq 0 -and $checks.Count -eq 9); failure = $failure; cleanup_failures = @($cleanupErrors.ToArray()); environment = $environment; checks = @($checks.ToArray()); original_app_id = $oldId; owned_app_id = $newId; synthetic_resources_only = $true; system_proxy_started_by_synthetic_fixture = ($null -ne $proxyBaseline); app_system_proxy_or_tun_started = $false; real_customer_account_tested = $false; proxy_restoration = $proxyRestore; original_service_stop_count_verified_before_fixture_cleanup = ($checks.Count -eq 9); fixture_source_sha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'flclash_fixture/flclash_fixture.cpp') -Algorithm SHA256).Hash.ToLowerInvariant(); proxy_fixture_source_sha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'coexistence_proxy_fixture.cs') -Algorithm SHA256).Hash.ToLowerInvariant() })
 }
 if ($failure) { throw $failure }
 if ($cleanupErrors.Count) { throw ($cleanupErrors -join '; ') }
-if ($checks.Count -ne 8) { throw 'Not every coexistence stage was verified' }
+if ($checks.Count -ne 9) { throw 'Not every coexistence stage was verified' }

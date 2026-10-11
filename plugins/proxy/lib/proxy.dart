@@ -92,6 +92,26 @@ class Proxy {
     };
   }
 
+  Future<ProxyOperationResult> repairStaleProxyDetailed(
+    int expectedPort,
+  ) async {
+    if (expectedPort < _minPort || expectedPort > _maxPort) {
+      return const ProxyOperationResult(
+        success: false,
+        operation: 'stop',
+        stage: 'invalid_arguments',
+      );
+    }
+    if (Platform.isWindows) {
+      return ProxyPlatform.instance.repairStaleProxyDetailed(expectedPort);
+    }
+    return const ProxyOperationResult(
+      success: false,
+      operation: 'stop',
+      stage: 'unsupported',
+    );
+  }
+
   Future<ProxyOperationResult> inspectProxy(int expectedPort) async {
     if (Platform.isWindows) {
       return ProxyPlatform.instance.inspectProxy(expectedPort);

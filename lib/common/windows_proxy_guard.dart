@@ -263,6 +263,22 @@ class WindowsProxyGuard {
       );
     }
     final cleanup = await _stopper(port);
+    if (cleanup.success && cleanup.stage == 'skipped_active_listener') {
+      return WindowsProxyRepairResult(
+        status: WindowsProxyRepairStatus.active,
+        inspection: inspection,
+        cleanup: cleanup,
+      );
+    }
+    if (cleanup.success &&
+        (cleanup.stage == 'skipped_foreign_or_restored' ||
+            cleanup.stage == 'already_restored')) {
+      return WindowsProxyRepairResult(
+        status: WindowsProxyRepairStatus.notOwned,
+        inspection: inspection,
+        cleanup: cleanup,
+      );
+    }
     return WindowsProxyRepairResult(
       status: cleanup.success
           ? WindowsProxyRepairStatus.cleaned

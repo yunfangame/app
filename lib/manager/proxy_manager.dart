@@ -514,7 +514,7 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
       _windowsProxyGuard ??= WindowsProxyGuard(
         inspector: _proxyClient.inspectProxy,
         starter: _proxyClient.startProxyDetailed,
-        stopper: (port) => _proxyClient.stopProxyDetailed(expectedPort: port),
+        stopper: _proxyClient.repairStaleProxyDetailed,
       );
       systemProxyRefreshSignal.attach(_scheduleSystemProxyGuardCheck);
     }

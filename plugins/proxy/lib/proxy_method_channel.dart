@@ -11,6 +11,7 @@ class MethodChannelProxy extends ProxyPlatform {
   static const _startProxyDetailedMethod = 'StartProxyDetailed';
   static const _stopProxyDetailedMethod = 'StopProxyDetailed';
   static const _inspectProxyMethod = 'InspectProxy';
+  static const _repairStaleProxyMethod = 'RepairStaleProxyDetailed';
 
   /// The method channel used to interact with the native platform.
   @visibleForTesting
@@ -64,6 +65,40 @@ class MethodChannelProxy extends ProxyPlatform {
     } on MissingPluginException {
       final legacy = await methodChannel.invokeMethod<bool>(_stopProxyMethod);
       return ProxyOperationResult.fromChannel(legacy, operation: 'stop');
+    } on PlatformException catch (error) {
+      return ProxyOperationResult(
+        success: false,
+        operation: 'stop',
+        stage: 'method_channel',
+        message: '${error.code}: ${error.message ?? ''}'.trim(),
+      );
+    }
+  }
+
+  @override
+  Future<ProxyOperationResult> repairStaleProxyDetailed(
+    int expectedPort,
+  ) async {
+    if (expectedPort < 1 || expectedPort > 65535) {
+      return const ProxyOperationResult(
+        success: false,
+        operation: 'stop',
+        stage: 'invalid_arguments',
+      );
+    }
+    try {
+      final result = await methodChannel.invokeMethod<Object?>(
+        _repairStaleProxyMethod,
+        {'expectedPort': expectedPort},
+      );
+      return ProxyOperationResult.fromChannel(result, operation: 'stop');
+    } on MissingPluginException catch (error) {
+      return ProxyOperationResult(
+        success: false,
+        operation: 'stop',
+        stage: 'unsupported',
+        message: error.message,
+      );
     } on PlatformException catch (error) {
       return ProxyOperationResult(
         success: false,

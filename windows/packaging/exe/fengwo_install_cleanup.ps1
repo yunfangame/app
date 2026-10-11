@@ -171,16 +171,46 @@ function Remove-FengWoLegacyRegistrations {
     }
 }
 
+function Test-FengWoProtocolCommandOwned {
+    param([string]$Command, [string]$Directory, [bool]$AllowLegacyApplication)
+    if ($Command -notmatch '^"([^"\r\n]+)"(?:\s|$)') { return $false }
+    $executable = $Matches[1]
+    $names = @('FengWo.exe')
+    if ($AllowLegacyApplication) { $names += 'FlClash.exe' }
+    foreach ($name in $names) {
+        $expected = Join-Path $Directory $name
+        if ((Test-FengWoSamePath $executable $expected) -and (Test-FengWoApplicationFile $expected)) { return $true }
+    }
+    return $false
+}
+
+function Remove-FengWoOwnedProtocols {
+    param([string]$Directory, [string[]]$Schemes, [bool]$AllowLegacyApplication)
+    foreach ($scheme in $Schemes) {
+        if ($scheme -cnotin @('fengwo', 'clash', 'clashmeta', 'flclash')) { throw 'Unexpected protocol identity' }
+    }
+    foreach ($view in @('Registry64', 'Registry32')) {
+        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::$view)
+        try {
+            foreach ($scheme in $Schemes) {
+                $name = 'Software\Classes\' + $scheme
+                $key = $base.OpenSubKey($name + '\shell\open\command')
+                if (-not $key) { continue }
+                try { $command = [string]$key.GetValue('') } finally { $key.Dispose() }
+                if (Test-FengWoProtocolCommandOwned $command $Directory $AllowLegacyApplication) { $base.DeleteSubKeyTree($name, $false) }
+            }
+        } finally { $base.Dispose() }
+    }
+}
+
 function Remove-FengWoOwnedProtocol {
     param([string]$Directory)
-    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry64)
-    try {
-        $key = $base.OpenSubKey('Software\Classes\fengwo\shell\open\command')
-        if (-not $key) { return }
-        try { $command = [string]$key.GetValue('') } finally { $key.Dispose() }
-        if ($command -notmatch '^"([^"\r\n]+)"(?:\s|$)') { return }
-        if (Test-FengWoSamePath $Matches[1] (Join-Path $Directory 'FengWo.exe')) { $base.DeleteSubKeyTree('Software\Classes\fengwo', $false) }
-    } finally { $base.Dispose() }
+    Remove-FengWoOwnedProtocols $Directory @('fengwo') $false
+}
+
+function Remove-FengWoOwnedLegacyProtocols {
+    param([string]$Directory)
+    Remove-FengWoOwnedProtocols $Directory @('clash', 'clashmeta', 'flclash') $true
 }
 
 function Invoke-FengWoInstallCleanup {
@@ -215,6 +245,7 @@ function Invoke-FengWoInstallCleanup {
         if ($evidence.owned_before_install -and $evidence.legacy_service_owned_before_install) {
             Remove-FengWoOwnedService 'FlClashHelperService' $directoryPath $true
         }
+        if ($evidence.owned_before_install) { Remove-FengWoOwnedLegacyProtocols $directoryPath }
         if ($evidence.owned_before_install -and @($evidence.legacy_registrations).Count -gt 0) {
             Remove-FengWoLegacyRegistrations $directoryPath @($evidence.legacy_registrations)
         }
@@ -225,6 +256,7 @@ function Invoke-FengWoInstallCleanup {
         Remove-FengWoOwnedService 'FengWoHelperService' $directoryPath $false
         Stop-FengWoOwnedProcesses $directoryPath @('FengWoCore', 'FengWoHelperService')
         Remove-FengWoOwnedProtocol $directoryPath
+        Remove-FengWoOwnedLegacyProtocols $directoryPath
         return
     }
     throw 'Unsupported installation cleanup operation'

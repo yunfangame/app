@@ -28,6 +28,7 @@ $cleanupErrors = [Collections.Generic.List[string]]::new()
 $failure = $null
 $created = $false
 $caseRegistryCreated = $false
+$caseProtocolsCreated = [Collections.Generic.List[string]]::new()
 $serviceCreated = $false
 $serviceProcess = $null
 $serviceCommand = $null
@@ -37,8 +38,8 @@ function Open-LegacyRegistry([string]$Hive = 'LocalMachine', [string]$View = 'Re
     return [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::$Hive, [Microsoft.Win32.RegistryView]::$View)
 }
 
-function Read-LegacyRegistryTree([string]$Path) {
-    $base = Open-LegacyRegistry
+function Read-LegacyRegistryTree([string]$Path, [string]$Hive = 'LocalMachine', [string]$View = 'Registry64') {
+    $base = Open-LegacyRegistry $Hive $View
     try {
         $key = $base.OpenSubKey($Path)
         if (-not $key) { return $null }
@@ -50,7 +51,7 @@ function Read-LegacyRegistryTree([string]$Path) {
                 $values += [ordered]@{ name = $name; kind = $key.GetValueKind($name).ToString(); value = $value }
             }
             $children = @()
-            foreach ($name in @($key.GetSubKeyNames() | Sort-Object)) { $children += [ordered]@{ name = $name; tree = (Read-LegacyRegistryTree ($Path + '\' + $name)) } }
+            foreach ($name in @($key.GetSubKeyNames() | Sort-Object)) { $children += [ordered]@{ name = $name; tree = (Read-LegacyRegistryTree ($Path + '\' + $name) $Hive $View) } }
             return [ordered]@{ values = $values; children = $children }
         } finally { $key.Dispose() }
     } finally { $base.Dispose() }
@@ -96,6 +97,28 @@ function Write-LegacyRegistration([string]$DisplayName, [string]$Location) {
         $child = $base.CreateSubKey($registryPath + '\sentinel-child')
         try { $child.SetValue('', 'FOREIGN_SYNTHETIC_REGISTRY') } finally { $child.Dispose() }
     } finally { $base.Dispose() }
+}
+
+function Write-LegacyProtocol([string]$Scheme, [string]$Executable) {
+    if ($Scheme -cnotin @('clash', 'clashmeta', 'flclash', 'fengwo')) { throw 'Unexpected synthetic protocol identity' }
+    $base = Open-LegacyRegistry 'CurrentUser'
+    try {
+        $key = $base.CreateSubKey('Software\Classes\' + $Scheme)
+        if (-not $script:caseProtocolsCreated.Contains($Scheme)) { $script:caseProtocolsCreated.Add($Scheme) }
+        try {
+            $key.SetValue('', 'Synthetic protocol ' + $Scheme)
+            $key.SetValue('URL Protocol', '')
+            $key.SetValue('FengWoSyntheticFixture', 'FENGWO_SYNTHETIC_URI_FIXTURE')
+        } finally { $key.Dispose() }
+        $command = $base.CreateSubKey('Software\Classes\' + $Scheme + '\shell\open\command')
+        try { $command.SetValue('', ('"' + $Executable + '" "%1"')) } finally { $command.Dispose() }
+    } finally { $base.Dispose() }
+}
+
+function Assert-LegacyProtocolUnchanged([string]$Scheme, [object]$Before, [string]$Stage) {
+    $after = Read-LegacyRegistryTree ('Software\Classes\' + $Scheme) 'CurrentUser'
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory ($Stage + '-uri-' + $Scheme + '.json')) $after
+    if (($Before | ConvertTo-Json -Depth 30 -Compress) -cne ($after | ConvertTo-Json -Depth 30 -Compress)) { throw ('The protected protocol registration changed: ' + $Stage + '/' + $Scheme) }
 }
 
 function Start-LegacyService([string]$Directory, [string]$Case) {
@@ -156,6 +179,18 @@ function Remove-LegacyCase([string]$Case) {
         try { $base.DeleteSubKeyTree($registryPath, $false) } finally { $base.Dispose() }
         $script:caseRegistryCreated = $false
     }
+    $base = Open-LegacyRegistry 'CurrentUser'
+    try {
+        foreach ($scheme in $script:caseProtocolsCreated.ToArray()) {
+            $name = 'Software\Classes\' + $scheme
+            $key = $base.OpenSubKey($name)
+            if (-not $key) { continue }
+            try { $owned = $key.GetValue('FengWoSyntheticFixture') -ceq 'FENGWO_SYNTHETIC_URI_FIXTURE' } finally { $key.Dispose() }
+            if (-not $owned) { throw 'The synthetic protocol owner changed; refusing fixture cleanup' }
+            $base.DeleteSubKeyTree($name, $false)
+        }
+        $script:caseProtocolsCreated.Clear()
+    } finally { $base.Dispose() }
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         if (-not (Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'")) { return }
@@ -176,6 +211,15 @@ try {
                 }
             } finally { $base.Dispose() }
         }
+    }
+    foreach ($view in @('Registry64', 'Registry32')) {
+        $base = Open-LegacyRegistry 'CurrentUser' $view
+        try {
+            foreach ($scheme in @('clash', 'clashmeta', 'flclash', 'fengwo')) {
+                $key = $base.OpenSubKey('Software\Classes\' + $scheme)
+                if ($key) { $key.Dispose(); throw 'A pre-existing protocol registration prevents isolation' }
+            }
+        } finally { $base.Dispose() }
     }
     [void][IO.Directory]::CreateDirectory($root)
     $created = $true
@@ -199,6 +243,19 @@ try {
         Write-LegacyRegistration $(if ($ownedGuid) { '蜂窝加速器 1.0.8' } else { 'FlClash 0.8.97' }) $(if ($ownedGuid) { $honey } else { $foreign })
         $before = Read-LegacyRegistryTree $registryPath
         Save-FwArmEvidence (Join-Path $EvidenceDirectory ($case + '-registry-before.json')) $before
+        $foreignProtocolBefore = $null
+        $currentProtocolBefore = $null
+        if ($ownedGuid) {
+            Copy-Item -LiteralPath $application -Destination (Join-Path $honey 'FlClash.exe')
+            Copy-Item -LiteralPath $fixtureExecutable -Destination (Join-Path $foreign 'FlClash.exe')
+            Write-LegacyProtocol 'clash' (Join-Path $honey 'FengWo.exe')
+            Write-LegacyProtocol 'clashmeta' (Join-Path $honey 'FlClash.exe')
+            Write-LegacyProtocol 'flclash' (Join-Path $foreign 'FlClash.exe')
+            Write-LegacyProtocol 'fengwo' (Join-Path $honey 'FengWo.exe')
+            $foreignProtocolBefore = Read-LegacyRegistryTree 'Software\Classes\flclash' 'CurrentUser'
+            $currentProtocolBefore = Read-LegacyRegistryTree 'Software\Classes\fengwo' 'CurrentUser'
+            Save-FwArmEvidence (Join-Path $EvidenceDirectory ($case + '-foreign-uri-before.json')) $foreignProtocolBefore
+        }
         Start-LegacyService $(if ($case -cin @('owned-service-foreign-guid', 'owned-legacy-guid')) { $honey } else { $foreign }) $case
         try {
             $evidence = Join-Path $EvidenceDirectory ($case + '-ownership.json')
@@ -233,8 +290,26 @@ try {
             }
             if ($ownedGuid) {
                 if ($null -ne (Read-LegacyRegistryTree $registryPath)) { throw 'Finalize left the trusted owned legacy GUID' }
+                foreach ($scheme in @('clash', 'clashmeta')) {
+                    if ($null -ne (Read-LegacyRegistryTree ('Software\Classes\' + $scheme) 'CurrentUser')) { throw 'Finalize left an owned old Honey URI registration' }
+                }
+                Assert-LegacyProtocolUnchanged 'flclash' $foreignProtocolBefore ($case + '-after-finalize')
+                Assert-LegacyProtocolUnchanged 'fengwo' $currentProtocolBefore ($case + '-after-finalize')
+                Write-LegacyProtocol 'clash' (Join-Path $honey 'FengWo.exe')
+                Write-LegacyProtocol 'clashmeta' (Join-Path $honey 'FlClash.exe')
+                Invoke-RealLegacyCleanup $honey 'uninstall' $evidence ($case + '-uninstall-uri')
+                foreach ($scheme in @('clash', 'clashmeta', 'fengwo')) {
+                    if ($null -ne (Read-LegacyRegistryTree ('Software\Classes\' + $scheme) 'CurrentUser')) { throw 'Uninstall left a proven Honey URI registration' }
+                }
+                Assert-LegacyProtocolUnchanged 'flclash' $foreignProtocolBefore ($case + '-after-uninstall')
+                Copy-Item -LiteralPath $fixtureExecutable -Destination (Join-Path $honey 'FlClash.exe') -Force
+                Write-LegacyProtocol 'clashmeta' (Join-Path $honey 'FlClash.exe')
+                $wrongBrandBefore = Read-LegacyRegistryTree 'Software\Classes\clashmeta' 'CurrentUser'
+                Invoke-RealLegacyCleanup $honey 'finalize' $evidence ($case + '-foreign-brand-finalize') $true
+                Assert-LegacyProtocolUnchanged 'clashmeta' $wrongBrandBefore ($case + '-foreign-brand')
+                Assert-LegacyProtocolUnchanged 'flclash' $foreignProtocolBefore ($case + '-foreign-brand')
             } else { Assert-LegacyRegistryUnchanged $before ($case + '-after-finalize') }
-            $checks.Add([ordered]@{ name = $case; passed = $true; powershell = $version; stopped = ($case -cin @('owned-service-foreign-guid', 'owned-legacy-guid')); foreign_guid_preserved = (-not $ownedGuid); owned_guid_removed = $ownedGuid; native_fixture = $true })
+            $checks.Add([ordered]@{ name = $case; passed = $true; powershell = $version; stopped = ($case -cin @('owned-service-foreign-guid', 'owned-legacy-guid')); foreign_guid_preserved = (-not $ownedGuid); owned_guid_removed = $ownedGuid; owned_old_uri_removed = $ownedGuid; foreign_uri_preserved = $ownedGuid; same_path_foreign_brand_uri_preserved = $ownedGuid; owned_uri_uninstall_verified = $ownedGuid; native_fixture = $true })
         } finally { Remove-LegacyCase $case }
     }
 } catch { $failure = $_.Exception.Message } finally {

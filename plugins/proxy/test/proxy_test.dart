@@ -587,6 +587,78 @@ destination: default
       expect(capturedCall?.arguments, {'expectedPort': 7890});
     });
 
+    test('uses a separate explicit Windows stale repair contract', () async {
+      MethodCall? capturedCall;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(proxy.methodChannel, (call) async {
+            capturedCall = call;
+            return {
+              'success': true,
+              'operation': 'stop',
+              'stage': 'restored',
+              'enabled': false,
+            };
+          });
+
+      final result = await proxy.repairStaleProxyDetailed(7890);
+
+      expect(result.success, isTrue);
+      expect(capturedCall?.method, 'RepairStaleProxyDetailed');
+      expect(capturedCall?.arguments, {'expectedPort': 7890});
+    });
+
+    test('stale repair rejects invalid ports before calling native', () async {
+      final calls = <String>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(proxy.methodChannel, (call) async {
+            calls.add(call.method);
+            return true;
+          });
+
+      for (final port in [0, 65536]) {
+        final result = await proxy.repairStaleProxyDetailed(port);
+        expect(result.success, isFalse);
+        expect(result.stage, 'invalid_arguments');
+      }
+      expect(calls, isEmpty);
+    });
+
+    test(
+      'missing stale repair never falls back to an unguarded stop',
+      () async {
+        final calls = <String>[];
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(proxy.methodChannel, (call) async {
+              calls.add(call.method);
+              throw MissingPluginException('stale repair is unavailable');
+            });
+
+        final result = await proxy.repairStaleProxyDetailed(7890);
+
+        expect(result.success, isFalse);
+        expect(result.stage, 'unsupported');
+        expect(calls, ['RepairStaleProxyDetailed']);
+      },
+    );
+
+    test(
+      'reports a stale listener inspection failure without stop fallback',
+      () async {
+        final calls = <String>[];
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(proxy.methodChannel, (call) async {
+              calls.add(call.method);
+              throw PlatformException(code: 'listener_query_failed');
+            });
+
+        final result = await proxy.repairStaleProxyDetailed(7890);
+
+        expect(result.success, isFalse);
+        expect(result.stage, 'method_channel');
+        expect(calls, ['RepairStaleProxyDetailed']);
+      },
+    );
+
     test('parses detailed Windows proxy failures', () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(proxy.methodChannel, (_) async {

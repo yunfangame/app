@@ -40,6 +40,43 @@ void main() {
     server: '127.0.0.1:7890',
   );
 
+  test(
+    'native stale repair can preserve a listener started after probing',
+    () async {
+      final guard = WindowsProxyGuard(
+        inspector: (_) async => owned,
+        stopper: (_) async => const ProxyOperationResult(
+          success: true,
+          operation: 'stop',
+          stage: 'skipped_active_listener',
+        ),
+        portProbe: (_) async => false,
+      );
+
+      final result = await guard.repairStale(7890);
+
+      expect(result.status, WindowsProxyRepairStatus.active);
+      expect(result.cleanup?.stage, 'skipped_active_listener');
+    },
+  );
+
+  test('native stale repair skips a proxy replaced after probing', () async {
+    final guard = WindowsProxyGuard(
+      inspector: (_) async => owned,
+      stopper: (_) async => const ProxyOperationResult(
+        success: true,
+        operation: 'stop',
+        stage: 'skipped_foreign_or_restored',
+      ),
+      portProbe: (_) async => false,
+    );
+
+    final result = await guard.repairStale(7890);
+
+    expect(result.status, WindowsProxyRepairStatus.notOwned);
+    expect(result.cleanup?.stage, 'skipped_foreign_or_restored');
+  });
+
   test('does not rewrite an effective proxy during reconciliation', () async {
     var starts = 0;
     final guard = WindowsProxyGuard(
