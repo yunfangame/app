@@ -36,8 +36,8 @@ class WindowsIdentityMigrationException implements Exception {
 
   @override
   String toString() =>
-      'WINDOWS-IDENTITY-MIGRATION-FAILED：旧蜂窝数据未能复制，原文件已保留。'
-      '请完全退出旧版蜂窝后重试。具体原因：$cause';
+      'WINDOWS-IDENTITY-MIGRATION-FAILED：旧蜂窝数据迁移未完成，原文件已保留。'
+      '具体原因：$cause';
 }
 
 Future<Directory> prepareWindowsDataDirectory({
@@ -220,6 +220,14 @@ Future<void> _recordWindowsMigrationSkip(
 
 Future<String?> _windowsLegacyDatabaseSkipReason(Directory directory) async {
   final database = File(p.join(directory.path, 'database.sqlite'));
+  final wal = File(p.join(directory.path, 'database.sqlite-wal'));
+  return _windowsDatabaseSkipReason(database: database, wal: wal);
+}
+
+Future<String?> _windowsDatabaseSkipReason({
+  required File database,
+  required File wal,
+}) async {
   final databaseType = await FileSystemEntity.type(
     database.path,
     followLinks: false,
@@ -228,7 +236,6 @@ Future<String?> _windowsLegacyDatabaseSkipReason(Directory directory) async {
       databaseType != FileSystemEntityType.notFound) {
     return 'unsafe_database_file';
   }
-  final wal = File(p.join(directory.path, 'database.sqlite-wal'));
   final walType = await FileSystemEntity.type(wal.path, followLinks: false);
   if (walType != FileSystemEntityType.notFound &&
       (walType != FileSystemEntityType.file || await wal.length() != 0)) {
@@ -320,6 +327,77 @@ Future<void> _publishWindowsMigration({
     throw const FormatException('Invalid FengWo migration staging directory');
   }
   final names = transaction.entries.keys.toList()..sort();
+  var hasPublishedEntries = false;
+  for (final name in names) {
+    final source = p.join(transaction.staging.path, name);
+    final target = p.join(destination.path, name);
+    final sourceType = await FileSystemEntity.type(source, followLinks: false);
+    final targetType = await FileSystemEntity.type(target, followLinks: false);
+    final expectedType = transaction.entries[name] == 'directory'
+        ? FileSystemEntityType.directory
+        : FileSystemEntityType.file;
+    if (sourceType == expectedType &&
+        targetType == FileSystemEntityType.notFound) {
+      continue;
+    }
+    if (sourceType == FileSystemEntityType.notFound &&
+        targetType == expectedType) {
+      hasPublishedEntries = true;
+      continue;
+    }
+    throw FileSystemException(
+      '旧蜂窝数据迁移未完成，与当前数据冲突。原数据已保留。'
+      '请导出诊断并联系支持，备份后安全处理，不要反复重试。',
+      name,
+    );
+  }
+  Future<File> actualDatabaseFile(String name) async {
+    final source = File(p.join(transaction.staging.path, name));
+    if (await FileSystemEntity.type(source.path, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      return source;
+    }
+    return File(p.join(destination.path, name));
+  }
+
+  final skipReason = await _windowsDatabaseSkipReason(
+    database: await actualDatabaseFile('database.sqlite'),
+    wal: await actualDatabaseFile('database.sqlite-wal'),
+  );
+  if (skipReason != null) {
+    final hasDestinationData = await destination.list().any(
+      (entry) => !{
+        'diagnostics',
+        _migrationJournalName,
+        _migrationSkippedName,
+      }.contains(p.basename(entry.path)),
+    );
+    if (!hasPublishedEntries &&
+        !hasDestinationData &&
+        names.isNotEmpty &&
+        stagingType == FileSystemEntityType.directory) {
+      final rejectedJournal = p.join(
+        transaction.staging.path,
+        'journal.rejected.json',
+      );
+      if (await FileSystemEntity.type(rejectedJournal, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        throw const FormatException(
+          'FengWo rejected migration record conflicts',
+        );
+      }
+      await _recordWindowsMigrationSkip(destination, skipReason);
+      await journal.rename(rejectedJournal);
+      return;
+    }
+    throw FormatException(
+      '旧蜂窝迁移数据库不兼容或未完成（$skipReason）。'
+      '原目录、暂存数据及已写入的新目录均已保留。'
+      '反复重试不能修复此问题。请导出诊断并联系支持，'
+      '备份新目录 ${destination.path} 后安全处理并重新登录；'
+      '不要自行删除数据库或迁移记录。',
+    );
+  }
   for (final name in names) {
     final source = p.join(transaction.staging.path, name);
     final target = p.join(destination.path, name);
@@ -334,7 +412,11 @@ Future<void> _publishWindowsMigration({
     }
     if (sourceType != expectedType ||
         targetType != FileSystemEntityType.notFound) {
-      throw FileSystemException('FengWo migration entry conflicts', name);
+      throw FileSystemException(
+        '旧蜂窝数据迁移未完成，与当前数据冲突。原数据已保留。'
+        '请导出诊断并联系支持，备份后安全处理，不要反复重试。',
+        name,
+      );
     }
     if (expectedType == FileSystemEntityType.directory) {
       await Directory(source).rename(target);

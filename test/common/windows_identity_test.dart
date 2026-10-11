@@ -434,6 +434,333 @@ void main() {
     expect(await Directory(p.join(root.path, 'foreign')).exists(), false);
   });
 
+  for (final reason in [
+    'unsupported_database_schema',
+    'invalid_database_header',
+    'unverifiable_database_wal',
+  ]) {
+    test('isolates all-staged pending migration with $reason', () async {
+      final database = reason == 'invalid_database_header'
+          ? Uint8List.fromList([1, 2, 3])
+          : _databaseHeader(reason == 'unsupported_database_schema' ? 10 : 4);
+      final entries = <String, Object>{
+        'database.sqlite': database,
+        'shared_preferences.json': 'pending-account',
+        if (reason == 'unverifiable_database_wal')
+          'database.sqlite-wal': Uint8List.fromList([1, 2, 3]),
+      };
+      final original = File(p.join(legacy.path, 'database.sqlite'));
+      await original.writeAsBytes(_databaseHeader(4));
+      final staging = await _pendingMigration(
+        destination: destination,
+        staged: entries,
+      );
+      final journal = File(p.join(destination.path, '.fengwo-migration.json'));
+      final journalBytes = await journal.readAsBytes();
+
+      await prepareWindowsDataDirectory(
+        destination: destination,
+        legacy: legacy,
+      );
+
+      expect(await journal.exists(), false);
+      expect(
+        await File(p.join(staging.path, 'journal.rejected.json')).readAsBytes(),
+        journalBytes,
+      );
+      expect(
+        await File(p.join(staging.path, 'database.sqlite')).readAsBytes(),
+        database,
+      );
+      expect(
+        await File(
+          p.join(staging.path, 'shared_preferences.json'),
+        ).readAsString(),
+        'pending-account',
+      );
+      expect(await original.readAsBytes(), _databaseHeader(4));
+      if (reason == 'unverifiable_database_wal') {
+        expect(
+          await File(p.join(staging.path, 'database.sqlite-wal')).readAsBytes(),
+          [1, 2, 3],
+        );
+      }
+      expect(
+        await destination
+            .list()
+            .map((entry) => p.basename(entry.path))
+            .toList(),
+        ['.fengwo-legacy-migration-skipped.json'],
+      );
+      expect(
+        jsonDecode(
+          await File(
+            p.join(destination.path, '.fengwo-legacy-migration-skipped.json'),
+          ).readAsString(),
+        ),
+        {'version': 1, 'reason': reason},
+      );
+      final current = File(p.join(destination.path, 'shared_preferences.json'));
+      await current.writeAsString('new-account');
+      await prepareWindowsDataDirectory(
+        destination: destination,
+        legacy: legacy,
+      );
+      expect(await current.readAsString(), 'new-account');
+      expect(await original.readAsBytes(), _databaseHeader(4));
+    });
+
+    test(
+      'preserves already-published pending migration with $reason',
+      () async {
+        final database = reason == 'invalid_database_header'
+            ? Uint8List.fromList([1, 2, 3])
+            : _databaseHeader(reason == 'unsupported_database_schema' ? 10 : 4);
+        final original = File(p.join(legacy.path, 'shared_preferences.json'));
+        await original.writeAsString('original-account');
+        final staging = await _pendingMigration(
+          destination: destination,
+          staged: {
+            'shared_preferences.json': 'pending-account',
+            if (reason == 'unverifiable_database_wal')
+              'database.sqlite-wal': Uint8List.fromList([1, 2, 3]),
+          },
+          published: {'database.sqlite': database},
+        );
+        final journal = File(
+          p.join(destination.path, '.fengwo-migration.json'),
+        );
+        final journalBytes = await journal.readAsBytes();
+
+        for (var attempt = 0; attempt < 2; attempt++) {
+          await expectLater(
+            prepareWindowsDataDirectory(
+              destination: destination,
+              legacy: legacy,
+            ),
+            throwsA(
+              isA<WindowsIdentityMigrationException>().having(
+                (error) => error.cause.toString(),
+                'recovery failure',
+                allOf(contains(reason), contains('反复重试不能修复')),
+              ),
+            ),
+          );
+        }
+
+        expect(await journal.readAsBytes(), journalBytes);
+        expect(
+          await File(p.join(destination.path, 'database.sqlite')).readAsBytes(),
+          database,
+        );
+        expect(
+          await File(
+            p.join(destination.path, 'shared_preferences.json'),
+          ).exists(),
+          false,
+        );
+        expect(
+          await File(
+            p.join(staging.path, 'shared_preferences.json'),
+          ).readAsString(),
+          'pending-account',
+        );
+        expect(await original.readAsString(), 'original-account');
+        if (reason == 'unverifiable_database_wal') {
+          expect(
+            await File(
+              p.join(staging.path, 'database.sqlite-wal'),
+            ).readAsBytes(),
+            [1, 2, 3],
+          );
+        }
+        expect(
+          await File(
+            p.join(destination.path, '.fengwo-legacy-migration-skipped.json'),
+          ).exists(),
+          false,
+        );
+      },
+    );
+  }
+
+  test('rejects unsafe fully published data after staging is gone', () async {
+    final staging = await _pendingMigration(
+      destination: destination,
+      published: {
+        'database.sqlite': _databaseHeader(10),
+        'shared_preferences.json': 'current-account',
+      },
+    );
+    await staging.delete();
+    final journal = File(p.join(destination.path, '.fengwo-migration.json'));
+    final journalBytes = await journal.readAsBytes();
+
+    await expectLater(
+      prepareWindowsDataDirectory(destination: destination, legacy: legacy),
+      throwsA(isA<WindowsIdentityMigrationException>()),
+    );
+
+    expect(await journal.readAsBytes(), journalBytes);
+    expect(
+      await File(p.join(destination.path, 'database.sqlite')).readAsBytes(),
+      _databaseHeader(10),
+    );
+    expect(
+      await File(
+        p.join(destination.path, 'shared_preferences.json'),
+      ).readAsString(),
+      'current-account',
+    );
+    expect(await staging.exists(), false);
+  });
+
+  test('rejects a published WAL while the database is still staged', () async {
+    final wal = Uint8List.fromList([1, 2, 3]);
+    final staging = await _pendingMigration(
+      destination: destination,
+      staged: {
+        'database.sqlite': _databaseHeader(4),
+        'shared_preferences.json': 'pending-account',
+      },
+      published: {'database.sqlite-wal': wal},
+    );
+
+    await expectLater(
+      prepareWindowsDataDirectory(destination: destination, legacy: legacy),
+      throwsA(isA<WindowsIdentityMigrationException>()),
+    );
+
+    expect(
+      await File(p.join(destination.path, 'database.sqlite')).exists(),
+      false,
+    );
+    expect(
+      await File(p.join(destination.path, 'database.sqlite-wal')).readAsBytes(),
+      wal,
+    );
+    expect(
+      await File(p.join(staging.path, 'database.sqlite')).readAsBytes(),
+      _databaseHeader(4),
+    );
+    expect(
+      await File(
+        p.join(staging.path, 'shared_preferences.json'),
+      ).readAsString(),
+      'pending-account',
+    );
+  });
+
+  test(
+    'unsafe pending data cannot isolate an existing valid account',
+    () async {
+      final staging = await _pendingMigration(
+        destination: destination,
+        staged: {'database.sqlite': _databaseHeader(10)},
+      );
+      final current = File(p.join(destination.path, 'shared_preferences.json'));
+      await current.writeAsString('current-account');
+
+      await expectLater(
+        prepareWindowsDataDirectory(destination: destination, legacy: legacy),
+        throwsA(isA<WindowsIdentityMigrationException>()),
+      );
+
+      expect(await current.readAsString(), 'current-account');
+      expect(
+        await File(p.join(staging.path, 'journal.rejected.json')).exists(),
+        false,
+      );
+      expect(
+        await File(p.join(staging.path, 'database.sqlite')).readAsBytes(),
+        _databaseHeader(10),
+      );
+      expect(
+        await File(p.join(destination.path, '.fengwo-migration.json')).exists(),
+        true,
+      );
+    },
+  );
+
+  for (final databasePublished in [true, false]) {
+    test(
+      'resumes safe split database transaction, published $databasePublished',
+      () async {
+        final staging = await _pendingMigration(
+          destination: destination,
+          staged: {
+            'shared_preferences.json': 'pending-account',
+            if (!databasePublished) 'database.sqlite': _databaseHeader(4),
+            if (databasePublished) 'database.sqlite-wal': Uint8List(0),
+          },
+          published: {
+            if (databasePublished) 'database.sqlite': _databaseHeader(4),
+            if (!databasePublished) 'database.sqlite-wal': Uint8List(0),
+          },
+        );
+
+        await prepareWindowsDataDirectory(
+          destination: destination,
+          legacy: legacy,
+        );
+
+        expect(
+          await File(p.join(destination.path, 'database.sqlite')).readAsBytes(),
+          _databaseHeader(4),
+        );
+        expect(
+          await File(
+            p.join(destination.path, 'database.sqlite-wal'),
+          ).readAsBytes(),
+          isEmpty,
+        );
+        expect(
+          await File(
+            p.join(destination.path, 'shared_preferences.json'),
+          ).readAsString(),
+          'pending-account',
+        );
+        expect(await staging.exists(), false);
+        expect(
+          await File(
+            p.join(destination.path, '.fengwo-migration.json'),
+          ).exists(),
+          false,
+        );
+      },
+    );
+  }
+
+  test(
+    'preflights all pending conflicts before publishing any other entry',
+    () async {
+      final staging = await _pendingMigration(
+        destination: destination,
+        staged: {
+          'database.sqlite': _databaseHeader(4),
+          'shared_preferences.json': 'pending-account',
+        },
+      );
+      final current = File(p.join(destination.path, 'shared_preferences.json'));
+      await current.writeAsString('current-account');
+
+      await expectLater(
+        prepareWindowsDataDirectory(destination: destination, legacy: legacy),
+        throwsA(isA<WindowsIdentityMigrationException>()),
+      );
+
+      expect(
+        await File(p.join(destination.path, 'database.sqlite')).exists(),
+        false,
+      );
+      expect(
+        await File(p.join(staging.path, 'database.sqlite')).readAsBytes(),
+        _databaseHeader(4),
+      );
+      expect(await current.readAsString(), 'current-account');
+    },
+  );
+
   test(
     'resumes an interrupted publication without rereading old data',
     () async {
@@ -737,4 +1064,38 @@ Uint8List _databaseHeader(int schemaVersion) {
   bytes[100] = 13;
   data.setUint16(105, 4096, Endian.big);
   return bytes;
+}
+
+Future<Directory> _pendingMigration({
+  required Directory destination,
+  Map<String, Object> staged = const {},
+  Map<String, Object> published = const {},
+}) async {
+  await destination.create(recursive: true);
+  final staging = await destination.parent.createTemp(
+    '.fengwo-migration-pending-',
+  );
+  Future<void> write(Directory directory, Map<String, Object> entries) async {
+    for (final entry in entries.entries) {
+      final file = File(p.join(directory.path, entry.key));
+      if (entry.value is List<int>) {
+        await file.writeAsBytes(entry.value as List<int>);
+      } else {
+        await file.writeAsString(entry.value as String);
+      }
+    }
+  }
+
+  await write(staging, staged);
+  await write(destination, published);
+  await File(p.join(destination.path, '.fengwo-migration.json')).writeAsString(
+    jsonEncode({
+      'version': 1,
+      'stage': p.basename(staging.path),
+      'entries': {
+        for (final name in {...staged.keys, ...published.keys}) name: 'file',
+      },
+    }),
+  );
+  return staging;
 }
