@@ -274,9 +274,15 @@ void main() {
       useDefaultWindowsGuard: true,
       mixedPort: port,
     );
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-    });
+    final wait = Stopwatch()..start();
+    while (rig.client.staleRepairPorts.isEmpty &&
+        wait.elapsed < const Duration(seconds: 5)) {
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+    }
+    wait.stop();
     await tester.pumpAndSettle();
 
     expect(rig.client.staleRepairPorts, [port]);
