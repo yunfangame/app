@@ -1,5 +1,5 @@
 name: fengwo-windows-chain-test-package
-run-name: New unsigned Windows chain UI package · ${{ github.sha }}
+run-name: V2 unsigned Windows 1.0.8 desktop test package · ${{ github.sha }}
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
       - 'codex/windows-chain-ui-check-*'
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -57,6 +58,12 @@ jobs:
           [void][IO.Directory]::CreateDirectory($evidence)
           $files = @(git ls-files -- lib test core plugins/setup services/helper windows tooling/windows .github/workflows/build-windows-chain-test.yml)
           if ($LASTEXITCODE -ne 0) { throw 'Source manifest enumeration failed' }
+          $sourceLock = Get-Content -LiteralPath './tooling/windows/real/candidate-source-lock.json' -Raw | ConvertFrom-Json
+          if ($sourceLock.architecture -cne 'x64' -or $sourceLock.desktop_default_port -ne 17980 -or $sourceLock.new_helper_port -ne 47907 -or -not $sourceLock.unsigned_test_only) { throw 'The V2 candidate source lock differs' }
+          foreach ($source in $sourceLock.files) {
+            if (-not (Test-Path -LiteralPath $source.path -PathType Leaf) -or (Get-FileHash -LiteralPath $source.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $source.sha256) { throw ('Frozen V2 candidate source changed: ' + $source.path) }
+          }
+          Save-FwArmEvidence (Join-Path $evidence 'candidate-source-lock.json') $sourceLock
           $manifest = @($files | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | ForEach-Object { [ordered]@{ path = $_; sha256 = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant() } })
           Save-FwArmEvidence (Join-Path $evidence 'source-manifest.json') ([ordered]@{ source_sha = $env:GITHUB_SHA; run_id = $env:GITHUB_RUN_ID; files = $manifest; unsigned_test_only = $true; environment = $environment })
           $gitBash = Join-Path $env:ProgramFiles 'Git/bin/bash.exe'
@@ -82,7 +89,7 @@ jobs:
           $evidence = Join-Path $env:RUNNER_TEMP 'new-chain-evidence'
           flutter analyze --no-pub --no-fatal-infos | Tee-Object -FilePath (Join-Path $evidence 'analyze.txt')
           if ($LASTEXITCODE -ne 0) { throw 'New chain source analysis failed' }
-          flutter test --no-pub --reporter expanded test/common/chain_proxy_test.dart test/common/chain_proxy_validation_test.dart test/providers/chain_proxy_apply_test.dart test/widgets/chain_proxy_dialog_test.dart test/core/transport_test.dart test/manager/core_manager_test.dart tooling/windows/real/chain_config_generation_test.dart | Tee-Object -FilePath (Join-Path $evidence 'chain-focused-tests.txt')
+          flutter test --no-pub --reporter expanded test/common/chain_proxy_test.dart test/common/chain_proxy_validation_test.dart test/providers/chain_proxy_apply_test.dart test/widgets/chain_proxy_dialog_test.dart test/core/transport_test.dart test/manager/core_manager_test.dart test/core/desktop/helper_client_test.dart test/providers/windows_tun_authorization_test.dart test/common/windows_identity_test.dart test/providers/startup_tun_intent_test.dart test/providers/startup_setup_regression_test.dart test/providers/action_test.dart test/providers/windows_connection_test.dart test/providers/macos_authorization_update_regression_test.dart test/common/mixed_port_test.dart test/common/migration_test.dart test/common/preferences_test.dart test/common/windows_upgrade_startup_test.dart test/widgets/advanced_settings_test.dart test/widgets/views_smoke_test.dart tooling/windows/real/chain_config_generation_test.dart | Tee-Object -FilePath (Join-Path $evidence 'chain-focused-tests.txt')
           if ($LASTEXITCODE -ne 0) { throw 'New chain business and generated-config regressions failed' }
           python -m unittest discover -s tooling/windows/real -p '*_test.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Strict two-hop fixture verification failed' }
@@ -104,9 +111,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'New chain test packaging failed' }
           $installers = @(Get-ChildItem dist -Filter '*windows*.exe' -File)
           if ($installers.Count -ne 1 -or (Get-AuthenticodeSignature -LiteralPath $installers[0].FullName).Status -cne 'NotSigned') { throw 'Exactly one unsigned test installer is required' }
-          Rename-Item -LiteralPath $installers[0].FullName -NewName 'fengwo-windows-x64-chain-test-unsigned.exe'
+          Rename-Item -LiteralPath $installers[0].FullName -NewName 'fengwo-windows-x64-chain-test-v2-unsigned.exe'
           . ./tooling/windows/arm64/common.ps1
-          $installer = Get-Item dist/fengwo-windows-x64-chain-test-unsigned.exe
+          $installer = Get-Item dist/fengwo-windows-x64-chain-test-v2-unsigned.exe
           $bundle = Join-Path $PWD 'build/windows/x64/runner/Release'
           ./tooling/windows/verify_vc_runtime_bundle.ps1 -Architecture x64 -BundleDirectory $bundle
           foreach ($name in @('FengWo.exe', 'FengWoCore.exe', 'FengWoHelperService.exe')) {
@@ -117,16 +124,58 @@ jobs:
           if ($manifest.coreSha256 -cne $coreHash) { throw 'The packaged Core hash did not match its integrity manifest' }
           Save-FwArmEvidence (Join-Path $env:RUNNER_TEMP 'new-chain-evidence/package.json') ([ordered]@{ source_sha = $env:GITHUB_SHA; run_id = $env:GITHUB_RUN_ID; architecture = 'x64'; installer_name = $installer.Name; installer_sha256 = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant(); installer_bytes = $installer.Length; core_sha256 = $coreHash; unsigned_test_only = $true; digitally_signed = $false; customer_account_uploaded = $false; real_gui_chain_tested = $false })
 
+      - name: Verify native installer ownership and prerequisite policies
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'new-chain-evidence'
+          ./tooling/windows/test_vc_runtime_installer.ps1 6>&1 | Tee-Object -FilePath (Join-Path $evidence 'installer-prerequisite-tests.txt')
+          ./tooling/windows/test_integrity_installer.ps1 -OutputDirectory (Join-Path $evidence 'installer-integrity')
+
       - name: Install and exercise the new packaged Core chain
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           $evidence = Join-Path $env:RUNNER_TEMP 'new-chain-evidence'
           $bundle = Join-Path $env:RUNNER_TEMP 'new-chain-installed'
-          $process = Start-Process -FilePath (Join-Path $PWD 'dist/fengwo-windows-x64-chain-test-unsigned.exe') -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR=' + $bundle), '/TASKS=', ('/LOG=' + (Join-Path $evidence 'installation.log'))) -PassThru
+          $process = Start-Process -FilePath (Join-Path $PWD 'dist/fengwo-windows-x64-chain-test-v2-unsigned.exe') -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR=' + $bundle), '/TASKS=', ('/LOG=' + (Join-Path $evidence 'installation.log'))) -PassThru
           if (-not $process.WaitForExit(120000) -or $process.ExitCode -ne 0) { throw 'The new test installer did not complete normally' }
           $package = Get-Content -LiteralPath (Join-Path $evidence 'package.json') -Raw | ConvertFrom-Json
           if ((Get-FileHash -LiteralPath (Join-Path $bundle 'FengWoCore.exe') -Algorithm SHA256).Hash.ToLowerInvariant() -cne $package.core_sha256) { throw 'The actual installed Core differed from the new package payload' }
           ./tooling/windows/real/test_chain_native.ps1 -Architecture x64 -BundleDirectory $bundle -EvidenceDirectory (Join-Path $evidence 'native-chain')
+
+      - name: Download the actual October 7 legacy Helper and Core
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: '37602827410'
+          name: fengwo-windows-amd64
+          path: ${{ runner.temp }}/legacy-helper-package
+
+      - name: Verify real old 47906 and new 47907 Helper coexistence
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./tooling/windows/arm64/common.ps1
+          $oldRun = Invoke-RestMethod -Uri ('https://api.github.com/repos/' + $env:GITHUB_REPOSITORY + '/actions/runs/37602827410') -Headers @{ Authorization = 'Bearer ' + $env:GH_TOKEN; Accept = 'application/vnd.github+json' }
+          if ($oldRun.conclusion -cne 'success' -or $oldRun.head_sha -cne '9a71d2e4bd155aa8f61af08ec081642cb71da84c') { throw 'The October 7 legacy build provenance differs' }
+          $archives = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'legacy-helper-package') -Recurse -File -Filter 'fengwo-windows-amd64-release-unsigned.zip')
+          $archiveSha = '75071df1a50e40fe6d4d0a82d60289036bd9ab7130bd99ee497d6f617b04aa00'
+          if ($archives.Count -ne 1 -or (Get-FileHash $archives[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $archiveSha) { throw 'The actual legacy Helper/Core release archive does not verify' }
+          $legacy = Join-Path $env:RUNNER_TEMP 'legacy-helper-binaries'
+          [void][IO.Directory]::CreateDirectory($legacy)
+          $archive = [IO.Compression.ZipFile]::OpenRead($archives[0].FullName)
+          try {
+            foreach ($name in @('FlClashCore.exe', 'FlClashHelperService.exe', 'manifest.json')) {
+              $entry = $archive.GetEntry($name)
+              if (-not $entry) { throw ('The actual legacy component is missing: ' + $name) }
+              [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $legacy $name), $false)
+            }
+          } finally { $archive.Dispose() }
+          $evidence = Join-Path $env:RUNNER_TEMP 'new-chain-evidence/helper-port-coexistence'
+          Save-FwArmEvidence (Join-Path $evidence 'provenance.json') ([ordered]@{ new_package_build_sha = $env:GITHUB_SHA; new_package_run_id = $env:GITHUB_RUN_ID; old_package_build_sha = $oldRun.head_sha; old_package_run_id = '37602827410'; old_archive_sha256 = $archiveSha; actual_old_release_binaries = $true; customer_account_uploaded = $false })
+          ./tooling/windows/real/test_helper_port_coexistence.ps1 -Architecture x64 -BundleDirectory (Join-Path $env:RUNNER_TEMP 'new-chain-installed') -LegacyBundleDirectory $legacy -InstallerPath (Join-Path $PWD 'dist/fengwo-windows-x64-chain-test-v2-unsigned.exe') -EvidenceDirectory $evidence
 
       - name: Remove only the isolated test installation and local build key files
         if: always()
@@ -144,9 +193,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fengwo-windows-x64-chain-test-unsigned-${{ github.run_id }}
+          name: fengwo-windows-x64-chain-test-v2-unsigned-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/new-chain-evidence
-            dist/fengwo-windows-x64-chain-test-unsigned.exe
+            dist/fengwo-windows-x64-chain-test-v2-unsigned.exe
           if-no-files-found: error
           retention-days: 7

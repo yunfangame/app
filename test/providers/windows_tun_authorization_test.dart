@@ -125,7 +125,7 @@ void main() {
       expect(container.read(windowsTunReadyProvider), isFalse);
       expect(action.notifications, ['helper_port_in_use']);
       final message = action.describeTunFailure('helper_port_in_use');
-      expect(message, contains('47906'));
+      expect(message, contains('47907'));
       expect(message, contains('被其他程序占用'));
       expect(message, contains('重复授权无法释放此端口'));
       expect(message, isNot(contains('请尝试重启电脑')));

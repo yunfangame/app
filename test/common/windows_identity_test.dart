@@ -23,7 +23,7 @@ void main() {
 
   test('preserves existing tray and helper transport identities', () {
     expect(trayName, 'FengWo');
-    expect(helperPort, 47906);
+    expect(helperPort, 47907);
     expect(appHelperService, 'FengWoHelperService');
     expect(helperProtocolVersionHeader, 'x-fengwo-helper-protocol');
   });

@@ -251,7 +251,7 @@ function Exit-FengWoGracefully([Diagnostics.Process]$Process, [IntPtr]$Window) {
 }
 
 function Invoke-HelperRequest([string]$Method, [string]$Path, [object]$Body = $null) {
-    $arguments = @{ Uri = ('http://127.0.0.1:47906/' + $Path); Method = $Method; NoProxy = $true; TimeoutSec = 10 }
+    $arguments = @{ Uri = ('http://127.0.0.1:47907/' + $Path); Method = $Method; NoProxy = $true; TimeoutSec = 10 }
     if ($null -ne $Body) { $arguments.ContentType = 'application/json'; $arguments.Body = ($Body | ConvertTo-Json -Compress) }
     return Invoke-WebRequest @arguments
 }
@@ -269,7 +269,7 @@ try {
     }
     foreach ($scheme in @('clash', 'clashmeta', 'flclash', 'fengwo')) { foreach ($view in @('Registry64', 'Registry32')) { if ($null -ne (Read-RegistryTree 'CurrentUser' ('Software\Classes\' + $scheme) $view)) { throw ('A pre-existing URL association prevents isolation: ' + $scheme) } } }
     foreach ($path in @($runKey) + $approvedKeys) { Assert-NoRegistryValue $path 'FlClash'; Assert-NoRegistryValue $path 'FengWo'; $sharedRegistryBefore[$path] = Read-RegistryTree 'CurrentUser' $path }
-    if (Get-NetTCPConnection -State Listen -LocalPort 47890, 47906, 7890 -ErrorAction SilentlyContinue) { throw 'A pre-existing Helper or synthetic proxy port prevents isolation' }
+    if (Get-NetTCPConnection -State Listen -LocalPort 47890, 47906, 47907, 7890 -ErrorAction SilentlyContinue) { throw 'A pre-existing Helper or synthetic proxy port prevents isolation' }
     [void][IO.Directory]::CreateDirectory($foreignDirectory)
     $fixtureCreated = $true
     if (-not $FixtureExecutable) {

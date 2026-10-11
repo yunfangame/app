@@ -1,6 +1,7 @@
 script_template: inno_setup.iss
 app_id: 0B31AA8F-C520-4E03-ACF1-FBE8B4EBA461
 app_name: 蜂窝加速器
+install_dir_name: '{autopf64}\FengWo'
 publisher: FengWo
 publisher_url: https://github.com/yunfangame/app
 display_name: 蜂窝加速器

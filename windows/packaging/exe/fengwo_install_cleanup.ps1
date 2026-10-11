@@ -313,7 +313,11 @@ function Invoke-FengWoInstallCleanup {
     param([string]$Directory, [string]$Action, [string]$EvidencePath)
     $directoryPath = ConvertTo-FengWoInstallPath $Directory
     $identity = Get-FengWoInstallIdentity $directoryPath
-    if ($identity.foreign_application) { throw 'The installation directory contains another application; choose a separate FengWo directory' }
+    if ($identity.foreign_application) {
+        $conflict = [InvalidOperationException]::new('The installation directory contains an application whose FengWo identity cannot be verified; choose a separate FengWo directory')
+        $conflict.Data['FengWoInstallCleanupFailure'] = 'directory_conflict'
+        throw $conflict
+    }
     $records = @()
     if ($identity.owned) { $records = @(Get-FengWoLegacyRegistrations $directoryPath) }
     if ($Action -ceq 'stop') {
@@ -361,12 +365,19 @@ function Invoke-FengWoInstallCleanup {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'Installation cleanup requires Windows' }
-    if ($Operation -ceq 'discover') {
-        if (-not $DiscoveryOutputPath) { throw 'Installation discovery output path is required' }
-        $discoveredPath = Find-FengWoLegacyInstallDirectory
-        [IO.File]::WriteAllText($DiscoveryOutputPath, [string]$discoveredPath, [Text.UTF8Encoding]::new($false))
-    } else {
-        Invoke-FengWoInstallCleanup $InstallDirectory $Operation $OwnershipEvidencePath
+    try {
+        if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'Installation cleanup requires Windows' }
+        if ($Operation -ceq 'discover') {
+            if (-not $DiscoveryOutputPath) { throw 'Installation discovery output path is required' }
+            $discoveredPath = Find-FengWoLegacyInstallDirectory
+            [IO.File]::WriteAllText($DiscoveryOutputPath, [string]$discoveredPath, [Text.UTF8Encoding]::new($false))
+        } else {
+            Invoke-FengWoInstallCleanup $InstallDirectory $Operation $OwnershipEvidencePath
+        }
+    } catch {
+        $cleanupFailure = $_
+        Write-Error -ErrorRecord $cleanupFailure -ErrorAction Continue
+        if ($cleanupFailure.Exception.Data['FengWoInstallCleanupFailure'] -ceq 'directory_conflict') { exit 41 }
+        exit 1
     }
 }

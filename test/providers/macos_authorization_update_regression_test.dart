@@ -574,6 +574,7 @@ class _AuthorizationSetup extends SetupAction {
   Future<void> recoverStableCoreConfiguration(
     Profile? profile, {
     required String reason,
+    bool Function()? isCurrent,
   }) async {
     recoveries.add(reason);
   }

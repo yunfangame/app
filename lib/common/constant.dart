@@ -28,7 +28,7 @@ const packageName = 'com.follow.clash';
 final unixSocketPath =
     '/tmp/${system.isMacOS ? 'FengWo' : 'FlClash'}Socket_${_randomPipeId()}.sock';
 final windowsPipeName = '\\\\.\\pipe\\FengWoCore_${_randomPipeId()}';
-const helperPort = 47906;
+const helperPort = 47907;
 const helperProtocolVersionHeader = 'x-fengwo-helper-protocol';
 const helperProtocolVersion = '6';
 const maxTextScale = 1.4;

@@ -43,7 +43,7 @@ $productionCode = $productionCode.Replace($integrityInclude, "function EnsureFen
 if ($productionCode.Contains('{{') -or $productionCode -match '(?m)^#include') {
     throw 'The production Code section contains an unresolved template or include.'
 }
-$customMessages = @($template -split '\r?\n' | Where-Object { $_ -match '^(?:english\.)?(?:VcRuntime\w+|HelperStopFailed|InstallOwnershipCleanupMissing)=' } | ForEach-Object { $_ -replace '^english\.', '' }) -join "`n"
+$customMessages = @($template -split '\r?\n' | Where-Object { $_ -match '^(?:english\.)?(?:VcRuntime\w+|InstallCleanupFailed|InstallDirectoryConflict|InstallOwnershipCleanupMissing)=' } | ForEach-Object { $_ -replace '^english\.', '' }) -join "`n"
 if (-not $customMessages) { throw 'The production English runtime messages were not found.' }
 
 $mockCode = $productionCode
