@@ -409,13 +409,19 @@ public static class FengWoCoexistenceWindows {
     Assert-FwArmProcess $start.pid
     $ownedCore = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $start.pid)
     if ($ownedCore.ExecutablePath -ine (Join-Path $installDirectory 'FengWoCore.exe')) { throw 'Helper started a Core outside its owned installation' }
-    $corePipe.Send('{"id":"coexistence-version","method":"getVersion","arguments":null}')
+    $rpcRequest = [ordered]@{ id = 'coexistence-initial-state'; method = 'getIsInit'; arguments = $null }
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'owned-core-initial-state-request.json') $rpcRequest
+    $corePipe.Send(($rpcRequest | ConvertTo-Json -Compress))
     $rpcDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    $rpcFrameIndex = 0
     do {
-        $response = $corePipe.Receive([Math]::Max(1, [int]($rpcDeadline - [DateTime]::UtcNow).TotalMilliseconds)) | ConvertFrom-Json -AsHashtable
+        $rawResponse = $corePipe.Receive([Math]::Max(1, [int]($rpcDeadline - [DateTime]::UtcNow).TotalMilliseconds))
+        $rpcFrameIndex++
+        [IO.File]::WriteAllText((Join-Path $EvidenceDirectory ('owned-core-initial-state-response-{0:000}.json' -f $rpcFrameIndex)), $rawResponse, [Text.UTF8Encoding]::new($false))
+        $response = $rawResponse | ConvertFrom-Json -AsHashtable
         if ($response -isnot [Collections.IDictionary]) { throw 'The owned Core sent a non-object RPC response' }
-    } while ($response['id'] -cne 'coexistence-version' -and [DateTime]::UtcNow -lt $rpcDeadline)
-    if ($response['id'] -cne 'coexistence-version' -or $response['error'] -or -not $response['result']) { throw 'The owned Core version RPC did not succeed' }
+    } while ($response['id'] -cne $rpcRequest['id'] -and [DateTime]::UtcNow -lt $rpcDeadline)
+    if ($response['id'] -isnot [string] -or $response['id'] -cne $rpcRequest['id'] -or ($response.Contains('error') -and $null -ne $response['error']) -or -not $response.Contains('result') -or $response['result'] -isnot [bool] -or $response['result'] -ne $false) { throw 'The owned Core initial-state RPC did not return Boolean false without an error' }
     $stopped = (Invoke-HelperRequest 'POST' 'stop' @{ sessionId = $coreSession }).Content | ConvertFrom-Json
     if ($stopped.sessionId -cne $coreSession -or $stopped.stopped -ne $true) { throw 'Helper did not stop its owned Core' }
     $coreSession = $null
@@ -438,7 +444,63 @@ public static class FengWoCoexistenceWindows {
     try { Stop-OwnedApplications } catch { $cleanupErrors.Add($_.Exception.Message) }
     foreach ($process in $ownProcesses) { $process.Dispose() }
     $uninstaller = Join-Path $installDirectory 'unins000.exe'
-    if ([IO.File]::Exists($uninstaller)) { try { Invoke-BoundedProcess $uninstaller @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') 'cleanup-uninstall' } catch { $cleanupErrors.Add($_.Exception.Message) } }
+    if ([IO.File]::Exists($uninstaller)) {
+        try { Invoke-BoundedProcess $uninstaller @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/LOG=' + (Join-Path $EvidenceDirectory 'cleanup-uninstall.log'))) 'cleanup-uninstall' } catch {
+            $cleanupErrors.Add($_.Exception.Message)
+            $uninstallDiagnostic = [ordered]@{ uninstaller_failure = $_.Exception.Message; service = $null; application = $null; cleanup_script = $null; direct_cleanup_attempted = $false; direct_cleanup_failure = $null; diagnostic_failure = $null }
+            try {
+                $ownHelper = Get-CimInstance Win32_Service -Filter "Name='FengWoHelperService'"
+                $helperPath = Join-Path $installDirectory 'FengWoHelperService.exe'
+                $helperOwned = -not $ownHelper
+                if ($ownHelper) {
+                    $uninstallDiagnostic.service = [ordered]@{ name = $ownHelper.Name; state = $ownHelper.State; pid = $ownHelper.ProcessId; path = $ownHelper.PathName }
+                    $helperCommand = ([string]$ownHelper.PathName).Trim()
+                    if ($helperCommand -match '^"([^"\r\n]+)"$') { $helperCommand = $Matches[1] }
+                    if ($helperCommand -notmatch '["\r\n]' -and [IO.Path]::IsPathRooted($helperCommand)) {
+                        $helperOwned = [StringComparer]::OrdinalIgnoreCase.Equals([IO.Path]::GetFullPath($helperCommand), [IO.Path]::GetFullPath($helperPath))
+                    }
+                }
+                $applicationPath = Join-Path $installDirectory 'FengWo.exe'
+                $applicationOwned = $false
+                if ([IO.File]::Exists($applicationPath)) {
+                    $metadata = [Diagnostics.FileVersionInfo]::GetVersionInfo($applicationPath)
+                    $applicationOwned = $metadata.CompanyName -ceq 'FengWo' -and $metadata.ProductName -ceq '蜂窝加速器' -and -not ([IO.File]::GetAttributes($applicationPath) -band [IO.FileAttributes]::ReparsePoint)
+                    $uninstallDiagnostic.application = [ordered]@{ path = $applicationPath; company = $metadata.CompanyName; product = $metadata.ProductName; owned = $applicationOwned }
+                }
+                $cleanupScript = Join-Path $installDirectory 'fengwo_install_cleanup.ps1'
+                $sourceScript = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../windows/packaging/exe/fengwo_install_cleanup.ps1'))
+                $scriptOwned = $false
+                if ([IO.File]::Exists($cleanupScript) -and [IO.File]::Exists($sourceScript)) {
+                    $installedHash = (Get-FileHash -LiteralPath $cleanupScript -Algorithm SHA256).Hash.ToLowerInvariant()
+                    $sourceHash = (Get-FileHash -LiteralPath $sourceScript -Algorithm SHA256).Hash.ToLowerInvariant()
+                    $scriptOwned = $installedHash -ceq $sourceHash -and -not ([IO.File]::GetAttributes($cleanupScript) -band [IO.FileAttributes]::ReparsePoint)
+                    $uninstallDiagnostic.cleanup_script = [ordered]@{ path = $cleanupScript; installed_sha256 = $installedHash; source_sha256 = $sourceHash; matches_source = $scriptOwned }
+                }
+                $plainPath = $true
+                $pathEntry = [IO.DirectoryInfo]::new($installDirectory)
+                while ($pathEntry) {
+                    if ($pathEntry.Exists -and ($pathEntry.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $plainPath = $false }
+                    $pathEntry = $pathEntry.Parent
+                }
+                $uninstallDiagnostic.helper_path_owned = $helperOwned
+                $uninstallDiagnostic.plain_install_path = $plainPath
+                if ($applicationOwned -and $helperOwned -and $scriptOwned -and $plainPath) {
+                    $powershell51 = Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
+                    if (-not [IO.File]::Exists($powershell51)) { throw 'The native Windows PowerShell diagnostic executable was not found' }
+                    $uninstallDiagnostic.direct_cleanup_attempted = $true
+                    try { Invoke-BoundedProcess $powershell51 @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $cleanupScript, '-InstallDirectory', $installDirectory, '-Operation', 'uninstall') 'cleanup-uninstall-direct' 60 } catch {
+                        $uninstallDiagnostic.direct_cleanup_failure = $_.Exception.Message
+                        $cleanupErrors.Add($_.Exception.Message)
+                    }
+                }
+            } catch {
+                $uninstallDiagnostic.diagnostic_failure = $_.Exception.Message
+                $cleanupErrors.Add($_.Exception.Message)
+            } finally {
+                try { Save-FwArmEvidence (Join-Path $EvidenceDirectory 'cleanup-uninstall-diagnostic.json') $uninstallDiagnostic } catch { $cleanupErrors.Add($_.Exception.Message) }
+            }
+        }
+    }
     if ($serviceCreated) {
         try {
             $service = Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'"
