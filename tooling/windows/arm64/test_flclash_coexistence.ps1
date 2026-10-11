@@ -117,6 +117,13 @@ function Wait-FixtureReady([string]$Path, [int]$ExpectedPid = 0) {
     throw ('Fixture never became ready: ' + [IO.Path]::GetFileName($Path))
 }
 
+function Get-ForeignFileHash([string]$Path) {
+    if ($Path -ine (Join-Path $foreignData 'FlClash.lock')) { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try { return [Convert]::ToHexString($algorithm.ComputeHash($stream)).ToLowerInvariant() } finally { $algorithm.Dispose(); $stream.Dispose() }
+}
+
 function Get-ForeignSnapshot {
     $service = Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'"
     $processes = @()
@@ -130,7 +137,7 @@ function Get-ForeignSnapshot {
     $files = @()
     foreach ($directory in @($foreignDirectory, $foreignData, $foreignCache)) {
         foreach ($file in @(Get-ChildItem -LiteralPath $directory -Recurse -File | Sort-Object FullName)) {
-            $files += [ordered]@{ path = $file.FullName; hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant(); bytes = $file.Length }
+            $files += [ordered]@{ path = $file.FullName; hash = (Get-ForeignFileHash $file.FullName); bytes = $file.Length }
         }
     }
     $connections = @(Get-NetTCPConnection -State Listen -LocalPort 47890 -ErrorAction SilentlyContinue | Where-Object { $_.LocalAddress -eq '127.0.0.1' -and $_.OwningProcess -eq $PID })
@@ -353,8 +360,11 @@ public static class FengWoCoexistenceWindows {
     if ($ownedCore.ExecutablePath -ine (Join-Path $installDirectory 'FengWoCore.exe')) { throw 'Helper started a Core outside its owned installation' }
     $corePipe.Send('{"id":"coexistence-version","method":"getVersion","arguments":null}')
     $rpcDeadline = [DateTime]::UtcNow.AddSeconds(10)
-    do { $response = $corePipe.Receive([Math]::Max(1, [int]($rpcDeadline - [DateTime]::UtcNow).TotalMilliseconds)) | ConvertFrom-Json } while ($response.id -cne 'coexistence-version' -and [DateTime]::UtcNow -lt $rpcDeadline)
-    if ($response.id -cne 'coexistence-version' -or $response.error -or -not $response.result) { throw 'The owned Core version RPC did not succeed' }
+    do {
+        $response = $corePipe.Receive([Math]::Max(1, [int]($rpcDeadline - [DateTime]::UtcNow).TotalMilliseconds)) | ConvertFrom-Json -AsHashtable
+        if ($response -isnot [Collections.IDictionary]) { throw 'The owned Core sent a non-object RPC response' }
+    } while ($response['id'] -cne 'coexistence-version' -and [DateTime]::UtcNow -lt $rpcDeadline)
+    if ($response['id'] -cne 'coexistence-version' -or $response['error'] -or -not $response['result']) { throw 'The owned Core version RPC did not succeed' }
     $stopped = (Invoke-HelperRequest 'POST' 'stop' @{ sessionId = $coreSession }).Content | ConvertFrom-Json
     if ($stopped.sessionId -cne $coreSession -or $stopped.stopped -ne $true) { throw 'Helper did not stop its owned Core' }
     $coreSession = $null
