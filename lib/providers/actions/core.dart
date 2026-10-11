@@ -138,6 +138,20 @@ class CoreAction extends _$CoreAction {
     });
   }
 
+  @protected
+  bool get requiresChainProxyHotApply => system.isWindows;
+
+  Future<void> applyChainProxyConfiguration() async {
+    if (!requiresChainProxyHotApply) {
+      await restartCore();
+      return;
+    }
+    await ensureCoreForSubscription();
+    await ref
+        .read(setupActionProvider.notifier)
+        .applyProfile(force: true, propagateErrors: true);
+  }
+
   Future<void> restartCore() {
     _requestedRestartRevision++;
     final activeOperation = _restartOperation;

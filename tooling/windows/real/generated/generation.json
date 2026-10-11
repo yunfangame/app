@@ -1,0 +1,230 @@
+{
+  "generator": "package:fl_clash/common/chain_proxy.dart::applyChainProxyConfig",
+  "production_callsite": "lib/common/task.dart",
+  "synthetic_credentials_only": true,
+  "case_count": 32,
+  "modes": [
+    "rule",
+    "global",
+    "direct"
+  ],
+  "source_baseline_sha": "bf9a7fe7ff6fbbd2ff1dbb161cf26033882f30d4",
+  "generator_source_sha256": "19a2808fa92477882216dadf7c9081f9ab5b5070b6dace12ec9d0d7b61c71f04",
+  "generator_test_sha256": "ada5033fe3ba6b6057de6cb0263bcb5f41e2df2205180a8b9eaec394b25bbd40",
+  "source_freeze_sha256": "b8b392dabb51697d32aa3b254adff89da3454ad68708dcc1407f5d349f62eb78",
+  "hot_application_cycles": 20,
+  "files": [
+    {
+      "path": "cases.json",
+      "sha256": "32302101be7720f8a9ef6d3a371a9baf81a11720bf72eb316d31ae7b4e5fb51a"
+    },
+    {
+      "path": "direct-mode.json",
+      "sha256": "8aa7721dc3483ceb4748dc82c184a754527c2c34bd540dc293b85eb52d6ed1c1"
+    },
+    {
+      "path": "disabled.json",
+      "sha256": "624f898bae743a35444550f52cf6f5d90fe70612c5847491dec0c8c8c9b70ba7"
+    },
+    {
+      "path": "exit-connect-rejected.json",
+      "sha256": "8d515795b845373f393461d8b082ad8ff6650da82e7978a7dcf6c0dc9f74dadb"
+    },
+    {
+      "path": "exit-handshake-timeout.json",
+      "sha256": "8d515795b845373f393461d8b082ad8ff6650da82e7978a7dcf6c0dc9f74dadb"
+    },
+    {
+      "path": "exit-wrong-password.json",
+      "sha256": "9423668199f00335991fc0e99ed3ce827435b060b46eb0ae3abbae801387ae0c"
+    },
+    {
+      "path": "global-auth.json",
+      "sha256": "c37cff31dc56d5d0a1c74be416468dac4a14f4426931c6637b681a49729f79e7"
+    },
+    {
+      "path": "http-exit-auth.json",
+      "sha256": "0cb8ba31e073c0c9435e39fc76e25ae67204e63cf0077cb06784493fb557e282"
+    },
+    {
+      "path": "node-wrong-password.json",
+      "sha256": "c6ad9289407169695985414ca69d0e70c41e480f80a2b076252e1245d5145fa5"
+    },
+    {
+      "path": "restart-01-disabled.json",
+      "sha256": "9a10ac4be8acf91fd75244eb3bd99167f7ef352124524032418056faa4f3f2aa"
+    },
+    {
+      "path": "restart-01.json",
+      "sha256": "cc193ab1cedfcff66c6dcdf27f57e28b787169981d8a8157b296b859147efd9e"
+    },
+    {
+      "path": "restart-02-disabled.json",
+      "sha256": "a08bec40c3680e32a8e9f3c3e2a68284fdaeab57ae1101e13a4bba7bc5dfd5fa"
+    },
+    {
+      "path": "restart-02.json",
+      "sha256": "e8db7143df14d2251465c3618f686c4199d8094baad03e134c0dd4f531b48094"
+    },
+    {
+      "path": "restart-03-disabled.json",
+      "sha256": "9a10ac4be8acf91fd75244eb3bd99167f7ef352124524032418056faa4f3f2aa"
+    },
+    {
+      "path": "restart-03.json",
+      "sha256": "04312c429baaab65b784c3d3b1714e0bc13775381c30f8991048da5fa5dc9cbd"
+    },
+    {
+      "path": "restart-04-disabled.json",
+      "sha256": "a08bec40c3680e32a8e9f3c3e2a68284fdaeab57ae1101e13a4bba7bc5dfd5fa"
+    },
+    {
+      "path": "restart-04.json",
+      "sha256": "e8db7143df14d2251465c3618f686c4199d8094baad03e134c0dd4f531b48094"
+    },
+    {
+      "path": "restart-05-disabled.json",
+      "sha256": "9a10ac4be8acf91fd75244eb3bd99167f7ef352124524032418056faa4f3f2aa"
+    },
+    {
+      "path": "restart-05.json",
+      "sha256": "cc193ab1cedfcff66c6dcdf27f57e28b787169981d8a8157b296b859147efd9e"
+    },
+    {
+      "path": "restart-06-disabled.json",
+      "sha256": "a08bec40c3680e32a8e9f3c3e2a68284fdaeab57ae1101e13a4bba7bc5dfd5fa"
+    },
+    {
+      "path": "restart-06.json",
+      "sha256": "dbbb55b179ce054075ab336627597dc15da65c35a0baaebc0ab4a140973dea36"
+    },
+    {
+      "path": "restart-07-disabled.json",
+      "sha256": "9a10ac4be8acf91fd75244eb3bd99167f7ef352124524032418056faa4f3f2aa"
+    },
+    {
+      "path": "restart-07.json",
+      "sha256": "cc193ab1cedfcff66c6dcdf27f57e28b787169981d8a8157b296b859147efd9e"
+    },
+    {
+      "path": "restart-08-disabled.json",
+      "sha256": "a08bec40c3680e32a8e9f3c3e2a68284fdaeab57ae1101e13a4bba7bc5dfd5fa"
+    },
+    {
+      "path": "restart-08.json",
+      "sha256": "e8db7143df14d2251465c3618f686c4199d8094baad03e134c0dd4f531b48094"
+    },
+    {
+      "path": "restart-09-disabled.json",
+      "sha256": "9a10ac4be8acf91fd75244eb3bd99167f7ef352124524032418056faa4f3f2aa"
+    },
+    {
+      "path": "restart-09.json",
+      "sha256": "04312c429baaab65b784c3d3b1714e0bc13775381c30f8991048da5fa5dc9cbd"
+    },
+    {
+      "path": "restart-10-disabled.json",
+      "sha256": "a08bec40c3680e32a8e9f3c3e2a68284fdaeab57ae1101e13a4bba7bc5dfd5fa"
+    },
+    {
+      "path": "restart-10.json",
+      "sha256": "e8db7143df14d2251465c3618f686c4199d8094baad03e134c0dd4f531b48094"
+    },
+    {
+      "path": "restart-11-disabled.json",
+      "sha256": "9a10ac4be8acf91fd75244eb3bd99167f7ef352124524032418056faa4f3f2aa"
+    },
+    {
+      "path": "restart-11.json",
+      "sha256": "cc193ab1cedfcff66c6dcdf27f57e28b787169981d8a8157b296b859147efd9e"
+    },
+    {
+      "path": "restart-12-disabled.json",
+      "sha256": "a08bec40c3680e32a8e9f3c3e2a68284fdaeab57ae1101e13a4bba7bc5dfd5fa"
+    },
+    {
+      "path": "restart-12.json",
+      "sha256": "dbbb55b179ce054075ab336627597dc15da65c35a0baaebc0ab4a140973dea36"
+    },
+    {
+      "path": "restart-13-disabled.json",
+      "sha256": "9a10ac4be8acf91fd75244eb3bd99167f7ef352124524032418056faa4f3f2aa"
+    },
+    {
+      "path": "restart-13.json",
+      "sha256": "cc193ab1cedfcff66c6dcdf27f57e28b787169981d8a8157b296b859147efd9e"
+    },
+    {
+      "path": "restart-14-disabled.json",
+      "sha256": "a08bec40c3680e32a8e9f3c3e2a68284fdaeab57ae1101e13a4bba7bc5dfd5fa"
+    },
+    {
+      "path": "restart-14.json",
+      "sha256": "e8db7143df14d2251465c3618f686c4199d8094baad03e134c0dd4f531b48094"
+    },
+    {
+      "path": "restart-15-disabled.json",
+      "sha256": "9a10ac4be8acf91fd75244eb3bd99167f7ef352124524032418056faa4f3f2aa"
+    },
+    {
+      "path": "restart-15.json",
+      "sha256": "04312c429baaab65b784c3d3b1714e0bc13775381c30f8991048da5fa5dc9cbd"
+    },
+    {
+      "path": "restart-16-disabled.json",
+      "sha256": "a08bec40c3680e32a8e9f3c3e2a68284fdaeab57ae1101e13a4bba7bc5dfd5fa"
+    },
+    {
+      "path": "restart-16.json",
+      "sha256": "e8db7143df14d2251465c3618f686c4199d8094baad03e134c0dd4f531b48094"
+    },
+    {
+      "path": "restart-17-disabled.json",
+      "sha256": "9a10ac4be8acf91fd75244eb3bd99167f7ef352124524032418056faa4f3f2aa"
+    },
+    {
+      "path": "restart-17.json",
+      "sha256": "cc193ab1cedfcff66c6dcdf27f57e28b787169981d8a8157b296b859147efd9e"
+    },
+    {
+      "path": "restart-18-disabled.json",
+      "sha256": "a08bec40c3680e32a8e9f3c3e2a68284fdaeab57ae1101e13a4bba7bc5dfd5fa"
+    },
+    {
+      "path": "restart-18.json",
+      "sha256": "dbbb55b179ce054075ab336627597dc15da65c35a0baaebc0ab4a140973dea36"
+    },
+    {
+      "path": "restart-19-disabled.json",
+      "sha256": "9a10ac4be8acf91fd75244eb3bd99167f7ef352124524032418056faa4f3f2aa"
+    },
+    {
+      "path": "restart-19.json",
+      "sha256": "cc193ab1cedfcff66c6dcdf27f57e28b787169981d8a8157b296b859147efd9e"
+    },
+    {
+      "path": "restart-20-disabled.json",
+      "sha256": "a08bec40c3680e32a8e9f3c3e2a68284fdaeab57ae1101e13a4bba7bc5dfd5fa"
+    },
+    {
+      "path": "restart-20.json",
+      "sha256": "e8db7143df14d2251465c3618f686c4199d8094baad03e134c0dd4f531b48094"
+    },
+    {
+      "path": "rule-auth-domain.json",
+      "sha256": "f42b3374171b5049d078875c60ed5efed4b064c099c4893e1c62a3009ae37997"
+    },
+    {
+      "path": "rule-auth-ip.json",
+      "sha256": "8d515795b845373f393461d8b082ad8ff6650da82e7978a7dcf6c0dc9f74dadb"
+    },
+    {
+      "path": "rule-no-auth.json",
+      "sha256": "fcd2d2bdbeb568aebfdeddf42b527e5f44c915077dd5915a1d286b7cb0237d1e"
+    },
+    {
+      "path": "switch-exit.json",
+      "sha256": "43c17cc0a2b322dd5a2c775a1d6605e1933c03b4a5345be430f6ae5c11b590e5"
+    }
+  ]
+}
