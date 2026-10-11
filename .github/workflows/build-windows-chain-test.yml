@@ -24,6 +24,9 @@ jobs:
       run:
         shell: pwsh
     steps:
+      - name: Preserve exact committed source bytes
+        run: git config --global core.autocrlf false
+
       - name: Checkout isolated new product source
         uses: actions/checkout@v4
         with:

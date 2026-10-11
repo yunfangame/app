@@ -77,18 +77,19 @@ function Start-CoexistenceCore([object]$Helper, [string]$Stage) {
         if ($value.sessionId -cne $pipe.SessionId -or $value.pid -le 0) { throw ('The owned Core lease did not verify: ' + $Stage) }
         $process = [Diagnostics.Process]::GetProcessById([int]$value.pid)
         $handle = $process.Handle
-        $Helper.lease = [ordered]@{ pipe = $pipe; process = $process; session_id = $pipe.SessionId; pid = [int]$value.pid }
+        $Helper.lease = [ordered]@{ pipe = $pipe; process = $process; session_id = $pipe.SessionId; pid = [int]$value.pid; ownership_verified = $false }
         [void]$pipe.Accept($value.pid, 10000)
         $expectedPath = Join-Path $Helper.directory ($Helper.name + 'Core.exe')
         $actual = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $value.pid)
         if (-not $actual -or -not [StringComparer]::OrdinalIgnoreCase.Equals($actual.ExecutablePath, $expectedPath)) { throw ('The Helper launched a Core outside its own installation: ' + $Stage) }
         if ($Helper.name -ceq 'FengWo') { Assert-FwNativeProcess -ProcessId $value.pid -Architecture $Architecture }
+        $Helper.lease.ownership_verified = $true
         Assert-CoexistenceCore $Helper $Stage
     } catch { if (-not $Helper.lease) { $pipe.Dispose() }; throw }
 }
 
 function Assert-CoexistenceCore([object]$Helper, [string]$Stage) {
-    if (-not $Helper.lease -or $Helper.lease.process.HasExited) { throw ('The protected Core is no longer alive: ' + $Stage) }
+    if (-not $Helper.lease -or -not $Helper.lease.ownership_verified -or $Helper.lease.process.HasExited) { throw ('The protected Core is no longer alive: ' + $Stage) }
     $request = [ordered]@{ id = ('coexist-' + $Stage); method = 'getIsInit'; arguments = $null }
     $Helper.lease.pipe.Send(($request | ConvertTo-Json -Compress))
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -107,10 +108,41 @@ function Assert-CoexistenceCore([object]$Helper, [string]$Stage) {
 function Stop-CoexistenceCore([object]$Helper, [string]$Stage) {
     if (-not $Helper.lease) { return }
     $lease = $Helper.lease
+    if (-not $lease.ownership_verified) { throw 'Stopping an unverified Core lease is not permitted' }
     $response = Invoke-CoexistenceHelper $Helper 'stop' @{ sessionId = $lease.session_id } $Stage
     $value = $response.body | ConvertFrom-Json
     if ($value.sessionId -cne $lease.session_id -or $value.stopped -ne $true -or -not $lease.process.WaitForExit(5000)) { throw ('The exact Helper could not stop its owned Core: ' + $Stage) }
     $lease.pipe.Dispose(); $lease.process.Dispose(); $Helper.lease = $null
+}
+
+function Wait-CoexistenceHelperStopped([object]$Helper, [string]$Stage) {
+    $expectedPath = Join-Path $Helper.directory ($Helper.service + '.exe')
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $service = Get-CimInstance Win32_Service -Filter ("Name='" + $Helper.service + "'")
+        if (-not $service -or -not [StringComparer]::OrdinalIgnoreCase.Equals($service.PathName.Trim('"'), $expectedPath)) { throw ('The stopped Helper SCM identity failed: ' + $Stage) }
+        if ($service.State -ceq 'Stopped' -and $service.ProcessId -eq 0) {
+            Save-FwArmEvidence (Join-Path $EvidenceDirectory ($Stage + '-scm.json')) ([ordered]@{ name = $service.Name; state = $service.State; pid = $service.ProcessId; executable = $expectedPath })
+            return
+        }
+        if ([DateTime]::UtcNow -ge $deadline) { throw ('The owned Helper SCM did not reach Stopped with PID 0: ' + $Stage) }
+        Start-Sleep -Milliseconds 100
+    } while ($true)
+}
+
+function Clear-CoexistenceCoreLease([object]$Helper) {
+    if (-not $Helper.lease) { return }
+    try {
+        if ($Helper.lease.ownership_verified) {
+            try { if (-not $Helper.lease.process.HasExited) { Stop-CoexistenceCore $Helper ($Helper.name + '-cleanup-core') } } catch { $cleanupFailures.Add($_.Exception.Message) }
+        } else { $cleanupFailures.Add('Cleanup refused to terminate a Core whose executable and pipe peer were not verified') }
+    } finally {
+        if ($Helper.lease) {
+            $lease = $Helper.lease
+            try { if ($lease.ownership_verified -and -not $lease.process.HasExited) { $lease.process.Kill(); [void]$lease.process.WaitForExit(5000) } } catch { $cleanupFailures.Add($_.Exception.Message) }
+            finally { $lease.pipe.Dispose(); $lease.process.Dispose(); $Helper.lease = $null }
+        }
+    }
 }
 
 try {
@@ -145,6 +177,7 @@ try {
     }
     $checks.Add([ordered]@{ name = 'twenty-new-core-cycles-preserve-old-pid-and-rpc'; passed = $true; cycles = 20 })
     Invoke-CoexistenceChild (Join-Path $BundleDirectory 'FengWoHelperService.exe') @('stop') 'new-scm-stop' 30
+    Wait-CoexistenceHelperStopped $new 'new-scm-stop'
     if (-not $new.lease.process.WaitForExit(5000)) { throw 'The new SCM stop did not stop its owned Core' }
     $new.lease.pipe.Dispose(); $new.lease.process.Dispose(); $new.lease = $null
     Assert-CoexistenceHelper $old 'old-after-new-scm-stop'
@@ -175,12 +208,7 @@ try {
 } catch { $failure = $_.Exception.Message }
 finally {
     foreach ($helper in @($new, $old)) {
-        if ($helper.lease) {
-            try { if (-not $helper.lease.process.HasExited) { Stop-CoexistenceCore $helper ($helper.name + '-cleanup-core') } } catch { $cleanupFailures.Add($_.Exception.Message) }
-            if ($helper.lease) {
-                try { if (-not $helper.lease.process.HasExited) { $helper.lease.process.Kill(); [void]$helper.lease.process.WaitForExit(5000) }; $helper.lease.pipe.Dispose(); $helper.lease.process.Dispose(); $helper.lease = $null } catch { $cleanupFailures.Add($_.Exception.Message) }
-            }
-        }
+        Clear-CoexistenceCoreLease $helper
         if ($helper.created) {
             try {
                 $service = Get-CimInstance Win32_Service -Filter ("Name='" + $helper.service + "'")
