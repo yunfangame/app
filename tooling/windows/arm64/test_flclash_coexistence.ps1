@@ -226,14 +226,21 @@ function Stop-OwnedApplications {
 
 function Exit-FengWoGracefully([Diagnostics.Process]$Process, [IntPtr]$Window) {
     if ($Process.HasExited -or $Window -eq [IntPtr]::Zero -or [FengWoTitleTest]::FindMainWindow($Process.Id) -ne $Window) { throw 'The exact owned application window is not available for graceful exit' }
+    $elapsed = [Diagnostics.Stopwatch]::StartNew()
     if (-not [FengWoCoexistenceWindows]::RequestClose($Window, $Process.Id)) { throw 'The owned window rejected WM_CLOSE' }
-    if (-not $Process.WaitForExit(20000) -or $Process.ExitCode -ne 0) { throw 'The unconnected application did not exit normally after WM_CLOSE' }
+    $exited = $Process.WaitForExit(20000)
+    $elapsed.Stop()
+    $exitCode = if ($exited) { $Process.ExitCode } else { $null }
     $eventsPath = Join-Path $ownData 'diagnostics/events.jsonl'
-    $events = @(Get-Content -LiteralPath $eventsPath | ForEach-Object { try { $_ | ConvertFrom-Json -AsHashtable } catch { } })
+    $events = @()
+    if ([IO.File]::Exists($eventsPath)) {
+        Copy-Item -LiteralPath $eventsPath -Destination (Join-Path $EvidenceDirectory 'graceful-exit-events.jsonl')
+        $events = @(Get-Content -LiteralPath $eventsPath | ForEach-Object { try { $_ | ConvertFrom-Json -AsHashtable } catch { } })
+    }
     $exitEvents = @($events | Where-Object { $_['event'] -ceq 'system_proxy.cleanup.completed' -and $_['fields']['reason'] -ceq 'exit' })
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'graceful-exit.json') ([ordered]@{ pid = $Process.Id; exited = $exited; exit_code = $exitCode; elapsed_ms = $elapsed.ElapsedMilliseconds; window = $Window.ToInt64(); wm_close = $true; forced_kill = $false; cleanup = $exitEvents })
+    if (-not $exited -or $exitCode -ne 0) { throw 'The unconnected application did not exit normally after WM_CLOSE' }
     if ($exitEvents.Count -eq 0) { throw 'The normal exit did not record application system-proxy cleanup' }
-    Copy-Item -LiteralPath $eventsPath -Destination (Join-Path $EvidenceDirectory 'graceful-exit-events.jsonl')
-    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'graceful-exit.json') ([ordered]@{ pid = $Process.Id; exit_code = $Process.ExitCode; window = $Window.ToInt64(); wm_close = $true; forced_kill = $false; cleanup = $exitEvents })
 }
 
 function Invoke-HelperRequest([string]$Method, [string]$Path, [object]$Body = $null) {
