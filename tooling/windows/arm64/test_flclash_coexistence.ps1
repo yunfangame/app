@@ -51,6 +51,7 @@ $foreignBaseline = $null
 $profileCreated = $false
 $cacheCreated = $false
 $fixtureCreated = $false
+$uninstallVerified = $false
 $sharedRegistryBefore = @{}
 
 function Open-RegistryBase([string]$Hive, [string]$View = 'Registry64') {
@@ -438,13 +439,14 @@ public static class FengWoCoexistenceWindows {
     foreach ($hive in @('LocalMachine', 'CurrentUser')) { foreach ($view in @('Registry64', 'Registry32')) { if ($null -ne (Read-RegistryTree $hive ($uninstallRoot + $newId + '_is1') $view)) { throw 'Uninstall left the owned AppId registration' } } }
     if ($null -ne (Read-RegistryTree 'CurrentUser' 'Software\Classes\fengwo')) { throw 'Uninstall left the owned URL association' }
     Assert-ForeignUnchanged 'uninstall'
+    $uninstallVerified = $true
 } catch { $failure = $_.Exception.Message } finally {
     if ($coreSession) { try { [void](Invoke-HelperRequest 'POST' 'stop' @{ sessionId = $coreSession }) } catch { $cleanupErrors.Add($_.Exception.Message) } }
     if ($corePipe) { $corePipe.Dispose() }
     try { Stop-OwnedApplications } catch { $cleanupErrors.Add($_.Exception.Message) }
     foreach ($process in $ownProcesses) { $process.Dispose() }
     $uninstaller = Join-Path $installDirectory 'unins000.exe'
-    if ([IO.File]::Exists($uninstaller)) {
+    if (-not $uninstallVerified -and [IO.File]::Exists($uninstaller)) {
         try { Invoke-BoundedProcess $uninstaller @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/LOG=' + (Join-Path $EvidenceDirectory 'cleanup-uninstall.log'))) 'cleanup-uninstall' } catch {
             $cleanupErrors.Add($_.Exception.Message)
             $uninstallDiagnostic = [ordered]@{ uninstaller_failure = $_.Exception.Message; service = $null; application = $null; cleanup_script = $null; direct_cleanup_attempted = $false; direct_cleanup_failure = $null; diagnostic_failure = $null }
@@ -550,7 +552,7 @@ public static class FengWoCoexistenceWindows {
     }
     if ($fixtureCreated) { try { Remove-Item -LiteralPath $fixtureDirectory -Recurse -Force } catch { $cleanupErrors.Add($_.Exception.Message) } }
     foreach ($directory in @($ownData, $ownCache)) { if ($fixtureCreated -and (Test-Path -LiteralPath $directory)) { try { Remove-Item -LiteralPath $directory -Recurse -Force } catch { $cleanupErrors.Add($_.Exception.Message) } } }
-    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'coexistence-verification.json') ([ordered]@{ passed = (-not $failure -and $cleanupErrors.Count -eq 0 -and $checks.Count -eq 9); failure = $failure; cleanup_failures = @($cleanupErrors.ToArray()); environment = $environment; checks = @($checks.ToArray()); original_app_id = $oldId; owned_app_id = $newId; synthetic_resources_only = $true; system_proxy_started_by_synthetic_fixture = ($null -ne $proxyBaseline); app_system_proxy_or_tun_started = $false; real_customer_account_tested = $false; proxy_restoration = $proxyRestore; original_service_stop_count_verified_before_fixture_cleanup = ($checks.Count -eq 9); fixture_source_sha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'flclash_fixture/flclash_fixture.cpp') -Algorithm SHA256).Hash.ToLowerInvariant(); proxy_fixture_source_sha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'coexistence_proxy_fixture.cs') -Algorithm SHA256).Hash.ToLowerInvariant() })
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'coexistence-verification.json') ([ordered]@{ passed = (-not $failure -and $cleanupErrors.Count -eq 0 -and $checks.Count -eq 9); failure = $failure; cleanup_failures = @($cleanupErrors.ToArray()); environment = $environment; checks = @($checks.ToArray()); original_app_id = $oldId; owned_app_id = $newId; synthetic_resources_only = $true; system_proxy_started_by_synthetic_fixture = ($null -ne $proxyBaseline); app_system_proxy_or_tun_started = $false; real_customer_account_tested = $false; proxy_restoration = $proxyRestore; owned_uninstall_verified = $uninstallVerified; original_service_stop_count_verified_before_fixture_cleanup = ($checks.Count -eq 9); fixture_source_sha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'flclash_fixture/flclash_fixture.cpp') -Algorithm SHA256).Hash.ToLowerInvariant(); proxy_fixture_source_sha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'coexistence_proxy_fixture.cs') -Algorithm SHA256).Hash.ToLowerInvariant() })
 }
 if ($failure) { throw $failure }
 if ($cleanupErrors.Count) { throw ($cleanupErrors -join '; ') }

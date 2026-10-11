@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
@@ -8,6 +9,8 @@ const windowsDataProduct = '蜂窝加速器';
 const windowsUrlScheme = 'fengwo';
 
 const _migrationJournalName = '.fengwo-migration.json';
+const _migrationSkippedName = '.fengwo-legacy-migration-skipped.json';
+const _supportedDatabaseSchema = 4;
 const _migrationLockName = '.fengwo-migration.lock';
 const _migrationStagePrefix = '.fengwo-migration-';
 final _migrationQueues = <String, Future<void>>{};
@@ -130,6 +133,11 @@ Future<Directory> _prepareWindowsDataDirectory({
       legacyLock = await lockFile.open(mode: FileMode.append);
       await legacyLock.lock(FileLock.exclusive);
     }
+    final skipReason = await _windowsLegacyDatabaseSkipReason(legacy);
+    if (skipReason != null) {
+      await _recordWindowsMigrationSkip(destination, skipReason);
+      return destination;
+    }
     staging = await destination.parent.createTemp(_migrationStagePrefix);
     Future<void> copyEntry(FileSystemEntity entry, String target) async {
       final type = await FileSystemEntity.type(entry.path, followLinks: false);
@@ -160,6 +168,11 @@ Future<Directory> _prepareWindowsDataDirectory({
       entries[p.basename(entry.path)] = entry is Directory
           ? 'directory'
           : 'file';
+    }
+    final stagedSkipReason = await _windowsLegacyDatabaseSkipReason(staging);
+    if (stagedSkipReason != null) {
+      await _recordWindowsMigrationSkip(destination, stagedSkipReason);
+      return destination;
     }
     final temporaryJournal = File(p.join(staging.path, 'journal.pending'));
     await temporaryJournal.writeAsString(
@@ -194,6 +207,62 @@ Future<Directory> _prepareWindowsDataDirectory({
     }
   }
   return destination;
+}
+
+Future<void> _recordWindowsMigrationSkip(
+  Directory destination,
+  String reason,
+) async {
+  await File(
+    p.join(destination.path, _migrationSkippedName),
+  ).writeAsString(jsonEncode({'version': 1, 'reason': reason}), flush: true);
+}
+
+Future<String?> _windowsLegacyDatabaseSkipReason(Directory directory) async {
+  final database = File(p.join(directory.path, 'database.sqlite'));
+  final databaseType = await FileSystemEntity.type(
+    database.path,
+    followLinks: false,
+  );
+  if (databaseType != FileSystemEntityType.file &&
+      databaseType != FileSystemEntityType.notFound) {
+    return 'unsafe_database_file';
+  }
+  final wal = File(p.join(directory.path, 'database.sqlite-wal'));
+  final walType = await FileSystemEntity.type(wal.path, followLinks: false);
+  if (walType != FileSystemEntityType.notFound &&
+      (walType != FileSystemEntityType.file || await wal.length() != 0)) {
+    return 'unverifiable_database_wal';
+  }
+  if (databaseType == FileSystemEntityType.notFound) return null;
+  final input = await database.open();
+  try {
+    final length = await input.length();
+    final header = await input.read(100);
+    if (header.length != 100 ||
+        ascii.decode(header.sublist(0, 16), allowInvalid: true) !=
+            'SQLite format 3\x00') {
+      return 'invalid_database_header';
+    }
+    final bytes = ByteData.sublistView(header);
+    final rawPageSize = bytes.getUint16(16, Endian.big);
+    final pageSize = rawPageSize == 1 ? 65536 : rawPageSize;
+    if (pageSize < 512 ||
+        pageSize > 65536 ||
+        (pageSize & (pageSize - 1)) != 0 ||
+        length < pageSize ||
+        length % pageSize != 0 ||
+        !const {1, 2}.contains(header[18]) ||
+        !const {1, 2}.contains(header[19])) {
+      return 'invalid_database_header';
+    }
+    if (bytes.getUint32(60, Endian.big) > _supportedDatabaseSchema) {
+      return 'unsupported_database_schema';
+    }
+    return null;
+  } finally {
+    await input.close();
+  }
 }
 
 class _WindowsMigrationTransaction {

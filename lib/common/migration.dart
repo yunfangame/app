@@ -63,14 +63,18 @@ class _AppMigrationStore implements MigrationStore {
 class Migration {
   final MigrationStore _store;
   final MigrationTransform _migrateV0;
+  final Config _newInstallDefaults;
   final Future<void> Function()? _recoverDamagedConfig;
 
   Migration({
     required MigrationStore store,
     MigrationTransform? migrateV0,
+    Config? newInstallDefaults,
     Future<void> Function()? recoverDamagedConfig,
   }) : _store = store,
        _migrateV0 = migrateV0 ?? oldToNowTask,
+       _newInstallDefaults =
+           newInstallDefaults ?? const Config(themeProps: defaultThemeProps),
        _recoverDamagedConfig = recoverDamagedConfig;
 
   static const currentVersion = 1;
@@ -144,6 +148,7 @@ class Migration {
   }
 
   Config _decode(Map<String, Object?>? configMap) {
+    if (configMap == null) return _newInstallDefaults;
     try {
       return Config.realFromJson(configMap);
     } catch (error, stack) {
@@ -182,6 +187,12 @@ String? _getStoredDavPassword(Map<String, Object?>? configMap) {
 
 final migration = Migration(
   store: const _AppMigrationStore(),
+  newInstallDefaults: Platform.isWindows
+      ? const Config(
+          themeProps: defaultThemeProps,
+          patchClashConfig: PatchClashConfig(mixedPort: 17980),
+        )
+      : null,
   recoverDamagedConfig: Platform.isWindows
       ? preferences.recoverForStartup
       : null,

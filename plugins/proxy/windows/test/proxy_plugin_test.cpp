@@ -348,6 +348,31 @@ TEST(ProxyPlugin, DetailedStartAndStopRoundTripCurrentUserProxy) {
   EXPECT_FALSE(std::get<bool>(stop_map.at(EncodableValue("enabled"))));
 }
 
+TEST(ProxyPlugin, InspectReportsExternalPacAndAutomaticDiscovery) {
+  if (!AllowProxyMutation()) GTEST_SKIP() << "Requires an isolated CI account";
+  ActualProxySnapshot original;
+  ASSERT_TRUE(original.captured());
+  ProxyPlugin plugin;
+  for (const auto automatic : {PROXY_TYPE_AUTO_PROXY_URL, PROXY_TYPE_AUTO_DETECT,
+                               PROXY_TYPE_AUTO_PROXY_URL | PROXY_TYPE_AUTO_DETECT}) {
+    for (const bool manual : {false, true}) {
+      const settings::ConnectionConfiguration external{
+          static_cast<uint32_t>(PROXY_TYPE_DIRECT | automatic |
+                                (manual ? PROXY_TYPE_PROXY : 0)),
+          L"127.0.0.1:7890", L"*.external;<local>", L"https://external.example/proxy.pac"};
+      ASSERT_TRUE(ActualProxySnapshot::Apply(external));
+      const auto inspection = InvokeDetailed(plugin, "InspectProxy", {
+          {EncodableValue("expectedPort"), EncodableValue(7890)}});
+      EXPECT_FALSE(Succeeded(inspection));
+      EXPECT_EQ(std::get<std::string>(inspection.at(EncodableValue("stage"))),
+                "readback_mismatch");
+      EXPECT_EQ(std::get<bool>(inspection.at(EncodableValue("enabled"))), manual);
+      EXPECT_TRUE(std::get<bool>(inspection.at(EncodableValue("automaticProxyEnabled"))));
+      EXPECT_EQ(ActualProxySnapshot::Read(), external);
+    }
+  }
+}
+
 TEST(ProxyPlugin, NoSessionStopPreservesExternalSamePortProxy) {
   if (!AllowProxyMutation()) GTEST_SKIP() << "Requires an isolated CI account";
   ActualProxySnapshot original;
@@ -404,6 +429,22 @@ TEST(ProxyPlugin, OwnedSessionRestoresOriginalDespiteLatestUiPort) {
   EXPECT_EQ(ActualProxySnapshot::Read(), original);
   EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StopProxyDetailed")));
   EXPECT_EQ(ActualProxySnapshot::Read(), original);
+
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StartProxyDetailed", {
+      {EncodableValue("port"), EncodableValue(7890)},
+      {EncodableValue("bypassDomain"), EncodableValue(EncodableList{EncodableValue("localhost")})}})));
+  const settings::ConnectionConfiguration external{
+      PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY | PROXY_TYPE_AUTO_PROXY_URL | PROXY_TYPE_AUTO_DETECT,
+      L"external.example:17890", L"*.external;<local>", L"https://external.example/proxy.pac"};
+  ASSERT_TRUE(ActualProxySnapshot::Apply(external));
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StartProxyDetailed", {
+      {EncodableValue("port"), EncodableValue(7890)},
+      {EncodableValue("bypassDomain"), EncodableValue(EncodableList{EncodableValue("localhost")})}})));
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StopProxyDetailed", {
+      {EncodableValue("expectedPort"), EncodableValue(7891)}})));
+  EXPECT_EQ(ActualProxySnapshot::Read(), external);
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StopProxyDetailed")));
+  EXPECT_EQ(ActualProxySnapshot::Read(), external);
 }
 
 TEST(ProxyPlugin, OwnedStopPreservesSamePortForeignTakeover) {

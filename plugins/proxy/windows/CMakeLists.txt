@@ -100,6 +100,12 @@ add_custom_command(TARGET ${TEST_RUNNER} POST_BUILD
 include(GoogleTest)
 gtest_discover_tests(${TEST_RUNNER} PROPERTIES RUN_SERIAL TRUE)
 
+add_executable(proxy_session_windows_test
+  test/proxy_session_windows_test.cpp
+)
+apply_standard_settings(proxy_session_windows_test)
+target_link_libraries(proxy_session_windows_test PRIVATE wininet advapi32)
+
 add_executable(proxy_winhttp_compatibility_test
   test/proxy_winhttp_compatibility_test.cpp
 )

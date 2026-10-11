@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:fl_clash/common/constant.dart';
 import 'package:fl_clash/common/windows_identity.dart';
@@ -114,6 +115,228 @@ void main() {
         false,
       );
       expect(await file.readAsString(), 'foreign-schema-10');
+    },
+  );
+
+  test('migrates supported schema 4 with an empty WAL', () async {
+    final database = File(p.join(legacy.path, 'database.sqlite'));
+    final bytes = _databaseHeader(4);
+    await database.writeAsBytes(bytes);
+    await File(p.join(legacy.path, 'database.sqlite-wal')).writeAsBytes([]);
+    await File(
+      p.join(legacy.path, 'shared_preferences.json'),
+    ).writeAsString('{"flutter.xboard.email":"old@example.invalid"}');
+
+    await prepareWindowsDataDirectory(destination: destination, legacy: legacy);
+
+    expect(
+      await File(p.join(destination.path, 'database.sqlite')).readAsBytes(),
+      bytes,
+    );
+    expect(
+      await File(p.join(destination.path, 'shared_preferences.json')).exists(),
+      true,
+    );
+    expect(await database.readAsBytes(), bytes);
+    expect(
+      await File(
+        p.join(destination.path, '.fengwo-legacy-migration-skipped.json'),
+      ).exists(),
+      false,
+    );
+  });
+
+  test(
+    'newer schema in the branded old directory skips the entire data set',
+    () async {
+      final database = File(p.join(legacy.path, 'database.sqlite'));
+      final bytes = _databaseHeader(10);
+      await database.writeAsBytes(bytes);
+      final preferences = File(p.join(legacy.path, 'shared_preferences.json'));
+      await preferences.writeAsString(
+        '{"flutter.xboard.email":"stale@example.invalid"}',
+      );
+      await File(
+        p.join(legacy.path, 'flutter_secure_storage.dat'),
+      ).writeAsBytes([1, 2, 3]);
+      await Directory(p.join(legacy.path, 'profiles')).create();
+      await File(
+        p.join(legacy.path, 'profiles', 'stale.yaml'),
+      ).writeAsString('stale-profile');
+
+      await prepareWindowsDataDirectory(
+        destination: destination,
+        legacy: legacy,
+      );
+
+      expect(
+        await destination
+            .list()
+            .map((entry) => p.basename(entry.path))
+            .toList(),
+        ['.fengwo-legacy-migration-skipped.json'],
+      );
+      expect(
+        jsonDecode(
+          await File(
+            p.join(destination.path, '.fengwo-legacy-migration-skipped.json'),
+          ).readAsString(),
+        ),
+        {'version': 1, 'reason': 'unsupported_database_schema'},
+      );
+      expect(await database.readAsBytes(), bytes);
+      expect(
+        await preferences.readAsString(),
+        '{"flutter.xboard.email":"stale@example.invalid"}',
+      );
+      expect(
+        await File(p.join(legacy.path, 'profiles', 'stale.yaml')).exists(),
+        true,
+      );
+    },
+  );
+
+  test('a nonempty WAL prevents trusting the main database schema', () async {
+    await File(
+      p.join(legacy.path, 'database.sqlite'),
+    ).writeAsBytes(_databaseHeader(4));
+    final wal = File(p.join(legacy.path, 'database.sqlite-wal'));
+    await wal.writeAsBytes([0x37, 0x7f, 0x06, 0x82, 1, 2, 3, 4]);
+    await File(
+      p.join(legacy.path, 'shared_preferences.json'),
+    ).writeAsString('stale-account');
+
+    await prepareWindowsDataDirectory(destination: destination, legacy: legacy);
+
+    expect(
+      await File(p.join(destination.path, 'database.sqlite')).exists(),
+      false,
+    );
+    expect(
+      await File(p.join(destination.path, 'shared_preferences.json')).exists(),
+      false,
+    );
+    expect(
+      jsonDecode(
+        await File(
+          p.join(destination.path, '.fengwo-legacy-migration-skipped.json'),
+        ).readAsString(),
+      ),
+      {'version': 1, 'reason': 'unverifiable_database_wal'},
+    );
+    expect(await wal.readAsBytes(), [0x37, 0x7f, 0x06, 0x82, 1, 2, 3, 4]);
+  });
+
+  test(
+    'invalid database bytes do not import residual account preferences',
+    () async {
+      final database = File(p.join(legacy.path, 'database.sqlite'));
+      await database.writeAsString('invalid-database');
+      await File(
+        p.join(legacy.path, 'shared_preferences.json'),
+      ).writeAsString('stale-account');
+
+      await prepareWindowsDataDirectory(
+        destination: destination,
+        legacy: legacy,
+      );
+
+      expect(
+        await File(
+          p.join(destination.path, 'shared_preferences.json'),
+        ).exists(),
+        false,
+      );
+      expect(
+        jsonDecode(
+          await File(
+            p.join(destination.path, '.fengwo-legacy-migration-skipped.json'),
+          ).readAsString(),
+        ),
+        {'version': 1, 'reason': 'invalid_database_header'},
+      );
+      expect(await database.readAsString(), 'invalid-database');
+    },
+  );
+
+  test(
+    'the skip marker prevents a later start from importing old accounts',
+    () async {
+      final database = File(p.join(legacy.path, 'database.sqlite'));
+      await database.writeAsBytes(_databaseHeader(10));
+      final preferences = File(p.join(legacy.path, 'shared_preferences.json'));
+      await preferences.writeAsString('stale-account');
+      await prepareWindowsDataDirectory(
+        destination: destination,
+        legacy: legacy,
+      );
+      await database.writeAsBytes(_databaseHeader(4));
+      await preferences.writeAsString('later-stale-account');
+
+      await prepareWindowsDataDirectory(
+        destination: destination,
+        legacy: legacy,
+      );
+
+      expect(
+        await File(
+          p.join(destination.path, 'shared_preferences.json'),
+        ).exists(),
+        false,
+      );
+      final current = File(p.join(destination.path, 'shared_preferences.json'));
+      await current.writeAsString('new-account');
+      await prepareWindowsDataDirectory(
+        destination: destination,
+        legacy: legacy,
+      );
+      expect(await current.readAsString(), 'new-account');
+      expect(await preferences.readAsString(), 'later-stale-account');
+    },
+  );
+
+  test(
+    'staged database validation rejects changed copied data before publication',
+    () async {
+      await File(
+        p.join(legacy.path, 'database.sqlite'),
+      ).writeAsBytes(_databaseHeader(4));
+      await File(
+        p.join(legacy.path, 'shared_preferences.json'),
+      ).writeAsString('stale-account');
+
+      await prepareWindowsDataDirectory(
+        destination: destination,
+        legacy: legacy,
+        copyFile: (source, target) async {
+          if (p.basename(source.path) == 'database.sqlite') {
+            await target.writeAsBytes(_databaseHeader(10));
+          } else {
+            await source.copy(target.path);
+          }
+        },
+      );
+
+      expect(
+        await File(
+          p.join(destination.path, 'shared_preferences.json'),
+        ).exists(),
+        false,
+      );
+      expect(
+        await destination.parent
+            .list()
+            .where(
+              (entry) =>
+                  p.basename(entry.path).startsWith('.fengwo-migration-'),
+            )
+            .toList(),
+        isEmpty,
+      );
+      expect(
+        await File(p.join(destination.path, '.fengwo-migration.json')).exists(),
+        false,
+      );
     },
   );
 
@@ -495,4 +718,23 @@ void main() {
       );
     },
   );
+}
+
+Uint8List _databaseHeader(int schemaVersion) {
+  final bytes = Uint8List(4096);
+  bytes.setRange(0, 16, ascii.encode('SQLite format 3\x00'));
+  final data = ByteData.sublistView(bytes);
+  data.setUint16(16, 4096, Endian.big);
+  bytes[18] = 1;
+  bytes[19] = 1;
+  bytes[21] = 64;
+  bytes[22] = 32;
+  bytes[23] = 32;
+  data.setUint32(28, 1, Endian.big);
+  data.setUint32(44, 4, Endian.big);
+  data.setUint32(56, 1, Endian.big);
+  data.setUint32(60, schemaVersion, Endian.big);
+  bytes[100] = 13;
+  data.setUint16(105, 4096, Endian.big);
+  return bytes;
 }

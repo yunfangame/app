@@ -42,6 +42,34 @@ void main() {
       },
     );
 
+    test('fresh desktop identity uses a separate listener port', () async {
+      final store = _FakeMigrationStore(configMap: null, version: 0);
+      final config = await Migration(
+        store: store,
+        newInstallDefaults: const Config(
+          themeProps: defaultThemeProps,
+          patchClashConfig: PatchClashConfig(mixedPort: 17980),
+        ),
+      ).run();
+      expect(config.patchClashConfig.mixedPort, 17980);
+      expect(store.restoredData, isNull);
+    });
+
+    test('desktop defaults preserve a returning user custom port', () async {
+      final saved = _createConfigMap();
+      (saved['patchClashConfig'] as Map<String, dynamic>)['mixed-port'] = 17890;
+      final store = _FakeMigrationStore(configMap: saved, version: 1);
+      final config = await Migration(
+        store: store,
+        newInstallDefaults: const Config(
+          themeProps: defaultThemeProps,
+          patchClashConfig: PatchClashConfig(mixedPort: 17980),
+        ),
+      ).run();
+      expect(config.patchClashConfig.mixedPort, 17890);
+      expect(store.savedConfig, isNull);
+    });
+
     test(
       'damaged settings recover once and load the recovered configuration',
       () async {
