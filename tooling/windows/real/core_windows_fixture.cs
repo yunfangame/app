@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Net;
+using System.Net.Http;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -10,6 +11,30 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace FengWoRealWindowsTests {
+    public sealed class ProbeResponse {
+        public int Status;
+        public string Body;
+    }
+    public sealed class ForcedProxy : IWebProxy {
+        private readonly Uri address;
+        public ForcedProxy(int port) { address = new Uri("http://127.0.0.1:" + port); }
+        public ICredentials Credentials { get; set; }
+        public Uri GetProxy(Uri destination) { return address; }
+        public bool IsBypassed(Uri destination) { return false; }
+    }
+    public static class HttpProbe {
+        public static ProbeResponse Get(string url, string caseName, int timeoutSeconds, int proxyPort) {
+            using (var handler = new HttpClientHandler { UseProxy = true, Proxy = new ForcedProxy(proxyPort) })
+            using (var client = new HttpClient(handler))
+            using (var request = new HttpRequestMessage(HttpMethod.Get, url)) {
+                client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+                request.Headers.Add("X-FengWo-Chain-Case", caseName);
+                using (var response = client.SendAsync(request).GetAwaiter().GetResult()) {
+                    return new ProbeResponse { Status = (int)response.StatusCode, Body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult() };
+                }
+            }
+        }
+    }
     public sealed class CorePipe : IDisposable {
         private readonly NamedPipeServerStream pipe;
         private readonly Task connection;

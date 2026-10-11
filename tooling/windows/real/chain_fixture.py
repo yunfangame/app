@@ -19,6 +19,7 @@ class State:
         self.records = []
         self.origin_requests = []
         self.forwarders = set()
+        self.origin_sources = {}
 
     def configure(self, value):
         with self.lock:
@@ -80,6 +81,9 @@ def open_target(host, port, role, record):
     if role == 'node':
         with STATE.lock:
             STATE.forwarders.add(target.getsockname()[1])
+    if port == 31815:
+        with STATE.lock:
+            STATE.origin_sources[target.getsockname()[1]] = {'role': role, 'case': record['case']}
     try:
         target.connect((host, port))
         record['connected'] = True
@@ -230,7 +234,16 @@ class HttpHandler(BaseHTTPRequestHandler):
     def origin(self, head):
         name = self.headers.get('X-FengWo-Chain-Case', STATE.case['name'])
         with STATE.lock:
-            STATE.origin_requests.append({'case': name, 'path': self.path})
+            source = STATE.origin_sources.get(self.client_address[1], {})
+            case = dict(STATE.case)
+            role = source.get('role')
+            expected = None if case.get('mode') == 'direct' else ('node' if case.get('disabled') else 'exit')
+            actual = 'exit' if role in ('exit-a', 'exit-b') else role
+            accepted = expected is None or (actual == expected and source.get('case') == name)
+            STATE.origin_requests.append({'case': name, 'path': self.path, 'peer_role': role, 'expected_hop_verified': accepted})
+        if not accepted:
+            self.send_error(403, 'The fixture origin requires the expected proxy hop')
+            return
         time.sleep(0.02)
         body = b'FENGWO_CHAIN_FIXTURE_OK'
         self.send_response(200)

@@ -50,9 +50,8 @@ function Invoke-ChainRpc([string]$Method, [AllowNull()][object]$Arguments = $nul
 function Request-ChainOrigin([string]$Name, [string]$Url, [int]$Timeout = 10) {
     $clock = [Diagnostics.Stopwatch]::StartNew()
     try {
-        $response = Invoke-WebRequest -Uri $Url -Proxy 'http://127.0.0.1:17980' -TimeoutSec $Timeout -Headers @{ 'X-FengWo-Chain-Case' = $Name } -SkipHttpErrorCheck
-        $body = if ($response.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($response.Content) } else { [string]$response.Content }
-        return [ordered]@{ status = [int]$response.StatusCode; body = $body; content_type = $response.Content.GetType().FullName; elapsed_ms = $clock.ElapsedMilliseconds; error_type = $null }
+        $response = [FengWoRealWindowsTests.HttpProbe]::Get($Url, $Name, $Timeout, 17980)
+        return [ordered]@{ status = $response.Status; body = $response.Body; elapsed_ms = $clock.ElapsedMilliseconds; error_type = $null }
     } catch {
         return [ordered]@{ status = $null; body = $null; elapsed_ms = $clock.ElapsedMilliseconds; error_type = $_.Exception.GetType().Name }
     }

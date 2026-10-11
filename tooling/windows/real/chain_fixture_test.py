@@ -1,6 +1,11 @@
 import base64
+import json
+import os
+from pathlib import Path
+import shutil
 import socket
 import struct
+import subprocess
 import threading
 import unittest
 
@@ -94,6 +99,40 @@ class ChainFixtureTests(unittest.TestCase):
         self.assert_origin(client)
         records = fixture.STATE.snapshot('host-http-exit')['connections']
         self.assertTrue(records[-1]['peer_is_node'])
+
+
+class HttpClientTests(unittest.TestCase):
+    def test_loopback_origin_is_never_implicitly_bypassed(self):
+        paths = []
+
+        class Handler(fixture.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                paths.append(self.path)
+                body = b'STRICT_PROXY_CLIENT_OK'
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        server = fixture.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            executable = os.environ.get('FENGWO_TEST_PWSH') or shutil.which('pwsh')
+            if not executable:
+                raise RuntimeError('The exact HTTP proxy fixture requires PowerShell 7')
+            source = str(Path(__file__).with_name('core_windows_fixture.cs').resolve()).replace("'", "''")
+            command = f"Add-Type -Path '{source}'; $r=[FengWoRealWindowsTests.HttpProbe]::Get('http://127.0.0.1:31815/explicit-proxy','host-proxy',3,{server.server_port}); @{{status=$r.Status;body=$r.Body}} | ConvertTo-Json -Compress"
+            result = subprocess.run([executable, '-NoProfile', '-Command', command], check=True, capture_output=True, text=True, timeout=20)
+            response = json.loads(result.stdout)
+            self.assertEqual(response, {'status': 200, 'body': 'STRICT_PROXY_CLIENT_OK'})
+            self.assertEqual(paths, ['http://127.0.0.1:31815/explicit-proxy'])
+        finally:
+            server.shutdown()
+            server.server_close()
 
 
 if __name__ == '__main__':
