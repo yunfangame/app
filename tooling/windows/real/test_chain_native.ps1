@@ -85,14 +85,14 @@ try {
         $name = $case['name']
         $activation = [Diagnostics.Stopwatch]::StartNew()
         [void](Invoke-RestMethod -Uri 'http://127.0.0.1:31816/case' -Method Post -NoProxy -ContentType 'application/json' -Body ($case | ConvertTo-Json -Compress) -TimeoutSec 5)
-        $home = Join-Path $scratch $name
-        [void][IO.Directory]::CreateDirectory($home)
-        Copy-Item -LiteralPath (Join-Path $PSScriptRoot ('generated/' + $name + '.json')) -Destination (Join-Path $home 'config.yaml')
+        $caseDirectory = Join-Path $scratch $name
+        [void][IO.Directory]::CreateDirectory($caseDirectory)
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot ('generated/' + $name + '.json')) -Destination (Join-Path $caseDirectory 'config.yaml')
         $pipe = [FengWoRealWindowsTests.CorePipe]::new('FengWo')
         $core = Start-Process -FilePath $corePath -ArgumentList $pipe.Address -WorkingDirectory $BundleDirectory -PassThru -RedirectStandardOutput (Join-Path $EvidenceDirectory ($name + '-core-stdout.txt')) -RedirectStandardError (Join-Path $EvidenceDirectory ($name + '-core-stderr.txt'))
         $peerPid = $pipe.Accept($core.Id, 10000)
         Assert-FwNativeProcess -ProcessId $core.Id -Architecture $Architecture
-        if ((Invoke-ChainRpc 'initClash' @{ 'home-dir' = $home; version = 2 }) -ne $true) { throw 'Core initialization failed' }
+        if ((Invoke-ChainRpc 'initClash' @{ 'home-dir' = $caseDirectory; version = 2 }) -ne $true) { throw 'Core initialization failed' }
         $selected = if ($case['mode'] -ceq 'global') { @{ GLOBAL = '蜂窝链式代理' } } else { @{} }
         if ((Invoke-ChainRpc 'setupConfig' @{ 'selected-map' = $selected; 'test-url' = 'http://127.0.0.1:31815/probe' }) -cne '') { throw 'The product-generated chain configuration failed to apply' }
         if ((Invoke-ChainRpc 'startListener') -ne $true) { throw 'The actual Core mixed listener failed to start' }
