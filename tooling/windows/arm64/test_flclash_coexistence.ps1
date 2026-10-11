@@ -113,8 +113,9 @@ function Wait-FixtureReady([string]$Path, [int]$ExpectedPid = 0) {
     $deadline = [DateTime]::UtcNow.AddSeconds(15)
     do {
         if ([IO.File]::Exists($Path)) {
-            $text = [IO.File]::ReadAllText($Path)
-            if ($text -match '^\d+$' -and (-not $ExpectedPid -or [int]$text -eq $ExpectedPid)) { return }
+            try { $text = [IO.File]::ReadAllText($Path) } catch [IO.IOException] { $text = $null }
+            $readyProcessId = 0
+            if ($text -cmatch '\A[0-9]+\z' -and [int]::TryParse($text, [ref]$readyProcessId) -and $readyProcessId -gt 0 -and (-not $ExpectedPid -or $readyProcessId -eq $ExpectedPid)) { return }
         }
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)

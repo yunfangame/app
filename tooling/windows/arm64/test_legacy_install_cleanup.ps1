@@ -230,12 +230,17 @@ function Start-LegacyService([string]$Directory, [string]$Case) {
     if (-not $registered -or $registered.PathName -cne $script:serviceCommand) { throw 'The newly created SCM fixture path did not verify' }
     [void](Invoke-LegacyChild 'sc.exe' @('start', 'FlClashHelperService') ($Case + '-start-service'))
     $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    $fixtureReady = $false
     do {
         $service = Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'"
-        if ($service -and $service.State -ceq 'Running' -and [IO.File]::Exists($ready) -and [IO.File]::ReadAllText($ready) -ceq ([string]$service.ProcessId)) { break }
+        if ($service -and $service.State -ceq 'Running' -and $service.ProcessId -gt 0 -and [IO.File]::Exists($ready)) {
+            try { $readyText = [IO.File]::ReadAllText($ready) } catch [IO.IOException] { $readyText = $null }
+            $fixtureReady = $readyText -ceq ([string]$service.ProcessId)
+            if ($fixtureReady) { break }
+        }
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
-    if (-not $service -or $service.State -cne 'Running' -or -not [IO.File]::Exists($ready) -or [IO.File]::ReadAllText($ready) -cne ([string]$service.ProcessId)) { throw 'The native no-argument SCM fixture failed to start' }
+    if (-not $fixtureReady) { throw 'The native no-argument SCM fixture failed to start' }
     $script:serviceProcess = [Diagnostics.Process]::GetProcessById($service.ProcessId)
     $handle = $script:serviceProcess.Handle
     Assert-FwArmProcess $service.ProcessId
