@@ -146,21 +146,28 @@ target_link_libraries(legacy_fixture PRIVATE advapi32 user32)
 1 VERSIONINFO
 FILEVERSION 1,0,8,0
 PRODUCTVERSION 1,0,8,0
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
 FILEOS VOS_NT_WINDOWS32
 FILETYPE VFT_APP
+FILESUBTYPE 0x0L
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN
-    BLOCK "040904b0"
+    BLOCK "040904e4"
     BEGIN
       VALUE "CompanyName", "com.follow\0"
       VALUE "ProductName", "蜂窝加速器\0"
       VALUE "FileDescription", "FengWo synthetic legacy upgrade fixture\0"
+      VALUE "FileVersion", "1.0.8\0"
+      VALUE "InternalName", "FlClash\0"
+      VALUE "OriginalFilename", "FlClash.exe\0"
+      VALUE "ProductVersion", "1.0.8\0"
     END
   END
   BLOCK "VarFileInfo"
   BEGIN
-    VALUE "Translation", 0x0409, 1200
+    VALUE "Translation", 0x0409, 1252
   END
 END
 '@, [Text.UnicodeEncoding]::new($false, $true))
@@ -171,6 +178,9 @@ END
     foreach ($name in @('FlClash.exe', 'FlClashHelperService.exe')) { Copy-Item -LiteralPath (Join-Path $scratch 'build/Release/legacy_fixture.exe') -Destination (Join-Path $legacyDirectory $name) }
     Copy-Item -LiteralPath (Join-Path $payloadDirectory 'FengWoCore.exe') -Destination (Join-Path $legacyDirectory 'FlClashCore.exe')
     $metadata = (Get-Item -LiteralPath (Join-Path $legacyDirectory 'FlClash.exe')).VersionInfo
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'legacy-product-metadata.json') ([ordered]@{ company = $metadata.CompanyName; product = $metadata.ProductName; file_version = $metadata.FileVersion; product_version = $metadata.ProductVersion; internal_name = $metadata.InternalName; language = $metadata.Language })
+    Copy-Item -LiteralPath (Join-Path $scratch 'brand.rc') -Destination (Join-Path $EvidenceDirectory 'synthetic-brand.rc')
+    Copy-Item -LiteralPath (Join-Path $scratch 'build/Release/legacy_fixture.exe') -Destination (Join-Path $EvidenceDirectory 'synthetic-legacy-fixture.exe')
     if ($metadata.CompanyName -cne 'com.follow' -or $metadata.ProductName -cne '蜂窝加速器') { throw 'The real old product metadata did not verify' }
     $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
     try {
