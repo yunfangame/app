@@ -114,6 +114,7 @@ function Stop-FengWoOwnedService {
     param([string]$Name, [string]$Directory, [bool]$LegacyAllowed)
     $service = Get-FengWoOwnedService $Name $Directory $LegacyAllowed
     if (-not $service) { return }
+    Add-Type -AssemblyName System.ServiceProcess -ErrorAction Stop
     $controller = [ServiceProcess.ServiceController]::new($Name)
     try {
         $controller.Refresh()
