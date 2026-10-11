@@ -42,9 +42,8 @@ class Window {
     }
     await windowManager.setMaximizable(true);
     await _windowPosition(props);
-    await windowManager.waitUntilReadyToShow(windowOptions, () async {
-      await windowManager.setPreventClose(true);
-    });
+    await windowManager.waitUntilReadyToShow(windowOptions);
+    await windowManager.setPreventClose(true);
   }
 
   Future<void> _windowPosition(WindowProps props) async {

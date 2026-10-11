@@ -62,6 +62,9 @@ class SystemAction extends _$SystemAction {
       'system_proxy.cleanup.completed',
       fields: {'reason': reason, ...result.toDiagnosticFields()},
     );
+    if (system.isWindows) {
+      await commonPrint.flushDiagnosticEvents();
+    }
     if (!result.success) {
       throw StateError('system proxy cleanup failed: ${result.diagnosticCode}');
     }
