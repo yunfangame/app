@@ -112,27 +112,27 @@ begin
       ewWaitUntilTerminated, ResultCode, nil);
   except
     Log('FengWo installation cleanup output capture failed: ' + Operation + ': ' + GetExceptionMessage);
-    Result := FmtMessage(CustomMessage('InstallCleanupFailed'),
-      [Operation, 'output_capture_failed', ExpandConstant('{log}')]);
+    Result := FmtMessage(CustomMessage('InstallCleanupFailed'), [Operation,
+      'output_capture_failed', ExpandConstant('{log}')]);
     Exit;
   end;
   if not CleanupStarted then
   begin
     Log('FengWo installation cleanup could not start: ' + Operation + ' (' +
       IntToStr(ResultCode) + '): ' + SysErrorMessage(ResultCode));
-    Result := FmtMessage(CustomMessage('InstallCleanupFailed'),
-      [Operation, IntToStr(ResultCode), ExpandConstant('{log}')]);
+    Result := FmtMessage(CustomMessage('InstallCleanupFailed'), [Operation,
+      IntToStr(ResultCode), ExpandConstant('{log}')]);
     Exit;
   end;
   if ResultCode <> 0 then
   begin
     Log('FengWo path-scoped installation cleanup failed: ' + Operation + ' (' + IntToStr(ResultCode) + ')');
     if ResultCode = 41 then
-      Result := FmtMessage(CustomMessage('InstallDirectoryConflict'),
-        [ExpandConstant('{app}'), ExpandConstant('{autopf64}\FengWo')])
+      Result := FmtMessage(CustomMessage('InstallDirectoryConflict'), [ExpandConstant('{app}'),
+        ExpandConstant('{autopf64}\FengWo')])
     else
-      Result := FmtMessage(CustomMessage('InstallCleanupFailed'),
-        [Operation, IntToStr(ResultCode), ExpandConstant('{log}')]);
+      Result := FmtMessage(CustomMessage('InstallCleanupFailed'), [Operation,
+        IntToStr(ResultCode), ExpandConstant('{log}')]);
   end;
 end;
 
