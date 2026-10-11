@@ -1,0 +1,75 @@
+name: fengwo-windows-legacy-upgrade-diagnostics
+run-name: Running legacy upgrade diagnostics · ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - 'codex/windows-upgrade-diagnostics-*'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: legacy-upgrade-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout isolated diagnostic harness
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download the exact new x64 candidate
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: '38143776926'
+          name: fengwo-windows-x64-chain-test-unsigned-38143776926
+          path: ${{ runner.temp }}/built-candidate
+
+      - name: Verify reused build and run the real SCM upgrade diagnostic
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./tooling/windows/arm64/common.ps1
+          $environment = Assert-FwNativeRunner -Architecture x64
+          $evidence = Join-Path $env:RUNNER_TEMP 'legacy-running-upgrade-evidence'
+          [void][IO.Directory]::CreateDirectory($evidence)
+          $run = Invoke-RestMethod -Uri ('https://api.github.com/repos/' + $env:GITHUB_REPOSITORY + '/actions/runs/38143776926') -Headers @{ Authorization = 'Bearer ' + $env:GH_TOKEN; Accept = 'application/vnd.github+json' }
+          if ($run.conclusion -cne 'success' -or $run.head_sha -cne '782d949398b81d99fb3a7d217d6fb5b27b1fe413') { throw 'The diagnostic package build did not match the successful candidate' }
+          $installers = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'built-candidate') -Recurse -File -Filter 'fengwo-windows-x64-chain-test-unsigned.exe')
+          if ($installers.Count -ne 1) { throw 'Exactly one verified x64 test installer is required' }
+          $packageFiles = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'built-candidate') -Recurse -File -Filter 'package.json')
+          $manifestFiles = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'built-candidate') -Recurse -File -Filter 'source-manifest.json')
+          if ($packageFiles.Count -ne 1 -or $manifestFiles.Count -ne 1) { throw 'Unique built package and source manifests are required' }
+          $package = Get-Content -LiteralPath $packageFiles[0].FullName -Raw | ConvertFrom-Json
+          $manifest = Get-Content -LiteralPath $manifestFiles[0].FullName -Raw | ConvertFrom-Json
+          $expectedHash = '678c415d51ed999943b7bab4fd9d9a6bf1f2414047c7a756b41b5b56f4bb5ee0'
+          if ($package.source_sha -cne $run.head_sha -or $manifest.source_sha -cne $run.head_sha -or $package.installer_sha256 -cne $expectedHash -or $package.installer_bytes -ne 63966869) { throw 'The candidate provenance does not match the fixed installer' }
+          $cleanupSource = @($manifest.files | Where-Object path -ceq 'windows/packaging/exe/fengwo_install_cleanup.ps1')
+          if ($cleanupSource.Count -ne 1 -or $cleanupSource[0].sha256 -cne (Get-FileHash windows/packaging/exe/fengwo_install_cleanup.ps1 -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'The diagnostic cleanup source differs from the candidate build' }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $installations = @(& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json | ConvertFrom-Json)
+          if ($LASTEXITCODE -ne 0 -or $installations.Count -ne 1) { throw 'The native Visual Studio installation was not found' }
+          $major = ([version]$installations[0].installationVersion).Major
+          $generator = switch ($major) { 17 { 'Visual Studio 17 2022' }; 18 { 'Visual Studio 18 2026' }; default { throw 'Unsupported native Visual Studio generator' } }
+          Save-FwArmEvidence (Join-Path $evidence 'provenance.json') ([ordered]@{ built_run_id = '38143776926'; package_build_sha = $run.head_sha; verification_source_sha = $env:GITHUB_SHA; installer_sha256 = $expectedHash; installer_bytes = 63966869; cleanup_source_sha256 = $cleanupSource[0].sha256; environment = $environment; public_network_or_customer_account_used = $false })
+          ./tooling/windows/real/test_legacy_running_upgrade.ps1 -InstallerPath $installers[0].FullName -EvidenceDirectory $evidence -Generator $generator -ExpectedInstallerSha256 $expectedHash -ExpectedInstallerBytes 63966869
+
+      - name: Upload only synthetic upgrade diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fengwo-legacy-running-upgrade-${{ github.run_id }}
+          path: ${{ runner.temp }}/legacy-running-upgrade-evidence
+          if-no-files-found: error
+          retention-days: 7
