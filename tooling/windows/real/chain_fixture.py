@@ -83,7 +83,7 @@ def open_target(host, port, role, record):
             STATE.forwarders.add(target.getsockname()[1])
     if port == 31815:
         with STATE.lock:
-            STATE.origin_sources[target.getsockname()[1]] = {'role': role, 'case': record['case']}
+            STATE.origin_sources[target.getsockname()[1]] = {'role': role, 'case': record['case'], 'listener_port': record['listener_port']}
     try:
         target.connect((host, port))
         record['connected'] = True
@@ -114,6 +114,7 @@ class ProxyHandler(socketserver.BaseRequestHandler):
     def handle(self):
         role = self.server.role
         record, case = STATE.record(role, self.client_address)
+        record['listener_port'] = self.server.server_address[1]
         client = self.request
         client.settimeout(12)
         target = None
@@ -240,7 +241,7 @@ class HttpHandler(BaseHTTPRequestHandler):
             expected = None if case.get('mode') == 'direct' else ('node' if case.get('disabled') else 'exit')
             actual = 'exit' if role in ('exit-a', 'exit-b') else role
             accepted = expected is None or (actual == expected and source.get('case') == name)
-            STATE.origin_requests.append({'case': name, 'path': self.path, 'peer_role': role, 'expected_hop_verified': accepted})
+            STATE.origin_requests.append({'case': name, 'path': self.path, 'peer_role': role, 'peer_listener_port': source.get('listener_port'), 'expected_hop_verified': accepted})
         if not accepted:
             self.send_error(403, 'The fixture origin requires the expected proxy hop')
             return
@@ -261,7 +262,7 @@ def main():
     if os.name != 'nt' or os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_OS') != 'Windows':
         raise SystemExit('An isolated Windows GitHub Actions runner is required')
     servers = []
-    for port, role in [(31811, 'node'), (31813, 'exit-a'), (31814, 'exit-b')]:
+    for port, role in [(31811, 'node'), (31812, 'node'), (31813, 'exit-a'), (31814, 'exit-b')]:
         server = ProxyServer(('127.0.0.1', port), ProxyHandler)
         server.role = role
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -269,7 +270,7 @@ def main():
     origin = ThreadingHTTPServer(('127.0.0.1', 31815), HttpHandler)
     threading.Thread(target=origin.serve_forever, daemon=True).start()
     control = ThreadingHTTPServer(('127.0.0.1', 31816), HttpHandler)
-    Path(args.ready).write_text(json.dumps({'pid': os.getpid(), 'ports': [31811, 31813, 31814, 31815, 31816], 'synthetic_only': True}), encoding='utf-8')
+    Path(args.ready).write_text(json.dumps({'pid': os.getpid(), 'ports': [31811, 31812, 31813, 31814, 31815, 31816], 'synthetic_only': True}), encoding='utf-8')
     try:
         control.serve_forever()
     finally:

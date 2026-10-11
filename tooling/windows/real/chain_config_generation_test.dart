@@ -47,6 +47,10 @@ void main() {
             'restart_iteration': index,
             'mode': index.isOdd ? 'global' : 'rule',
             'exit_port': index % 3 == 0 ? 31814 : 31813,
+            'group': true,
+            'selected_node': index.isOdd
+                ? 'Synthetic Node A'
+                : 'Synthetic Node B',
           },
       ];
       for (final item in cases) {
@@ -55,6 +59,8 @@ void main() {
           'direct' => Mode.direct,
           _ => Mode.rule,
         };
+        final grouped = item['group'] == true;
+        final target = grouped ? 'Synthetic Group' : 'Synthetic Node';
         final source = <String, dynamic>{
           'mixed-port': 17980,
           'allow-lan': false,
@@ -70,7 +76,7 @@ void main() {
           'tun': {'enable': false},
           'proxies': [
             {
-              'name': 'Synthetic Node',
+              'name': grouped ? 'Synthetic Node A' : 'Synthetic Node',
               'type': 'socks5',
               'server': '127.0.0.1',
               'port': 31811,
@@ -78,9 +84,26 @@ void main() {
               'password': item['node_password'] ?? 'synthetic-node-pass',
               'udp': false,
             },
+            if (grouped)
+              {
+                'name': 'Synthetic Node B',
+                'type': 'socks5',
+                'server': '127.0.0.1',
+                'port': 31812,
+                'username': 'synthetic-node',
+                'password': 'synthetic-node-pass',
+                'udp': false,
+              },
           ],
-          'proxy-groups': <Object>[],
-          'rules': ['MATCH,Synthetic Node'],
+          'proxy-groups': <Object>[
+            if (grouped)
+              {
+                'name': target,
+                'type': 'select',
+                'proxies': ['Synthetic Node A', 'Synthetic Node B'],
+              },
+          ],
+          'rules': ['MATCH,$target'],
         };
         final chain = item['disabled'] == true
             ? null
@@ -100,16 +123,25 @@ void main() {
           source,
           chain,
           mode,
-          globalTarget: 'Synthetic Node',
+          globalTarget: target,
         );
         if (chain != null && mode != Mode.direct) {
           final wrapper = (result['proxies'] as List).cast<Map>().last;
-          expect(wrapper['dialer-proxy'], 'Synthetic Node');
+          expect(wrapper['dialer-proxy'], target);
           expect(wrapper['name'], chainProxyRuntimeName);
         }
         await File(
           '${output.path}/${item['name']}.json',
         ).writeAsString(jsonEncode(result));
+        if (item['restart_iteration'] != null) {
+          await File(
+            '${output.path}/${item['name']}-disabled.json',
+          ).writeAsString(
+            jsonEncode(
+              applyChainProxyConfig(source, null, mode, globalTarget: target),
+            ),
+          );
+        }
       }
       await File('${output.path}/cases.json').writeAsString(jsonEncode(cases));
       await File('${output.path}/generation.json').writeAsString(

@@ -140,7 +140,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(container.read(appSettingProvider).activeChainProxyName, 'Taiwan');
-    expect(find.textContaining('当前链式代理已启动'), findsOneWidget);
+    expect(find.textContaining('当前链式代理已启动'), findsNothing);
+    expect(find.text('加载中...'), findsOneWidget);
     final otherToggle = tester.widget<TextButton>(
       find.byKey(const ValueKey('chain-proxy-toggle-Japan')),
     );
@@ -156,6 +157,7 @@ void main() {
     restart.complete();
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('停止'), findsOneWidget);
+    expect(find.textContaining('当前链式代理已启动'), findsOneWidget);
   });
 
   testWidgets('can stop and re-enable the same proxy repeatedly', (

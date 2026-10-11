@@ -13,7 +13,7 @@ $EvidenceDirectory = [IO.Path]::GetFullPath($EvidenceDirectory)
 $expectedMachine = if ($Architecture -eq 'arm64') { '0xaa64' } else { '0x8664' }
 $corePath = Join-Path $BundleDirectory 'FengWoCore.exe'
 if ((Get-FwPeIdentity $corePath).machine -cne $expectedMachine) { throw 'The chain tests require the actual native packaged FengWo Core' }
-if (Get-NetTCPConnection -State Listen -LocalPort 17980, 31811, 31813, 31814, 31815, 31816 -ErrorAction SilentlyContinue) { throw 'Pre-existing fixture ports prevent isolation' }
+if (Get-NetTCPConnection -State Listen -LocalPort 17980, 31811, 31812, 31813, 31814, 31815, 31816 -ErrorAction SilentlyContinue) { throw 'Pre-existing fixture ports prevent isolation' }
 Add-Type -Path (Join-Path $PSScriptRoot 'core_windows_fixture.cs')
 Add-Type -Path (Join-Path $PSScriptRoot '../arm64/coexistence_proxy_fixture.cs')
 $proxyGuard = [FengWoCoexistenceTests.ProxyFixture]::new($Architecture)
@@ -24,6 +24,7 @@ $core = $null
 $failure = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
 $results = [Collections.Generic.List[object]]::new()
+$hotResults = [Collections.Generic.List[object]]::new()
 $rpcFrames = [Collections.Generic.List[object]]::new()
 $rpcSequence = 0
 $scratch = Join-Path $env:RUNNER_TEMP ('fengwo-real-chain-' + [Guid]::NewGuid().ToString('N'))
@@ -57,6 +58,15 @@ function Request-ChainOrigin([string]$Name, [string]$Url, [int]$Timeout = 10) {
     }
 }
 
+function Get-ChainSelection([Collections.IDictionary]$Case) {
+    $selected = @{}
+    if ($Case['group']) { $selected['Synthetic Group'] = $Case['selected_node'] }
+    if ($Case['mode'] -ceq 'global') {
+        $selected['GLOBAL'] = if ($Case['disabled']) { 'Synthetic Group' } else { '蜂窝链式代理' }
+    }
+    return $selected
+}
+
 function Stop-ChainCore {
     if (-not $core) { return }
     if (-not $core.HasExited) {
@@ -82,6 +92,7 @@ try {
     $cases = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'generated/cases.json') -Raw | ConvertFrom-Json -AsHashtable
     foreach ($case in $cases) {
         $name = $case['name']
+        $expectedNodePort = if ($case['selected_node'] -ceq 'Synthetic Node B') { 31812 } else { 31811 }
         $activation = [Diagnostics.Stopwatch]::StartNew()
         [void](Invoke-RestMethod -Uri 'http://127.0.0.1:31816/case' -Method Post -NoProxy -ContentType 'application/json' -Body ($case | ConvertTo-Json -Compress) -TimeoutSec 5)
         $caseDirectory = Join-Path $scratch $name
@@ -92,7 +103,7 @@ try {
         $peerPid = $pipe.Accept($core.Id, 10000)
         Assert-FwNativeProcess -ProcessId $core.Id -Architecture $Architecture
         if ((Invoke-ChainRpc 'initClash' @{ 'home-dir' = $caseDirectory; version = 2 }) -ne $true) { throw 'Core initialization failed' }
-        $selected = if ($case['mode'] -ceq 'global') { @{ GLOBAL = '蜂窝链式代理' } } else { @{} }
+        $selected = Get-ChainSelection $case
         if ((Invoke-ChainRpc 'setupConfig' @{ 'selected-map' = $selected; 'test-url' = 'http://127.0.0.1:31815/probe' }) -cne '') { throw 'The product-generated chain configuration failed to apply' }
         if ((Invoke-ChainRpc 'startListener') -ne $true) { throw 'The actual Core mixed listener failed to start' }
         $listenerReadyMs = $activation.ElapsedMilliseconds
@@ -101,6 +112,7 @@ try {
         $active = $case['disabled'] -ne $true -and $case['mode'] -cne 'direct'
         if ($runtime['proxies'].Contains('蜂窝链式代理') -ne $active) { throw 'The applied runtime wrapper does not match the requested chain state' }
         if ($case['mode'] -ceq 'global' -and $runtime['proxies']['GLOBAL']['now'] -cne '蜂窝链式代理') { throw 'Global mode did not select the chain wrapper' }
+        if ($case['group'] -and $runtime['proxies']['Synthetic Group']['now'] -cne $case['selected_node']) { throw 'The runtime selected a different synthetic node' }
         $listener = @(Get-NetTCPConnection -State Listen -LocalPort 17980 -ErrorAction Stop | Where-Object OwningProcess -eq $core.Id)
         if ($listener.Count -lt 1) { throw 'The synthetic mixed listener is not owned by the tested Core PID' }
         $delay = $null
@@ -138,13 +150,74 @@ try {
         } elseif ($case['disabled'] -eq $true) {
             if ($exits.Count -ne 0 -or @($node | Where-Object { $_.connected -and $_.up_bytes -gt 0 -and $_.down_bytes -gt 0 }).Count -eq 0) { throw 'Disabled chain did not preserve the original node route' }
         } else {
-            if (@($node | Where-Object { $_.connected -and $_.authenticated -and $_.target_port -eq $(if ($case['exit_port']) { $case['exit_port'] } else { 31813 }) -and $_.up_bytes -gt 0 -and $_.down_bytes -gt 0 }).Count -eq 0) { throw 'The selected-node hop did not carry the exit tunnel' }
+            if (@($node | Where-Object { $_.listener_port -eq $expectedNodePort -and $_.connected -and $_.authenticated -and $_.target_port -eq $(if ($case['exit_port']) { $case['exit_port'] } else { 31813 }) -and $_.up_bytes -gt 0 -and $_.down_bytes -gt 0 }).Count -eq 0) { throw 'The selected-node hop did not carry the exit tunnel' }
             if (@($exits | Where-Object { $_.peer_is_node -and $_.connected -and $_.authenticated -and $_.up_bytes -gt 0 -and $_.down_bytes -gt 0 }).Count -eq 0) { throw 'The exit hop did not carry the origin response' }
         }
         Save-FwArmEvidence (Join-Path $EvidenceDirectory ($name + '-hops.json')) $snapshot
-        $results.Add([ordered]@{ name = $name; passed = $true; expected_failure = $case['failure']; restart_iteration = $case['restart_iteration']; selected_node = 'Synthetic Node'; mode = $case['mode']; wrapper_applied = $active; listener_ready_ms = $listenerReadyMs; wrapper_visible_ms = $wrapperVisibleMs; delay_ms = $(if ($delay) { $delay['value'] } else { $null }); core_pid = $core.Id; named_pipe_peer_pid = $peerPid; response_status = $response.status; response_elapsed_ms = $response.elapsed_ms; public = $public; node_connections = $node.Count; exit_connections = $exits.Count })
+        $results.Add([ordered]@{ name = $name; passed = $true; expected_failure = $case['failure']; restart_iteration = $case['restart_iteration']; selected_node = $(if ($case['group']) { $case['selected_node'] } else { 'Synthetic Node' }); mode = $case['mode']; wrapper_applied = $active; listener_ready_ms = $listenerReadyMs; wrapper_visible_ms = $wrapperVisibleMs; delay_ms = $(if ($delay) { $delay['value'] } else { $null }); core_pid = $core.Id; named_pipe_peer_pid = $peerPid; response_status = $response.status; response_elapsed_ms = $response.elapsed_ms; public = $public; node_connections = $node.Count; exit_connections = $exits.Count })
         Stop-ChainCore
     }
+
+    $caseDirectory = Join-Path $scratch 'same-pid-hot-application'
+    [void][IO.Directory]::CreateDirectory($caseDirectory)
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'generated/restart-01-disabled.json') -Destination (Join-Path $caseDirectory 'config.yaml')
+    $pipe = [FengWoRealWindowsTests.CorePipe]::new('FengWo')
+    $core = Start-Process -FilePath $corePath -ArgumentList $pipe.Address -WorkingDirectory $BundleDirectory -PassThru -RedirectStandardOutput (Join-Path $EvidenceDirectory 'hot-core-stdout.txt') -RedirectStandardError (Join-Path $EvidenceDirectory 'hot-core-stderr.txt')
+    $hotCoreId = $core.Id
+    $hotPeerPid = $pipe.Accept($hotCoreId, 10000)
+    Assert-FwNativeProcess -ProcessId $hotCoreId -Architecture $Architecture
+    if ((Invoke-ChainRpc 'initClash' @{ 'home-dir' = $caseDirectory; version = 2 }) -ne $true) { throw 'The hot-application Core initialization failed' }
+    if ((Invoke-ChainRpc 'setupConfig' @{ 'selected-map' = @{ 'Synthetic Group' = 'Synthetic Node A'; GLOBAL = 'Synthetic Group' }; 'test-url' = 'http://127.0.0.1:31815/probe' }) -cne '') { throw 'The initial hot-application configuration failed' }
+    if ((Invoke-ChainRpc 'startListener') -ne $true) { throw 'The initial hot-application listener failed' }
+    foreach ($iteration in 1..20) {
+        $templateName = ('restart-{0:d2}' -f $iteration)
+        $case = @($cases | Where-Object { $_['name'] -ceq $templateName })[0].Clone()
+        $name = ('hot-disabled-{0:d2}' -f $iteration)
+        $case['name'] = $name
+        $case['disabled'] = $true
+        $expectedNodePort = if ($case['selected_node'] -ceq 'Synthetic Node B') { 31812 } else { 31811 }
+        $delay = $null
+        $response = $null
+        [void](Invoke-RestMethod -Uri 'http://127.0.0.1:31816/case' -Method Post -NoProxy -ContentType 'application/json' -Body ($case | ConvertTo-Json -Compress) -TimeoutSec 5)
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot ('generated/' + $templateName + '-disabled.json')) -Destination (Join-Path $caseDirectory 'config.yaml')
+        $applyClock = [Diagnostics.Stopwatch]::StartNew()
+        if ((Invoke-ChainRpc 'setupConfig' @{ 'selected-map' = (Get-ChainSelection $case); 'test-url' = 'http://127.0.0.1:31815/probe' }) -cne '') { throw 'Hot chain disable failed to apply' }
+        $disabledApplyMs = $applyClock.ElapsedMilliseconds
+        $runtime = Invoke-ChainRpc 'getProxies'
+        if ($runtime['proxies'].Contains('蜂窝链式代理')) { throw 'A disabled hot chain wrapper remained visible' }
+        if ($runtime['proxies']['Synthetic Group']['now'] -cne $case['selected_node']) { throw 'Hot chain disable changed the selected original node' }
+        $response = Request-ChainOrigin $name 'http://127.0.0.1:31815/hot-disabled' 4
+        if ($response.status -ne 200 -or $response.body -cne 'FENGWO_CHAIN_FIXTURE_OK') { throw 'Hot chain disable did not restore the original selected node route' }
+        $disabledSnapshot = Invoke-RestMethod -Uri ('http://127.0.0.1:31816/snapshot/' + $name) -NoProxy -TimeoutSec 5
+        if (@($disabledSnapshot.connections | Where-Object { $_.role -in @('exit-a', 'exit-b') }).Count -ne 0 -or @($disabledSnapshot.origin_requests | Where-Object { $_.peer_role -eq 'node' -and $_.peer_listener_port -eq $expectedNodePort -and $_.expected_hop_verified }).Count -ne 1) { throw 'The disabled hot chain did not exclusively use the selected original node' }
+        Save-FwArmEvidence (Join-Path $EvidenceDirectory ($name + '-hops.json')) $disabledSnapshot
+
+        $case = @($cases | Where-Object { $_['name'] -ceq $templateName })[0].Clone()
+        $name = ('hot-applied-{0:d2}' -f $iteration)
+        $case['name'] = $name
+        $delay = $null
+        $response = $null
+        [void](Invoke-RestMethod -Uri 'http://127.0.0.1:31816/case' -Method Post -NoProxy -ContentType 'application/json' -Body ($case | ConvertTo-Json -Compress) -TimeoutSec 5)
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot ('generated/' + $templateName + '.json')) -Destination (Join-Path $caseDirectory 'config.yaml')
+        $selected = Get-ChainSelection $case
+        $applyClock = [Diagnostics.Stopwatch]::StartNew()
+        if ((Invoke-ChainRpc 'setupConfig' @{ 'selected-map' = $selected; 'test-url' = 'http://127.0.0.1:31815/probe' }) -cne '') { throw 'Hot chain enable failed to apply' }
+        $hotApplyMs = $applyClock.ElapsedMilliseconds
+        $runtime = Invoke-ChainRpc 'getProxies'
+        if (-not $runtime['proxies'].Contains('蜂窝链式代理')) { throw 'An enabled hot chain wrapper did not appear' }
+        if ($runtime['proxies']['Synthetic Group']['now'] -cne $case['selected_node']) { throw 'Hot chain enable changed the selected original node' }
+        if ($case['mode'] -ceq 'global' -and $runtime['proxies']['GLOBAL']['now'] -cne '蜂窝链式代理') { throw 'The hot global chain did not preserve wrapper selection' }
+        $delay = Invoke-ChainRpc 'asyncTestDelay' @{ 'proxy-name' = '蜂窝链式代理'; 'timeout' = 3000; 'test-url' = ('http://127.0.0.1:31815/probe?hot=' + $iteration) }
+        if ($delay['value'] -le 0 -or $delay['name'] -cne '蜂窝链式代理') { throw 'A working hot chain failed the exact UI availability criterion' }
+        $response = Request-ChainOrigin $name 'http://127.0.0.1:31815/hot-enabled' 4
+        if ($response.status -ne 200 -or $response.body -cne 'FENGWO_CHAIN_FIXTURE_OK') { throw 'The hot chain did not carry the actual origin request' }
+        $hotSnapshot = Invoke-RestMethod -Uri ('http://127.0.0.1:31816/snapshot/' + $name) -NoProxy -TimeoutSec 5
+        if (@($hotSnapshot.origin_requests | Where-Object { $_.peer_role -in @('exit-a', 'exit-b') -and $_.expected_hop_verified }).Count -lt 2 -or @($hotSnapshot.connections | Where-Object { $_.role -eq 'node' -and $_.listener_port -eq $expectedNodePort -and $_.target_port -eq $case['exit_port'] -and $_.authenticated -and $_.connected }).Count -lt 2) { throw 'The hot chain did not use the currently configured two-hop exit' }
+        if ($core.HasExited -or $core.Id -ne $hotCoreId -or @(Get-NetTCPConnection -State Listen -LocalPort 17980 -ErrorAction Stop | Where-Object OwningProcess -eq $hotCoreId).Count -lt 1) { throw 'Hot application replaced or lost the existing Core and listener PID' }
+        Save-FwArmEvidence (Join-Path $EvidenceDirectory ($name + '-hops.json')) $hotSnapshot
+        $hotResults.Add([ordered]@{ iteration = $iteration; passed = $true; core_pid = $hotCoreId; named_pipe_peer_pid = $hotPeerPid; mode = $case['mode']; selected_node = $case['selected_node']; exit_port = $case['exit_port']; disabled_apply_ms = $disabledApplyMs; enabled_apply_ms = $hotApplyMs; delay_ms = $delay['value']; origin_status = $response.status; original_node_restored_on_disable = $true; two_hops_verified = $true })
+    }
+    Stop-ChainCore
 } catch {
     $failure = $_.Exception.Message
     if ($name -and $fixture -and -not $fixture.HasExited) {
@@ -165,6 +238,6 @@ try {
         $restore = $proxyGuard.Restore()
         if (-not $restore.Passed) { throw 'The exact native system proxy snapshot was not restored' }
     } catch { $cleanupErrors.Add($_.Exception.Message) }
-    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'chain-verification.json') ([ordered]@{ passed = ($null -eq $failure -and $cleanupErrors.Count -eq 0 -and $results.Count -eq 32); failure = $failure; cleanup_failures = $cleanupErrors.ToArray(); environment = $environment; checks = $results.ToArray(); rpc = $rpcFrames.ToArray(); repeated_restart_count = @($results | Where-Object restart_iteration).Count; product_generated_config = $true; generator_source_sha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot '../../../lib/common/chain_proxy.dart') -Algorithm SHA256).Hash.ToLowerInvariant(); synthetic_credentials_only = $true; real_subscription_tested = $false; ui_click_tested = $false; system_proxy_modified = $false; public_probe_required_for_chain_unit_success = $false })
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'chain-verification.json') ([ordered]@{ passed = ($null -eq $failure -and $cleanupErrors.Count -eq 0 -and $results.Count -eq 32 -and $hotResults.Count -eq 20); failure = $failure; cleanup_failures = $cleanupErrors.ToArray(); environment = $environment; checks = $results.ToArray(); hot_applications = $hotResults.ToArray(); rpc = $rpcFrames.ToArray(); repeated_restart_count = @($results | Where-Object restart_iteration).Count; product_generated_config = $true; generator_source_sha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot '../../../lib/common/chain_proxy.dart') -Algorithm SHA256).Hash.ToLowerInvariant(); synthetic_credentials_only = $true; real_subscription_tested = $false; ui_click_tested = $false; system_proxy_modified = $false; public_probe_required_for_chain_unit_success = $false })
 }
-if ($failure -or $cleanupErrors.Count -gt 0 -or $results.Count -ne 32) { throw ('Native chain verification failed: ' + $failure + '; cleanup=' + ($cleanupErrors -join '; ')) }
+if ($failure -or $cleanupErrors.Count -gt 0 -or $results.Count -ne 32 -or $hotResults.Count -ne 20) { throw ('Native chain verification failed: ' + $failure + '; cleanup=' + ($cleanupErrors -join '; ')) }
