@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/windows_identity.dart';
 import 'package:fl_clash/common/tun_failure.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
@@ -12,6 +13,7 @@ import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
 import 'package:fl_clash/manager/status_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -704,7 +706,14 @@ class _Paths extends PathProviderPlatform {
   _Paths(this.root);
   final String root;
   @override
-  Future<String?> getApplicationSupportPath() async => root;
+  Future<String?> getApplicationSupportPath() async {
+    final directory = Directory(
+      p.join(root, windowsDataCompany, windowsDataProduct),
+    );
+    await directory.create(recursive: true);
+    return directory.path;
+  }
+
   @override
   Future<String?> getTemporaryPath() async => root;
   @override
