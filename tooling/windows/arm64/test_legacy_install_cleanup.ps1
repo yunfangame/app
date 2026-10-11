@@ -1,0 +1,247 @@
+﻿param(
+    [Parameter(Mandatory = $true)][string]$BundleDirectory,
+    [Parameter(Mandatory = $true)][string]$EvidenceDirectory
+)
+
+. (Join-Path $PSScriptRoot 'common.ps1')
+$environment = Assert-FwArmRunner
+if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'The harness requires PowerShell 7; the product script is tested with Windows PowerShell 5.1' }
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+try {
+    if (-not ([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'The isolated SCM fixture requires administrator privileges' }
+} finally { $identity.Dispose() }
+$bundle = (Resolve-Path -LiteralPath $BundleDirectory).Path
+$application = Join-Path $bundle 'FengWo.exe'
+$metadata = (Get-Item -LiteralPath $application).VersionInfo
+if ($metadata.CompanyName -cne 'FengWo' -or $metadata.ProductName -cne '蜂窝加速器' -or -not (Get-FwPeIdentity $application).arm64) { throw 'The test requires the real native FengWo application identity' }
+$repositorySource = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../windows/packaging/exe/fengwo_install_cleanup.ps1'))
+$source = Join-Path $bundle 'prerequisites/fengwo_install_cleanup.ps1'
+if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -cne (Get-FileHash -LiteralPath $repositorySource -Algorithm SHA256).Hash) { throw 'The packaged cleanup script differs from the frozen product source' }
+$EvidenceDirectory = [IO.Path]::GetFullPath($EvidenceDirectory)
+[void][IO.Directory]::CreateDirectory($EvidenceDirectory)
+$root = Join-Path $env:RUNNER_TEMP ('fengwo-legacy-cleanup-' + [Guid]::NewGuid().ToString('N'))
+$registryPath = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\728B3532-C74B-4870-9068-BE70FE12A3E6_is1'
+$powershell51 = Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
+if (-not [IO.File]::Exists($powershell51)) { throw 'The native Windows PowerShell executable was not found' }
+$checks = [Collections.Generic.List[object]]::new()
+$cleanupErrors = [Collections.Generic.List[string]]::new()
+$failure = $null
+$created = $false
+$caseRegistryCreated = $false
+$serviceCreated = $false
+$serviceProcess = $null
+$serviceCommand = $null
+$counter = $null
+
+function Open-LegacyRegistry([string]$Hive = 'LocalMachine', [string]$View = 'Registry64') {
+    return [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::$Hive, [Microsoft.Win32.RegistryView]::$View)
+}
+
+function Read-LegacyRegistryTree([string]$Path) {
+    $base = Open-LegacyRegistry
+    try {
+        $key = $base.OpenSubKey($Path)
+        if (-not $key) { return $null }
+        try {
+            $values = @()
+            foreach ($name in @($key.GetValueNames() | Sort-Object)) {
+                $value = $key.GetValue($name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                if ($value -is [byte[]]) { $value = [Convert]::ToBase64String($value) }
+                $values += [ordered]@{ name = $name; kind = $key.GetValueKind($name).ToString(); value = $value }
+            }
+            $children = @()
+            foreach ($name in @($key.GetSubKeyNames() | Sort-Object)) { $children += [ordered]@{ name = $name; tree = (Read-LegacyRegistryTree ($Path + '\' + $name)) } }
+            return [ordered]@{ values = $values; children = $children }
+        } finally { $key.Dispose() }
+    } finally { $base.Dispose() }
+}
+
+function ConvertTo-LegacyArguments([string[]]$Arguments) {
+    return (@($Arguments | ForEach-Object { '"' + ([regex]::Replace(([regex]::Replace($_, '(\\*)"', '$1$1\"')), '(\\+)$', '$1$1')) + '"' }) -join ' ')
+}
+
+function Invoke-LegacyChild([string]$File, [string[]]$Arguments, [string]$Stage, [bool]$ExpectFailure = $false, [int]$TimeoutSeconds = 60) {
+    $process = Start-Process -FilePath $File -ArgumentList (ConvertTo-LegacyArguments $Arguments) -PassThru -RedirectStandardOutput (Join-Path $EvidenceDirectory ($Stage + '-stdout.txt')) -RedirectStandardError (Join-Path $EvidenceDirectory ($Stage + '-stderr.txt'))
+    try {
+        $handle = $process.Handle
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) { $process.Kill(); [void]$process.WaitForExit(5000); throw ('The exact owned child exceeded its deadline: ' + $Stage) }
+        if (($ExpectFailure -and $process.ExitCode -eq 0) -or (-not $ExpectFailure -and $process.ExitCode -ne 0)) { throw ('Unexpected child exit code: ' + $Stage + ' (' + $process.ExitCode + ')') }
+        return $process.ExitCode
+    } finally { $process.Dispose() }
+}
+
+function Invoke-RealLegacyCleanup([string]$Directory, [string]$Operation, [string]$EvidencePath, [string]$Stage, [bool]$ExpectFailure = $false) {
+    $arguments = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $source, '-Operation', $Operation)
+    if ($Operation -ceq 'discover') { $arguments += @('-DiscoveryOutputPath', $EvidencePath) } else { $arguments += @('-InstallDirectory', $Directory, '-OwnershipEvidencePath', $EvidencePath) }
+    [void](Invoke-LegacyChild $powershell51 $arguments $Stage $ExpectFailure)
+}
+
+function Write-LegacyRegistration([string]$DisplayName, [string]$Location) {
+    $base = Open-LegacyRegistry
+    try {
+        $key = $base.CreateSubKey($registryPath)
+        $script:caseRegistryCreated = $true
+        try {
+            $key.SetValue('DisplayName', $DisplayName)
+            $key.SetValue('DisplayVersion', '0.8.97')
+            $key.SetValue('InstallLocation', $Location)
+            $key.SetValue('Inno Setup: App Path', $Location)
+            $key.SetValue('UninstallString', ('"' + (Join-Path $Location 'unins000.exe') + '"'))
+            $key.SetValue('SentinelBinary', [byte[]](0, 1, 255, 42), [Microsoft.Win32.RegistryValueKind]::Binary)
+            $key.SetValue('SentinelDword', 42, [Microsoft.Win32.RegistryValueKind]::DWord)
+            $key.SetValue('SentinelQword', [long]1099511627776, [Microsoft.Win32.RegistryValueKind]::QWord)
+            $key.SetValue('SentinelExpand', '%TEMP%\FlClash', [Microsoft.Win32.RegistryValueKind]::ExpandString)
+            $key.SetValue('SentinelMulti', [string[]]('first', 'second'), [Microsoft.Win32.RegistryValueKind]::MultiString)
+        } finally { $key.Dispose() }
+        $child = $base.CreateSubKey($registryPath + '\sentinel-child')
+        try { $child.SetValue('', 'FOREIGN_SYNTHETIC_REGISTRY') } finally { $child.Dispose() }
+    } finally { $base.Dispose() }
+}
+
+function Start-LegacyService([string]$Directory, [string]$Case) {
+    if (Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'") { throw 'An existing service prevents this SCM fixture stage' }
+    $executable = Join-Path $Directory 'FlClashHelperService.exe'
+    Copy-Item -LiteralPath $script:fixtureExecutable -Destination $executable
+    $script:serviceCommand = '"' + $executable + '"'
+    $script:counter = Join-Path $Directory 'foreign-stop-count.txt'
+    $ready = Join-Path $Directory 'foreign-service-ready.txt'
+    [void](Invoke-LegacyChild 'sc.exe' @('create', 'FlClashHelperService', 'binPath=', $script:serviceCommand, 'start=', 'demand') ($Case + '-create-service'))
+    $script:serviceCreated = $true
+    $registered = Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'"
+    if (-not $registered -or $registered.PathName -cne $script:serviceCommand) { throw 'The newly created SCM fixture path did not verify' }
+    [void](Invoke-LegacyChild 'sc.exe' @('start', 'FlClashHelperService') ($Case + '-start-service'))
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $service = Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'"
+        if ($service -and $service.State -ceq 'Running' -and [IO.File]::Exists($ready) -and [IO.File]::ReadAllText($ready) -ceq ([string]$service.ProcessId)) { break }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if (-not $service -or $service.State -cne 'Running' -or -not [IO.File]::Exists($ready) -or [IO.File]::ReadAllText($ready) -cne ([string]$service.ProcessId)) { throw 'The native no-argument SCM fixture failed to start' }
+    $script:serviceProcess = [Diagnostics.Process]::GetProcessById($service.ProcessId)
+    $handle = $script:serviceProcess.Handle
+    Assert-FwArmProcess $service.ProcessId
+    if ($service.PathName -cne $script:serviceCommand -or [IO.File]::ReadAllText($script:counter) -cne '0') { throw 'The service fixture initial ownership did not verify' }
+}
+
+function Get-LegacyServiceSnapshot {
+    $service = Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'"
+    if (-not $service -or $service.State -cne 'Running' -or $service.ProcessId -ne $script:serviceProcess.Id -or $script:serviceProcess.HasExited) { throw 'The external native service did not remain alive' }
+    if ([IO.File]::ReadAllText($script:counter) -cne '0') { throw 'The product sent STOP to the external native service' }
+    return [ordered]@{ name = $service.Name; pid = $service.ProcessId; path = $service.PathName; state = $service.State; start_mode = $service.StartMode; account = $service.StartName; registry = (Read-LegacyRegistryTree 'SYSTEM\CurrentControlSet\Services\FlClashHelperService'); stop_count = 0 }
+}
+
+function Assert-LegacyRegistryUnchanged([object]$Before, [string]$Stage) {
+    $after = Read-LegacyRegistryTree $registryPath
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory ($Stage + '-registry.json')) $after
+    if (($Before | ConvertTo-Json -Depth 30 -Compress) -cne ($after | ConvertTo-Json -Depth 30 -Compress)) { throw ('The original FlClash uninstall registration changed: ' + $Stage) }
+}
+
+function Remove-LegacyCase([string]$Case) {
+    if ($script:serviceCreated) {
+        $service = Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'"
+        if ($service) {
+            if ($service.PathName -cne $script:serviceCommand) { throw 'The SCM fixture path changed; refusing cleanup of another service owner' }
+            if ($service.State -cne 'Stopped') { [void](Invoke-LegacyChild 'sc.exe' @('stop', 'FlClashHelperService') ($Case + '-cleanup-stop')) }
+            $controller = [ServiceProcess.ServiceController]::new('FlClashHelperService')
+            try { $controller.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(10)) } finally { $controller.Dispose() }
+            [void](Invoke-LegacyChild 'sc.exe' @('delete', 'FlClashHelperService') ($Case + '-cleanup-delete'))
+        }
+        $script:serviceCreated = $false
+    }
+    if ($script:serviceProcess) {
+        try { if (-not $script:serviceProcess.HasExited) { $script:serviceProcess.Kill(); if (-not $script:serviceProcess.WaitForExit(5000)) { throw 'The exact owned SCM fixture PID did not exit' } } } finally { $script:serviceProcess.Dispose(); $script:serviceProcess = $null }
+    }
+    if ($script:caseRegistryCreated) {
+        $base = Open-LegacyRegistry
+        try { $base.DeleteSubKeyTree($registryPath, $false) } finally { $base.Dispose() }
+        $script:caseRegistryCreated = $false
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        if (-not (Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'")) { return }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw 'The owned service fixture registration was not fully removed'
+}
+
+try {
+    if (Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'") { throw 'A pre-existing FlClash service prevents isolation' }
+    foreach ($hive in @('LocalMachine', 'CurrentUser')) {
+        foreach ($view in @('Registry64', 'Registry32')) {
+            $base = Open-LegacyRegistry $hive $view
+            try {
+                foreach ($name in @($registryPath, ($registryPath.Replace('728B3532-', '{728B3532-').Replace('_is1', '}_is1')))) {
+                    $key = $base.OpenSubKey($name)
+                    if ($key) { $key.Dispose(); throw 'A pre-existing original uninstall GUID prevents isolation' }
+                }
+            } finally { $base.Dispose() }
+        }
+    }
+    [void][IO.Directory]::CreateDirectory($root)
+    $created = $true
+    [void](Invoke-LegacyChild $powershell51 @('-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.ToString()') 'powershell51-version')
+    $version = [IO.File]::ReadAllText((Join-Path $EvidenceDirectory 'powershell51-version-stdout.txt')).Trim()
+    if ($version -notmatch '^5\.1\.') { throw ('The product was not tested with real Windows PowerShell 5.1: ' + $version) }
+    $fixtureBuild = Join-Path $root 'fixture-build'
+    if (-not $env:FENGWO_ARM64_CMAKE_GENERATOR) { throw 'The native ARM64 CMake generator is required' }
+    [void](Invoke-LegacyChild 'cmake' @('-S', (Join-Path $PSScriptRoot 'flclash_fixture'), '-B', $fixtureBuild, '-G', $env:FENGWO_ARM64_CMAKE_GENERATOR, '-A', 'ARM64') 'fixture-configure' $false 120)
+    [void](Invoke-LegacyChild 'cmake' @('--build', $fixtureBuild, '--config', 'Release') 'fixture-build' $false 120)
+    $fixtureExecutable = Join-Path $fixtureBuild 'Release/flclash_fixture.exe'
+    if (-not (Get-FwPeIdentity $fixtureExecutable).arm64) { throw 'The SCM fixture is not a native ARM64 executable' }
+    foreach ($case in @('owned-service-foreign-guid', 'external-service', 'unowned-directory', 'owned-legacy-guid')) {
+        $caseDirectory = Join-Path $root $case
+        $honey = Join-Path $caseDirectory 'FengWo'
+        $foreign = Join-Path $caseDirectory 'FlClash'
+        [void][IO.Directory]::CreateDirectory($honey)
+        [void][IO.Directory]::CreateDirectory($foreign)
+        if ($case -cne 'unowned-directory') { Copy-Item -LiteralPath $application -Destination (Join-Path $honey 'FengWo.exe') }
+        $ownedGuid = $case -ceq 'owned-legacy-guid'
+        Write-LegacyRegistration $(if ($ownedGuid) { '蜂窝加速器 1.0.8' } else { 'FlClash 0.8.97' }) $(if ($ownedGuid) { $honey } else { $foreign })
+        $before = Read-LegacyRegistryTree $registryPath
+        Save-FwArmEvidence (Join-Path $EvidenceDirectory ($case + '-registry-before.json')) $before
+        Start-LegacyService $(if ($case -cin @('owned-service-foreign-guid', 'owned-legacy-guid')) { $honey } else { $foreign }) $case
+        try {
+            $evidence = Join-Path $EvidenceDirectory ($case + '-ownership.json')
+            if ($ownedGuid) {
+                $discovery = Join-Path $EvidenceDirectory 'owned-legacy-guid-discovery.txt'
+                Invoke-RealLegacyCleanup '' 'discover' $discovery ($case + '-discover')
+                if (-not [StringComparer]::OrdinalIgnoreCase.Equals([IO.File]::ReadAllText($discovery), $honey)) { throw 'Legacy discovery did not return the exact trusted Honey directory' }
+            }
+            $externalBefore = $null
+            if ($case -cin @('external-service', 'unowned-directory')) { $externalBefore = Get-LegacyServiceSnapshot }
+            Invoke-RealLegacyCleanup $honey 'stop' $evidence ($case + '-stop')
+            $ownership = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
+            if ($case -ceq 'owned-service-foreign-guid') {
+                if (-not $ownership.owned_before_install -or -not $ownership.legacy_service_owned_before_install -or @($ownership.legacy_registrations).Count -ne 0) { throw 'GUID-free Honey service ownership was not captured' }
+            }
+            if ($case -cin @('owned-service-foreign-guid', 'owned-legacy-guid')) {
+                $service = Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'"
+                if (-not $service -or $service.State -cne 'Stopped' -or [IO.File]::ReadAllText($counter) -cne '1' -or -not $serviceProcess.WaitForExit(5000)) { throw 'The owned legacy service did not stop exactly once' }
+            } else {
+                if ($ownership.legacy_service_owned_before_install) { throw 'An external SCM service was incorrectly adopted' }
+                if (($externalBefore | ConvertTo-Json -Depth 30 -Compress) -cne ((Get-LegacyServiceSnapshot) | ConvertTo-Json -Depth 30 -Compress)) { throw 'Stop changed the external service' }
+            }
+            if (-not $ownedGuid) { Assert-LegacyRegistryUnchanged $before ($case + '-after-stop') }
+            Invoke-RealLegacyCleanup $honey 'finalize' $evidence ($case + '-finalize') ($case -ceq 'unowned-directory')
+            if ($case -cin @('owned-service-foreign-guid', 'owned-legacy-guid')) {
+                if (Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'") { throw 'Finalize did not remove the owned legacy SCM registration' }
+                if ([IO.File]::ReadAllText($counter) -cne '1') { throw 'Finalize sent an extra STOP to the owned service' }
+            } else {
+                $after = Get-LegacyServiceSnapshot
+                Save-FwArmEvidence (Join-Path $EvidenceDirectory ($case + '-service-after.json')) $after
+                if (($externalBefore | ConvertTo-Json -Depth 30 -Compress) -cne ($after | ConvertTo-Json -Depth 30 -Compress)) { throw 'Finalize changed the external service' }
+            }
+            if ($ownedGuid) {
+                if ($null -ne (Read-LegacyRegistryTree $registryPath)) { throw 'Finalize left the trusted owned legacy GUID' }
+            } else { Assert-LegacyRegistryUnchanged $before ($case + '-after-finalize') }
+            $checks.Add([ordered]@{ name = $case; passed = $true; powershell = $version; stopped = ($case -cin @('owned-service-foreign-guid', 'owned-legacy-guid')); foreign_guid_preserved = (-not $ownedGuid); owned_guid_removed = $ownedGuid; native_fixture = $true })
+        } finally { Remove-LegacyCase $case }
+    }
+} catch { $failure = $_.Exception.Message } finally {
+    try { if ($created) { Remove-LegacyCase 'final' } } catch { $cleanupErrors.Add($_.Exception.Message) }
+    if ($created) { try { Remove-Item -LiteralPath $root -Recurse -Force } catch { $cleanupErrors.Add($_.Exception.Message) } }
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'legacy-cleanup-verification.json') ([ordered]@{ passed = (-not $failure -and $cleanupErrors.Count -eq 0 -and $checks.Count -eq 4); failure = $failure; cleanup_failures = @($cleanupErrors.ToArray()); checks = @($checks.ToArray()); environment = $environment; product_cleanup_sha256 = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant(); fixture_source_sha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'flclash_fixture/flclash_fixture.cpp') -Algorithm SHA256).Hash.ToLowerInvariant(); synthetic_files_only = $true; application_started = $false; system_proxy_or_tun_started = $false })
+}
+if ($failure) { throw $failure }
+if ($cleanupErrors.Count) { throw ($cleanupErrors -join '; ') }
+if ($checks.Count -ne 4) { throw 'Not all four real PowerShell 5.1 cleanup cases were verified' }

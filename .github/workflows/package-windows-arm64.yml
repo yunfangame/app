@@ -172,6 +172,11 @@ jobs:
         timeout-minutes: 15
         run: |
           ./tooling/windows/arm64/test_flclash_coexistence.ps1 -InstallerPath dist/fengwo-windows-arm64-setup.exe -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'arm64-evidence/coexistence')
+      - name: Verify legacy branded Helper ownership and installation discovery
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          ./tooling/windows/arm64/test_legacy_install_cleanup.ps1 -BundleDirectory build/windows/arm64/runner/Release -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'arm64-evidence/legacy-ownership')
       - name: Verify native named-pipe Helper Core and Wintun adapter
         shell: pwsh
         timeout-minutes: 10

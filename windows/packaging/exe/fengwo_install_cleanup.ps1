@@ -192,16 +192,18 @@ function Invoke-FengWoInstallCleanup {
     if ($identity.owned) { $records = @(Get-FengWoLegacyRegistrations $directoryPath) }
     if ($Action -ceq 'stop') {
         if (-not $EvidencePath) { throw 'Installation ownership evidence path is required' }
-        $evidence = [ordered]@{ directory = $directoryPath; owned_before_install = $identity.owned; legacy_application = $identity.legacy_application; legacy_registrations = $records }
+        $legacyServiceOwned = $false
+        if ($identity.owned) { $legacyServiceOwned = [bool](Get-FengWoOwnedService 'FlClashHelperService' $directoryPath $true) }
+        $evidence = [ordered]@{ directory = $directoryPath; owned_before_install = $identity.owned; legacy_application = $identity.legacy_application; legacy_service_owned_before_install = $legacyServiceOwned; legacy_registrations = $records }
         [IO.File]::WriteAllText($EvidencePath, ($evidence | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
         if (-not $identity.owned) { return }
         $apps = @('FengWo')
         if ($identity.legacy_application) { $apps += 'FlClash' }
         Stop-FengWoOwnedProcesses $directoryPath $apps
         Stop-FengWoOwnedService 'FengWoHelperService' $directoryPath $false
-        Stop-FengWoOwnedService 'FlClashHelperService' $directoryPath ($records.Count -gt 0)
+        Stop-FengWoOwnedService 'FlClashHelperService' $directoryPath $legacyServiceOwned
         $components = @('FengWoCore', 'FengWoHelperService')
-        if ($records.Count -gt 0) { $components += @('FlClashCore', 'FlClashHelperService') }
+        $components += @('FlClashCore', 'FlClashHelperService')
         Stop-FengWoOwnedProcesses $directoryPath $components
         return
     }
@@ -210,8 +212,10 @@ function Invoke-FengWoInstallCleanup {
         if (-not $EvidencePath -or -not [IO.File]::Exists($EvidencePath)) { throw 'Installation ownership evidence is missing' }
         $evidence = [IO.File]::ReadAllText($EvidencePath) | ConvertFrom-Json
         if (-not (Test-FengWoSamePath $evidence.directory $directoryPath)) { throw 'Installation ownership evidence belongs to another path' }
-        if ($evidence.owned_before_install -and @($evidence.legacy_registrations).Count -gt 0) {
+        if ($evidence.owned_before_install -and $evidence.legacy_service_owned_before_install) {
             Remove-FengWoOwnedService 'FlClashHelperService' $directoryPath $true
+        }
+        if ($evidence.owned_before_install -and @($evidence.legacy_registrations).Count -gt 0) {
             Remove-FengWoLegacyRegistrations $directoryPath @($evidence.legacy_registrations)
         }
         return

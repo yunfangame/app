@@ -98,9 +98,22 @@ int wmain(int count, wchar_t** arguments) {
   if (count == 3 && std::wstring(arguments[1]) == L"idle") {
     return Idle(arguments[2]);
   }
-  if (count == 4 && std::wstring(arguments[1]) == L"service") {
-    counter_path = arguments[2];
-    ready_path = arguments[3];
+  if (count == 1 ||
+      (count == 4 && std::wstring(arguments[1]) == L"service")) {
+    if (count == 1) {
+      wchar_t executable[32768]{};
+      const DWORD length = GetModuleFileNameW(nullptr, executable, 32768);
+      if (length == 0 || length >= 32768) return 7;
+      const std::wstring path(executable, length);
+      const auto separator = path.find_last_of(L"\\/");
+      if (separator == std::wstring::npos) return 8;
+      const std::wstring directory = path.substr(0, separator);
+      counter_path = directory + L"\\foreign-stop-count.txt";
+      ready_path = directory + L"\\foreign-service-ready.txt";
+    } else {
+      counter_path = arguments[2];
+      ready_path = arguments[3];
+    }
     SERVICE_TABLE_ENTRYW table[] = {
         {const_cast<LPWSTR>(kServiceName), ServiceMain}, {nullptr, nullptr}};
     return StartServiceCtrlDispatcherW(table) ? 0 : 5;
