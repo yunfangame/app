@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 import 'package:path/path.dart' as path;
 
+import 'windows_identity.dart';
+
 const windowsMediumIntegrityRid = 8192;
 
 final class WindowsIntegritySnapshot {
@@ -102,7 +104,7 @@ WindowsIntegritySnapshot? verifyWindowsStartupIntegrity({
       (roamingDirectory ?? (() => Platform.environment['APPDATA']))();
   final dataDirectory = roaming == null || roaming.trim().isEmpty
       ? null
-      : path.windows.join(roaming, 'com.follow', '蜂窝加速器');
+      : path.windows.join(roaming, windowsDataCompany, windowsDataProduct);
   final unknown = WindowsIntegritySnapshot(
     executablePath: executable,
     dataDirectoryCandidate: dataDirectory,

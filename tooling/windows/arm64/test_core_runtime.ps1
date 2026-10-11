@@ -6,11 +6,11 @@ param(
 . (Join-Path $PSScriptRoot 'common.ps1')
 $environment = Assert-FwArmRunner
 $bundle = (Resolve-Path -LiteralPath $BundleDirectory).Path
-$corePath = Join-Path $bundle 'FlClashCore.exe'
-$helperPath = Join-Path $bundle 'FlClashHelperService.exe'
+$corePath = Join-Path $bundle 'FengWoCore.exe'
+$helperPath = Join-Path $bundle 'FengWoHelperService.exe'
 foreach ($path in @($corePath, $helperPath)) { if (-not (Get-FwPeIdentity $path).arm64) { throw 'The runtime fixture requires native ARM64 Core and Helper binaries' } }
-if (Get-Process -Name FengWo, FlClashCore -ErrorAction SilentlyContinue) { throw 'The runner has another client or Core process; refusing a shared runtime test' }
-$originalService = Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'"
+if (Get-Process -Name FengWo, FengWoCore -ErrorAction SilentlyContinue) { throw 'The runner has another client or Core process; refusing a shared runtime test' }
+$originalService = Get-CimInstance Win32_Service -Filter "Name='FengWoHelperService'"
 if ($originalService -and $originalService.PathName.Trim('"') -ine $helperPath) { throw 'A foreign Helper service is registered' }
 if ($originalService -and $originalService.State -ne 'Stopped') { throw 'A Helper session is already running' }
 Add-Type -Path (Join-Path $PSScriptRoot 'core_fixture.cs')
@@ -129,8 +129,8 @@ rules:
     Invoke-FwHelperCommand 'install'
     $manifest = Get-Content -LiteralPath (Join-Path $bundle 'manifest.json') -Raw | ConvertFrom-Json
     $ping = Invoke-FwHelperHttp 'GET' ('ping?coreSha256=' + $manifest.coreSha256)
-    if ($ping.StatusCode -ne 200 -or $ping.Content.Trim() -ine $helperPath -or $ping.Headers['x-flclash-helper-protocol'] -ne '6') { throw 'The privileged Helper handshake did not verify the installed binary and Core hash' }
-    $service = Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'"
+    if ($ping.StatusCode -ne 200 -or $ping.Content.Trim() -ine $helperPath -or $ping.Headers['x-fengwo-helper-protocol'] -ne '6') { throw 'The privileged Helper handshake did not verify the installed binary and Core hash' }
+    $service = Get-CimInstance Win32_Service -Filter "Name='FengWoHelperService'"
     if ($service.State -ne 'Running' -or $service.PathName.Trim('"') -ine $helperPath) { throw 'The expected native Helper is not running in SCM' }
     Assert-FwArmProcess $service.ProcessId
     $checks.Add([ordered]@{ name = 'native-arm64-helper-scm-and-protocol-six'; passed = $true })

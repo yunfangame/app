@@ -66,7 +66,8 @@ class RustBuilder {
     ];
     final env = {
       'CORE_SHA256': coreSha256,
-      'CORE_NAME': '${config.coreName}${target.executableExtension}',
+      'CORE_NAME':
+          '${config.coreNameForPlatform(target.goos)}${target.executableExtension}',
     };
 
     final srcPath = p.join(
@@ -79,7 +80,7 @@ class RustBuilder {
     final destDir = p.join(_outputPath, target.goos);
     final destPath = p.join(
       destDir,
-      '${config.helperName}${target.executableExtension}',
+      '${config.helperNameForPlatform(target.goos)}${target.executableExtension}',
     );
     return cache.run(
       key: '${target.goos}-${target.goarch}-helper-release',

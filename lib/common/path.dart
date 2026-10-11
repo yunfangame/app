@@ -5,6 +5,8 @@ import 'package:fl_clash/common/common.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'windows_identity.dart';
+
 class AppPath {
   static AppPath? _instance;
   Completer<Directory> dataDir = Completer();
@@ -15,9 +17,20 @@ class AppPath {
 
   AppPath._internal() {
     appDirPath = join(dirname(Platform.resolvedExecutable));
-    _completeDirectory(dataDir, getApplicationSupportDirectory());
+    _completeDirectory(dataDir, _applicationSupportDirectory());
     _completeDirectory(tempDir, getTemporaryDirectory());
     _completeDirectory(cacheDir, getApplicationCacheDirectory());
+  }
+
+  static Future<Directory> _applicationSupportDirectory() async {
+    final directory = await getApplicationSupportDirectory();
+    if (!Platform.isWindows) return directory;
+    return prepareWindowsDataDirectory(
+      destination: directory,
+      legacy: Directory(
+        join(directory.parent.parent.path, 'com.follow', windowsDataProduct),
+      ),
+    );
   }
 
   static void _completeDirectory(
@@ -49,7 +62,8 @@ class AppPath {
   }
 
   String get corePath {
-    return join(executableDirPath, 'FlClashCore$executableExtension');
+    final name = system.isWindows ? 'FengWoCore' : 'FlClashCore';
+    return join(executableDirPath, '$name$executableExtension');
   }
 
   String get helperPath {
@@ -88,7 +102,7 @@ class AppPath {
 
   Future<String> get lockFilePath async {
     final homeDirPath = await appPath.homeDirPath;
-    return join(homeDirPath, 'FlClash.lock');
+    return join(homeDirPath, system.isWindows ? 'FengWo.lock' : 'FlClash.lock');
   }
 
   Future<String> get configFilePath async {

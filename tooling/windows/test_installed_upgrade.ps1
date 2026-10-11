@@ -40,7 +40,7 @@ function Install-TestPackage([string]$PackagePath = $InstallerPath, [string]$Sta
 
 function Read-InstalledIdentity([string]$ExpectedVersion) {
   $application = Get-Item -LiteralPath (Join-Path $installDirectory 'FengWo.exe')
-  if ($application.VersionInfo.CompanyName -cne 'com.follow' -or $application.VersionInfo.ProductName -cne '蜂窝加速器') {
+  if ($application.VersionInfo.CompanyName -cne 'FengWo' -or $application.VersionInfo.ProductName -cne '蜂窝加速器') {
     throw 'Unexpected application identity; refusing to modify the test profile'
   }
   if ($application.VersionInfo.ProductVersion -cne $ExpectedVersion -or $application.VersionInfo.FileVersion -cne $ExpectedVersion) {
@@ -82,7 +82,7 @@ function Read-InstalledIdentity([string]$ExpectedVersion) {
 }
 
 function Stop-TestApplication {
-  $processes = @(Get-Process FengWo, FlClashCore -ErrorAction SilentlyContinue)
+  $processes = @(Get-Process FengWo, FengWoCore -ErrorAction SilentlyContinue)
   foreach ($process in $processes) {
     $process | Stop-Process -Force -ErrorAction SilentlyContinue
     if (-not $process.WaitForExit(5000)) { throw 'Test application did not exit' }

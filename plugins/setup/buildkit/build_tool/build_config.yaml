@@ -2,8 +2,10 @@ tags: with_gvisor
 go_ldflags: "-w -s"
 core_dir: core
 core_name: FlClashCore
+windows_core_name: FengWoCore
 lib_name: libclash
 output_dir: libclash
 helper_dir: services/helper
 helper_name: FlClashHelperService
+windows_helper_name: FengWoHelperService
 dist_dir: dist

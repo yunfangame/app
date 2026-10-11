@@ -11,8 +11,8 @@ function(apply_buildkit)
 
   if(WIN32)
     set(_outputs
-      "${PROJECT_ROOT}/libclash/windows/FlClashCore.exe"
-      "${PROJECT_ROOT}/libclash/windows/FlClashHelperService.exe"
+      "${PROJECT_ROOT}/libclash/windows/FengWoCore.exe"
+      "${PROJECT_ROOT}/libclash/windows/FengWoHelperService.exe"
       "${PROJECT_ROOT}/libclash/windows/manifest.json"
     )
     if(FLUTTER_TARGET_PLATFORM STREQUAL "windows-arm64")

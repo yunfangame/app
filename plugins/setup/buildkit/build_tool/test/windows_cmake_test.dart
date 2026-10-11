@@ -16,13 +16,23 @@ void main() {
 
   tearDown(() => root.deleteSync(recursive: true));
 
+  test('Windows bundle installs the generated branded Core and Helper', () {
+    final plugin = File(p.join('..', '..', 'windows', 'CMakeLists.txt'))
+        .readAsStringSync();
+    expect(plugin, contains('libclash/windows/FengWoCore.exe'));
+    expect(plugin, contains('libclash/windows/FengWoHelperService.exe'));
+    expect(plugin, isNot(contains('libclash/windows/FlClashCore.exe')));
+    expect(
+        plugin, isNot(contains('libclash/windows/FlClashHelperService.exe')));
+  });
+
   Future<ProcessResult> configure(
-      {String? target, String? generatorArch}) async {
+      {String? target, String? generatorArch, bool windows = true}) async {
     final source = File(p.join(root.path, 'windows', 'CMakeLists.txt'));
     source.writeAsStringSync([
       'cmake_minimum_required(VERSION 3.15)',
       'project(WindowsBuildkitFixture NONE)',
-      'set(WIN32 TRUE)',
+      'set(WIN32 ${windows ? 'TRUE' : 'FALSE'})',
       if (target != null) 'set(FLUTTER_TARGET_PLATFORM "$target")',
       if (generatorArch != null)
         'set(CMAKE_GENERATOR_PLATFORM "$generatorArch")',
@@ -48,11 +58,24 @@ void main() {
       final rules =
           File(p.join(root.path, 'build', 'build.ninja')).readAsStringSync();
       expect(rules, contains('windows --arch ${entry.value}'));
-      expect(rules, contains('FlClashCore.exe'));
-      expect(rules, contains('FlClashHelperService.exe'));
+      expect(rules, contains('FengWoCore.exe'));
+      expect(rules, contains('FengWoHelperService.exe'));
+      expect(rules, isNot(contains('FlClashCore.exe')));
+      expect(rules, isNot(contains('FlClashHelperService.exe')));
       expect(rules, contains('manifest.json'));
     });
   }
+
+  test('Linux output remains unchanged by the Windows identity', () async {
+    final result = await configure(windows: false);
+
+    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+    final rules =
+        File(p.join(root.path, 'build', 'build.ninja')).readAsStringSync();
+    expect(rules, contains('libclash/linux/FlClashCore'));
+    expect(rules, isNot(contains('FengWoCore')));
+    expect(rules, isNot(contains('FengWoHelperService')));
+  });
 
   test('CMake uses ARM64 generator only without a Flutter target', () async {
     final result = await configure(generatorArch: 'ARM64');

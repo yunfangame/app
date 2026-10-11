@@ -28,7 +28,7 @@ void main() {
     staleHost.parent.createSync(recursive: true);
     staleHost.writeAsStringSync('stale host executable');
     output = File(
-        p.join(root.path, 'libclash', 'windows', 'FlClashHelperService.exe'));
+        p.join(root.path, 'libclash', 'windows', 'FengWoHelperService.exe'));
     builds = [];
     buildEnvironments = [];
     produceOutput = true;
@@ -82,7 +82,7 @@ void main() {
         p.join(root.path, 'services', 'helper', 'target'));
     expect(output.readAsStringSync(), 'aarch64-pc-windows-msvc:core-a');
     expect(buildEnvironments.single,
-        {'CORE_SHA256': 'core-a', 'CORE_NAME': 'FlClashCore.exe'});
+        {'CORE_SHA256': 'core-a', 'CORE_NAME': 'FengWoCore.exe'});
   });
 
   test('x64 build keeps the matching MSVC Helper target', () async {

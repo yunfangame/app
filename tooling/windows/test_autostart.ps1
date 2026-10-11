@@ -32,7 +32,7 @@ $foreignCommand = '"C:\Another Installation\FlClash.exe"'
 $foreignApproved = [byte[]](3,0,0,0,0,0,0,0,0,0,0,0)
 
 function Stop-TestApplication {
-    foreach ($process in @(Get-Process FengWo, FlClashCore -ErrorAction SilentlyContinue)) {
+    foreach ($process in @(Get-Process FengWo, FengWoCore -ErrorAction SilentlyContinue)) {
         if ($process.Path -and $process.Path.StartsWith($installDirectory + '\', [StringComparison]::OrdinalIgnoreCase)) {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
             if (-not $process.WaitForExit(5000)) { throw 'Autostart test process did not exit' }
@@ -77,7 +77,7 @@ try {
     $keys[$approvedPath].SetValue('FlClash', $foreignApproved, [Microsoft.Win32.RegistryValueKind]::Binary)
     Install-TestPackage
     $application = Get-Item -LiteralPath $applicationPath
-    if ($application.VersionInfo.CompanyName -cne 'com.follow' -or [string]::IsNullOrWhiteSpace($application.VersionInfo.ProductName)) { throw 'Unexpected application identity' }
+    if ($application.VersionInfo.CompanyName -cne 'FengWo' -or [string]::IsNullOrWhiteSpace($application.VersionInfo.ProductName)) { throw 'Unexpected application identity' }
     if ($keys[$runPath].GetValue('FengWo') -ne $null -or $keys[$approvedPath].GetValue('FengWo') -ne $null) { throw 'Fresh install enabled auto launch by default' }
     Assert-ForeignRegistration
     $results.Add(@{case='fresh-install-default-disabled'; passed=$true})

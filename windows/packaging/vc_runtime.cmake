@@ -48,6 +48,7 @@ install(FILES
 install(FILES
   "${CMAKE_CURRENT_LIST_DIR}/exe/vc_runtime_code.iss"
   "${CMAKE_CURRENT_LIST_DIR}/exe/install_integrity_code.iss"
+  "${CMAKE_CURRENT_LIST_DIR}/exe/fengwo_install_cleanup.ps1"
   DESTINATION "${INSTALL_BUNDLE_LIB_DIR}/prerequisites"
   CONFIGURATIONS Profile Release
   COMPONENT Runtime)

@@ -215,7 +215,7 @@ class BuildWindowsCommand extends BuildCommand {
               await Process.run('taskkill', [
                 '/F',
                 '/IM',
-                '${config.helperName}${targets.first.executableExtension}',
+                '${config.helperNameForPlatform(targets.first.goos)}${targets.first.executableExtension}',
               ]);
             }
           : null,

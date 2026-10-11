@@ -5,7 +5,7 @@ param(
 
 . (Join-Path $PSScriptRoot 'common.ps1')
 $environment = Assert-FwArmRunner
-if (Get-Process -Name FengWo, FlClashCore -ErrorAction SilentlyContinue) { throw 'Another client is running; refusing the isolated installation fixture' }
+if (Get-Process -Name FengWo, FengWoCore -ErrorAction SilentlyContinue) { throw 'Another client is running; refusing the isolated installation fixture' }
 $windowsTools = Split-Path -Parent $PSScriptRoot
 $checks = New-Object 'Collections.Generic.List[object]'
 $failure = $null

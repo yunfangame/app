@@ -11,10 +11,12 @@ class BuildConfig {
   final String goLdflags;
   final String coreDir;
   final String coreName;
+  final String windowsCoreName;
   final String libName;
   final String outputDir;
   final String helperDir;
   final String helperName;
+  final String windowsHelperName;
   final String distDir;
 
   const BuildConfig({
@@ -22,10 +24,12 @@ class BuildConfig {
     required this.goLdflags,
     required this.coreDir,
     required this.coreName,
+    this.windowsCoreName = 'FengWoCore',
     required this.libName,
     required this.outputDir,
     required this.helperDir,
     required this.helperName,
+    this.windowsHelperName = 'FengWoHelperService',
     required this.distDir,
   });
 
@@ -55,23 +59,35 @@ class BuildConfig {
       goLdflags: yaml['go_ldflags'] as String? ?? _defaults.goLdflags,
       coreDir: yaml['core_dir'] as String? ?? _defaults.coreDir,
       coreName: yaml['core_name'] as String? ?? _defaults.coreName,
+      windowsCoreName:
+          yaml['windows_core_name'] as String? ?? _defaults.windowsCoreName,
       libName: yaml['lib_name'] as String? ?? _defaults.libName,
       outputDir: yaml['output_dir'] as String? ?? _defaults.outputDir,
       helperDir: yaml['helper_dir'] as String? ?? _defaults.helperDir,
       helperName: yaml['helper_name'] as String? ?? _defaults.helperName,
+      windowsHelperName:
+          yaml['windows_helper_name'] as String? ?? _defaults.windowsHelperName,
       distDir: yaml['dist_dir'] as String? ?? _defaults.distDir,
     );
   }
+
+  String coreNameForPlatform(String platform) =>
+      platform == 'windows' ? windowsCoreName : coreName;
+
+  String helperNameForPlatform(String platform) =>
+      platform == 'windows' ? windowsHelperName : helperName;
 
   Map<String, String> toFingerprintMap() => {
         'tags': tags,
         'go_ldflags': goLdflags,
         'core_dir': coreDir,
         'core_name': coreName,
+        'windows_core_name': windowsCoreName,
         'lib_name': libName,
         'output_dir': outputDir,
         'helper_dir': helperDir,
         'helper_name': helperName,
+        'windows_helper_name': windowsHelperName,
         'dist_dir': distDir,
       };
 }

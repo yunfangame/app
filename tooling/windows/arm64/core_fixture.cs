@@ -21,7 +21,7 @@ namespace FengWoArm64Tests {
 
         public CorePipe() {
             SessionId = Guid.NewGuid().ToString("N");
-            string name = "FlClashCore_" + SessionId;
+            string name = "FengWoCore_" + SessionId;
             Address = @"\\.\pipe\" + name;
             pipe = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
             connection = Task.Factory.FromAsync(pipe.BeginWaitForConnection, pipe.EndWaitForConnection, null);

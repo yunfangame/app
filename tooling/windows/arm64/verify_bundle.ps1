@@ -76,13 +76,13 @@ try {
     if ($dumpbinCandidates.Count -eq 0) { throw 'The native ARM64 import verification tool is missing' }
     $dumpbin = $dumpbinCandidates[0].FullName
     if (-not (Get-FwPeIdentity $dumpbin).arm64) { throw 'Import verification requires native ARM64 dumpbin' }
-    foreach ($name in @('FengWo.exe', 'FlClashCore.exe', 'FlClashHelperService.exe', 'flutter_windows.dll', 'rust_api.dll', 'wifi_ssid_plugin.dll', 'quickjs_c_bridge.dll', 'manifest.json')) {
+    foreach ($name in @('FengWo.exe', 'FengWoCore.exe', 'FengWoHelperService.exe', 'flutter_windows.dll', 'rust_api.dll', 'wifi_ssid_plugin.dll', 'quickjs_c_bridge.dll', 'manifest.json')) {
         if (-not (Test-Path -LiteralPath (Join-Path $bundle $name) -PathType Leaf)) { throw ('Required ARM64 bundle file is missing: ' + $name) }
     }
     $application = Get-Item -LiteralPath (Join-Path $bundle 'FengWo.exe')
     if ($application.VersionInfo.ProductVersion -cne $ExpectedVersion -or $application.VersionInfo.FileVersion -cne $ExpectedVersion -or $application.VersionInfo.ProductName -cne '蜂窝加速器') { throw 'The application version or product identity is incorrect' }
     $manifest = Get-Content -LiteralPath (Join-Path $bundle 'manifest.json') -Raw | ConvertFrom-Json
-    $core = Get-FwPeIdentity (Join-Path $bundle 'FlClashCore.exe')
+    $core = Get-FwPeIdentity (Join-Path $bundle 'FengWoCore.exe')
     if ($manifest.coreSha256 -cne $core.sha256) { throw 'The packaged Core hash is not the manifest hash' }
     foreach ($file in @(Get-ChildItem -LiteralPath $bundle -File -Recurse)) {
         $relative = $file.FullName.Substring($bundle.Length).TrimStart('\', '/')

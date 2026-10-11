@@ -9,19 +9,19 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:flutter/material.dart';
 
-const appName = 'FlClash';
+const appName = 'FengWo';
 const trayName = 'FengWo';
 const windowsTunDeviceName = 'FengWoMeta';
-const appHelperService = 'FlClashHelperService';
+const appHelperService = 'FengWoHelperService';
 const coreManifestName = 'manifest.json';
 const coreName = 'clash.meta';
 const browserUa =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const packageName = 'com.follow.clash';
 final unixSocketPath = '/tmp/FlClashSocket_${Random().nextInt(10000)}.sock';
-final windowsPipeName = '\\\\.\\pipe\\FlClashCore_${_randomPipeId()}';
+final windowsPipeName = '\\\\.\\pipe\\FengWoCore_${_randomPipeId()}';
 const helperPort = 47906;
-const helperProtocolVersionHeader = 'x-flclash-helper-protocol';
+const helperProtocolVersionHeader = 'x-fengwo-helper-protocol';
 const helperProtocolVersion = '6';
 const maxTextScale = 1.4;
 const minTextScale = 0.8;

@@ -35,8 +35,15 @@ Future<void> main() async {
         operation: () async => verifyWindowsStartupIntegrity(),
         onStart: (stage) => startupStage.value = '$stage…',
       );
+      await runStartupStage<Directory>(
+        stage: '准备蜂窝独立数据目录',
+        timeout: const Duration(minutes: 2),
+        operation: () => appPath.dataDir.future,
+        onStart: (stage) => startupStage.value = '$stage…',
+      );
       installWindowsPreferencesStore(
         store: WindowsPreferencesStore(
+          directoryLoader: () => appPath.dataDir.future,
           onDiagnostic: (error) {
             unawaited(
               diagnosticLog.record(

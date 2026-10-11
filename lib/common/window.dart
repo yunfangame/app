@@ -8,6 +8,8 @@ import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_ext/window_ext.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'windows_identity.dart';
+
 class Window {
   static Window? _instance;
   final bool _isWindows;
@@ -28,9 +30,7 @@ class Window {
       exit(0);
     }
     if (system.isWindows) {
-      protocol.register('clash');
-      protocol.register('clashmeta');
-      protocol.register('flclash');
+      protocol.register(windowsUrlScheme);
     }
     await windowManager.ensureInitialized();
     final WindowOptions windowOptions = WindowOptions(

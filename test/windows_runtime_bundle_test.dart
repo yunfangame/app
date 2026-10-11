@@ -52,6 +52,10 @@ void main() {
       'integrity logic',
     );
     await write(
+      'windows/packaging/exe/fengwo_install_cleanup.ps1',
+      'owned installation cleanup',
+    );
+    await write(
       '.dart_tool/windows_runtime/$architecture/vc_runtime.iss',
       'metadata',
     );
@@ -126,6 +130,7 @@ include(windows/packaging/vc_runtime.cmake)
           'prerequisites/vc_runtime.iss',
           'prerequisites/vc_runtime_code.iss',
           'prerequisites/install_integrity_code.iss',
+          'prerequisites/fengwo_install_cleanup.ps1',
         ]) {
           expect(
             File(p.join(root.path, config, relativePath)).existsSync(),
