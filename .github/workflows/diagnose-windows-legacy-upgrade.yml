@@ -35,6 +35,14 @@ jobs:
           name: fengwo-windows-x64-chain-test-unsigned-38143776926
           path: ${{ runner.temp }}/built-candidate
 
+      - name: Download the real October 7 legacy Helper and Core
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: '37602827410'
+          name: fengwo-windows-amd64
+          path: ${{ runner.temp }}/real-old-package
+
       - name: Verify reused build and run the real SCM upgrade diagnostic
         env:
           GH_TOKEN: ${{ github.token }}
@@ -62,8 +70,26 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $installations.Count -ne 1) { throw 'The native Visual Studio installation was not found' }
           $major = ([version]$installations[0].installationVersion).Major
           $generator = switch ($major) { 17 { 'Visual Studio 17 2022' }; 18 { 'Visual Studio 18 2026' }; default { throw 'Unsupported native Visual Studio generator' } }
-          Save-FwArmEvidence (Join-Path $evidence 'provenance.json') ([ordered]@{ built_run_id = '38143776926'; package_build_sha = $run.head_sha; verification_source_sha = $env:GITHUB_SHA; installer_sha256 = $expectedHash; installer_bytes = 63966869; cleanup_source_sha256 = $cleanupSource[0].sha256; environment = $environment; public_network_or_customer_account_used = $false })
-          ./tooling/windows/real/test_legacy_running_upgrade.ps1 -InstallerPath $installers[0].FullName -EvidenceDirectory $evidence -Generator $generator -ExpectedInstallerSha256 $expectedHash -ExpectedInstallerBytes 63966869
+          $oldRun = Invoke-RestMethod -Uri ('https://api.github.com/repos/' + $env:GITHUB_REPOSITORY + '/actions/runs/37602827410') -Headers @{ Authorization = 'Bearer ' + $env:GH_TOKEN; Accept = 'application/vnd.github+json' }
+          if ($oldRun.conclusion -cne 'success' -or $oldRun.head_sha -cne '9a71d2e4bd155aa8f61af08ec081642cb71da84c') { throw 'The real old build provenance differs from the October 7 release' }
+          $oldArchives = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'real-old-package') -Recurse -File -Filter 'fengwo-windows-amd64-release-unsigned.zip')
+          $oldRecords = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'real-old-package') -Recurse -File -Filter 'windows-build.json')
+          $oldArchiveHash = '75071df1a50e40fe6d4d0a82d60289036bd9ab7130bd99ee497d6f617b04aa00'
+          if ($oldArchives.Count -ne 1 -or $oldRecords.Count -ne 1 -or (Get-FileHash $oldArchives[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $oldArchiveHash) { throw 'The real old release payload archive does not verify' }
+          $oldRecord = Get-Content $oldRecords[0].FullName -Raw | ConvertFrom-Json
+          if ($oldRecord.source_sha -cne $oldRun.head_sha -or $oldRecord.actual_product_version -cne '1.0.8+17') { throw 'The old release metadata did not match its build' }
+          $oldBundle = Join-Path $env:RUNNER_TEMP 'real-old-binaries'
+          [void][IO.Directory]::CreateDirectory($oldBundle)
+          $archive = [IO.Compression.ZipFile]::OpenRead($oldArchives[0].FullName)
+          try {
+            foreach ($name in @('FlClashCore.exe', 'FlClashHelperService.exe', 'manifest.json')) {
+              $entry = $archive.GetEntry($name)
+              if (-not $entry) { throw ('The old release component is missing: ' + $name) }
+              [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $oldBundle $name), $false)
+            }
+          } finally { $archive.Dispose() }
+          Save-FwArmEvidence (Join-Path $evidence 'provenance.json') ([ordered]@{ built_run_id = '38143776926'; package_build_sha = $run.head_sha; verification_source_sha = $env:GITHUB_SHA; installer_sha256 = $expectedHash; installer_bytes = 63966869; cleanup_source_sha256 = $cleanupSource[0].sha256; legacy_run_id = '37602827410'; legacy_source_sha = $oldRun.head_sha; legacy_archive_sha256 = $oldArchiveHash; legacy_actual_product_version = $oldRecord.actual_product_version; environment = $environment; public_network_or_customer_account_used = $false })
+          ./tooling/windows/real/test_legacy_running_upgrade.ps1 -InstallerPath $installers[0].FullName -EvidenceDirectory $evidence -Generator $generator -ExpectedInstallerSha256 $expectedHash -ExpectedInstallerBytes 63966869 -RealLegacyBundleDirectory $oldBundle
 
       - name: Upload only synthetic upgrade diagnostics
         if: always()

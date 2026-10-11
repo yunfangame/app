@@ -3,7 +3,8 @@
     [Parameter(Mandatory = $true)][string]$EvidenceDirectory,
     [Parameter(Mandatory = $true)][string]$Generator,
     [Parameter(Mandatory = $true)][string]$ExpectedInstallerSha256,
-    [Parameter(Mandatory = $true)][long]$ExpectedInstallerBytes
+    [Parameter(Mandatory = $true)][long]$ExpectedInstallerBytes,
+    [string]$RealLegacyBundleDirectory
 )
 
 . (Join-Path $PSScriptRoot '../arm64/common.ps1')
@@ -34,6 +35,19 @@ $gui = $null
 $core = $null
 $serviceProcess = $null
 $pipe = $null
+$realLegacy = -not [string]::IsNullOrWhiteSpace($RealLegacyBundleDirectory)
+$legacyCoreHash = $null
+$helperCycles = [Collections.Generic.List[object]]::new()
+
+function Invoke-UpgradeHelper([string]$Endpoint, [AllowNull()][object]$Body, [string]$Stage) {
+    $arguments = @{ Uri = ('http://127.0.0.1:47906/' + $Endpoint); NoProxy = $true; TimeoutSec = 5; ErrorAction = 'Stop' }
+    if ($null -ne $Body) { $arguments.Method = 'Post'; $arguments.ContentType = 'application/json'; $arguments.Body = ($Body | ConvertTo-Json -Compress) }
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    $response = Invoke-WebRequest @arguments
+    $result = [ordered]@{ stage = $Stage; http_status = [int]$response.StatusCode; protocol = ($response.Headers['x-flclash-helper-protocol'] -join ''); body = [string]$response.Content; elapsed_ms = $watch.ElapsedMilliseconds }
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory ($Stage + '-helper-response.json')) $result
+    return $result
+}
 
 function ConvertTo-UpgradeArguments([string[]]$Arguments) {
     return (@($Arguments | ForEach-Object { '"' + ([regex]::Replace(([regex]::Replace($_, '(\\*)"', '$1$1\"')), '(\\+)$', '$1$1')) + '"' }) -join ' ')
@@ -74,7 +88,12 @@ function Start-UpgradeComponents([string]$Stage) {
         $service = Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'"
         $ready = Join-Path $legacyDirectory 'foreign-service-ready.txt'
         $readyText = $null
-        if (Test-Path -LiteralPath $ready -PathType Leaf) { try { $readyText = [IO.File]::ReadAllText($ready) } catch [IO.IOException] {} }
+        if ($realLegacy -and $service -and $service.State -ceq 'Running') {
+            try {
+                $ping = Invoke-UpgradeHelper ('ping?coreSha256=' + $legacyCoreHash) $null ($Stage + '-ping')
+                if ($ping.http_status -eq 200 -and $ping.protocol -ceq '6' -and [StringComparer]::OrdinalIgnoreCase.Equals($ping.body.Trim(), (Join-Path $legacyDirectory 'FlClashHelperService.exe'))) { $readyText = [string]$service.ProcessId }
+            } catch {}
+        } elseif (Test-Path -LiteralPath $ready -PathType Leaf) { try { $readyText = [IO.File]::ReadAllText($ready) } catch [IO.IOException] {} }
         if ($service -and $service.State -ceq 'Running' -and $service.ProcessId -gt 0 -and $readyText -ceq [string]$service.ProcessId) { break }
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
@@ -88,7 +107,14 @@ function Start-UpgradeComponents([string]$Stage) {
     while (-not (Test-Path -LiteralPath (Join-Path $legacyDirectory 'gui-ready.txt') -PathType Leaf) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
     if ($script:gui.HasExited -or -not (Test-Path -LiteralPath (Join-Path $legacyDirectory 'gui-ready.txt') -PathType Leaf)) { throw 'The owned legacy GUI fixture did not start' }
     $script:pipe = [FengWoRealWindowsTests.CorePipe]::new('FlClash')
-    $script:core = Start-Process -FilePath (Join-Path $legacyDirectory 'FlClashCore.exe') -ArgumentList $script:pipe.Address -PassThru -RedirectStandardOutput (Join-Path $EvidenceDirectory ($Stage + '-core-stdout.txt')) -RedirectStandardError (Join-Path $EvidenceDirectory ($Stage + '-core-stderr.txt'))
+    if ($realLegacy) {
+        $started = Invoke-UpgradeHelper 'start' @{ address = $script:pipe.Address; sessionId = $script:pipe.SessionId } ($Stage + '-start')
+        $startValue = $started.body | ConvertFrom-Json
+        if ($started.http_status -ne 200 -or $startValue.sessionId -cne $script:pipe.SessionId -or $startValue.pid -le 0) { throw 'The actual legacy Helper did not return its owned Core session and PID' }
+        $script:core = [Diagnostics.Process]::GetProcessById([int]$startValue.pid)
+    } else {
+        $script:core = Start-Process -FilePath (Join-Path $legacyDirectory 'FlClashCore.exe') -ArgumentList $script:pipe.Address -PassThru -RedirectStandardOutput (Join-Path $EvidenceDirectory ($Stage + '-core-stdout.txt')) -RedirectStandardError (Join-Path $EvidenceDirectory ($Stage + '-core-stderr.txt'))
+    }
     $handle = $script:core.Handle
     [void]$script:pipe.Accept($script:core.Id, 10000)
     $request = @{ id = ('upgrade-' + $Stage); method = 'getIsInit'; arguments = $null }
@@ -175,8 +201,19 @@ END
     Assert-UpgradeChild (Invoke-UpgradeChild 'cmake' @('--build', (Join-Path $scratch 'build'), '--config', 'Release') 'fixture-build')
     [void][IO.Directory]::CreateDirectory($legacyDirectory)
     $directoryCreated = $true
-    foreach ($name in @('FlClash.exe', 'FlClashHelperService.exe')) { Copy-Item -LiteralPath (Join-Path $scratch 'build/Release/legacy_fixture.exe') -Destination (Join-Path $legacyDirectory $name) }
-    Copy-Item -LiteralPath (Join-Path $payloadDirectory 'FengWoCore.exe') -Destination (Join-Path $legacyDirectory 'FlClashCore.exe')
+    Copy-Item -LiteralPath (Join-Path $scratch 'build/Release/legacy_fixture.exe') -Destination (Join-Path $legacyDirectory 'FlClash.exe')
+    if ($realLegacy) {
+        $oldBundle = (Resolve-Path -LiteralPath $RealLegacyBundleDirectory).Path
+        foreach ($name in @('FlClashHelperService.exe', 'FlClashCore.exe', 'manifest.json')) { Copy-Item -LiteralPath (Join-Path $oldBundle $name) -Destination (Join-Path $legacyDirectory $name) }
+        $legacyCoreHash = (Get-FileHash (Join-Path $legacyDirectory 'FlClashCore.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+        $legacyManifest = Get-Content -LiteralPath (Join-Path $legacyDirectory 'manifest.json') -Raw | ConvertFrom-Json
+        if ($legacyManifest.coreSha256 -cne $legacyCoreHash) { throw 'The real old Helper manifest does not match its old Core' }
+        foreach ($name in @('FlClashCore.exe', 'FlClashHelperService.exe')) { if (-not (Get-FwPeIdentity (Join-Path $legacyDirectory $name)).x64) { throw 'The real old binaries must be native x64' } }
+        Save-FwArmEvidence (Join-Path $EvidenceDirectory 'real-old-binaries.json') ([ordered]@{ core = (Get-FwPeIdentity (Join-Path $legacyDirectory 'FlClashCore.exe')); helper = (Get-FwPeIdentity (Join-Path $legacyDirectory 'FlClashHelperService.exe')); manifest_core_sha256 = $legacyManifest.coreSha256 })
+    } else {
+        Copy-Item -LiteralPath (Join-Path $scratch 'build/Release/legacy_fixture.exe') -Destination (Join-Path $legacyDirectory 'FlClashHelperService.exe')
+        Copy-Item -LiteralPath (Join-Path $payloadDirectory 'FengWoCore.exe') -Destination (Join-Path $legacyDirectory 'FlClashCore.exe')
+    }
     $metadata = (Get-Item -LiteralPath (Join-Path $legacyDirectory 'FlClash.exe')).VersionInfo
     Save-FwArmEvidence (Join-Path $EvidenceDirectory 'legacy-product-metadata.json') ([ordered]@{ company = $metadata.CompanyName; product = $metadata.ProductName; file_version = $metadata.FileVersion; product_version = $metadata.ProductVersion; internal_name = $metadata.InternalName; language = $metadata.Language })
     Copy-Item -LiteralPath (Join-Path $scratch 'brand.rc') -Destination (Join-Path $EvidenceDirectory 'synthetic-brand.rc')
@@ -204,7 +241,30 @@ END
     $result = Invoke-UpgradeChild $powershell51 @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $source, '-InstallDirectory', $legacyDirectory, '-Operation', 'stop', '-OwnershipEvidencePath', (Join-Path $EvidenceDirectory 'already-stopped-ownership.json')) 'already-stopped'
     Assert-UpgradeChild $result
     $checks.Add([ordered]@{ name = 'already-stopped-idempotent-ps51-stop'; passed = $true; result = $result })
-    Start-UpgradeComponents 'actual-upgrade'
+    if ($realLegacy) {
+        Start-UpgradeComponents 'real-helper-cycle'
+        for ($iteration = 1; $iteration -le 20; $iteration++) {
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            $session = $pipe.SessionId
+            $oldPid = $core.Id
+            $stopped = Invoke-UpgradeHelper 'stop' @{ sessionId = $session } ('real-helper-stop-' + $iteration)
+            $value = $stopped.body | ConvertFrom-Json
+            if ($stopped.http_status -ne 200 -or $value.sessionId -cne $session -or $value.stopped -ne $true -or -not $core.WaitForExit(5000)) { throw 'The actual old Helper failed its owned Core stop protocol' }
+            $core.Dispose(); $script:core = $null
+            $pipe.Dispose(); $script:pipe = $null
+            $helperCycles.Add([ordered]@{ iteration = $iteration; stopped_core_pid = $oldPid; elapsed_ms = $watch.ElapsedMilliseconds; success = $true })
+            $script:pipe = [FengWoRealWindowsTests.CorePipe]::new('FlClash')
+            $started = Invoke-UpgradeHelper 'start' @{ address = $pipe.Address; sessionId = $pipe.SessionId } ('real-helper-restart-' + $iteration)
+            $value = $started.body | ConvertFrom-Json
+            if ($started.http_status -ne 200 -or $value.sessionId -cne $pipe.SessionId -or $value.pid -le 0) { throw 'The actual old Helper failed to restart its managed Core' }
+            $script:core = [Diagnostics.Process]::GetProcessById([int]$value.pid)
+            $handle = $core.Handle
+            [void]$pipe.Accept($core.Id, 10000)
+        }
+        $logs = Invoke-UpgradeHelper 'logs' $null 'real-helper-before-scm-stop'
+        if ($logs.body -match 'Core did not exit after termination|Helper could not stop|Helper could not release') { throw 'The actual old Helper reported a Core termination failure' }
+        $checks.Add([ordered]@{ name = 'real-old-helper-twenty-core-stop-restart'; passed = $true; cycles = @($helperCycles.ToArray()); helper_pid = $serviceProcess.Id })
+    } else { Start-UpgradeComponents 'actual-upgrade' }
     $result = Invoke-UpgradeChild $installer.FullName @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR=' + $legacyDirectory), '/TASKS=', ('/LOG=' + (Join-Path $EvidenceDirectory 'actual-upgrade-installation.log'))) 'actual-upgrade'
     [void](Get-UpgradeState 'actual-upgrade-result')
     Assert-UpgradeChild $result
@@ -235,8 +295,9 @@ END
     if ($oldRegistryCreated) { try { $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64); try { $base.DeleteSubKeyTree($oldRegistry, $false) } finally { $base.Dispose() } } catch { $cleanupErrors.Add($_.Exception.Message) } }
     foreach ($path in @($scratch, $payloadDirectory)) { try { if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force } } catch { $cleanupErrors.Add($_.Exception.Message) } }
     if ($directoryCreated) { try { Remove-Item -LiteralPath $legacyDirectory -Recurse -Force } catch { $cleanupErrors.Add($_.Exception.Message) } }
-    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'upgrade-verification.json') ([ordered]@{ passed = (-not $failure -and $cleanupErrors.Count -eq 0 -and $checks.Count -eq 3); failure = $failure; cleanup_failures = @($cleanupErrors.ToArray()); checks = @($checks.ToArray()); installer_sha256 = $ExpectedInstallerSha256; installer_bytes = $ExpectedInstallerBytes; environment = $environment; legacy_directory = $legacyDirectory; legacy_application = 'synthetic native GUI with com.follow product metadata'; legacy_core = 'actual packaged Core under its legacy executable name'; legacy_service = 'actual SCM native synthetic service'; customer_data_uploaded = $false; system_proxy_or_tun_started = $false })
+    $expectedChecks = if ($realLegacy) { 4 } else { 3 }
+    Save-FwArmEvidence (Join-Path $EvidenceDirectory 'upgrade-verification.json') ([ordered]@{ passed = (-not $failure -and $cleanupErrors.Count -eq 0 -and $checks.Count -eq $expectedChecks); failure = $failure; cleanup_failures = @($cleanupErrors.ToArray()); checks = @($checks.ToArray()); helper_cycles = @($helperCycles.ToArray()); installer_sha256 = $ExpectedInstallerSha256; installer_bytes = $ExpectedInstallerBytes; environment = $environment; legacy_directory = $legacyDirectory; legacy_application = 'synthetic native GUI with com.follow product metadata'; legacy_core = $(if ($realLegacy) { 'real 20261007 release Core spawned by its real old Helper' } else { 'actual new packaged Core under its legacy executable name' }); legacy_service = $(if ($realLegacy) { 'real 20261007 release Helper in actual SCM' } else { 'actual SCM native synthetic service' }); customer_data_uploaded = $false; system_proxy_or_tun_started = $false })
 }
 if ($failure) { throw $failure }
 if ($cleanupErrors.Count) { throw ($cleanupErrors -join '; ') }
-if ($checks.Count -ne 3) { throw 'All three running legacy upgrade stages are required' }
+if ($checks.Count -ne $expectedChecks) { throw 'Every required running legacy upgrade stage must pass' }
