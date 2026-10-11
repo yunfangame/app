@@ -316,7 +316,7 @@ try {
     $proxyListener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 7890)
     $proxyListener.Start()
     Add-Type -Path (Join-Path $PSScriptRoot 'coexistence_proxy_fixture.cs')
-    $proxyGuard = [FengWoCoexistenceTests.ProxyFixture]::new()
+    $proxyGuard = [FengWoCoexistenceTests.ProxyFixture]::new($Architecture)
     Save-FwArmEvidence (Join-Path $EvidenceDirectory 'system-proxy-original.json') $proxyGuard.Original
     $proxyBaseline = $proxyGuard.SetForeign(7890)
     Save-FwArmEvidence (Join-Path $EvidenceDirectory 'system-proxy-synthetic.json') $proxyBaseline

@@ -140,6 +140,7 @@ jobs:
           [IO.File]::WriteAllText((Join-Path $PWD 'tooling/remote_config/keys.json'), $keys, [Text.UTF8Encoding]::new($false))
 
       - name: Build an unsigned x64 coexistence installer
+        id: build_installer
         run: |
           $ErrorActionPreference = 'Stop'
           dart setup.dart windows --env stable --targets exe
@@ -169,11 +170,13 @@ jobs:
           ./tooling/windows/arm64/test_flclash_coexistence.ps1 -Architecture x64 -Generator $env:FENGWO_NATIVE_CMAKE_GENERATOR -InstallerPath dist/fengwo-windows-x64-coexistence-unsigned.exe -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'desktop-coexistence-evidence/coexistence')
 
       - name: Verify real legacy cleanup in fresh Windows PowerShell 5.1
+        if: ${{ !cancelled() && steps.build_installer.outcome == 'success' }}
         timeout-minutes: 15
         run: |
           ./tooling/windows/arm64/test_legacy_install_cleanup.ps1 -Architecture x64 -Generator $env:FENGWO_NATIVE_CMAKE_GENERATOR -BundleDirectory build/windows/x64/runner/Release -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'desktop-coexistence-evidence/legacy-ownership')
 
       - name: Compile and execute the native system proxy suites
+        if: ${{ !cancelled() && steps.build_installer.outcome == 'success' }}
         timeout-minutes: 15
         run: |
           $ErrorActionPreference = 'Stop'
