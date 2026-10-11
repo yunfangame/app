@@ -169,6 +169,39 @@ void main() {
       expect(system.writes, isEmpty);
     });
 
+    test('empty lsof output still preserves an active IPv6 endpoint', () async {
+      final system = _NetworkSystem();
+      final state = system.services['Service A']!..enableOwned();
+      final external = state.snapshot();
+      final addresses = <InternetAddress>[];
+      system.listenerProbe = (address, _) async {
+        addresses.add(address);
+        return address.type == InternetAddressType.IPv6;
+      };
+      final result = await system.proxy().repairStaleDetailed(7890);
+      expect(result.stage, 'skipped_active_listener');
+      expect(addresses, [
+        InternetAddress.loopbackIPv4,
+        InternetAddress.loopbackIPv6,
+      ]);
+      expect(system.writes, isEmpty);
+      expect(state.snapshot(), external);
+    });
+
+    test('uncertain TCP inspection cannot clear an endpoint', () async {
+      final system = _NetworkSystem();
+      system.services['Service A']!.enableOwned();
+      system.listenerProbe = (_, _) async => throw const SocketException(
+        'permission denied',
+        osError: OSError('denied', 13),
+      );
+      final result = await system.proxy().repairStaleDetailed(7890);
+      expect(result.success, isFalse);
+      expect(result.stage, 'listener_inspection');
+      expect(result.errorCode, 13);
+      expect(system.writes, isEmpty);
+    });
+
     test(
       'an unchanged failed port rewrite retains the earlier owned session',
       () async {
@@ -799,6 +832,45 @@ void main() {
     );
 
     test(
+      'explicit reconnect after foreign takeover restores the latest external settings',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        final initial = state.snapshot();
+        final proxy = system.proxy();
+        expect(
+          (await proxy.startDetailed(7890, ['localhost'])).success,
+          isTrue,
+        );
+        for (final endpoint in [state.web, state.secureWeb, state.socks]) {
+          endpoint.enabled = true;
+          endpoint.server = 'external.invalid';
+          endpoint.port = 17890;
+        }
+        state.pacUrl = 'https://external.invalid/proxy.pac';
+        state.pacEnabled = true;
+        state.discovery = true;
+        state.bypass = ['*.external.invalid', 'localhost'];
+        final external = state.snapshot();
+        expect(external, isNot(initial));
+
+        expect(
+          (await proxy.startDetailed(7890, ['localhost'])).success,
+          isTrue,
+        );
+        final stopped = await proxy.stopDetailed(expectedPort: 7891);
+
+        expect(stopped.success, isTrue);
+        expect(stopped.restoreAbandoned, isFalse);
+        expect(state.snapshot(), external);
+        final writes = system.writes.length;
+        expect((await proxy.stopDetailed()).writeSkipped, isTrue);
+        expect(system.writes, hasLength(writes));
+        expect(state.snapshot(), external);
+      },
+    );
+
+    test(
       'adopted proxy cleanup preserves a later foreign configuration',
       () async {
         final system = _NetworkSystem();
@@ -1353,6 +1425,7 @@ class _NetworkSystem {
   ProcessResult listenerResult = ProcessResult(1, 1, '', '');
   Future<ProcessResult> Function()? inspectListeners;
   int listenerInspections = 0;
+  MacosProxyListenerProbe? listenerProbe;
   final getterReads = <List<String>>[];
   final readOverrides = <String, Object>{};
   final writeOverrides = <String, Object>{};
@@ -1377,6 +1450,7 @@ class _NetworkSystem {
     commandRunner: ProxyCommandRunner(run),
     verificationAttempts: verificationAttempts,
     verificationRetryInterval: Duration.zero,
+    listenerProbe: listenerProbe ?? (_, _) async => false,
   );
 
   Future<ProcessResult> run(

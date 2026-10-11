@@ -4,8 +4,12 @@ import 'dart:io';
 import 'proxy_command.dart';
 import 'proxy_result.dart';
 
+typedef MacosProxyListenerProbe =
+    Future<bool> Function(InternetAddress address, int port);
+
 class MacosProxy {
   final ProxyCommandRunner _commandRunner;
+  final MacosProxyListenerProbe _listenerProbe;
   final Map<String, MacosNetworkServiceProxyState> _originalStates = {};
   final Set<String> _managedServices = {};
   final Map<String, _MacosProxyWriteState> _appliedStates = {};
@@ -18,9 +22,11 @@ class MacosProxy {
     this.verificationAttempts = 3,
     this.verificationRetryInterval = const Duration(milliseconds: 250),
     this.listenerInspectionTimeout = const Duration(seconds: 2),
+    MacosProxyListenerProbe? listenerProbe,
   }) : assert(verificationAttempts > 0),
        assert(!verificationRetryInterval.isNegative),
-       _commandRunner = commandRunner;
+       _commandRunner = commandRunner,
+       _listenerProbe = listenerProbe ?? _probeListener;
 
   Future<bool> start(int port, List<String> bypassDomain) async {
     return (await startDetailed(port, bypassDomain)).success;
@@ -70,7 +76,7 @@ class MacosProxy {
       }
       if (!_managedServices.contains(service) ||
           _appliedStates[service]?.matches(current) != true) {
-        _originalStates.putIfAbsent(service, () => current);
+        _originalStates[service] = current;
       }
       writeSkipped = false;
       final commands = MacosProxyCommands.buildStart(
@@ -377,6 +383,23 @@ class MacosProxy {
       if (result.exitCode == 1 &&
           output.isEmpty &&
           result.stderr.toString().trim().isEmpty) {
+        for (final address in [
+          InternetAddress.loopbackIPv4,
+          InternetAddress.loopbackIPv6,
+        ]) {
+          if (await _listenerProbe(
+            address,
+            port,
+          ).timeout(listenerInspectionTimeout)) {
+            return const ProxyOperationResult(
+              success: true,
+              operation: 'stop',
+              stage: 'skipped_active_listener',
+              writeSkipped: true,
+              platform: 'macos',
+            );
+          }
+        }
         return null;
       }
       return const ProxyOperationResult(
@@ -411,6 +434,31 @@ class MacosProxy {
         stage: 'listener_inspection',
         platform: 'macos',
       );
+    } on SocketException catch (error) {
+      return ProxyOperationResult(
+        success: false,
+        operation: 'stop',
+        stage: 'listener_inspection',
+        errorCode: error.osError?.errorCode,
+        platform: 'macos',
+      );
+    }
+  }
+
+  static Future<bool> _probeListener(InternetAddress address, int port) async {
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        address,
+        port,
+        timeout: const Duration(milliseconds: 350),
+      );
+      return true;
+    } on SocketException catch (error) {
+      if (error.osError?.errorCode == 61) return false;
+      rethrow;
+    } finally {
+      socket?.destroy();
     }
   }
 

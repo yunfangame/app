@@ -106,7 +106,7 @@ class ProxySession {
         found = entries_.emplace(name, Entry{before, std::nullopt, std::nullopt}).first;
       }
       auto& entry = found->second;
-      if (!entry.original.has_value() && !IsOwned(entry, before)) entry.original = before;
+      if (!IsOwned(entry, before)) entry.original = before;
       entry.restoring = false;
       entry.transition = Transition{before, desired};
       notification_pending_ = true;

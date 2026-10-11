@@ -404,6 +404,22 @@ TEST(ProxyPlugin, OwnedSessionRestoresOriginalDespiteLatestUiPort) {
   EXPECT_EQ(ActualProxySnapshot::Read(), original);
   EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StopProxyDetailed")));
   EXPECT_EQ(ActualProxySnapshot::Read(), original);
+
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StartProxyDetailed", {
+      {EncodableValue("port"), EncodableValue(7890)},
+      {EncodableValue("bypassDomain"), EncodableValue(EncodableList{EncodableValue("localhost")})}})));
+  const settings::ConnectionConfiguration external{
+      PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY | PROXY_TYPE_AUTO_PROXY_URL | PROXY_TYPE_AUTO_DETECT,
+      L"external.example:17890", L"*.external;<local>", L"https://external.example/proxy.pac"};
+  ASSERT_TRUE(ActualProxySnapshot::Apply(external));
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StartProxyDetailed", {
+      {EncodableValue("port"), EncodableValue(7890)},
+      {EncodableValue("bypassDomain"), EncodableValue(EncodableList{EncodableValue("localhost")})}})));
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StopProxyDetailed", {
+      {EncodableValue("expectedPort"), EncodableValue(7891)}})));
+  EXPECT_EQ(ActualProxySnapshot::Read(), external);
+  EXPECT_TRUE(Succeeded(InvokeDetailed(plugin, "StopProxyDetailed")));
+  EXPECT_EQ(ActualProxySnapshot::Read(), external);
 }
 
 TEST(ProxyPlugin, OwnedStopPreservesSamePortForeignTakeover) {
