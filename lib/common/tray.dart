@@ -218,7 +218,7 @@ class Tray {
     final url = 'http://127.0.0.1:$port';
 
     final cmdline = system.isWindows
-        ? 'set \$env:all_proxy=$url'
+        ? '\$env:ALL_PROXY = "$url"'
         : 'export all_proxy=$url';
 
     await Clipboard.setData(ClipboardData(text: cmdline));
