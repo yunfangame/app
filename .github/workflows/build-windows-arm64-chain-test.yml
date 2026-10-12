@@ -75,7 +75,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $gitBash -PathType Leaf)) { throw 'Git Bash is required for setup shell checks' }
           (Split-Path -Parent $gitBash) | Add-Content -LiteralPath $env:GITHUB_PATH
           ('FENGWO_SETUP_TEST_BASH=' + $gitBash) | Add-Content -LiteralPath $env:GITHUB_ENV
-          . ./tooling/windows/arm64/common.ps1
+          . ./tooling/windows/real/release_common.ps1
           $sourceFiles = @(git ls-files -- .github/workflows/package-windows-arm64.yml tooling/windows/arm64 tooling/windows/prepare_arm64_javascript.ps1 tooling/windows/quickjs_bridge tooling/windows/test_prepare_arm64_javascript.ps1 tooling/windows/test_vc_runtime_installer.ps1 tooling/windows/verify_vc_runtime_bundle.ps1 tooling/windows/test_vc_runtime_bundle.ps1 setup.dart test/setup_test.dart test/windows_runtime_bundle_test.dart plugins/setup/buildkit plugins/proxy windows/CMakeLists.txt windows/packaging windows/runner/Runner.rc plugins/setup/windows services/helper lib/common lib/main.dart lib/manager/proxy_manager.dart test/common test/core test/manager/proxy_manager_test.dart)
           $sourceManifest = @($sourceFiles | ForEach-Object { [ordered]@{ path = $_; sha256 = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant() } })
           Save-FwArmEvidence (Join-Path $env:RUNNER_TEMP 'arm64-evidence/source-manifest.json') ([ordered]@{ source_sha = $env:GITHUB_SHA; files = $sourceManifest })
@@ -84,7 +84,7 @@ jobs:
       - name: Record source and prepare pinned native packaging
         run: |
           $ErrorActionPreference = 'Stop'
-          . ./tooling/windows/arm64/common.ps1
+          . ./tooling/windows/real/release_common.ps1
           $environment = Assert-FwNativeRunner -Architecture arm64
           $evidence = Join-Path $env:RUNNER_TEMP 'windows-109-evidence'
           [void][IO.Directory]::CreateDirectory($evidence)
@@ -197,7 +197,7 @@ jobs:
           $installers = @(Get-ChildItem dist -Filter '*windows*.exe' -File)
           if ($installers.Count -ne 1 -or (Get-AuthenticodeSignature -LiteralPath $installers[0].FullName).Status -cne 'NotSigned') { throw 'Exactly one stable installer awaiting signing is required' }
           Rename-Item -LiteralPath $installers[0].FullName -NewName 'fengwo-windows-1.0.9-arm64-setup-unsigned.exe'
-          . ./tooling/windows/arm64/common.ps1
+          . ./tooling/windows/real/release_common.ps1
           $installer = Get-Item dist/fengwo-windows-1.0.9-arm64-setup-unsigned.exe
           $bundle = Join-Path $PWD 'build/windows/arm64/runner/Release'
           ./tooling/windows/verify_vc_runtime_bundle.ps1 -Architecture arm64 -BundleDirectory $bundle
@@ -240,7 +240,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          . ./tooling/windows/arm64/common.ps1
+          . ./tooling/windows/real/release_common.ps1
           $oldRun = Invoke-RestMethod -Uri ('https://api.github.com/repos/' + $env:GITHUB_REPOSITORY + '/actions/runs/37602827410') -Headers @{ Authorization = 'Bearer ' + $env:GH_TOKEN; Accept = 'application/vnd.github+json' }
           if ($oldRun.conclusion -cne 'success' -or $oldRun.head_sha -cne '9a71d2e4bd155aa8f61af08ec081642cb71da84c') { throw 'The October 7 legacy build provenance differs' }
           $archives = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'legacy-helper-package') -Recurse -File -Filter 'fengwo-windows-amd64-release-unsigned.zip')
@@ -263,14 +263,14 @@ jobs:
       - name: Verify FlClash and FengWo resource fixture coexistence
         timeout-minutes: 15
         run: |
-          ./tooling/windows/arm64/test_flclash_coexistence.ps1 -Architecture arm64 -Generator $env:FENGWO_ARM64_CMAKE_GENERATOR -InstallerPath dist/fengwo-windows-1.0.9-arm64-setup-unsigned.exe -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'windows-109-evidence/coexistence')
+          ./tooling/windows/arm64/test_flclash_coexistence.ps1 -InstallerPath dist/fengwo-windows-1.0.9-arm64-setup-unsigned.exe -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'windows-109-evidence/coexistence')
 
 
       - name: Verify real legacy cleanup in fresh Windows PowerShell 5.1
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         timeout-minutes: 15
         run: |
-          ./tooling/windows/arm64/test_legacy_install_cleanup.ps1 -Architecture arm64 -Generator $env:FENGWO_ARM64_CMAKE_GENERATOR -BundleDirectory build/windows/arm64/runner/Release -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'windows-109-evidence/legacy-ownership')
+          ./tooling/windows/arm64/test_legacy_install_cleanup.ps1 -BundleDirectory build/windows/arm64/runner/Release -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'windows-109-evidence/legacy-ownership')
 
 
       - name: Compile and execute the native system proxy suites
@@ -283,7 +283,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native proxy test configuration failed' }
           cmake --build build/windows/arm64 --config Release --target proxy_test proxy_session_windows_test proxy_winhttp_compatibility_test
           if ($LASTEXITCODE -ne 0) { throw 'Native proxy test compilation failed' }
-          . ./tooling/windows/arm64/common.ps1
+          . ./tooling/windows/real/release_common.ps1
           foreach ($name in @('proxy_test.exe', 'proxy_session_windows_test.exe', 'proxy_winhttp_compatibility_test.exe')) {
             if (-not (Get-FwPeIdentity (Join-Path $PWD ('build/windows/arm64/plugins/proxy/Release/' + $name))).arm64) { throw ('Proxy test is not native ARM64: ' + $name) }
           }

@@ -16,7 +16,7 @@ if ((Get-FwPeIdentity $corePath).machine -cne $expectedMachine) { throw 'The cha
 if (Get-NetTCPConnection -State Listen -LocalPort 17980, 31811, 31812, 31813, 31814, 31815, 31816 -ErrorAction SilentlyContinue) { throw 'Pre-existing fixture ports prevent isolation' }
 Add-Type -Path (Join-Path $PSScriptRoot 'core_windows_fixture.cs')
 Add-Type -Path (Join-Path $PSScriptRoot '../arm64/coexistence_proxy_fixture.cs')
-$proxyGuard = [FengWoCoexistenceTests.ProxyFixture]::new($Architecture)
+$proxyGuard = [FengWoCoexistenceTests.ProxyFixture]::new()
 $proxyBefore = $proxyGuard.Capture()
 $fixture = $null
 $pipe = $null
