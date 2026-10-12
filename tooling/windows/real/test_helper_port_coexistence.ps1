@@ -6,7 +6,7 @@
     [Parameter(Mandatory = $true)][string]$EvidenceDirectory
 )
 
-. (Join-Path $PSScriptRoot '../arm64/common.ps1')
+. (Join-Path $PSScriptRoot 'release_common.ps1')
 $environment = Assert-FwNativeRunner -Architecture $Architecture
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 try {
