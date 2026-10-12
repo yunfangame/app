@@ -514,6 +514,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "chainProxyDescription": MessageLookupByLibrary.simpleMessage(
       "管理链式出口，让订阅节点连接后通过它出站",
     ),
+    "chainProxyDesktopConnectivityFailed": MessageLookupByLibrary.simpleMessage(
+      "链式代理联网检测失败，已自动停用并恢复原配置。可尝试更换蜂窝节点后重试。",
+    ),
     "chainProxyDirectModeUnsupported": MessageLookupByLibrary.simpleMessage(
       "请先将出站模式切换为规则或全局模式",
     ),

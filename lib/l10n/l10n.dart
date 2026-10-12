@@ -10248,6 +10248,16 @@ class AppLocalizations {
     );
   }
 
+  /// `Chain proxy connectivity test failed. It was disabled and the previous configuration was restored. Try switching to another FengWo node and retry.`
+  String get chainProxyDesktopConnectivityFailed {
+    return Intl.message(
+      'Chain proxy connectivity test failed. It was disabled and the previous configuration was restored. Try switching to another FengWo node and retry.',
+      name: 'chainProxyDesktopConnectivityFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `The chain proxy failed and the previous configuration could not be restored. Restart the app`
   String get chainProxyRollbackFailed {
     return Intl.message(

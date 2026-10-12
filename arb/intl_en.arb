@@ -1200,6 +1200,7 @@
   "chainProxyStopped": "Chain proxy stopped",
   "chainProxyApplyFailed": "Failed to apply the core configuration. The previous configuration was restored",
   "chainProxyConnectivityFailed": "Chain proxy connectivity test failed. It was disabled and the previous configuration was restored",
+  "chainProxyDesktopConnectivityFailed": "Chain proxy connectivity test failed. It was disabled and the previous configuration was restored. Try switching to another FengWo node and retry.",
   "chainProxyRollbackFailed": "The chain proxy failed and the previous configuration could not be restored. Restart the app",
   "chainProxyDirectModeUnsupported": "Switch the outbound mode to Rule or Global first",
   "noChainProxy": "No chain proxies",

@@ -822,10 +822,12 @@ class _ChainProxyDialogState extends ConsumerState<ChainProxyDialog> {
         if (!validation.isAvailable) {
           final restored = await restorePrevious();
           if (mounted) {
+            final l10n = context.appLocalizations;
+            final connectivityFailure = system.isWindows || system.isMacOS
+                ? l10n.chainProxyDesktopConnectivityFailed
+                : l10n.chainProxyConnectivityFailed;
             context.showNotifier(
-              restored
-                  ? context.appLocalizations.chainProxyConnectivityFailed
-                  : context.appLocalizations.chainProxyRollbackFailed,
+              restored ? connectivityFailure : l10n.chainProxyRollbackFailed,
             );
           }
           return;
