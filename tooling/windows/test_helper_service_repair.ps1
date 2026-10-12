@@ -1,4 +1,4 @@
-param(
+﻿param(
   [Parameter(Mandatory = $true)][string]$InstallerPath,
   [Parameter(Mandatory = $true)][string]$OutputDirectory
 )
@@ -7,16 +7,17 @@ $ErrorActionPreference = 'Stop'
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows') {
   throw 'Service repair tests require an isolated GitHub Actions Windows runner'
 }
-if (Get-Service -Name FlClashHelperService -ErrorAction SilentlyContinue) {
+if (Get-Service -Name FengWoHelperService -ErrorAction SilentlyContinue) {
   throw 'An existing helper service must not be replaced by this test'
 }
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $installDirectory = Join-Path $env:RUNNER_TEMP 'fengwo-helper-repair'
 $InstallerPath = (Resolve-Path -LiteralPath $InstallerPath).Path
-$helper = Join-Path $installDirectory 'FlClashHelperService.exe'
+$helper = Join-Path $installDirectory 'FengWoHelperService.exe'
 $heldService = [IntPtr]::Zero
 $manager = [IntPtr]::Zero
 $legacyListener = $null
+$legacyFengWoListener = $null
 $conflictListener = $null
 $results = [System.Collections.Generic.List[object]]::new()
 Add-Type @'
@@ -36,7 +37,7 @@ public static class FengWoScmTest {
     return handle;
   }
   public static IntPtr OpenHelperQueryHandle(IntPtr manager) {
-    var handle = OpenServiceW(manager, "FlClashHelperService", 4);
+    var handle = OpenServiceW(manager, "FengWoHelperService", 4);
     LastError = Marshal.GetLastWin32Error();
     return handle;
   }
@@ -63,15 +64,15 @@ function Invoke-Helper([string]$Command, [int]$ExpectedCode = 0) {
 }
 
 function Assert-Service([string]$State) {
-  $service = Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'"
+  $service = Get-CimInstance Win32_Service -Filter "Name='FengWoHelperService'"
   if ($null -eq $service -or $service.State -ne $State) { throw "Expected helper service state $State" }
   if ($service.PathName.Trim('"') -ine $helper) { throw 'Service repair did not retain the current helper path' }
   if ($service.StartMode -ne 'Auto' -or $service.StartName -ne 'LocalSystem') { throw 'Service repair did not restore automatic LocalSystem configuration' }
   if ($State -eq 'Running') {
     $manifest = Get-Content -LiteralPath (Join-Path $installDirectory 'manifest.json') -Raw | ConvertFrom-Json
-    $ping = Invoke-WebRequest -Uri "http://127.0.0.1:47906/ping?coreSha256=$($manifest.coreSha256)" -NoProxy
+    $ping = Invoke-WebRequest -Uri "http://127.0.0.1:47907/ping?coreSha256=$($manifest.coreSha256)" -NoProxy
     if ($ping.StatusCode -ne 200 -or $ping.Content.Trim() -ine $helper) { throw 'Repaired helper does not match the installed application' }
-    if ($ping.Headers['x-flclash-helper-protocol'] -ne '6') { throw 'Unexpected repaired helper protocol' }
+    if ($ping.Headers['x-fengwo-helper-protocol'] -ne '6') { throw 'Unexpected repaired helper protocol' }
   }
 }
 
@@ -102,20 +103,23 @@ function Assert-Listener([System.Net.Sockets.TcpListener]$Listener) {
 
 try {
   $legacyListener = Start-ExclusiveListener -Port 47890
+  $legacyFengWoListener = Start-ExclusiveListener -Port 47906
   Install-Package
   Invoke-Helper -Command 'install'
   Assert-Service -State 'Running'
   Assert-Listener -Listener $legacyListener
-  $results.Add(@{ case = 'helper-starts-with-legacy-port-occupied'; passed = $true })
+  Assert-Listener -Listener $legacyFengWoListener
+  $results.Add(@{ case = 'helper-starts-with-legacy-port-occupied'; passed = $true; legacy_ports = @(47890, 47906); helper_port = 47907 })
 
   Invoke-Helper -Command 'stop'
-  $conflictListener = Start-ExclusiveListener -Port 47906
+  $conflictListener = Start-ExclusiveListener -Port 47907
   Invoke-Helper -Command 'install' -ExpectedCode 10048
   Assert-Service -State 'Stopped'
-  $failedService = Get-CimInstance Win32_Service -Filter "Name='FlClashHelperService'"
+  $failedService = Get-CimInstance Win32_Service -Filter "Name='FengWoHelperService'"
   if ($failedService.ExitCode -ne 10048) { throw 'Service status did not preserve the port conflict error' }
   Assert-Listener -Listener $conflictListener
   Assert-Listener -Listener $legacyListener
+  Assert-Listener -Listener $legacyFengWoListener
   $results.Add(@{ case = 'occupied-helper-port-reports-10048-without-stopping-listeners'; passed = $true })
   $conflictListener.Stop()
   $conflictListener = $null
@@ -133,7 +137,7 @@ try {
 
   Invoke-Helper -Command 'stop'
   Assert-Service -State 'Stopped'
-  & sc.exe config FlClashHelperService start= disabled binPath= 'C:\missing-fengwo-helper.exe' | Write-Host
+  & sc.exe config FengWoHelperService start= disabled binPath= 'C:\missing-fengwo-helper.exe' | Write-Host
   if ($LASTEXITCODE -ne 0) { throw 'Cannot stage stale service configuration' }
   Invoke-Helper -Command 'install'
   Assert-Service -State 'Running'
@@ -144,6 +148,7 @@ try {
   Invoke-Helper -Command 'install'
   Assert-Service -State 'Running'
   Assert-Listener -Listener $legacyListener
+  Assert-Listener -Listener $legacyFengWoListener
   $results.Add(@{ case = 'overwrite-installer-retains-service-registration'; passed = $true })
 
   Invoke-Helper -Command 'uninstall' -ExpectedCode 1072
@@ -154,12 +159,14 @@ try {
   Assert-Service -State 'Running'
   $results.Add(@{ case = 'pending-deletion-reports-1072-and-recovers-after-handle-release'; passed = $true })
   Invoke-Helper -Command 'uninstall'
-  if (Get-Service -Name FlClashHelperService -ErrorAction SilentlyContinue) { throw 'Uninstall did not remove the helper service' }
+  if (Get-Service -Name FengWoHelperService -ErrorAction SilentlyContinue) { throw 'Uninstall did not remove the helper service' }
   Assert-Listener -Listener $legacyListener
+  Assert-Listener -Listener $legacyFengWoListener
   $results.Add(@{ case = 'explicit-uninstall-removes-service'; passed = $true })
 } finally {
   if ($null -ne $conflictListener) { $conflictListener.Stop() }
   if ($null -ne $legacyListener) { $legacyListener.Stop() }
+  if ($null -ne $legacyFengWoListener) { $legacyFengWoListener.Stop() }
   if ($heldService -ne [IntPtr]::Zero) { [void][FengWoScmTest]::CloseServiceHandle($heldService) }
   if ($manager -ne [IntPtr]::Zero) { [void][FengWoScmTest]::CloseServiceHandle($manager) }
   if (Test-Path -LiteralPath $helper) { & $helper uninstall 2>&1 | Write-Host }

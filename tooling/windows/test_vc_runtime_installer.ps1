@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$InnoCompiler
 )
 
@@ -43,27 +43,19 @@ $productionCode = $productionCode.Replace($integrityInclude, "function EnsureFen
 if ($productionCode.Contains('{{') -or $productionCode -match '(?m)^#include') {
     throw 'The production Code section contains an unresolved template or include.'
 }
-$customMessages = @($template -split '\r?\n' | Where-Object { $_ -match '^(?:english\.)?(?:VcRuntime\w+|HelperStopFailed)=' } | ForEach-Object { $_ -replace '^english\.', '' }) -join "`n"
+$customMessages = @($template -split '\r?\n' | Where-Object { $_ -match '^(?:english\.)?(?:VcRuntime\w+|InstallCleanupFailed|InstallDirectoryConflict|InstallOwnershipCleanupMissing)=' } | ForEach-Object { $_ -replace '^english\.', '' }) -join "`n"
 if (-not $customMessages) { throw 'The production English runtime messages were not found.' }
 
 $mockCode = $productionCode
 $autoLaunchPattern = '(?ms)^procedure RemoveOwnedAutoLaunch\(RootKey: Integer; Name: String\);\s*\r?\n.*?^end;'
 if ([regex]::Matches($mockCode, $autoLaunchPattern).Count -ne 1) { throw 'Production startup cleanup procedure was not found exactly once.' }
 $mockCode = [regex]::Replace($mockCode, $autoLaunchPattern, 'procedure RemoveOwnedAutoLaunch(RootKey: Integer; Name: String); begin RaiseException(''Unexpected startup cleanup during installer policy tests''); end;')
-$cleanupMocks = @{
-    KillProcesses = 'procedure KillProcesses; begin TestKillCalls := TestKillCalls + 1; TestActions := TestActions + ''kill;''; end;'
-    UnregisterHelperService = 'procedure UnregisterHelperService; begin TestUnregisterCalls := TestUnregisterCalls + 1; TestActions := TestActions + ''unregister;''; end;'
-}
-foreach ($entry in $cleanupMocks.GetEnumerator()) {
-    $pattern = '(?ms)^procedure ' + [regex]::Escape($entry.Key) + ';\s*\r?\n.*?^end;'
-    if ([regex]::Matches($mockCode, $pattern).Count -ne 1) {
-        throw "Production cleanup procedure was not found exactly once: $($entry.Key)"
-    }
-    $mockCode = [regex]::Replace($mockCode, $pattern, $entry.Value)
-}
-$stopPattern = '(?ms)^function StopHelperService: String;\s*\r?\n.*?^end;'
-if ([regex]::Matches($mockCode, $stopPattern).Count -ne 1) { throw 'Production stop helper function was not found exactly once.' }
-$mockCode = [regex]::Replace($mockCode, $stopPattern, 'function StopHelperService: String; begin TestStopCalls := TestStopCalls + 1; TestActions := TestActions + ''stop;''; if TestHelperStopFails then Result := ''Helper stop failed'' else Result := ''''; end;')
+$wizardPattern = '(?ms)^procedure InitializeWizard;\s*\r?\n.*?^end;'
+if ([regex]::Matches($mockCode, $wizardPattern).Count -ne 1) { throw 'Production discovery wizard procedure was not found exactly once.' }
+$mockCode = [regex]::Replace($mockCode, $wizardPattern, 'procedure PolicyInitializeWizard; begin RaiseException(''Unexpected discovery during runtime policy tests''); end;')
+$cleanupPattern = '(?ms)^function RunFengWoInstallCleanup\(Operation: String\): String;\s*\r?\n.*?^end;'
+if ([regex]::Matches($mockCode, $cleanupPattern).Count -ne 1) { throw 'Production path-scoped cleanup function was not found exactly once.' }
+$mockCode = [regex]::Replace($mockCode, $cleanupPattern, 'function RunFengWoInstallCleanup(Operation: String): String; begin Require(Operation = ''stop'', ''Unexpected cleanup operation during runtime policy tests''); Require(not VcRuntimeRestartInitiated, ''Cleanup ran during an initiated restart''); Require(VcRuntimeRestartRequired or VcRuntimeReady, ''Cleanup bypassed prerequisite verification''); TestCleanupCalls := TestCleanupCalls + 1; TestActions := TestActions + ''cleanup;''; if TestHelperStopFails then Result := ''Helper stop failed'' else Result := ''''; end;')
 $mockNames = @(
     'RegQueryDWordValue',
     'RegQueryStringValue',
@@ -93,7 +85,7 @@ $mockSupport = @'
   TestRegistryVersion, TestFileVersion, TestMissingFile, TestActions: String;
   TestParameters, TestInvariantFailure: String;
   TestExitCode, TestExecCalls, TestExtractCalls: Integer;
-  TestKillCalls, TestUnregisterCalls, TestStopCalls, TestFileReadMask: Integer;
+  TestCleanupCalls, TestFileReadMask: Integer;
 
 procedure Require(Condition: Boolean; Message: String);
 begin
@@ -179,9 +171,7 @@ begin
   Require(Wait = ewWaitUntilTerminated, 'Prerequisite execution did not wait for termination');
   Require(Pos('/quiet /norestart', Parameters) > 0, 'Prerequisite execution may prompt or reboot');
   Require(Pos(' /log "', Parameters) > 0, 'Prerequisite execution omitted its log');
-  Require(TestKillCalls = 0, 'Old processes stopped before prerequisite execution');
-  Require(TestUnregisterCalls = 0, 'Old helper removed before prerequisite execution');
-  Require(TestStopCalls = 0, 'Old helper stopped before prerequisite execution');
+  Require(TestCleanupCalls = 0, 'Installation cleanup ran before prerequisite execution');
   Require(TestActions = 'extract;hash;mkdir;', 'Prerequisite execution bypassed integrity checks');
   TestExecCalls := TestExecCalls + 1;
   TestParameters := Parameters;
@@ -353,17 +343,14 @@ begin
       Name + ': incorrect installation operation: ' + TestParameters);
   if ExpectedSuccess then
   begin
-    Require(TestUnregisterCalls = 0, Name + ': upgrade must not delete the registered helper');
-    Require(TestStopCalls = 1, Name + ': old helper stop did not run exactly once');
-    Require(TestKillCalls = 1, Name + ': old process cleanup did not run exactly once');
-    Require(Pos('stop;kill;', TestActions) > 0, Name + ': cleanup order changed');
+    Require(TestCleanupCalls = 1, Name + ': installation cleanup did not run exactly once');
+    Require(Copy(TestActions, Length(TestActions) - 7, 8) = 'cleanup;',
+      Name + ': installation cleanup did not follow prerequisite verification');
   end
   else
   begin
-    Require(TestUnregisterCalls = 0, Name + ': failed preparation removed the old helper');
-    if TestHelperStopFails then Require(TestStopCalls = 1, Name + ': helper stop was not attempted')
-      else Require(TestStopCalls = 0, Name + ': failed prerequisite stopped the helper');
-    Require(TestKillCalls = 0, Name + ': failed preparation stopped the old app');
+    if TestHelperStopFails then Require(TestCleanupCalls = 1, Name + ': installation cleanup was not attempted')
+      else Require(TestCleanupCalls = 0, Name + ': failed prerequisite ran installation cleanup');
   end;
   Require(PolicyNeedRestart = ExpectedRestart, Name + ': incorrect completion restart state');
   Require(CanLaunchAfterRuntime = (not ExpectedRestart), Name + ': incorrect launch availability');
@@ -377,8 +364,7 @@ begin
     Require(Message <> '', 'Retry bypassed the initiated-restart block');
     Require(NeedsRestart, 'Retry lost the initiated-restart requirement');
     Require(TestExecCalls = 1, 'Retry executed a prerequisite during an initiated restart');
-    Require((TestKillCalls = 0) and (TestUnregisterCalls = 0),
-      'Retry changed the old app during an initiated restart');
+    Require(TestCleanupCalls = 0, 'Retry ran installation cleanup during an initiated restart');
   end;
   if Name = 'restart-required' then
   begin

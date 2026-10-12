@@ -1,4 +1,4 @@
-param(
+﻿param(
   [Parameter(Mandatory = $true)]
   [ValidateSet('x64', 'arm64')]
   [string]$Architecture,
@@ -126,14 +126,20 @@ function Get-ValidatedVcRuntime {
   }
 }
 
+function Get-VcRuntimeCleanupScriptSource {
+  return [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../windows/packaging/exe/fengwo_install_cleanup.ps1'))
+}
+
 function Publish-VcRuntimeFiles {
-  param([string]$Installer, [string]$Metadata, [string]$OutputDirectory)
+  param([string]$Installer, [string]$Metadata, [string]$OutputDirectory, [string]$CleanupScript)
   $published = [Collections.Generic.List[object]]::new()
   try {
-    foreach ($entry in @(
+    $entries = @(
       @{ Source = $Installer; Name = 'vc_redist.exe' },
       @{ Source = $Metadata; Name = 'vc_runtime.iss' }
-    )) {
+    )
+    if (-not [string]::IsNullOrWhiteSpace($CleanupScript)) { $entries += @{ Source = $CleanupScript; Name = 'fengwo_install_cleanup.ps1' } }
+    foreach ($entry in $entries) {
       $destination = Join-Path $OutputDirectory $entry.Name
       $backup = $null
       if ([IO.File]::Exists($destination)) {
@@ -179,7 +185,12 @@ function Invoke-PrepareVcRuntime {
   $token = [guid]::NewGuid().ToString('N')
   $stagedInstaller = Join-Path $outputPath "$token.exe.tmp"
   $stagedMetadata = Join-Path $outputPath "$token.iss.tmp"
+  $stagedCleanup = Join-Path $outputPath "$token.cleanup.ps1.tmp"
   try {
+    $cleanupSource = Get-VcRuntimeCleanupScriptSource
+    if (-not [IO.File]::Exists($cleanupSource)) { throw 'The owned installation cleanup script is missing' }
+    [IO.File]::Copy($cleanupSource, $stagedCleanup)
+    $cleanupHash = Get-VcRuntimeSha256 -Path $stagedCleanup
     $validated = $null
     $cachedInstaller = Join-Path $outputPath 'vc_redist.exe'
     if ([IO.File]::Exists($cachedInstaller)) {
@@ -200,16 +211,18 @@ function Invoke-PrepareVcRuntime {
       "#define VcRuntimeInstallerSHA256 `"$($validated.SHA256)`""
     ) -join "`r`n"
     [IO.File]::WriteAllText($stagedMetadata, "$defines`r`n", [Text.UTF8Encoding]::new($false))
-    Publish-VcRuntimeFiles -Installer $stagedInstaller -Metadata $stagedMetadata -OutputDirectory $outputPath
+    Publish-VcRuntimeFiles -Installer $stagedInstaller -Metadata $stagedMetadata -OutputDirectory $outputPath -CleanupScript $stagedCleanup
     return [pscustomobject]@{
       Architecture = $architectureName
       MinimumVersion = $validated.Version
       InstallerSHA256 = $validated.SHA256
+      CleanupScriptSHA256 = $cleanupHash
       OutputDirectory = $outputPath
     }
   } finally {
     [IO.File]::Delete($stagedInstaller)
     [IO.File]::Delete($stagedMetadata)
+    [IO.File]::Delete($stagedCleanup)
     $lock.Dispose()
   }
 }

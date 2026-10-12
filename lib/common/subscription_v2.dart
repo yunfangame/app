@@ -10,6 +10,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'macos_identity_constants.dart';
+
 import 'api_health.dart';
 import 'api_network_diagnostic.dart';
 import 'api_request_router.dart';
@@ -114,7 +116,7 @@ abstract interface class SubscriptionV2ValueStore {
 
 class SecureSubscriptionV2ValueStore implements SubscriptionV2ValueStore {
   SecureSubscriptionV2ValueStore({FlutterSecureStorage? storage})
-    : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? identitySecureStorage;
 
   final FlutterSecureStorage _storage;
 

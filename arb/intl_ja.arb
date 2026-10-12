@@ -1200,6 +1200,7 @@
   "chainProxyStopped": "チェーンプロキシを停止しました",
   "chainProxyApplyFailed": "コア設定の適用に失敗し、元の設定に戻しました",
   "chainProxyConnectivityFailed": "チェーンプロキシの接続確認に失敗したため、無効化して元の設定に戻しました",
+  "chainProxyDesktopConnectivityFailed": "チェーンプロキシの接続確認に失敗したため、無効化して元の設定に戻しました。別の FengWo ノードに切り替えて再試行してください。",
   "chainProxyRollbackFailed": "チェーンプロキシの適用に失敗し、元の設定も復元できませんでした。アプリを再起動してください",
   "chainProxyDirectModeUnsupported": "送出モードをルールまたはグローバルに変更してください",
   "noChainProxy": "チェーンプロキシがありません",

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/windows_identity.dart';
 import 'package:fl_clash/core/desktop/model.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
@@ -12,6 +13,7 @@ import 'package:fl_clash/providers/state.dart';
 import 'package:fl_clash/state.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -69,6 +71,7 @@ void main() {
     () async {
       final harness = _Harness(stableProfile: null);
       addTearDown(harness.container.dispose);
+      harness.container.read(runTimeProvider.notifier).value = 0;
       harness.enableTun();
 
       await harness.core.restartCore().timeout(const Duration(seconds: 2));
@@ -90,6 +93,7 @@ void main() {
     () async {
       final harness = _Harness(stableProfile: _stableProfile);
       addTearDown(harness.container.dispose);
+      harness.container.read(runTimeProvider.notifier).value = 0;
       harness.enableTun();
       var guardChecks = 0;
       var preloadCount = 0;
@@ -126,6 +130,7 @@ void main() {
     () async {
       final harness = _Harness(stableProfile: _stableProfile);
       addTearDown(harness.container.dispose);
+      harness.container.read(runTimeProvider.notifier).value = 0;
       harness.enableTun();
       var current = true;
       final restarting = Completer<void>();
@@ -358,6 +363,15 @@ class _TestSetupAction extends SetupAction {
   Future<bool> isTunServiceReady() async => true;
 
   @override
+  Future<bool> setCoreRunning(bool running) async => true;
+
+  @override
+  Future<void> verifyLocalListener(
+    int port, {
+    required bool Function() isCancelled,
+  }) async {}
+
+  @override
   bool get supportsCoreSetupTimeoutRecovery => true;
 
   @override
@@ -447,7 +461,13 @@ class _TestPathProvider extends PathProviderPlatform {
   final String root;
 
   @override
-  Future<String?> getApplicationSupportPath() async => root;
+  Future<String?> getApplicationSupportPath() async {
+    final directory = Directory(
+      p.join(root, windowsDataCompany, windowsDataProduct),
+    );
+    await directory.create(recursive: true);
+    return directory.path;
+  }
 
   @override
   Future<String?> getTemporaryPath() async => root;

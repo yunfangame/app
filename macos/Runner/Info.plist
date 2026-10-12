@@ -26,12 +26,10 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string></string>
+			<string>com.fengwo.accelerator</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>clash</string>
-				<string>clashmeta</string>
-				<string>flclash</string>
+				<string>fengwo</string>
 			</array>
 		</dict>
 	</array>

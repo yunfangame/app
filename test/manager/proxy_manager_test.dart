@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fl_clash/common/macos_proxy_guard.dart';
 import 'package:fl_clash/common/proxy.dart'
@@ -55,11 +56,13 @@ const _serviceUnavailable = ProxyOperationResult(
 class _ProxyClient extends Proxy {
   final startPorts = <int>[];
   final stopPorts = <int?>[];
+  final repairPorts = <int>[];
   final events = <String>[];
   int inspections = 0;
   Future<ProxyOperationResult> Function(int port)? start;
   Future<ProxyOperationResult> Function(int? port)? stop;
   Future<ProxyOperationResult> Function(int port)? inspect;
+  Future<ProxyOperationResult> Function(int port)? repair;
   Object? inspectionError;
   ProxyOperationResult inspection = _started;
 
@@ -85,6 +88,14 @@ class _ProxyClient extends Proxy {
   }
 
   @override
+  Future<ProxyOperationResult> repairStaleProxyDetailed(
+    int expectedPort,
+  ) async {
+    repairPorts.add(expectedPort);
+    return repair?.call(expectedPort) ?? Future.value(_stopped);
+  }
+
+  @override
   Future<ProxyOperationResult> inspectProxy(int expectedPort) async {
     inspections++;
     final error = inspectionError;
@@ -100,7 +111,7 @@ class _Guard extends WindowsProxyGuard {
     : super(
         inspector: client.inspectProxy,
         starter: client.startProxyDetailed,
-        stopper: (port) => client.stopProxyDetailed(expectedPort: port),
+        stopper: client.repairStaleProxyDetailed,
         verificationDelay: Duration.zero,
       );
 
@@ -128,23 +139,26 @@ class _MacGuard extends MacOSProxyGuard {
     : super(
         inspector: client.inspectProxy,
         starter: client.startProxyDetailed,
-        stopper: (port) => client.stopProxyDetailed(expectedPort: port),
+        stopper: client.repairStaleProxyDetailed,
         verificationDelay: Duration.zero,
       );
+
+  Future<MacOSProxyReadinessResult> Function(int port)? readiness;
 
   @override
   Future<MacOSProxyReadinessResult> waitUntilReadyDetailed(
     int port, {
     bool Function()? isCancelled,
   }) async {
-    return MacOSProxyReadinessResult(
-      status: isCancelled?.call() == true
-          ? MacOSProxyReadinessStatus.cancelled
-          : MacOSProxyReadinessStatus.ready,
-      port: port,
-      attempts: 1,
-      elapsed: Duration.zero,
-    );
+    return readiness?.call(port) ??
+        MacOSProxyReadinessResult(
+          status: isCancelled?.call() == true
+              ? MacOSProxyReadinessStatus.cancelled
+              : MacOSProxyReadinessStatus.ready,
+          port: port,
+          attempts: 1,
+          elapsed: Duration.zero,
+        );
   }
 }
 
@@ -172,6 +186,14 @@ class _Rig {
   final notifications = <String>[];
   late final ProviderContainer container;
   late final _Setup setup;
+  bool _disposed = false;
+
+  Future<void> dispose(WidgetTester tester) async {
+    if (_disposed) return;
+    _disposed = true;
+    await tester.pumpWidget(const SizedBox());
+    container.dispose();
+  }
 
   Future<void> mount(
     WidgetTester tester, {
@@ -179,6 +201,9 @@ class _Rig {
     bool tunAuthorized = false,
     bool isWindows = true,
     bool isMacOS = false,
+    bool initiallyRunning = true,
+    bool injectGuard = true,
+    int initialPort = 7890,
     Duration macOSProxyGuardInterval = const Duration(seconds: 5),
   }) async {
     container = ProviderContainer(
@@ -187,9 +212,14 @@ class _Rig {
           (_, _) => const NetworkProps(systemProxy: true),
         ),
         patchClashConfigProvider.overrideWithBuild(
-          (_, _) => const PatchClashConfig().copyWith.tun(enable: tunRequested),
+          (_, _) => const PatchClashConfig().copyWith(
+            mixedPort: initialPort,
+            tun: const PatchClashConfig().tun.copyWith(enable: tunRequested),
+          ),
         ),
-        runTimeProvider.overrideWithBuild((_, _) => 1),
+        runTimeProvider.overrideWithBuild(
+          (_, _) => initiallyRunning ? 1 : null,
+        ),
         authorizedTunEnableProvider.overrideWithBuild(
           (_, _) => tunAuthorized
               ? TunAuthorizationState.authorized
@@ -199,18 +229,15 @@ class _Rig {
       ],
     );
     setup = container.read(setupActionProvider.notifier) as _Setup;
-    addTearDown(() async {
-      await tester.pumpWidget(const SizedBox());
-      container.dispose();
-    });
+    addTearDown(() => dispose(tester));
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
           home: ProxyManager(
             proxyClient: client,
-            windowsProxyGuard: isWindows ? guard : null,
-            macOSProxyGuard: isMacOS ? macGuard : null,
+            windowsProxyGuard: isWindows && injectGuard ? guard : null,
+            macOSProxyGuard: isMacOS && injectGuard ? macGuard : null,
             isWindows: isWindows,
             isMacOS: isMacOS,
             macOSProxyGuardInterval: macOSProxyGuardInterval,
@@ -225,6 +252,55 @@ class _Rig {
 
 void main() {
   setUpAll(() => AppLocalizations.load(const Locale('en')));
+
+  testWidgets(
+    'default Windows startup guard uses guarded repair instead of stop',
+    (tester) async {
+      final rig = _Rig();
+      late int port;
+      try {
+        await tester.runAsync(() async {
+          final repairCompleted = Completer<void>();
+          final listener = await ServerSocket.bind(
+            InternetAddress.loopbackIPv4,
+            0,
+          );
+          port = listener.port;
+          await listener.close();
+          rig.client.inspection = ProxyOperationResult(
+            success: true,
+            operation: 'inspect',
+            stage: 'verified',
+            enabled: true,
+            server: '127.0.0.1:$port',
+          );
+          rig.client.repair = (_) async {
+            repairCompleted.complete();
+            return const ProxyOperationResult(
+              success: true,
+              operation: 'stop',
+              stage: 'skipped_active_listener',
+              writeSkipped: true,
+            );
+          };
+          await rig.mount(
+            tester,
+            initiallyRunning: false,
+            injectGuard: false,
+            initialPort: port,
+          );
+          await repairCompleted.future.timeout(const Duration(seconds: 5));
+        });
+        await tester.pumpAndSettle();
+        expect(rig.client.repairPorts, [port]);
+        expect(rig.client.stopPorts, isEmpty);
+        expect(rig.client.startPorts, isEmpty);
+        expect(rig.notifications, isEmpty);
+      } finally {
+        await rig.dispose(tester);
+      }
+    },
+  );
 
   testWidgets('unavailable loopback skips native enable and stops run state', (
     tester,
@@ -502,7 +578,7 @@ void main() {
     expect(rig.setup.requests, [false]);
     expect(rig.container.read(runTimeProvider), isNull);
     expect(rig.container.read(networkSettingProvider).systemProxy, isFalse);
-    expect(rig.notifications.single, contains('W-PROXY-03'));
+    expect(rig.notifications.single, contains('M-PROXY-03'));
   });
 
   testWidgets('macOS verified service remains enabled through guard checks', (
@@ -548,7 +624,7 @@ void main() {
     expect(rig.setup.requests, [false]);
     expect(rig.container.read(runTimeProvider), isNull);
     expect(rig.container.read(networkSettingProvider).systemProxy, isFalse);
-    expect(rig.notifications.single, contains('W-PROXY-04'));
+    expect(rig.notifications.single, contains('M-PROXY-04'));
   });
 
   testWidgets('macOS stop discards a late service readback failure', (
@@ -617,30 +693,77 @@ void main() {
     expect(rig.container.read(networkSettingProvider).systemProxy, isTrue);
   });
 
-  testWidgets(
-    'failed native disable still notifies without stopping the core',
-    (tester) async {
-      final rig = _Rig();
-      await rig.mount(tester);
-      await tester.pumpAndSettle();
-      rig.client.stop = (_) async => _stopFailure;
+  for (final isMacOS in [false, true]) {
+    testWidgets(
+      '${isMacOS ? 'Mac' : 'Windows'} stop after a cancelled port change cleans the recorded session',
+      (tester) async {
+        final rig = _Rig();
+        await rig.mount(tester, isWindows: !isMacOS, isMacOS: isMacOS);
+        await tester.pumpAndSettle();
+        final readiness = Completer<void>();
+        rig.guard.readiness = (port) async {
+          await readiness.future;
+          return WindowsProxyReadinessResult(
+            status: WindowsProxyReadinessStatus.ready,
+            port: port,
+            attempts: 1,
+            elapsed: Duration.zero,
+          );
+        };
+        rig.macGuard.readiness = (port) async {
+          await readiness.future;
+          return MacOSProxyReadinessResult(
+            status: MacOSProxyReadinessStatus.ready,
+            port: port,
+            attempts: 1,
+            elapsed: Duration.zero,
+          );
+        };
+        rig.client.stop = (port) async =>
+            port == 7891 ? _stopped : _stopFailure;
+        rig.container
+            .read(patchClashConfigProvider.notifier)
+            .update((state) => state.copyWith(mixedPort: 7891));
+        await tester.pump();
+        await rig.setup.setRunning(false);
+        await tester.pump();
+        readiness.complete();
+        await tester.pumpAndSettle();
 
-      rig.container
-          .read(networkSettingProvider.notifier)
-          .update((state) => state.copyWith(systemProxy: false));
-      await tester.pumpAndSettle();
+        expect(rig.client.startPorts, [7890]);
+        expect(rig.client.stopPorts, [7891]);
+        expect(rig.container.read(runTimeProvider), isNull);
+        expect(rig.notifications, isEmpty);
+      },
+    );
 
-      expect(rig.client.stopPorts, [7890]);
-      expect(rig.setup.requests, isEmpty);
-      expect(rig.container.read(runTimeProvider), 1);
-      expect(rig.container.read(networkSettingProvider).systemProxy, isFalse);
-      expect(rig.notifications, [
-        AppLocalizations.current.systemProxyDisableFailed(
-          _stopFailure.diagnosticCode,
-        ),
-      ]);
-    },
-  );
+    testWidgets(
+      '${isMacOS ? 'Mac' : 'Windows'} disable failure reports its platform without stopping the core',
+      (tester) async {
+        final rig = _Rig();
+        await rig.mount(tester, isWindows: !isMacOS, isMacOS: isMacOS);
+        await tester.pumpAndSettle();
+        rig.client.stop = (_) async => _stopFailure;
+
+        rig.container
+            .read(networkSettingProvider.notifier)
+            .update((state) => state.copyWith(systemProxy: false));
+        await tester.pumpAndSettle();
+
+        expect(rig.client.stopPorts, [7890]);
+        expect(rig.setup.requests, isEmpty);
+        expect(rig.container.read(runTimeProvider), 1);
+        expect(rig.container.read(networkSettingProvider).systemProxy, isFalse);
+        expect(rig.notifications, [
+          AppLocalizations.current.systemProxyDisableFailed(
+            _stopFailure
+                .withPlatform(isMacOS ? 'macos' : 'windows')
+                .diagnosticCode,
+          ),
+        ]);
+      },
+    );
+  }
 
   testWidgets(
     'cancelled queued cleanup cannot stop an in-flight native apply',
@@ -785,6 +908,6 @@ void main() {
     expect(rig.setup.requests, [false]);
     expect(rig.container.read(runTimeProvider), isNull);
     expect(rig.container.read(networkSettingProvider).systemProxy, isFalse);
-    expect(rig.notifications.single, contains('W-PROXY-09'));
+    expect(rig.notifications.single, contains('M-PROXY-09'));
   });
 }

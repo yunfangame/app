@@ -9,6 +9,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'macos_identity_constants.dart';
+
 const macOsFileSecretStorageEnabled = bool.fromEnvironment(
   'MACOS_FILE_SECRET_STORAGE',
 );
@@ -23,7 +25,7 @@ abstract interface class SecretStringStore {
 
 class FlutterSecureSecretStringStore implements SecretStringStore {
   FlutterSecureSecretStringStore({FlutterSecureStorage? storage})
-    : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? identitySecureStorage;
 
   final FlutterSecureStorage _storage;
 

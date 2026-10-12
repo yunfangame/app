@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   const executable = r'D:\Favorites\蜂窝\FengWo.exe';
   const roaming = r'C:\Users\用户\AppData\Roaming';
-  const expectedData = '$roaming\\com.follow\\蜂窝加速器';
+  const expectedData = '$roaming\\FengWo\\蜂窝加速器';
 
   WindowsIntegritySnapshot? inspect(int rid) => verifyWindowsStartupIntegrity(
     isWindows: true,
@@ -183,7 +183,7 @@ void main() {
         final snapshot = verifyWindowsStartupIntegrity()!;
         expect(snapshot.rid, rid);
         expect(snapshot.executablePath, Platform.resolvedExecutable);
-        expect(snapshot.dataDirectoryCandidate, contains('com.follow'));
+        expect(snapshot.dataDirectoryCandidate, contains('FengWo'));
       } else {
         expect(
           verifyWindowsStartupIntegrity,

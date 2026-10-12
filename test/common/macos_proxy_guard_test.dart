@@ -32,6 +32,85 @@ void main() {
     enabled: false,
   );
 
+  for (final inspection in <String, ProxyOperationResult>{
+    'external automatic proxy': ProxyOperationResult.fromChannel({
+      'success': false,
+      'operation': 'inspect',
+      'stage': 'readback_mismatch',
+      'enabled': false,
+      'automaticProxyEnabled': true,
+    }, operation: 'inspect').withPlatform('macos'),
+    'automatic proxy alongside the expected manual endpoint':
+        ProxyOperationResult.fromChannel({
+          'success': false,
+          'operation': 'inspect',
+          'stage': 'readback_mismatch',
+          'enabled': true,
+          'server': '127.0.0.1:7890',
+          'automaticProxyEnabled': true,
+        }, operation: 'inspect').withPlatform('macos'),
+    'external enabled endpoint': const ProxyOperationResult(
+      success: false,
+      operation: 'inspect',
+      stage: 'readback_mismatch',
+      enabled: true,
+      server: '127.0.0.1:17890',
+    ),
+    'unknown enabled endpoint': const ProxyOperationResult(
+      success: false,
+      operation: 'inspect',
+      stage: 'readback_mismatch',
+      enabled: true,
+    ),
+    'unknown enable state': const ProxyOperationResult(
+      success: false,
+      operation: 'inspect',
+      stage: 'readback_mismatch',
+    ),
+    'failed read with default disabled field': const ProxyOperationResult(
+      success: false,
+      operation: 'inspect',
+      stage: 'readback',
+      enabled: false,
+      errorCode: 5,
+    ),
+  }.entries) {
+    test('guard preserves ${inspection.key}', () async {
+      final guard = MacOSProxyGuard(
+        inspector: (_) async => inspection.value,
+        starter: (_, _) async => throw StateError('must not rewrite'),
+        stopper: (_) async => throw StateError('must not stop'),
+        portProbe: (_) async => throw StateError('must not probe'),
+      );
+      final result = await guard.reconcile(7890, const ['localhost']);
+      expect(result?.inspection, same(inspection.value));
+      expect(result?.repair, isNull);
+      expect(result?.readiness, isNull);
+    });
+  }
+
+  for (final entry in {
+    'skipped_active_listener': MacOSProxyRepairStatus.active,
+    'skipped_foreign_or_restored': MacOSProxyRepairStatus.notOwned,
+    'already_restored': MacOSProxyRepairStatus.notOwned,
+  }.entries) {
+    test('native stale repair respects ${entry.key}', () async {
+      final guard = MacOSProxyGuard(
+        inspector: (_) async => owned,
+        starter: (_, _) async => throw StateError('must not start'),
+        stopper: (_) async => ProxyOperationResult(
+          success: true,
+          operation: 'stop',
+          stage: entry.key,
+          writeSkipped: true,
+        ),
+        portProbe: (_) async => false,
+      );
+      final result = await guard.repairStale(7890);
+      expect(result.status, entry.value);
+    });
+  }
+
   test('does not rewrite an effective proxy', () async {
     var starts = 0;
     final guard = MacOSProxyGuard(

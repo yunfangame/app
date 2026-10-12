@@ -22,9 +22,9 @@ use warp::{Filter, Rejection, Reply};
 #[cfg(windows)]
 use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
 
-const LISTEN_PORT: u16 = 47906;
-const CORE_PIPE_PREFIX: &str = r"\\.\pipe\FlClashCore_";
-const PROTOCOL_VERSION_HEADER: &str = "x-flclash-helper-protocol";
+const LISTEN_PORT: u16 = 47907;
+const CORE_PIPE_PREFIX: &str = r"\\.\pipe\FengWoCore_";
+const PROTOCOL_VERSION_HEADER: &str = "x-fengwo-helper-protocol";
 const PROTOCOL_VERSION: &str = "6";
 const EXPECTED_CORE_SHA256: &str = env!("CORE_SHA256");
 const LOG_CAPACITY: usize = 100;
@@ -641,7 +641,11 @@ mod tests {
 
     #[test]
     fn protocol_6_uses_lowercase_session_ownership() {
+        assert_eq!(LISTEN_PORT, 47907);
+        assert_ne!(LISTEN_PORT, 47890);
+        assert_ne!(LISTEN_PORT, 47906);
         assert_eq!(PROTOCOL_VERSION, "6");
+        assert_eq!(PROTOCOL_VERSION_HEADER, "x-fengwo-helper-protocol");
         assert!(is_valid_session_id("0123456789abcdef0123456789abcdef"));
         assert!(!is_valid_session_id("ABCDEF0123456789abcdef0123456789"));
         assert!(!is_valid_session_id("0123456789abcdef"));
@@ -665,18 +669,22 @@ mod tests {
 
     #[tokio::test]
     async fn ping_returns_running_helper_path_for_verified_core() {
-        let response = ping_response(Ok(PathBuf::from("FlClashHelperService.exe")));
+        let response = ping_response(Ok(PathBuf::from("FengWoHelperService.exe")));
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.headers().get(PROTOCOL_VERSION_HEADER).unwrap(),
             PROTOCOL_VERSION
         );
+        assert!(response
+            .headers()
+            .get("x-flclash-helper-protocol")
+            .is_none());
         assert_eq!(
             warp::hyper::body::to_bytes(response.into_body())
                 .await
                 .unwrap(),
-            "FlClashHelperService.exe"
+            "FengWoHelperService.exe"
         );
     }
 
@@ -774,7 +782,7 @@ mod tests {
             .path("/start")
             .header("content-type", "application/json")
             .body(
-                r#"{"address":"\\\\.\\pipe\\FlClashCore_0123456789abcdef0123456789abcdef","sessionId":"0123456789abcdef0123456789abcdef","path":"attacker.exe"}"#,
+                r#"{"address":"\\\\.\\pipe\\FengWoCore_0123456789abcdef0123456789abcdef","sessionId":"0123456789abcdef0123456789abcdef","path":"attacker.exe"}"#,
             )
             .reply(&routes())
             .await;
@@ -797,7 +805,7 @@ mod tests {
             .method("POST")
             .path("/start")
             .json(&StartParams {
-                address: r"\\.\pipe\FlClashCore_0123456789abcdef0123456789abcdef".to_string(),
+                address: r"\\.\pipe\FengWoCore_0123456789abcdef0123456789abcdef".to_string(),
                 session_id: "0123456789abcdef0123456789abcdef".to_string(),
             })
             .reply(&routes())
@@ -877,7 +885,7 @@ mod tests {
             .method("POST")
             .path("/start")
             .json(&StartParams {
-                address: r"\\.\pipe\FlClashCore_0123456789abcdef0123456789abcdef".to_string(),
+                address: r"\\.\pipe\FengWoCore_0123456789abcdef0123456789abcdef".to_string(),
                 session_id: "ABCDEF0123456789abcdef0123456789".to_string(),
             })
             .reply(&routes())
@@ -891,7 +899,7 @@ mod tests {
     #[test]
     fn verifies_core_sha256_in_all_build_modes() {
         let path =
-            std::env::temp_dir().join(format!("flclash-helper-core-sha256-{}", std::process::id()));
+            std::env::temp_dir().join(format!("fengwo-helper-core-sha256-{}", std::process::id()));
         let mut file = File::create(&path).unwrap();
         file.write_all(b"test").unwrap();
         drop(file);
@@ -969,20 +977,23 @@ mod tests {
     #[test]
     fn only_accepts_random_core_pipe_namespace() {
         assert!(is_allowed_core_pipe(
+            r"\\.\pipe\FengWoCore_0123456789abcdef0123456789abcdef"
+        ));
+        assert!(!is_allowed_core_pipe(r"\\.\pipe\FengWoCore"));
+        assert!(!is_allowed_core_pipe(
             r"\\.\pipe\FlClashCore_0123456789abcdef0123456789abcdef"
         ));
-        assert!(!is_allowed_core_pipe(r"\\.\pipe\FlClashCore"));
         assert!(!is_allowed_core_pipe(
             r"\\.\pipe\Other_0123456789abcdef0123456789abcdef"
         ));
         assert!(!is_allowed_core_pipe(
-            r"\\.\pipe\FlClashCore_0123456789abcdef"
+            r"\\.\pipe\FengWoCore_0123456789abcdef"
         ));
         assert!(!is_allowed_core_pipe(
-            r"\\.\pipe\FlClashCore_0123456789abcdef0123456789abcdeg"
+            r"\\.\pipe\FengWoCore_0123456789abcdef0123456789abcdeg"
         ));
         assert!(!is_allowed_core_pipe(
-            r"\\.\pipe\FlClashCore_ABCDEF0123456789abcdef0123456789"
+            r"\\.\pipe\FengWoCore_ABCDEF0123456789abcdef0123456789"
         ));
     }
 }

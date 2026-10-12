@@ -191,7 +191,12 @@ class MacOSProxyGuard {
     if (isCancelled?.call() == true) return null;
     final inspection = await _inspector(port);
     if (isCancelled?.call() == true) return null;
-    if (inspection.success) {
+    if (inspection.success ||
+        inspection.stage != 'readback_mismatch' ||
+        inspection.enabled == null ||
+        inspection.automaticProxyEnabled == true ||
+        (inspection.enabled == true &&
+            inspection.server != '127.0.0.1:$port')) {
       return MacOSProxyReconcileResult(inspection: inspection);
     }
     final readiness = await waitUntilReadyDetailed(
@@ -244,6 +249,22 @@ class MacOSProxyGuard {
       );
     }
     final cleanup = await _stopper(port);
+    if (cleanup.success && cleanup.stage == 'skipped_active_listener') {
+      return MacOSProxyRepairResult(
+        status: MacOSProxyRepairStatus.active,
+        inspection: inspection,
+        cleanup: cleanup,
+      );
+    }
+    if (cleanup.success &&
+        (cleanup.stage == 'skipped_foreign_or_restored' ||
+            cleanup.stage == 'already_restored')) {
+      return MacOSProxyRepairResult(
+        status: MacOSProxyRepairStatus.notOwned,
+        inspection: inspection,
+        cleanup: cleanup,
+      );
+    }
     return MacOSProxyRepairResult(
       status: cleanup.success
           ? MacOSProxyRepairStatus.cleaned

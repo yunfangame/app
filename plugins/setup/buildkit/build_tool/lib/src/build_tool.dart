@@ -214,7 +214,7 @@ class BuildWindowsCommand extends BuildCommand {
               await Process.run('taskkill', [
                 '/F',
                 '/IM',
-                '${config.helperName}${targets.first.executableExtension}',
+                '${config.helperNameForPlatform(targets.first.goos)}${targets.first.executableExtension}',
               ]);
             }
           : null,
@@ -287,7 +287,7 @@ class BuildMacosCommand extends BuildCommand {
         config.outputDir,
         target.platformDir,
         target.goarch,
-        config.coreName,
+        config.coreNameForPlatform(target.goos),
       );
       architectureOutputs.add(output);
       results.add(
@@ -299,7 +299,7 @@ class BuildMacosCommand extends BuildCommand {
       _rootDir,
       config.outputDir,
       targets.first.platformDir,
-      config.coreName,
+      config.coreNameForPlatform(targets.first.goos),
     );
     final temporaryOutput = '$output.universal';
     final temporaryFile = File(temporaryOutput);

@@ -27,6 +27,21 @@ class MainFlutterWindow: NSWindow {
             }
         }
         
+        FlutterMethodChannel(
+            name: "com.fengwo.accelerator/identity",
+            binaryMessenger: flutterViewController.engine.binaryMessenger
+        ).setMethodCallHandler { call, result in
+            guard call.method == "prepareIdentity" else {
+                result(FlutterMethodNotImplemented)
+                return
+            }
+            do {
+                result(try FengWoIdentityMigration.production().prepare().dictionary)
+            } catch {
+                result(["legacyImported": false, "status": "migration_failed"])
+            }
+        }
+
         RegisterGeneratedPlugins(registry: flutterViewController)
         super.awakeFromNib()
     }

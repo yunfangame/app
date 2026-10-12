@@ -14,6 +14,8 @@ AppUpdatesURL={{PUBLISHER_URL}}
 DefaultDirName={{INSTALL_DIR_NAME}}
 DisableDirPage=no
 UsePreviousAppDir=yes
+SetupLogging=yes
+UninstallLogging=yes
 DisableProgramGroupPage=yes
 OutputDir=.
 OutputBaseFilename={{OUTPUT_BASE_FILENAME}}
@@ -27,126 +29,123 @@ ArchitecturesInstallIn64BitMode={{ARCH}}
 
 [Code]
 #include "{{SOURCE_DIR}}\prerequisites\vc_runtime_code.iss"
-#include "{{SOURCE_DIR}}\prerequisites\install_integrity_code.iss"
 
-type
-  TFengWoServiceStatus = record
-    ServiceType, CurrentState, ControlsAccepted, Win32ExitCode,
-    ServiceSpecificExitCode, CheckPoint, WaitHint: Cardinal;
-  end;
-
-function FwOpenSCManager(MachineName, DatabaseName: THandle; Access: Cardinal): THandle;
-  external 'OpenSCManagerW@advapi32.dll stdcall';
-function FwOpenService(Manager: THandle; Name: String; Access: Cardinal): THandle;
-  external 'OpenServiceW@advapi32.dll stdcall';
-function FwQueryServiceStatus(Service: THandle; var Status: TFengWoServiceStatus): Integer;
-  external 'QueryServiceStatus@advapi32.dll stdcall';
-function FwControlService(Service: THandle; Control: Cardinal; var Status: TFengWoServiceStatus): Integer;
-  external 'ControlService@advapi32.dll stdcall';
-function FwCloseServiceHandle(Handle: THandle): Integer;
-  external 'CloseServiceHandle@advapi32.dll stdcall';
-
-function StopHelperThroughServiceManager(var ErrorCode: Integer): Boolean;
+function HasFengWoPreviousInstallation: Boolean;
 var
-  Manager, Service: THandle;
-  Status: TFengWoServiceStatus;
-  Attempt: Integer;
+  Roots: TArrayOfInteger;
+  I: Integer;
+  Path, Key: String;
 begin
   Result := False;
-  Manager := FwOpenSCManager(0, 0, 1);
-  if Manager = 0 then
+  Roots := [HKLM64, HKCU64, HKLM32, HKCU32];
+  Key := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\0B31AA8F-C520-4E03-ACF1-FBE8B4EBA461_is1';
+  for I := 0 to GetArrayLength(Roots) - 1 do
   begin
-    ErrorCode := DLLGetLastError;
-    Exit;
-  end;
-  try
-    Service := FwOpenService(Manager, 'FlClashHelperService', $24);
-    if Service = 0 then
+    if RegQueryStringValue(Roots[I], Key, 'Inno Setup: App Path', Path) and
+      (Path <> '') then
     begin
-      ErrorCode := DLLGetLastError;
-      Result := ErrorCode = 1060;
+      Result := True;
       Exit;
     end;
-    try
-      for Attempt := 0 to 99 do
-      begin
-        if FwQueryServiceStatus(Service, Status) = 0 then
-        begin
-          ErrorCode := DLLGetLastError;
-          Exit;
-        end;
-        if Status.CurrentState = 1 then
-        begin
-          Result := True;
-          Exit;
-        end;
-        if Status.CurrentState <> 3 then
-        begin
-          if FwControlService(Service, 1, Status) = 0 then
-          begin
-            ErrorCode := DLLGetLastError;
-            if ErrorCode = 1062 then
-            begin
-              Result := True;
-              Exit;
-            end;
-            if ErrorCode <> 1061 then Exit;
-          end;
-        end;
-        Sleep(100);
-      end;
-      ErrorCode := 1053;
-    finally
-      FwCloseServiceHandle(Service);
-    end;
-  finally
-    FwCloseServiceHandle(Manager);
   end;
 end;
 
-function StopHelperService: String;
+procedure InitializeWizard;
 var
-  HelperPath: String;
+  ScriptPath, PowerShellPath, OutputPath, Parameters, Path: String;
+  Output: AnsiString;
   ResultCode: Integer;
+begin
+  if (ExpandConstant('{param:DIR|}') <> '') or
+    (ExpandConstant('{param:LOADINF|}') <> '') or HasFengWoPreviousInstallation then Exit;
+  ExtractTemporaryFile('fengwo_install_cleanup.ps1');
+  ScriptPath := ExpandConstant('{tmp}\fengwo_install_cleanup.ps1');
+  OutputPath := ExpandConstant('{tmp}\fengwo-legacy-install-path.txt');
+  PowerShellPath := ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe');
+  Parameters := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ' +
+    AddQuotes(ScriptPath) + ' -Operation discover -DiscoveryOutputPath ' + AddQuotes(OutputPath);
+  if not Exec(PowerShellPath, Parameters, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    Log('FengWo legacy installation discovery could not start: ' + IntToStr(ResultCode));
+    Exit;
+  end;
+  if ResultCode <> 0 then
+  begin
+    Log('FengWo legacy installation discovery failed: ' + IntToStr(ResultCode));
+    Exit;
+  end;
+  if LoadStringFromFile(OutputPath, Output) then
+  begin
+    Path := Utf8Decode(Output);
+    if Path <> '' then WizardForm.DirEdit.Text := Path;
+  end;
+end;
+
+function RunFengWoInstallCleanup(Operation: String): String;
+var
+  ScriptPath, PowerShellPath, Parameters: String;
+  ResultCode: Integer;
+  CleanupStarted: Boolean;
 begin
   Result := '';
-  HelperPath := ExpandConstant('{app}\FlClashHelperService.exe');
-  if FileExists(HelperPath) then
+  if IsUninstaller then
+    ScriptPath := ExpandConstant('{app}\fengwo_install_cleanup.ps1')
+  else
   begin
-    if Exec(HelperPath, 'stop', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-      if ResultCode = 0 then Exit;
+    ExtractTemporaryFile('fengwo_install_cleanup.ps1');
+    ScriptPath := ExpandConstant('{tmp}\fengwo_install_cleanup.ps1');
   end;
-  if not StopHelperThroughServiceManager(ResultCode) then
+  if not FileExists(ScriptPath) then
   begin
-    Log('Unable to stop the existing helper service: ' + IntToStr(ResultCode));
-    Result := FmtMessage(CustomMessage('HelperStopFailed'), [IntToStr(ResultCode)]);
+    Result := CustomMessage('InstallOwnershipCleanupMissing');
+    Exit;
+  end;
+  PowerShellPath := ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe');
+  Parameters := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ' +
+    AddQuotes(ScriptPath) + ' -InstallDirectory ' + AddQuotes(ExpandConstant('{app}')) +
+    ' -Operation ' + Operation;
+  if not IsUninstaller then
+    Parameters := Parameters + ' -OwnershipEvidencePath ' +
+      AddQuotes(ExpandConstant('{tmp}\fengwo-install-ownership.json'));
+  try
+    CleanupStarted := ExecAndLogOutput(PowerShellPath, Parameters, '', SW_HIDE,
+      ewWaitUntilTerminated, ResultCode, nil);
+  except
+    Log('FengWo installation cleanup output capture failed: ' + Operation + ': ' + GetExceptionMessage);
+    Result := FmtMessage(CustomMessage('InstallCleanupFailed'), [Operation,
+      'output_capture_failed', ExpandConstant('{log}')]);
+    Exit;
+  end;
+  if not CleanupStarted then
+  begin
+    Log('FengWo installation cleanup could not start: ' + Operation + ' (' +
+      IntToStr(ResultCode) + '): ' + SysErrorMessage(ResultCode));
+    Result := FmtMessage(CustomMessage('InstallCleanupFailed'), [Operation,
+      IntToStr(ResultCode), ExpandConstant('{log}')]);
+    Exit;
+  end;
+  if ResultCode <> 0 then
+  begin
+    Log('FengWo path-scoped installation cleanup failed: ' + Operation + ' (' + IntToStr(ResultCode) + ')');
+    if ResultCode = 41 then
+      Result := FmtMessage(CustomMessage('InstallDirectoryConflict'), [ExpandConstant('{app}'),
+        ExpandConstant('{autopf64}\FengWo')])
+    else
+      Result := FmtMessage(CustomMessage('InstallCleanupFailed'), [Operation,
+        IntToStr(ResultCode), ExpandConstant('{log}')]);
   end;
 end;
 
-procedure KillProcesses;
-var
-  Processes: TArrayOfString;
-  i: Integer;
-  ResultCode: Integer;
+function FinalizeFengWoInstall: String;
 begin
-  Processes := ['FengWo.exe', 'FlClash.exe', 'FlClashCore.exe', 'FlClashHelperService.exe'];
-
-  for i := 0 to GetArrayLength(Processes)-1 do
-  begin
-    Exec('taskkill', '/f /im ' + Processes[i], '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  end;
+  Result := RunFengWoInstallCleanup('finalize');
 end;
 
-procedure UnregisterHelperService;
-var
-  HelperPath: String;
-  ResultCode: Integer;
+#include "{{SOURCE_DIR}}\prerequisites\install_integrity_code.iss"
+
+function StopHelperService: String;
 begin
-  HelperPath := ExpandConstant('{app}\\FlClashHelperService.exe');
-  if FileExists(HelperPath) then
-  begin
-    Exec(HelperPath, 'uninstall', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  end;
+  Result := RunFengWoInstallCleanup('stop');
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -156,16 +155,19 @@ begin
   Result := EnsureVcRuntime(NeedsRestart);
   if Result <> '' then Exit;
   Result := StopHelperService;
-  if Result <> '' then Exit;
-  KillProcesses;
-  Result := '';
 end;
 
 function InitializeUninstall(): Boolean;
+var
+  Error: String;
 begin
-  UnregisterHelperService;
-  KillProcesses;
-  Result := True;
+  Error := RunFengWoInstallCleanup('uninstall');
+  Result := Error = '';
+  if not Result then
+  begin
+    Log(Error);
+    if not UninstallSilent then MsgBox(Error, mbError, MB_OK);
+  end;
 end;
 
 procedure RemoveOwnedAutoLaunch(RootKey: Integer; Name: String);
@@ -226,11 +228,13 @@ Name: "chineseSimplified"; MessagesFile: {% if locale.file %}{{ locale.file }}{%
 {% endfor %}
 
 [CustomMessages]
+InstallOwnershipCleanupMissing=The FengWo installation cleanup component is missing. Download the complete installer again.
 InstallIntegrityLow=This installation location has a Low integrity security label and would prevent FengWo from saving settings. Go Back and choose a normal local application folder, such as Program Files. Existing user data is preserved.%nLocation: %1
 InstallIntegrityReparse=This installation location uses a symbolic link or redirected folder. Go Back and choose a normal local application folder. Existing user data is preserved.%nLocation: %1
 InstallIntegrityAccess=The installation location cannot be safely checked or written. Go Back and choose another local application folder, or check its permissions and free disk space. Existing user data is preserved.%nLocation: %1%nDetails: %2
 InstallIntegrityPath=Choose a dedicated folder on a local drive rather than a drive root or a network path.%nLocation: %1
-HelperStopFailed=The previous network service is still busy (code %1). Close the old client and Services window, then retry. If it still fails, restart Windows and run the installer again.
+InstallDirectoryConflict=The FengWo identity of the application in this folder cannot be verified. Go Back and choose a separate folder, such as %2. The existing application will be preserved.%nLocation: %1
+InstallCleanupFailed=Installation cleanup failed during %1 (code %2). Send the installation log to support to identify the cause.%nLog: %3
 VcRuntimeInstalling=Installing Microsoft Visual C++ runtime. Please wait...
 VcRuntimeInvalid=The bundled Visual C++ runtime is missing or damaged. Download the complete installer again.
 VcRuntimeLogFailed=Unable to create the runtime installation log directory. Check administrator permissions and disk space.
@@ -239,11 +243,13 @@ VcRuntimeVerifyFailed=Visual C++ runtime verification failed. Repair the install
 VcRuntimeRestart=Windows must restart to finish installing the Visual C++ runtime. Restart and run this installer again.
 {% for locale in LOCALES %}
 {% if locale.lang == 'zh' %}
+chineseSimplified.InstallOwnershipCleanupMissing=蜂窝安装清理组件缺失，请重新下载完整安装包。
 chineseSimplified.InstallIntegrityLow=此安装位置带有 Low（低完整性）安全标签，会导致蜂窝无法保存配置。请返回上一步，更换为 Program Files 等正常的本地安装目录。原有用户数据会保留。%n位置：%1
 chineseSimplified.InstallIntegrityReparse=此安装位置包含符号链接或重定向目录。请返回上一步，选择普通的本地安装目录。原有用户数据会保留。%n位置：%1
 chineseSimplified.InstallIntegrityAccess=无法安全检查或写入此安装位置。请返回上一步，更换本地安装目录，或检查该目录权限及磁盘空间。原有用户数据会保留。%n位置：%1%n详情：%2
 chineseSimplified.InstallIntegrityPath=请选择本地磁盘内独立的程序文件夹，不要选择磁盘根目录或网络路径。%n位置：%1
-chineseSimplified.HelperStopFailed=旧版网络服务尚未退出（错误码 %1）。请关闭旧客户端和服务管理窗口后重试；仍失败时，请重启 Windows 后再次安装。
+chineseSimplified.InstallDirectoryConflict=此目录中的应用无法确认属于蜂窝，不能安全覆盖。请返回上一步，选择独立的蜂窝目录，例如 %2。现有程序会保留。%n位置：%1
+chineseSimplified.InstallCleanupFailed=安装清理失败，操作：%1，错误码：%2。请将安装日志发给客服确认具体原因。%n日志：%3
 chineseSimplified.VcRuntimeInstalling=正在安装 Microsoft Visual C++ 运行库，请稍候……
 chineseSimplified.VcRuntimeInvalid=安装包中的 Visual C++ 运行库缺失或损坏，请重新下载完整安装包。
 chineseSimplified.VcRuntimeLogFailed=无法创建运行库安装日志目录，请检查管理员权限和磁盘空间。
@@ -256,7 +262,9 @@ chineseSimplified.VcRuntimeRestart=需要重启 Windows 才能完成运行库安
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: {% if CREATE_DESKTOP_ICON != true %}unchecked{% else %}checkedonce{% endif %}
 [Files]
+Source: "{{SOURCE_DIR}}\prerequisites\fengwo_install_cleanup.ps1"; Flags: dontcopy
 Source: "{{SOURCE_DIR}}\prerequisites\vc_redist.exe"; Flags: dontcopy
+Source: "{{SOURCE_DIR}}\prerequisites\fengwo_install_cleanup.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{{SOURCE_DIR}}\\*"; DestDir: "{app}"; Excludes: "prerequisites\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]

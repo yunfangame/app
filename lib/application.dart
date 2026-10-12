@@ -2134,7 +2134,7 @@ class ApplicationState extends ConsumerState<Application> {
             );
           },
           scrollBehavior: BaseScrollBehavior(),
-          title: appName,
+          title: platformAppName,
           locale: utils.getApplicationLocale(
             locale,
             isAndroid: system.isAndroid,

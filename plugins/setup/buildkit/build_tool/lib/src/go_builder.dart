@@ -61,7 +61,7 @@ class GoBuilder {
 
     final fileName = target.isLib
         ? '${config.libName}${target.dynamicLibExtension}'
-        : '${config.coreName}${target.executableExtension}';
+        : '${config.coreNameForPlatform(target.goos)}${target.executableExtension}';
     final outFile = outputFile ?? p.join(outDir, fileName);
 
     return cache.run(

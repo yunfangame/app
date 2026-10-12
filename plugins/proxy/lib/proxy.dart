@@ -38,11 +38,12 @@ class Proxy {
     List<String> bypassDomain = const [],
   ]) async {
     if (port < _minPort || port > _maxPort) {
-      return const ProxyOperationResult(
+      return ProxyOperationResult(
         success: false,
         operation: 'start',
         stage: 'invalid_arguments',
         message: 'Proxy port must be between 1 and 65535',
+        platform: Platform.operatingSystem,
       );
     }
     return switch (Platform.operatingSystem) {
@@ -90,6 +91,29 @@ class Proxy {
         stage: 'unsupported',
       ),
     };
+  }
+
+  Future<ProxyOperationResult> repairStaleProxyDetailed(
+    int expectedPort,
+  ) async {
+    if (expectedPort < _minPort || expectedPort > _maxPort) {
+      return const ProxyOperationResult(
+        success: false,
+        operation: 'stop',
+        stage: 'invalid_arguments',
+      );
+    }
+    if (Platform.isWindows) {
+      return ProxyPlatform.instance.repairStaleProxyDetailed(expectedPort);
+    }
+    if (Platform.isMacOS) {
+      return _macosProxy.repairStaleDetailed(expectedPort);
+    }
+    return const ProxyOperationResult(
+      success: false,
+      operation: 'stop',
+      stage: 'unsupported',
+    );
   }
 
   Future<ProxyOperationResult> inspectProxy(int expectedPort) async {

@@ -23,6 +23,21 @@ class ProxyCommand {
     : args = List.unmodifiable(args);
 }
 
+@immutable
+class ProxyCommandResult {
+  const ProxyCommandResult({
+    required this.success,
+    this.command,
+    this.processResult,
+    this.exception,
+  });
+
+  final bool success;
+  final ProxyCommand? command;
+  final ProcessResult? processResult;
+  final ProcessException? exception;
+}
+
 class ProxyCommandRunner {
   final ProxyProcessRunner _processRunner;
 
@@ -36,23 +51,42 @@ class ProxyCommandRunner {
     return _processRunner(executable, arguments, runInShell: runInShell);
   }
 
-  Future<bool> run(Iterable<ProxyCommand> commands) async {
-    var executed = false;
-    try {
-      for (final command in commands) {
-        executed = true;
+  Future<bool> run(Iterable<ProxyCommand> commands) async =>
+      (await runDetailed(commands)).success;
+
+  Future<ProxyCommandResult> runDetailed(
+    Iterable<ProxyCommand> commands,
+  ) async {
+    ProxyCommand? lastCommand;
+    ProcessResult? lastResult;
+    for (final command in commands) {
+      try {
         final result = await process(
           command.executable,
           command.args,
           runInShell: command.runInShell,
         );
         if (result.exitCode != 0) {
-          return false;
+          return ProxyCommandResult(
+            success: false,
+            command: command,
+            processResult: result,
+          );
         }
+        lastCommand = command;
+        lastResult = result;
+      } on ProcessException catch (error) {
+        return ProxyCommandResult(
+          success: false,
+          command: command,
+          exception: error,
+        );
       }
-    } on ProcessException {
-      return false;
     }
-    return executed;
+    return ProxyCommandResult(
+      success: lastCommand != null,
+      command: lastCommand,
+      processResult: lastResult,
+    );
   }
 }

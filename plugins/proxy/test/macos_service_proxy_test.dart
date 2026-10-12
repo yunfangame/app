@@ -8,6 +8,242 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('MacosProxy network service verification', () {
+    for (final output in <String, ProcessResult>{
+      'active IPv4 listener': ProcessResult(1, 0, 'p1234\n', ''),
+      'active IPv6 listener': ProcessResult(1, 0, 'p5678\n', ''),
+      'inspection denied': ProcessResult(1, 1, '', 'permission denied'),
+      'unrecognized output': ProcessResult(1, 0, 'unknown', ''),
+    }.entries) {
+      test('explicit stale repair preserves ${output.key}', () async {
+        final system = _NetworkSystem();
+        system.services['Service A']!.enableOwned();
+        final original = system.services['Service A']!.snapshot();
+        system.listenerResult = output.value;
+        final result = await system.proxy().repairStaleDetailed(7890);
+        expect(
+          result.stage,
+          output.key.startsWith('active')
+              ? 'skipped_active_listener'
+              : 'listener_inspection',
+        );
+        expect(system.writes, isEmpty);
+        expect(system.getterReads, isEmpty);
+        expect(system.services['Service A']!.snapshot(), original);
+      });
+    }
+
+    test(
+      'explicit stale repair only disables the confirmed dead endpoint',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        state.enableOwned();
+        final result = await system.proxy().repairStaleDetailed(7890);
+        expect(result.success, isTrue);
+        expect(result.stage, 'restored');
+        expect(state.web.enabled, isFalse);
+        expect(state.secureWeb.enabled, isFalse);
+        expect(state.socks.enabled, isFalse);
+        expect(system.listenerInspections, 2);
+        expect(system.writes, hasLength(3));
+      },
+    );
+
+    test(
+      'a listener appearing after the first probe prevents stale writes',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        state.enableOwned();
+        final original = state.snapshot();
+        system.inspectListeners = () async => system.listenerInspections == 1
+            ? ProcessResult(1, 1, '', '')
+            : ProcessResult(1, 0, 'p4321\n', '');
+        final result = await system.proxy().repairStaleDetailed(7890);
+        expect(result.stage, 'skipped_active_listener');
+        expect(system.writes, isEmpty);
+        expect(state.snapshot(), original);
+      },
+    );
+
+    test(
+      'an unchanged failed write cannot acquire a later external proxy',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        system.writeOverrides['-setautoproxystate'] = ProcessResult(
+          1,
+          14,
+          '',
+          'denied',
+        );
+        final proxy = system.proxy();
+        expect(
+          (await proxy.startDetailed(7890, ['localhost'])).success,
+          isFalse,
+        );
+        state.enableOwned();
+        state.bypass = ['localhost'];
+        final external = state.snapshot();
+        system.writes.clear();
+        final result = await proxy.stopDetailed(expectedPort: 7890);
+        expect(result.success, isTrue);
+        expect(result.writeSkipped, isTrue);
+        expect(system.writes, isEmpty);
+        expect(state.snapshot(), external);
+      },
+    );
+
+    test(
+      'successful commands with unchanged readback cannot claim external settings',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        system.ignoredWrites.addAll([
+          '-setautoproxystate',
+          '-setproxyautodiscovery',
+          '-setwebproxy',
+          '-setwebproxystate',
+          '-setsecurewebproxy',
+          '-setsecurewebproxystate',
+          '-setsocksfirewallproxy',
+          '-setsocksfirewallproxystate',
+          '-setproxybypassdomains',
+        ]);
+        final proxy = system.proxy();
+        expect(
+          (await proxy.startDetailed(7890, ['localhost'])).success,
+          isFalse,
+        );
+        state.enableOwned();
+        state.bypass = ['localhost'];
+        final external = state.snapshot();
+        system.writes.clear();
+        expect((await proxy.stopDetailed(expectedPort: 7890)).success, isTrue);
+        expect(system.writes, isEmpty);
+        expect(state.snapshot(), external);
+      },
+    );
+
+    test(
+      'a failed unchanged restore cannot claim a later foreign mixed configuration',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        final proxy = system.proxy();
+        expect(
+          (await proxy.startDetailed(7890, ['localhost'])).success,
+          isTrue,
+        );
+        system.writeOverrides['-setwebproxy'] = ProcessResult(
+          1,
+          14,
+          '',
+          'denied',
+        );
+        expect((await proxy.stopDetailed(expectedPort: 7890)).success, isFalse);
+        state.pacEnabled = true;
+        state.bypass = ['external.invalid'];
+        final external = state.snapshot();
+        system.writeOverrides.clear();
+        system.writes.clear();
+        final stopped = await proxy.stopDetailed(expectedPort: 7890);
+        expect(stopped.success, isTrue);
+        expect(stopped.restoreAbandoned, isTrue);
+        expect(system.writes, isEmpty);
+        expect(state.snapshot(), external);
+      },
+    );
+
+    test('invalid stale ports perform no discovery or writes', () async {
+      final system = _NetworkSystem();
+      final proxy = system.proxy();
+      for (final port in [-1, 0, 65536]) {
+        expect(
+          (await proxy.repairStaleDetailed(port)).stage,
+          'invalid_arguments',
+        );
+      }
+      expect(system.listenerInspections, 0);
+      expect(system.getterReads, isEmpty);
+      expect(system.writes, isEmpty);
+    });
+
+    test('empty lsof output still preserves an active IPv6 endpoint', () async {
+      final system = _NetworkSystem();
+      final state = system.services['Service A']!..enableOwned();
+      final external = state.snapshot();
+      final addresses = <InternetAddress>[];
+      system.listenerProbe = (address, _) async {
+        addresses.add(address);
+        return address.type == InternetAddressType.IPv6;
+      };
+      final result = await system.proxy().repairStaleDetailed(7890);
+      expect(result.stage, 'skipped_active_listener');
+      expect(addresses, [
+        InternetAddress.loopbackIPv4,
+        InternetAddress.loopbackIPv6,
+      ]);
+      expect(system.writes, isEmpty);
+      expect(state.snapshot(), external);
+    });
+
+    test('uncertain TCP inspection cannot clear an endpoint', () async {
+      final system = _NetworkSystem();
+      system.services['Service A']!.enableOwned();
+      system.listenerProbe = (_, _) async => throw const SocketException(
+        'permission denied',
+        osError: OSError('denied', 13),
+      );
+      final result = await system.proxy().repairStaleDetailed(7890);
+      expect(result.success, isFalse);
+      expect(result.stage, 'listener_inspection');
+      expect(result.errorCode, 13);
+      expect(system.writes, isEmpty);
+    });
+
+    test(
+      'an unchanged failed port rewrite retains the earlier owned session',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        final original = state.snapshot();
+        final proxy = system.proxy();
+        expect(
+          (await proxy.startDetailed(7890, ['localhost'])).success,
+          isTrue,
+        );
+        system.writeOverrides['-setautoproxystate'] = ProcessResult(
+          1,
+          14,
+          '',
+          'denied',
+        );
+        expect(
+          (await proxy.startDetailed(7891, ['localhost'])).success,
+          isFalse,
+        );
+        system.writeOverrides.clear();
+        expect((await proxy.stopDetailed(expectedPort: 7891)).success, isTrue);
+        expect(state.snapshot(), original);
+      },
+    );
+
+    test('timed out listener inspection cannot clear proxy settings', () async {
+      final system = _NetworkSystem();
+      system.services['Service A']!.enableOwned();
+      system.inspectListeners = () => Future<ProcessResult>.delayed(
+        const Duration(seconds: 1),
+        () => ProcessResult(1, 1, '', ''),
+      );
+      final proxy = MacosProxy(
+        commandRunner: ProxyCommandRunner(system.run),
+        listenerInspectionTimeout: const Duration(milliseconds: 5),
+      );
+      final result = await proxy.repairStaleDetailed(7890);
+      expect(result.stage, 'listener_inspection');
+      expect(system.writes, isEmpty);
+    });
     test(
       'start and inspect use matching service despite global PAC only',
       () async {
@@ -326,6 +562,34 @@ void main() {
       },
     );
 
+    test('inspection reports external PAC and automatic discovery', () async {
+      final system = _NetworkSystem();
+      final state = system.services['Service A']!;
+      final proxy = system.proxy(verificationAttempts: 1);
+      for (final automatic in [(true, false), (false, true), (true, true)]) {
+        for (final manual in [false, true]) {
+          for (final endpoint in [state.web, state.secureWeb, state.socks]) {
+            endpoint.enabled = manual;
+            endpoint.server = '127.0.0.1';
+            endpoint.port = 7890;
+          }
+          state.pacEnabled = automatic.$1;
+          state.discovery = automatic.$2;
+          final original = state.snapshot();
+
+          final inspection = await proxy.inspectDetailed(7890);
+
+          expect(inspection.success, isFalse);
+          expect(inspection.stage, 'readback_mismatch');
+          expect(inspection.enabled, manual);
+          expect(inspection.automaticProxyEnabled, isTrue);
+          expect(inspection.platform, 'macos');
+          expect(state.snapshot(), original);
+          expect(system.writes, isEmpty);
+        }
+      }
+    });
+
     test(
       'stop restores each visited service PAC WPAD and bypass snapshot',
       () async {
@@ -423,7 +687,7 @@ void main() {
         system.services['Service A']!.enableOwned();
         system.ignoredWrites.add('-setwebproxystate');
 
-        final result = await system.proxy().stopDetailed(expectedPort: 7890);
+        final result = await system.proxy().repairStaleDetailed(7890);
 
         expect(system.services['Service A']!.web.enabled, isTrue);
         expect(system.services['Service A']!.secureWeb.enabled, isFalse);
@@ -444,7 +708,6 @@ void main() {
         state.secureWeb.server = 'proxy.example.invalid';
         state.secureWeb.port = 8080;
         final expected = state.snapshot();
-        expected['web'] = [false, '127.0.0.1', 7890];
         final untouched = system.services['Service B']!.snapshot();
 
         final stopped = await system.proxy().stopDetailed(expectedPort: 7890);
@@ -452,11 +715,52 @@ void main() {
         expect(stopped.success, isTrue);
         expect(state.snapshot(), expected);
         expect(system.services['Service B']!.snapshot(), untouched);
-        expect(system.writes, [
-          ['-setwebproxystate', 'Service A', 'off'],
-        ]);
+        expect(system.writes, isEmpty);
       },
     );
+
+    test(
+      'stop without a session or expected port leaves foreign localhost proxies untouched',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        state.enableOwned();
+        for (final endpoint in [state.web, state.secureWeb, state.socks]) {
+          endpoint.port = 7897;
+        }
+        final foreign = state.snapshot();
+
+        final stopped = await system.proxy().stopDetailed();
+
+        expect(stopped.success, isTrue);
+        expect(stopped.writeSkipped, isTrue);
+        expect(system.writes, isEmpty);
+        expect(system.getterReads, isEmpty);
+        expect(state.snapshot(), foreign);
+      },
+    );
+
+    for (final expectedPort in <int?>[null, 7999]) {
+      test(
+        'recorded session restores its old port with latest expectedPort=$expectedPort',
+        () async {
+          final system = _NetworkSystem();
+          final state = system.services['Service A']!;
+          final original = state.snapshot();
+          final proxy = system.proxy();
+          expect(
+            (await proxy.startDetailed(7890, ['localhost'])).success,
+            isTrue,
+          );
+
+          final stopped = await proxy.stopDetailed(expectedPort: expectedPort);
+
+          expect(stopped.success, isTrue);
+          expect(stopped.restoreAbandoned, isFalse);
+          expect(state.snapshot(), original);
+        },
+      );
+    }
 
     test(
       'failed restore readback retains original snapshot for retry',
@@ -469,17 +773,16 @@ void main() {
           (await proxy.startDetailed(7890, ['localhost'])).success,
           isTrue,
         );
+        system.writes.clear();
         system.readOverrides['-getautoproxyurl'] = '';
 
         final firstStop = await proxy.stopDetailed(expectedPort: 7890);
 
         expect(firstStop.success, isFalse);
         expect(firstStop.stage, 'restore');
-        expect(state.snapshot(), original);
+        expect(state.snapshot(), isNot(original));
+        expect(system.writes, isEmpty);
         system.readOverrides.clear();
-        state.enableOwned();
-        state.pacUrl = 'https://pac.example.invalid/changed.pac';
-        state.bypass = ['changed.invalid'];
         system.writes.clear();
 
         final secondStop = await proxy.stopDetailed(expectedPort: 7890);
@@ -492,6 +795,552 @@ void main() {
             equals(['-setautoproxyurl', 'Service A', original['pacUrl']]),
           ),
         );
+      },
+    );
+
+    test(
+      'identical external settings are never acquired by an unchanged start',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        state.enableOwned();
+        state.bypass = ['localhost', '*.local'];
+        final expectedStopped = state.snapshot();
+        system.writeOverrides['-setautoproxystate'] = ProcessResult(
+          1,
+          14,
+          '',
+          'denied',
+        );
+        final proxy = system.proxy();
+
+        final started = await proxy.startDetailed(7890, [
+          '*.local',
+          'localhost',
+        ]);
+        expect(system.writes, isEmpty);
+        final stopped = await proxy.stopDetailed(expectedPort: 7890);
+        final stoppedAgain = await proxy.stopDetailed(expectedPort: 7890);
+
+        expect(started.success, isTrue);
+        expect(started.writeSkipped, isTrue);
+        expect(started.platform, 'macos');
+        expect(stopped.success, isTrue);
+        expect(stopped.writeSkipped, isTrue);
+        expect(stoppedAgain.success, isTrue);
+        expect(stoppedAgain.writeSkipped, isTrue);
+        expect(system.writes, isEmpty);
+        expect(state.snapshot(), expectedStopped);
+      },
+    );
+
+    test(
+      'changing an external proxy port restores its full original configuration',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        state.enableOwned();
+        state.bypass = ['localhost'];
+        final original = state.snapshot();
+        final proxy = system.proxy();
+        final adopted = await proxy.startDetailed(7890, ['localhost']);
+        expect(adopted.writeSkipped, isTrue);
+        expect(
+          (await proxy.startDetailed(7891, ['localhost'])).success,
+          isTrue,
+        );
+        system.writes.clear();
+
+        final stopped = await proxy.stopDetailed(expectedPort: 7891);
+
+        expect(stopped.success, isTrue);
+        expect(state.snapshot(), original);
+        expect(system.writes, hasLength(10));
+      },
+    );
+
+    test(
+      'explicit reconnect after foreign takeover restores the latest external settings',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        final initial = state.snapshot();
+        final proxy = system.proxy();
+        expect(
+          (await proxy.startDetailed(7890, ['localhost'])).success,
+          isTrue,
+        );
+        for (final endpoint in [state.web, state.secureWeb, state.socks]) {
+          endpoint.enabled = true;
+          endpoint.server = 'external.invalid';
+          endpoint.port = 17890;
+        }
+        state.pacUrl = 'https://external.invalid/proxy.pac';
+        state.pacEnabled = true;
+        state.discovery = true;
+        state.bypass = ['*.external.invalid', 'localhost'];
+        final external = state.snapshot();
+        expect(external, isNot(initial));
+
+        expect(
+          (await proxy.startDetailed(7890, ['localhost'])).success,
+          isTrue,
+        );
+        final stopped = await proxy.stopDetailed(expectedPort: 7891);
+
+        expect(stopped.success, isTrue);
+        expect(stopped.restoreAbandoned, isFalse);
+        expect(state.snapshot(), external);
+        final writes = system.writes.length;
+        expect((await proxy.stopDetailed()).writeSkipped, isTrue);
+        expect(system.writes, hasLength(writes));
+        expect(state.snapshot(), external);
+      },
+    );
+
+    test(
+      'adopted proxy cleanup preserves a later foreign configuration',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        state.enableOwned();
+        state.bypass = ['localhost'];
+        final proxy = system.proxy();
+        expect(
+          (await proxy.startDetailed(7890, ['localhost'])).writeSkipped,
+          isTrue,
+        );
+        state.bypass = ['foreign.invalid'];
+        state.pacEnabled = true;
+        final foreign = state.snapshot();
+
+        final stopped = await proxy.stopDetailed(expectedPort: 7890);
+
+        expect(stopped.success, isTrue);
+        expect(stopped.restoreAbandoned, isFalse);
+        expect(stopped.writeSkipped, isTrue);
+        expect(system.writes, isEmpty);
+        expect(state.snapshot(), foreign);
+      },
+    );
+
+    test(
+      'explicit stale cleanup retries only the remaining dead switches',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        state.enableOwned();
+        state.bypass = ['localhost'];
+        final proxy = system.proxy();
+        expect(
+          (await proxy.startDetailed(7890, ['localhost'])).writeSkipped,
+          isTrue,
+        );
+        system.writeOverrides['-setsecurewebproxystate'] = ProcessResult(
+          1,
+          14,
+          '',
+          'denied',
+        );
+
+        final firstStop = await proxy.repairStaleDetailed(7890);
+
+        expect(firstStop.success, isFalse);
+        expect(state.web.enabled, isFalse);
+        expect(state.secureWeb.enabled, isTrue);
+        system.writeOverrides.clear();
+        system.writes.clear();
+
+        final secondStop = await proxy.repairStaleDetailed(7890);
+
+        expect(secondStop.success, isTrue);
+        expect(state.web.enabled, isFalse);
+        expect(state.secureWeb.enabled, isFalse);
+        expect(state.socks.enabled, isFalse);
+        expect(system.writes, [
+          ['-setsecurewebproxystate', 'Service A', 'off'],
+          ['-setsocksfirewallproxystate', 'Service A', 'off'],
+        ]);
+      },
+    );
+
+    test('repeated start preserves the first original snapshot', () async {
+      final system = _NetworkSystem();
+      final state = system.services['Service A']!;
+      final original = state.snapshot();
+      final proxy = system.proxy();
+      expect((await proxy.startDetailed(7890, ['localhost'])).success, isTrue);
+      system.writes.clear();
+
+      final repeated = await proxy.startDetailed(7890, ['localhost']);
+
+      expect(repeated.success, isTrue);
+      expect(repeated.writeSkipped, isTrue);
+      expect(system.writes, isEmpty);
+      expect((await proxy.startDetailed(7891, ['localhost'])).success, isTrue);
+      expect((await proxy.stopDetailed(expectedPort: 7891)).success, isTrue);
+      expect(state.snapshot(), original);
+    });
+
+    test(
+      'a skipped repeated start does not claim foreign inactive PAC changes',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        final proxy = system.proxy();
+        expect(
+          (await proxy.startDetailed(7890, ['localhost'])).success,
+          isTrue,
+        );
+        state.pacUrl = 'https://foreign.invalid/proxy.pac';
+        final foreign = state.snapshot();
+        system.writes.clear();
+
+        final started = await proxy.startDetailed(7890, ['localhost']);
+        final stopped = await proxy.stopDetailed(expectedPort: 7890);
+
+        expect(started.success, isTrue);
+        expect(started.writeSkipped, isTrue);
+        expect(stopped.success, isTrue);
+        expect(stopped.restoreAbandoned, isTrue);
+        expect(system.writes, isEmpty);
+        expect(state.snapshot(), foreign);
+      },
+    );
+
+    test(
+      'repeated stop preserves a restored original with the same port',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        state.enableOwned();
+        state.pacEnabled = true;
+        state.discovery = true;
+        final original = state.snapshot();
+        final proxy = system.proxy();
+        expect(
+          (await proxy.startDetailed(7890, ['localhost'])).success,
+          isTrue,
+        );
+        expect((await proxy.stopDetailed(expectedPort: 7890)).success, isTrue);
+        expect(state.snapshot(), original);
+        system.writes.clear();
+
+        final repeated = await proxy.stopDetailed(expectedPort: 7890);
+
+        expect(repeated.success, isTrue);
+        expect(repeated.writeSkipped, isTrue);
+        expect(system.writes, isEmpty);
+        expect(state.snapshot(), original);
+      },
+    );
+
+    final mismatchedTarget = <String, void Function(_ServiceState)>{
+      'HTTP host': (state) => state.web.server = 'other.invalid',
+      'HTTPS port': (state) => state.secureWeb.port = 7897,
+      'SOCKS enabled': (state) => state.socks.enabled = false,
+      'PAC enabled': (state) => state.pacEnabled = true,
+      'WPAD enabled': (state) => state.discovery = true,
+      'bypass domains': (state) => state.bypass = ['other.invalid'],
+    };
+    for (final entry in mismatchedTarget.entries) {
+      test(
+        'start rewrites when ${entry.key} differs from complete target',
+        () async {
+          final system = _NetworkSystem();
+          final state = system.services['Service A']!;
+          state.enableOwned();
+          state.bypass = ['localhost'];
+          entry.value(state);
+          final proxy = system.proxy();
+
+          final started = await proxy.startDetailed(7890, ['localhost']);
+
+          expect(started.success, isTrue);
+          expect(started.writeSkipped, isFalse);
+          expect(system.writes, hasLength(9));
+        },
+      );
+    }
+
+    final foreignChanges = <String, void Function(_ServiceState)>{
+      ...mismatchedTarget,
+      'PAC URL': (state) => state.pacUrl = 'https://foreign.invalid/proxy.pac',
+    };
+    for (final entry in foreignChanges.entries) {
+      test(
+        'stop preserves foreign ${entry.key} changes and abandons restore',
+        () async {
+          final system = _NetworkSystem();
+          final state = system.services['Service A']!;
+          final proxy = system.proxy();
+          expect(
+            (await proxy.startDetailed(7890, ['localhost'])).success,
+            isTrue,
+          );
+          entry.value(state);
+          final foreign = state.snapshot();
+          system.writes.clear();
+
+          final stopped = await proxy.stopDetailed(expectedPort: 7890);
+          final repeated = await proxy.stopDetailed(expectedPort: 7890);
+
+          expect(stopped.success, isTrue);
+          expect(stopped.restoreAbandoned, isTrue);
+          expect(stopped.writeSkipped, isTrue);
+          expect(repeated.success, isTrue);
+          expect(system.writes, isEmpty);
+          expect(state.snapshot(), foreign);
+        },
+      );
+    }
+
+    test(
+      'partial failed start does not claim unrelated readback changes',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        system.writeOverrides['-setwebproxy'] = ProcessResult(
+          1,
+          14,
+          '',
+          'denied',
+        );
+        system.afterWrite = (args) {
+          if (args.first == '-setproxyautodiscovery') {
+            state.web.server = 'foreign.invalid';
+            state.web.port = 8123;
+            state.web.enabled = true;
+          }
+        };
+        final proxy = system.proxy();
+        expect(
+          (await proxy.startDetailed(7890, ['localhost'])).success,
+          isFalse,
+        );
+        final foreign = state.snapshot();
+        system.writes.clear();
+
+        final stopped = await proxy.stopDetailed(expectedPort: 7890);
+
+        expect(stopped.success, isTrue);
+        expect(stopped.restoreAbandoned, isTrue);
+        expect(system.writes, isEmpty);
+        expect(state.snapshot(), foreign);
+      },
+    );
+
+    test(
+      'partial restore failure retains the last confirmed intermediate state',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        final original = state.snapshot();
+        final proxy = system.proxy();
+        expect(
+          (await proxy.startDetailed(7890, ['localhost'])).success,
+          isTrue,
+        );
+        system.writeOverrides['-setsecurewebproxy'] = ProcessResult(
+          1,
+          14,
+          '',
+          'denied',
+        );
+
+        final firstStop = await proxy.stopDetailed(expectedPort: 7890);
+
+        expect(firstStop.success, isFalse);
+        expect(firstStop.restoreAbandoned, isFalse);
+        expect(state.web.port, 7897);
+        expect(state.secureWeb.port, 7890);
+        system.writeOverrides.clear();
+
+        final secondStop = await proxy.stopDetailed(expectedPort: 7890);
+
+        expect(secondStop.success, isTrue);
+        expect(secondStop.restoreAbandoned, isFalse);
+        expect(state.snapshot(), original);
+      },
+    );
+
+    test('unchanged snapshot cleanup succeeds without denied writes', () async {
+      final system = _NetworkSystem();
+      final original = system.services['Service A']!.snapshot();
+      system.writeOverrides['-setautoproxystate'] = ProcessResult(
+        1,
+        14,
+        'needs authorization',
+        'denied',
+      );
+      final proxy = system.proxy();
+      final started = await proxy.startDetailed(7890, []);
+
+      expect(started.success, isFalse);
+      expect(started.stage, 'apply_default');
+      expect(started.command, '/usr/sbin/networksetup -setautoproxystate');
+      expect(started.commandExitCode, 14);
+      expect(started.commandStdout, 'needs authorization');
+      expect(started.commandStderr, 'denied');
+      expect(started.toDiagnosticFields(), isNot(contains('win32_error')));
+      expect(system.services['Service A']!.snapshot(), original);
+      system.writes.clear();
+
+      final stopped = await proxy.stopDetailed(expectedPort: 7890);
+
+      expect(stopped.success, isTrue);
+      expect(stopped.stage, 'verified');
+      expect(stopped.commandExitCode, isNull);
+      expect(system.writes, isEmpty);
+      system.services['Service A']!.bypass = ['new-unowned.invalid'];
+
+      expect((await proxy.stopDetailed(expectedPort: 7890)).success, isTrue);
+      expect(system.writes, isEmpty);
+      expect(system.services['Service A']!.bypass, ['new-unowned.invalid']);
+    });
+
+    test(
+      'partial failed start retains snapshot through denied restore',
+      () async {
+        final system = _NetworkSystem();
+        final original = system.services['Service A']!.snapshot();
+        system.writeOverrides['-setwebproxy'] = ProcessResult(
+          1,
+          14,
+          'needs authorization',
+          'denied',
+        );
+        final proxy = system.proxy();
+        final started = await proxy.startDetailed(7890, []);
+
+        expect(started.success, isFalse);
+        expect(started.command, '/usr/sbin/networksetup -setwebproxy');
+        expect(system.services['Service A']!.snapshot(), isNot(original));
+        system.writes.clear();
+
+        final firstStop = await proxy.stopDetailed(expectedPort: 7890);
+
+        expect(firstStop.success, isFalse);
+        expect(firstStop.stage, 'restore');
+        expect(firstStop.commandExitCode, 14);
+        expect(firstStop.command, '/usr/sbin/networksetup -setwebproxy');
+        expect(system.writes, hasLength(1));
+        system.writeOverrides.clear();
+
+        final secondStop = await proxy.stopDetailed(expectedPort: 7890);
+
+        expect(secondStop.success, isTrue);
+        expect(secondStop.commandExitCode, isNull);
+        expect(system.services['Service A']!.snapshot(), original);
+      },
+    );
+
+    test('restore readback mismatch retains snapshot for retry', () async {
+      final system = _NetworkSystem();
+      final original = system.services['Service A']!.snapshot();
+      final proxy = system.proxy();
+      expect((await proxy.startDetailed(7890, [])).success, isTrue);
+      system.ignoredWrites.add('-setautoproxystate');
+
+      final firstStop = await proxy.stopDetailed(expectedPort: 7890);
+
+      expect(firstStop.success, isFalse);
+      expect(firstStop.stage, 'restore');
+      expect(system.services['Service A']!.snapshot(), isNot(original));
+      system.ignoredWrites.clear();
+
+      final secondStop = await proxy.stopDetailed(expectedPort: 7890);
+
+      expect(secondStop.success, isTrue);
+      expect(system.services['Service A']!.snapshot(), original);
+    });
+
+    test(
+      'restore read failure retries by observing the restored original without writes',
+      () async {
+        final system = _NetworkSystem();
+        final state = system.services['Service A']!;
+        final original = state.snapshot();
+        final proxy = system.proxy();
+        expect(
+          (await proxy.startDetailed(7890, ['localhost'])).success,
+          isTrue,
+        );
+        system.writes.clear();
+        system.afterWrite = (args) {
+          system.readOverrides['-getwebproxy'] = ProcessResult(
+            1,
+            14,
+            '',
+            'read denied',
+          );
+        };
+
+        final firstStop = await proxy.stopDetailed(expectedPort: 7890);
+
+        expect(firstStop.success, isFalse);
+        expect(firstStop.stage, 'restore');
+        expect(state.snapshot(), original);
+        system.readOverrides.clear();
+        system.afterWrite = null;
+        system.writes.clear();
+
+        final secondStop = await proxy.stopDetailed(expectedPort: 7890);
+
+        expect(secondStop.success, isTrue);
+        expect(secondStop.writeSkipped, isTrue);
+        expect(system.writes, isEmpty);
+        expect(state.snapshot(), original);
+      },
+    );
+
+    test('inspection preserves first failed read across retries', () async {
+      final system = _NetworkSystem();
+      system.readOverrides['-getwebproxy'] = ProcessResult(
+        1,
+        14,
+        'first stdout',
+        'first stderr',
+      );
+      system.readOverrides['-getsecurewebproxy'] = ProcessResult(
+        1,
+        99,
+        'later stdout',
+        'later stderr',
+      );
+
+      final inspected = await system.proxy().inspectDetailed(7890);
+
+      expect(inspected.success, isFalse);
+      expect(inspected.stage, 'readback');
+      expect(inspected.command, '/usr/sbin/networksetup -getwebproxy');
+      expect(inspected.commandExitCode, 14);
+      expect(inspected.commandStdout, 'first stdout');
+      expect(inspected.commandStderr, 'first stderr');
+      expect(
+        system.getterReads.where((args) => args.first == '-getwebproxy'),
+        hasLength(3),
+      );
+    });
+
+    test(
+      'networksetup spawn failure remains visible in start result',
+      () async {
+        final system = _NetworkSystem();
+        system.writeOverrides['-setautoproxystate'] = ProcessException(
+          '/usr/sbin/networksetup',
+          ['-setautoproxystate'],
+          'permission denied',
+          13,
+        );
+
+        final result = await system.proxy().startDetailed(7890, []);
+
+        expect(result.success, isFalse);
+        expect(result.command, '/usr/sbin/networksetup -setautoproxystate');
+        expect(result.commandExitCode, isNull);
+        expect(result.commandSpawnError, 'ProcessException: permission denied');
+        expect(result.commandSpawnErrorCode, 13);
       },
     );
 
@@ -516,12 +1365,12 @@ void main() {
       'empty service readback': ('-getwebproxy', ''),
     };
     for (final entry in coldReadFailures.entries) {
-      test('cold stop rejects ${entry.key}', () async {
+      test('cold stale repair rejects ${entry.key}', () async {
         final system = _NetworkSystem();
         system.services['Service A']!.enableOwned();
         system.readOverrides[entry.value.$1] = entry.value.$2;
 
-        final result = await system.proxy().stopDetailed(expectedPort: 7890);
+        final result = await system.proxy().repairStaleDetailed(7890);
 
         expect(result.success, isFalse);
         expect(result.stage, isNot('verified'));
@@ -601,8 +1450,13 @@ class _NetworkSystem {
     serviceBId: 'Service B',
   };
   final writes = <List<String>>[];
+  ProcessResult listenerResult = ProcessResult(1, 1, '', '');
+  Future<ProcessResult> Function()? inspectListeners;
+  int listenerInspections = 0;
+  MacosProxyListenerProbe? listenerProbe;
   final getterReads = <List<String>>[];
   final readOverrides = <String, Object>{};
+  final writeOverrides = <String, Object>{};
   final ignoredWrites = <String>{};
   String? primaryId = serviceAId;
   String routeDevice = 'en0';
@@ -624,6 +1478,7 @@ class _NetworkSystem {
     commandRunner: ProxyCommandRunner(run),
     verificationAttempts: verificationAttempts,
     verificationRetryInterval: Duration.zero,
+    listenerProbe: listenerProbe ?? (_, _) async => false,
   );
 
   Future<ProcessResult> run(
@@ -632,6 +1487,11 @@ class _NetworkSystem {
     bool runInShell = false,
   }) async {
     expect(runInShell, isFalse);
+    if (executable == '/usr/sbin/lsof') {
+      expect(arguments, ['-nP', '-a', '-iTCP:7890', '-sTCP:LISTEN', '-Fp']);
+      listenerInspections++;
+      return inspectListeners?.call() ?? listenerResult;
+    }
     if (executable == '/bin/sh') {
       expect(arguments.first, '-c');
       expect(arguments, hasLength(2));
@@ -711,6 +1571,9 @@ class _NetworkSystem {
     }
     expect(flag, startsWith('-set'));
     writes.add([...arguments]);
+    final writeOverride = writeOverrides[flag];
+    if (writeOverride is ProcessException) throw writeOverride;
+    if (writeOverride is ProcessResult) return writeOverride;
     if (ignoredWrites.contains(flag)) return _result('');
     final endpoint = switch (flag) {
       '-setwebproxy' || '-setwebproxystate' => state!.web,

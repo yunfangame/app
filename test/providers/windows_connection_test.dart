@@ -499,6 +499,14 @@ void main() {
         final authorization = Completer<bool>();
         action.authorization = authorization;
         final oldUpdate = action.updateConfig();
+        if (!hadRunningRequest) {
+          await oldUpdate;
+          expect(action.authorizationCalls, 0);
+          expect(action.updateCalls, 1);
+          expect(container.read(isStartProvider), isFalse);
+          expect(action.notifications, 0);
+          return;
+        }
         await action.authorizationEntered.future;
         expect(action.authorizationCalls, 1);
         expect(action.updateCalls, 0);

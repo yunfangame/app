@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.15)
+project(flclash_coexistence_fixture LANGUAGES CXX)
+add_executable(flclash_fixture flclash_fixture.cpp)
+set_property(TARGET flclash_fixture PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+target_compile_features(flclash_fixture PRIVATE cxx_std_17)
+target_compile_definitions(flclash_fixture PRIVATE UNICODE _UNICODE)
+target_compile_options(flclash_fixture PRIVATE /W4 /WX)
+target_link_libraries(flclash_fixture PRIVATE advapi32 user32)

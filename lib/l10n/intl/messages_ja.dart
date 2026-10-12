@@ -572,6 +572,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "chainProxyDescription": MessageLookupByLibrary.simpleMessage(
       "追加の SOCKS5 または HTTP 出口を管理します",
     ),
+    "chainProxyDesktopConnectivityFailed": MessageLookupByLibrary.simpleMessage(
+      "チェーンプロキシの接続確認に失敗したため、無効化して元の設定に戻しました。別の FengWo ノードに切り替えて再試行してください。",
+    ),
     "chainProxyDirectModeUnsupported": MessageLookupByLibrary.simpleMessage(
       "送出モードをルールまたはグローバルに変更してください",
     ),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/campus_network.dart';
+import 'package:fl_clash/common/mixed_port.dart';
 import 'package:fl_clash/common/network_diagnostic_selection.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
@@ -290,7 +291,7 @@ class _FengWoAdvancedSettingsViewState
       builder: (_) => InputDialog(
         title: l10n.mixedPort,
         value: '$current',
-        resetValue: '$defaultMixedPort',
+        resetValue: '${defaultMixedPortForPlatform()}',
         keyboardType: TextInputType.number,
         maxLength: 5,
         inputFormatters: [FilteringTextInputFormatter.digitsOnly],

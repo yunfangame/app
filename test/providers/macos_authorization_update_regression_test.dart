@@ -3,12 +3,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/windows_identity.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -574,6 +576,7 @@ class _AuthorizationSetup extends SetupAction {
   Future<void> recoverStableCoreConfiguration(
     Profile? profile, {
     required String reason,
+    bool Function()? isCurrent,
   }) async {
     recoveries.add(reason);
   }
@@ -610,7 +613,13 @@ class _TestPathProvider extends PathProviderPlatform {
   Future<String?> getTemporaryPath() async => root;
 
   @override
-  Future<String?> getApplicationSupportPath() async => root;
+  Future<String?> getApplicationSupportPath() async {
+    final directory = Directory(
+      p.join(root, windowsDataCompany, windowsDataProduct),
+    );
+    await directory.create(recursive: true);
+    return directory.path;
+  }
 
   @override
   Future<String?> getApplicationCachePath() async => root;

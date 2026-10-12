@@ -72,12 +72,16 @@ Map<String, dynamic> applyChainProxyConfig(
 
   final wrappers = <String, String>{};
   String? fallbackTarget;
-  for (final rule in rules.reversed) {
+  for (final rule in rules) {
     final parts = rule.split(',');
     if (parts.length >= 2 && parts.first.trim().toUpperCase() == 'MATCH') {
       fallbackTarget = parts[1].trim();
       break;
     }
+  }
+  if (fallbackTarget?.isNotEmpty == true &&
+      !_isDirectRuleTarget(fallbackTarget!)) {
+    wrappers[fallbackTarget] = chainProxyRuntimeName;
   }
   final rewrittenRules = rules.map((rule) {
     final parts = rule.split(',');
