@@ -666,6 +666,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "chainProxyDescription": MessageLookupByLibrary.simpleMessage(
       "Manage an additional SOCKS5 or HTTP egress proxy",
     ),
+    "chainProxyDesktopConnectivityFailed": MessageLookupByLibrary.simpleMessage(
+      "Chain proxy connectivity test failed. It was disabled and the previous configuration was restored. Try switching to another FengWo node and retry.",
+    ),
     "chainProxyDirectModeUnsupported": MessageLookupByLibrary.simpleMessage(
       "Switch the outbound mode to Rule or Global first",
     ),

@@ -1200,6 +1200,7 @@
   "chainProxyStopped": "链式代理已停止",
   "chainProxyApplyFailed": "内核应用失败，已恢复原配置",
   "chainProxyConnectivityFailed": "链式代理联网检测失败，已自动停用并恢复原配置",
+  "chainProxyDesktopConnectivityFailed": "链式代理联网检测失败，已自动停用并恢复原配置。可尝试更换蜂窝节点后重试。",
   "chainProxyRollbackFailed": "链式代理应用失败且无法恢复原配置，请重启客户端",
   "chainProxyDirectModeUnsupported": "请先将出站模式切换为规则或全局模式",
   "noChainProxy": "暂无链式代理",
