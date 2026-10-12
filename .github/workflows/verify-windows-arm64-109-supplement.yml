@@ -1,0 +1,116 @@
+name: fengwo-windows-arm64-109-supplement
+run-name: ARM64 1.0.9 pinned package coexistence supplement
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-11-arm
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      FENGWO_PROXY_MUTATING_TEST: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Download the exact previously tested 1.0.9 ARM64 package
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: '38195326898'
+          name: fengwo-windows-1.0.9-arm64-setup-unsigned-38195326898
+          path: ${{ runner.temp }}/arm64-original-package
+      - name: Download the exact October 7 legacy Helper package
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: '37602827410'
+          name: fengwo-windows-amd64
+          path: ${{ runner.temp }}/arm64-legacy-package
+      - name: Bind the original run, package, payload and native runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $changed = @(git diff --name-only d281e305473d571911ce2efef860f1b7703514ad HEAD | Sort-Object)
+          if ($LASTEXITCODE -ne 0 -or (Compare-Object $changed @('.github/workflows/verify-windows-arm64-109-supplement.yml', 'tooling/windows/real/test_helper_port_coexistence.ps1'))) { throw 'Only the isolated verification workflow and its exact one-line fixture correction may differ' }
+          . ./tooling/windows/arm64/common.ps1
+          $environment = Assert-FwArmRunner
+          Assert-FwArmProcess $PID
+          $headers = @{ Authorization = 'Bearer ' + $env:GH_TOKEN; Accept = 'application/vnd.github+json' }
+          $run = Invoke-RestMethod -Uri ('https://api.github.com/repos/' + $env:GITHUB_REPOSITORY + '/actions/runs/38195326898') -Headers $headers
+          if ($run.status -cne 'completed' -or $run.conclusion -cne 'failure' -or $run.head_sha -cne 'd281e305473d571911ce2efef860f1b7703514ad') { throw 'The fixed original package build provenance differs' }
+          $jobs = Invoke-RestMethod -Uri ('https://api.github.com/repos/' + $env:GITHUB_REPOSITORY + '/actions/runs/38195326898/jobs') -Headers $headers
+          if ($jobs.jobs.Count -ne 1) { throw 'The original package must have one native validation job' }
+          $steps = @($jobs.jobs[0].steps)
+          foreach ($name in @('Verify complete required Flutter and plugin regressions', 'Build the stable 1.0.9 ARM64 installer', 'Install and exercise the new packaged Core chain', 'Verify real legacy cleanup in fresh Windows PowerShell 5.1', 'Compile and execute the native system proxy suites', 'Verify actual native ARM64 Core listener and TUN lifecycle', 'Verify installed ARM64 application and overwrite', 'Verify installed Helper repair and service overwrite')) {
+            if (@($steps | Where-Object { $_.name -ceq $name -and $_.conclusion -ceq 'success' }).Count -ne 1) { throw ('An original required native gate did not pass: ' + $name) }
+          }
+          $failed = @($steps | Where-Object { $_.conclusion -ceq 'failure' })
+          if ($failed.Count -ne 1 -or $failed[0].name -cne 'Verify real old 47906 and new 47907 Helper coexistence') { throw 'The original run has an unaccounted failure' }
+          $root = Join-Path $env:RUNNER_TEMP 'arm64-original-package'
+          $installers = @(Get-ChildItem $root -Recurse -File -Filter 'fengwo-windows-1.0.9-arm64-setup-unsigned.exe')
+          $packages = @(Get-ChildItem $root -Recurse -File -Filter 'package.json' | Where-Object { (Get-Content $_.FullName -Raw | ConvertFrom-Json).installer_sha256 -ceq '45b665698a932a22b01d24a423d61112aa23d6054f1e42165df225a5263f6c02' })
+          if ($installers.Count -ne 1 -or $packages.Count -ne 1) { throw 'The original installer or provenance record is ambiguous' }
+          $installer = $installers[0]
+          $package = Get-Content $packages[0].FullName -Raw | ConvertFrom-Json
+          if ($package.source_sha -cne $run.head_sha -or $package.run_id -cne '38195326898' -or $package.version -cne '1.0.9' -or $package.architecture -cne 'arm64' -or $package.installer_bytes -ne 54362169 -or $installer.Length -ne 54362169 -or (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $package.installer_sha256) { throw 'The exact unchanged ARM64 candidate did not verify' }
+          $evidence = Join-Path $env:RUNNER_TEMP 'arm64-109-supplement-evidence'
+          $bundle = Join-Path $env:RUNNER_TEMP 'arm64-109-supplement-installed'
+          ('FENGWO_SUPPLEMENT_INSTALLER=' + $installer.FullName) | Add-Content $env:GITHUB_ENV
+          ('FENGWO_SUPPLEMENT_EVIDENCE=' + $evidence) | Add-Content $env:GITHUB_ENV
+          ('FENGWO_SUPPLEMENT_BUNDLE=' + $bundle) | Add-Content $env:GITHUB_ENV
+          Save-FwArmEvidence (Join-Path $evidence 'provenance.json') ([ordered]@{ original_package = $package; original_run_conclusion = $run.conclusion; native_environment = $environment; supplemental_source_sha = $env:GITHUB_SHA; installer_rebuilt = $false; product_source_changed = $false; original_failure_hidden = $false; customer_account_uploaded = $false })
+          $process = Start-Process $installer.FullName -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/DIR=' + $bundle), '/TASKS=', ('/LOG=' + (Join-Path $evidence 'initial-installation.log'))) -PassThru
+          try { if (-not $process.WaitForExit(120000) -or $process.ExitCode -ne 0) { throw 'The exact ARM64 installer did not install normally' } } finally { $process.Dispose() }
+          foreach ($name in @('FengWo.exe', 'FengWoCore.exe', 'FengWoHelperService.exe')) { if ((Get-FwPeIdentity (Join-Path $bundle $name)).machine -cne '0xaa64') { throw ('The installed payload is not native ARM64: ' + $name) } }
+          $app = Get-Item (Join-Path $bundle 'FengWo.exe')
+          if ($app.VersionInfo.ProductVersion -cne '1.0.9' -or $app.VersionInfo.FileVersion -cne '1.0.9') { throw 'The installed stable version differs' }
+          $coreHash = (Get-FileHash (Join-Path $bundle 'FengWoCore.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = Get-Content (Join-Path $bundle 'manifest.json') -Raw | ConvertFrom-Json
+          if ($coreHash -cne $package.core_sha256 -or $manifest.coreSha256 -cne $coreHash) { throw 'The installed original Core integrity did not verify' }
+          $oldRun = Invoke-RestMethod -Uri ('https://api.github.com/repos/' + $env:GITHUB_REPOSITORY + '/actions/runs/37602827410') -Headers $headers
+          if ($oldRun.conclusion -cne 'success' -or $oldRun.head_sha -cne '9a71d2e4bd155aa8f61af08ec081642cb71da84c') { throw 'The October 7 legacy provenance differs' }
+          $archives = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'arm64-legacy-package') -Recurse -File -Filter 'fengwo-windows-amd64-release-unsigned.zip')
+          if ($archives.Count -ne 1 -or (Get-FileHash $archives[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne '75071df1a50e40fe6d4d0a82d60289036bd9ab7130bd99ee497d6f617b04aa00') { throw 'The exact old Helper archive differs' }
+          $legacy = Join-Path $env:RUNNER_TEMP 'arm64-109-legacy-binaries'
+          [void][IO.Directory]::CreateDirectory($legacy)
+          $archive = [IO.Compression.ZipFile]::OpenRead($archives[0].FullName)
+          try {
+            foreach ($name in @('FlClashCore.exe', 'FlClashHelperService.exe', 'manifest.json')) {
+              $entry = $archive.GetEntry($name)
+              if (-not $entry) { throw ('A locked old component is missing: ' + $name) }
+              [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $legacy $name), $false)
+            }
+          } finally { $archive.Dispose() }
+          ('FENGWO_SUPPLEMENT_LEGACY=' + $legacy) | Add-Content $env:GITHUB_ENV
+      - name: Verify all six actual old and new Helper coexistence stages
+        run: |
+          ./tooling/windows/real/test_helper_port_coexistence.ps1 -Architecture arm64 -BundleDirectory $env:FENGWO_SUPPLEMENT_BUNDLE -LegacyBundleDirectory $env:FENGWO_SUPPLEMENT_LEGACY -InstallerPath $env:FENGWO_SUPPLEMENT_INSTALLER -EvidenceDirectory (Join-Path $env:FENGWO_SUPPLEMENT_EVIDENCE 'helper-port-coexistence')
+      - name: Verify all FlClash and FengWo resource fixture coexistence stages
+        run: |
+          ./tooling/windows/arm64/test_flclash_coexistence.ps1 -InstallerPath $env:FENGWO_SUPPLEMENT_INSTALLER -EvidenceDirectory (Join-Path $env:FENGWO_SUPPLEMENT_EVIDENCE 'resource-coexistence')
+      - name: Confirm both formerly missing native gates
+        run: |
+          . ./tooling/windows/arm64/common.ps1
+          $helper = Get-Content (Join-Path $env:FENGWO_SUPPLEMENT_EVIDENCE 'helper-port-coexistence/helper-port-coexistence.json') -Raw | ConvertFrom-Json
+          $resource = Get-Content (Join-Path $env:FENGWO_SUPPLEMENT_EVIDENCE 'resource-coexistence/coexistence-verification.json') -Raw | ConvertFrom-Json
+          if ($helper.passed -ne $true -or $helper.checks.Count -ne 6 -or $resource.passed -ne $true -or $resource.checks.Count -ne 9) { throw 'Both exact original package native gates must pass' }
+          Save-FwArmEvidence (Join-Path $env:FENGWO_SUPPLEMENT_EVIDENCE 'supplement-result.json') ([ordered]@{ passed = $true; original_package_run_id = '38195326898'; original_source_sha = 'd281e305473d571911ce2efef860f1b7703514ad'; original_installer_sha256 = '45b665698a932a22b01d24a423d61112aa23d6054f1e42165df225a5263f6c02'; unchanged_installer = $true; helper_six_stages_passed = $true; resource_coexistence_passed = $true; original_main_run_conclusion = 'failure'; original_main_failure_is_not_hidden = $true })
+      - name: Preserve exact supplement verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fengwo-arm64-109-supplement-${{ github.run_id }}
+          path: ${{ runner.temp }}/arm64-109-supplement-evidence
+          if-no-files-found: error
+          retention-days: 7

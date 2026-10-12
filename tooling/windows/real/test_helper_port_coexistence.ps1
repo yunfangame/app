@@ -157,7 +157,7 @@ try {
         $helperIdentity = Get-FwPeIdentity (Join-Path $helper.directory ($helper.service + '.exe'))
         if ($manifest.coreSha256 -cne $coreIdentity.sha256) { throw 'An actual Core did not match its Helper integrity manifest' }
         if ($helper.name -ceq 'FlClash') {
-            if (-not $coreIdentity.x64 -or -not $helperIdentity.x64 -or $coreIdentity.sha256 -cne '0ceb4c710838ebc4de54f9e956e9f737d48ba4db0cfb777bdb0e7f8f458d40e4' -or $helperIdentity.sha256 -cne 'e624e524300188b5d0444753d8cf8f576c2e8d1a2b2f7e3b06e470e0263ece9d') { throw 'The legacy binaries differ from the verified October 7 release' }
+            if ($coreIdentity.machine -cne '0x8664' -or $helperIdentity.machine -cne '0x8664' -or $coreIdentity.sha256 -cne '0ceb4c710838ebc4de54f9e956e9f737d48ba4db0cfb777bdb0e7f8f458d40e4' -or $helperIdentity.sha256 -cne 'e624e524300188b5d0444753d8cf8f576c2e8d1a2b2f7e3b06e470e0263ece9d') { throw 'The legacy binaries differ from the verified October 7 release' }
         } elseif (($Architecture -ceq 'x64' -and (-not $coreIdentity.x64 -or -not $helperIdentity.x64)) -or ($Architecture -ceq 'arm64' -and (-not $coreIdentity.arm64 -or -not $helperIdentity.arm64))) { throw 'The new Helper and Core are not native to the tested Windows architecture' }
         $helper.core_hash = $coreIdentity.sha256
         Save-FwArmEvidence (Join-Path $EvidenceDirectory ($helper.name + '-payload.json')) ([ordered]@{ core = $coreIdentity; helper = $helperIdentity; expected_port = $helper.port; expected_protocol_header = $helper.header })
