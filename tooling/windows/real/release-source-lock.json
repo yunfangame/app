@@ -4660,5 +4660,38 @@
       "path": "windows/runner/window_visibility.h",
       "sha256": "b36356e611443b94d3a26a74d85b13f74de5558cec0bfee46b342182a7ebdcd0"
     }
-  ]
+  ],
+  "test_only_overrides": [
+    {
+      "path": "test/common/subscription_v2_test.dart",
+      "original_sha256": "663d917c8e42d570cbc72bfe36ca83615fad02610021eac5b1091cc48d8be5e0",
+      "corrected_sha256": "c73ee7a78bdcaa3b5a72f3a04caffeb34beeb6df8387a5009d4c0c8bd21c97fe",
+      "reason": "native_windows_fixture_identity_and_ordered_cleanup"
+    },
+    {
+      "path": "test/providers/account_rule_access_test.dart",
+      "original_sha256": "856e235367b4e432ebcd0e7c45079bd7cadcdb2f1c9a5c936deb2c7f934d1cea",
+      "corrected_sha256": "77b373a4c022b4e7b810dc23c70b27b1119c4d799ff5bca84e935224c51bcd02",
+      "reason": "native_windows_fixture_identity_and_ordered_cleanup"
+    },
+    {
+      "path": "test/providers/subscription_core_recovery_test.dart",
+      "original_sha256": "750a13d5bdec068b686479bd870d95ccde9ec099d5d352bf4f46e5c6dda5a727",
+      "corrected_sha256": "a81b541864179313ce769e654ee62bfd6e93ef96a5e4fe526b32e140b2a47817",
+      "reason": "native_windows_fixture_identity_and_ordered_cleanup"
+    },
+    {
+      "path": "test/providers/state_derived_test.dart",
+      "original_sha256": "fc9f710139c07cd732e459e875d3f7a2b8f4d37221da564c79c64b6bc6d905fd",
+      "corrected_sha256": "147485d949b83ab5dfcb6522cc4338d9b2cdd84f92c0c470d830b4aa2b44e50f",
+      "reason": "native_windows_fixture_identity_and_ordered_cleanup"
+    },
+    {
+      "path": "test/widgets/edit_profile_focus_test.dart",
+      "original_sha256": "5452167278effdd77abcdcb4e52e34a8c6e8210016e16988b3e6bb32644aec8e",
+      "corrected_sha256": "e8896a76bb6af3f2f3cf5c42142ce5d1e4efca37e8365e81ba150b4c9e914fd5",
+      "reason": "native_windows_fixture_identity_and_ordered_cleanup"
+    }
+  ],
+  "product_files_changed_for_test_fixes": false
 }

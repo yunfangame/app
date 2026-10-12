@@ -1,0 +1,145 @@
+diff --git a/test/common/subscription_v2_test.dart b/test/common/subscription_v2_test.dart
+index 7476e5fc..0630e90e 100644
+--- a/test/common/subscription_v2_test.dart
++++ b/test/common/subscription_v2_test.dart
+@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
+ import 'package:fl_clash/common/api_health.dart';
+ import 'package:fl_clash/common/api_network_diagnostic.dart';
+ import 'package:fl_clash/common/api_request_router.dart';
++import 'package:fl_clash/common/print.dart';
+ import 'package:fl_clash/common/subscription_v2.dart';
+ import 'package:fl_clash/common/xboard_auth.dart';
+ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+@@ -1178,10 +1179,13 @@ void main() {
+       final directory = await Directory.systemTemp.createTemp(
+         'subscription-v2-shared-',
+       );
+-      addTearDown(() => directory.delete(recursive: true));
+       final previousPathProvider = PathProviderPlatform.instance;
+       PathProviderPlatform.instance = _TemporaryPathProvider(directory.path);
+-      addTearDown(() => PathProviderPlatform.instance = previousPathProvider);
++      addTearDown(() async {
++        await commonPrint.flushDiagnosticEvents();
++        PathProviderPlatform.instance = previousPathProvider;
++        await directory.delete(recursive: true);
++      });
+       FlutterSecureStorage.setMockInitialValues({});
+       addTearDown(() => FlutterSecureStorage.setMockInitialValues({}));
+       final server = await _FakeSubscriptionV2Server.create();
+diff --git a/test/providers/account_rule_access_test.dart b/test/providers/account_rule_access_test.dart
+index 5f17d97b..123dd14b 100644
+--- a/test/providers/account_rule_access_test.dart
++++ b/test/providers/account_rule_access_test.dart
+@@ -10,6 +10,7 @@ import 'package:fl_clash/models/models.dart';
+ import 'package:fl_clash/providers/database.dart';
+ import 'package:fl_clash/state.dart';
+ import 'package:flutter_test/flutter_test.dart';
++import 'package:path/path.dart' as p;
+ import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+ import 'package:riverpod/riverpod.dart';
+ 
+@@ -271,7 +272,12 @@ class _FakePathProvider extends PathProviderPlatform {
+   Future<String?> getTemporaryPath() async => root;
+ 
+   @override
+-  Future<String?> getApplicationSupportPath() async => root;
++  Future<String?> getApplicationSupportPath() async {
++    if (!Platform.isWindows) return root;
++    final directory = Directory(p.join(root, 'FengWo', '蜂窝加速器'));
++    await directory.create(recursive: true);
++    return directory.path;
++  }
+ 
+   @override
+   Future<String?> getApplicationCachePath() async => root;
+diff --git a/test/providers/state_derived_test.dart b/test/providers/state_derived_test.dart
+index a1522dbd..ce535b2a 100644
+--- a/test/providers/state_derived_test.dart
++++ b/test/providers/state_derived_test.dart
+@@ -1,3 +1,5 @@
++import 'dart:io';
++
+ import 'package:fl_clash/common/constant.dart';
+ import 'package:fl_clash/common/chain_proxy.dart';
+ import 'package:fl_clash/common/network.dart';
+@@ -229,6 +231,14 @@ void main() {
+     expect(proxy.port, 8899);
+     expect(container.read(isStartProvider), isTrue);
+ 
++    if (Platform.isWindows) {
++      expect(container.read(trayStateProvider).tunEnable, isFalse);
++      container
++          .read(coreStatusProvider.notifier)
++          .update((_) => CoreStatus.connected);
++      container.read(windowsTunReadyProvider.notifier).update((_) => true);
++    }
++
+     final tray = container.read(trayStateProvider);
+     expect(tray.mode, Mode.global);
+     expect(tray.port, 8899);
+diff --git a/test/providers/subscription_core_recovery_test.dart b/test/providers/subscription_core_recovery_test.dart
+index 745c3846..359fb1db 100644
+--- a/test/providers/subscription_core_recovery_test.dart
++++ b/test/providers/subscription_core_recovery_test.dart
+@@ -14,6 +14,7 @@ import 'package:fl_clash/providers/config.dart';
+ import 'package:fl_clash/providers/database.dart';
+ import 'package:fl_clash/providers/state.dart';
+ import 'package:flutter_test/flutter_test.dart';
++import 'package:path/path.dart' as p;
+ import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+ import 'package:riverpod/riverpod.dart';
+ 
+@@ -196,7 +197,12 @@ class _TestPathProvider extends PathProviderPlatform {
+   Future<String?> getTemporaryPath() async => root;
+ 
+   @override
+-  Future<String?> getApplicationSupportPath() async => root;
++  Future<String?> getApplicationSupportPath() async {
++    if (!Platform.isWindows) return root;
++    final directory = Directory(p.join(root, 'FengWo', '蜂窝加速器'));
++    await directory.create(recursive: true);
++    return directory.path;
++  }
+ 
+   @override
+   Future<String?> getApplicationCachePath() async => root;
+diff --git a/test/widgets/edit_profile_focus_test.dart b/test/widgets/edit_profile_focus_test.dart
+index 967285c5..43ee7b51 100644
+--- a/test/widgets/edit_profile_focus_test.dart
++++ b/test/widgets/edit_profile_focus_test.dart
+@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
+ import 'package:flutter_localizations/flutter_localizations.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import 'package:flutter_test/flutter_test.dart';
++import 'package:path/path.dart' as p;
+ import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+ 
+ class _FakePathProvider extends PathProviderPlatform {
+@@ -23,7 +24,12 @@ class _FakePathProvider extends PathProviderPlatform {
+   Future<String?> getTemporaryPath() async => root;
+ 
+   @override
+-  Future<String?> getApplicationSupportPath() async => root;
++  Future<String?> getApplicationSupportPath() async {
++    if (!Platform.isWindows) return root;
++    final directory = Directory(p.join(root, 'FengWo', '蜂窝加速器'));
++    await directory.create(recursive: true);
++    return directory.path;
++  }
+ 
+   @override
+   Future<String?> getApplicationCachePath() async => root;
+@@ -134,10 +140,9 @@ void main() {
+     PathProviderPlatform.instance = _FakePathProvider(tempDir.path);
+   });
+ 
+-  tearDownAll(() {
+-    try {
+-      tempDir.deleteSync(recursive: true);
+-    } catch (_) {}
++  tearDownAll(() async {
++    await commonPrint.flushDiagnosticEvents();
++    await tempDir.delete(recursive: true);
+   });
+ 
+   testWidgets('tabbing into the edit page starts with the form', (
