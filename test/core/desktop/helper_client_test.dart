@@ -368,6 +368,7 @@ void main() {
     expect(endpoint.host, '127.0.0.1');
     expect(endpoint.port, helperPort);
     expect(endpoint.port, isNot(47890));
+    expect(endpoint.port, isNot(47906));
   });
 
   test('ping rejects a Helper with the wrong protocol', () async {

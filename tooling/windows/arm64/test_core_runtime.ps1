@@ -48,7 +48,7 @@ function Invoke-FwCoreRpc {
 
 function Invoke-FwHelperHttp {
     param([string]$Method, [string]$Path, [AllowNull()][object]$Body = $null, [int]$ExpectedStatus = 200)
-    $parameters = @{ Uri = ('http://127.0.0.1:47906/' + $Path); Method = $Method; NoProxy = $true; TimeoutSec = 15; SkipHttpErrorCheck = $true }
+    $parameters = @{ Uri = ('http://127.0.0.1:47907/' + $Path); Method = $Method; NoProxy = $true; TimeoutSec = 15; SkipHttpErrorCheck = $true }
     if ($null -ne $Body) { $parameters.ContentType = 'application/json'; $parameters.Body = ($Body | ConvertTo-Json -Compress) }
     $response = Invoke-WebRequest @parameters
     if ($response.StatusCode -ne $ExpectedStatus) { throw ('Unexpected Helper HTTP status: ' + $Path + ' (' + $response.StatusCode + ')') }

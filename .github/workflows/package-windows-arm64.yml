@@ -8,6 +8,7 @@ on:
       - fengwo-package-windows-arm64-*
     branches:
       - codex/windows-arm64-compat
+      - codex/arm64-coexistence-check-*
     paths:
       - .github/workflows/package-windows-arm64.yml
       - tooling/windows/arm64/**
@@ -127,7 +128,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           flutter analyze --no-pub --no-fatal-infos
           if ($LASTEXITCODE -ne 0) { throw 'Static analysis failed' }
-          flutter test --no-pub --reporter expanded test/setup_test.dart test/windows_runtime_bundle_test.dart test/common/windows_identity_test.dart test/common/windows_integrity_test.dart test/common/protocol_test.dart test/common/windows_proxy_guard_test.dart test/core/transport_test.dart test/core/desktop test/core/service_test.dart test/core/protocol_contract_test.dart test/manager/core_manager_test.dart test/manager/proxy_manager_test.dart test/manager/window_manager_test.dart test/common/window_recovery_test.dart test/providers/system_action_test.dart test/providers/windows_tun_authorization_test.dart test/common/subscription_entry_reminder_test.dart test/widgets/subscription_entry_reminder_dialog_test.dart test/widgets/subscription_entry_reminder_host_test.dart plugins/proxy/test/proxy_test.dart plugins/proxy/test/macos_service_proxy_test.dart
+          flutter test --no-pub --reporter expanded test/setup_test.dart test/windows_runtime_bundle_test.dart test/common/windows_identity_test.dart test/common/migration_test.dart test/common/windows_integrity_test.dart test/common/protocol_test.dart test/common/windows_proxy_guard_test.dart test/core/transport_test.dart test/core/desktop test/core/service_test.dart test/core/protocol_contract_test.dart test/manager/core_manager_test.dart test/manager/proxy_manager_test.dart test/manager/window_manager_test.dart test/common/window_recovery_test.dart test/providers/system_action_test.dart test/providers/windows_tun_authorization_test.dart test/common/subscription_entry_reminder_test.dart test/widgets/subscription_entry_reminder_dialog_test.dart test/widgets/subscription_entry_reminder_host_test.dart plugins/proxy/test/proxy_test.dart plugins/proxy/test/proxy_result_test.dart plugins/proxy/test/macos_service_proxy_test.dart
           if ($LASTEXITCODE -ne 0) { throw 'Desktop lifecycle regression failed' }
           ./tooling/windows/test_vc_runtime_bundle.ps1
           Push-Location plugins/setup/buildkit/build_tool
@@ -203,26 +204,37 @@ jobs:
           $ErrorActionPreference = 'Stop'
           cmake -S windows -B build/windows/arm64 -G $env:FENGWO_ARM64_CMAKE_GENERATOR -A ARM64 '-DFLUTTER_TARGET_PLATFORM=windows-arm64' -Dinclude_proxy_tests=ON '-DCMAKE_POLICY_VERSION_MINIMUM=3.5'
           if ($LASTEXITCODE -ne 0) { throw 'ARM64 system proxy configuration failed' }
-          cmake --build build/windows/arm64 --config Release --target proxy_test proxy_winhttp_compatibility_test
+          cmake --build build/windows/arm64 --config Release --target proxy_test proxy_session_windows_test proxy_winhttp_compatibility_test
           if ($LASTEXITCODE -ne 0) { throw 'ARM64 system proxy tests did not compile' }
           . ./tooling/windows/arm64/common.ps1
-          foreach ($name in @('proxy_test.exe', 'proxy_winhttp_compatibility_test.exe')) {
+          foreach ($name in @('proxy_test.exe', 'proxy_session_windows_test.exe', 'proxy_winhttp_compatibility_test.exe')) {
             if (-not (Get-FwPeIdentity (Join-Path $PWD ('build/windows/arm64/plugins/proxy/Release/' + $name))).arm64) { throw 'System proxy test is not an ARM64 native executable' }
           }
-          ctest --test-dir build/windows/arm64/plugins/proxy -C Release --output-on-failure --no-tests=error -R Proxy | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-ctest.txt')
+          ctest --test-dir build/windows/arm64/plugins/proxy -C Release --output-on-failure --no-tests=error -R Proxy --output-junit (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-ctest.xml') | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-ctest.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Native ARM64 system proxy tests failed' }
+          [xml]$report = Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-ctest.xml') -Raw
+          if ($report.SelectNodes('//testcase').Count -ne 51 -or $report.SelectNodes('//failure|//error|//skipped').Count -ne 0) { throw 'Expected all 51 native proxy tests without skips' }
+          & ./build/windows/arm64/plugins/proxy/Release/proxy_session_windows_test.exe | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-session-windows.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'Actual WinINet session restoration failed' }
           $raw = Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-raw-bypass.txt'
           $normalized = Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-normalized-bypass.txt'
           [IO.File]::WriteAllText($raw, 'localhost;*.local;127.*;10.*;172.16.*;192.168.*;::1', [Text.UTF8Encoding]::new($false))
           & ./build/windows/arm64/plugins/proxy/Release/proxy_winhttp_compatibility_test.exe $raw $normalized | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-result.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Native ARM64 proxy read/write/restore verification failed' }
+      - name: Remove temporary build keys
+        if: always()
+        shell: pwsh
+        run: |
+          foreach ($path in @('env.json', 'tooling/remote_config/keys.json')) {
+            if (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Item -LiteralPath $path -Force }
+          }
       - name: Record release manifest
         shell: pwsh
         run: |
           . ./tooling/windows/arm64/common.ps1
           $installer = Get-Item dist/fengwo-windows-arm64-setup.exe
           $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          Save-FwArmEvidence (Join-Path $PWD 'dist/windows-arm64-build.json') ([ordered]@{ version = '1.0.8'; architecture = 'arm64'; source_branch = 'codex/windows-arm64-compat'; source_sha = $env:GITHUB_SHA; run_id = $env:GITHUB_RUN_ID; installer_name = $installer.Name; installer_bytes = $installer.Length; installer_sha256 = $hash; native_runner = 'windows-11-arm'; real_customer_account_tested = $false; old_x64_to_arm64_migration_verified = $false })
+          Save-FwArmEvidence (Join-Path $PWD 'dist/windows-arm64-build.json') ([ordered]@{ version = '1.0.8'; architecture = 'arm64'; source_branch = $env:GITHUB_REF_NAME; source_sha = $env:GITHUB_SHA; run_id = $env:GITHUB_RUN_ID; installer_name = $installer.Name; installer_bytes = $installer.Length; installer_sha256 = $hash; native_runner = 'windows-11-arm'; real_customer_account_tested = $false; old_x64_to_arm64_migration_verified = $false })
           ($hash + '  ' + $installer.Name) | Set-Content -LiteralPath dist/ARM64-SHA256SUMS -Encoding utf8NoBOM
       - uses: actions/upload-artifact@v4
         with:

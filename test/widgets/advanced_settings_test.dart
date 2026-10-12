@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/campus_network.dart';
+import 'package:fl_clash/common/mixed_port.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
@@ -269,6 +270,15 @@ void main() {
     await tester.tap(find.text(l10n.submit));
     await tester.pumpAndSettle();
     expect(container.read(patchClashConfigProvider).mixedPort, 8080);
+
+    await tester.tap(find.byKey(const ValueKey('advanced-mixed-port-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.reset));
+    await tester.pumpAndSettle();
+    expect(
+      container.read(patchClashConfigProvider).mixedPort,
+      defaultMixedPortForPlatform(),
+    );
 
     final dnsModeTile = find.byKey(const ValueKey('advanced-dns-mode-tile'));
     await tester.ensureVisible(dnsModeTile);

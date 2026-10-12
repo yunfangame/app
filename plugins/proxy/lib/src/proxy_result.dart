@@ -9,6 +9,7 @@ class ProxyOperationResult {
     this.errorCode,
     this.connectionName,
     this.enabled,
+    this.automaticProxyEnabled,
     this.server,
     this.fallbackUsed = false,
     this.rasFailureCount = 0,
@@ -21,6 +22,7 @@ class ProxyOperationResult {
   final int? errorCode;
   final String? connectionName;
   final bool? enabled;
+  final bool? automaticProxyEnabled;
   final String? server;
   final bool fallbackUsed;
   final int rasFailureCount;
@@ -45,6 +47,9 @@ class ProxyOperationResult {
         errorCode: _asInt(value['errorCode']),
         connectionName: _asOptionalString(value['connectionName']),
         enabled: value['enabled'] is bool ? value['enabled'] as bool : null,
+        automaticProxyEnabled: value['automaticProxyEnabled'] is bool
+            ? value['automaticProxyEnabled'] as bool
+            : null,
         server: _asOptionalString(value['server']),
         fallbackUsed: value['fallbackUsed'] == true,
         rasFailureCount: _asInt(value['rasFailureCount']) ?? 0,
@@ -93,6 +98,8 @@ class ProxyOperationResult {
     if (errorCode != null) 'win32_error': errorCode,
     if (connectionName?.isNotEmpty == true) 'connection_name': connectionName,
     if (enabled != null) 'readback_enabled': enabled,
+    if (automaticProxyEnabled != null)
+      'readback_automatic_proxy_enabled': automaticProxyEnabled,
     if (server?.isNotEmpty == true) 'readback_server': server,
     'fallback_used': fallbackUsed,
     'ras_failure_count': rasFailureCount,

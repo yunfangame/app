@@ -14,6 +14,8 @@ AppUpdatesURL={{PUBLISHER_URL}}
 DefaultDirName={{INSTALL_DIR_NAME}}
 DisableDirPage=no
 UsePreviousAppDir=yes
+SetupLogging=yes
+UninstallLogging=yes
 DisableProgramGroupPage=yes
 OutputDir=.
 OutputBaseFilename={{OUTPUT_BASE_FILENAME}}
@@ -83,6 +85,7 @@ function RunFengWoInstallCleanup(Operation: String): String;
 var
   ScriptPath, PowerShellPath, Parameters: String;
   ResultCode: Integer;
+  CleanupStarted: Boolean;
 begin
   Result := '';
   if IsUninstaller then
@@ -104,15 +107,32 @@ begin
   if not IsUninstaller then
     Parameters := Parameters + ' -OwnershipEvidencePath ' +
       AddQuotes(ExpandConstant('{tmp}\fengwo-install-ownership.json'));
-  if not Exec(PowerShellPath, Parameters, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  try
+    CleanupStarted := ExecAndLogOutput(PowerShellPath, Parameters, '', SW_HIDE,
+      ewWaitUntilTerminated, ResultCode, nil);
+  except
+    Log('FengWo installation cleanup output capture failed: ' + Operation + ': ' + GetExceptionMessage);
+    Result := FmtMessage(CustomMessage('InstallCleanupFailed'), [Operation,
+      'output_capture_failed', ExpandConstant('{log}')]);
+    Exit;
+  end;
+  if not CleanupStarted then
   begin
-    Result := FmtMessage(CustomMessage('HelperStopFailed'), [IntToStr(ResultCode)]);
+    Log('FengWo installation cleanup could not start: ' + Operation + ' (' +
+      IntToStr(ResultCode) + '): ' + SysErrorMessage(ResultCode));
+    Result := FmtMessage(CustomMessage('InstallCleanupFailed'), [Operation,
+      IntToStr(ResultCode), ExpandConstant('{log}')]);
     Exit;
   end;
   if ResultCode <> 0 then
   begin
     Log('FengWo path-scoped installation cleanup failed: ' + Operation + ' (' + IntToStr(ResultCode) + ')');
-    Result := FmtMessage(CustomMessage('HelperStopFailed'), [IntToStr(ResultCode)]);
+    if ResultCode = 41 then
+      Result := FmtMessage(CustomMessage('InstallDirectoryConflict'), [ExpandConstant('{app}'),
+        ExpandConstant('{autopf64}\FengWo')])
+    else
+      Result := FmtMessage(CustomMessage('InstallCleanupFailed'), [Operation,
+        IntToStr(ResultCode), ExpandConstant('{log}')]);
   end;
 end;
 
@@ -213,7 +233,8 @@ InstallIntegrityLow=This installation location has a Low integrity security labe
 InstallIntegrityReparse=This installation location uses a symbolic link or redirected folder. Go Back and choose a normal local application folder. Existing user data is preserved.%nLocation: %1
 InstallIntegrityAccess=The installation location cannot be safely checked or written. Go Back and choose another local application folder, or check its permissions and free disk space. Existing user data is preserved.%nLocation: %1%nDetails: %2
 InstallIntegrityPath=Choose a dedicated folder on a local drive rather than a drive root or a network path.%nLocation: %1
-HelperStopFailed=The previous network service is still busy (code %1). Close the old client and Services window, then retry. If it still fails, restart Windows and run the installer again.
+InstallDirectoryConflict=The FengWo identity of the application in this folder cannot be verified. Go Back and choose a separate folder, such as %2. The existing application will be preserved.%nLocation: %1
+InstallCleanupFailed=Installation cleanup failed during %1 (code %2). Send the installation log to support to identify the cause.%nLog: %3
 VcRuntimeInstalling=Installing Microsoft Visual C++ runtime. Please wait...
 VcRuntimeInvalid=The bundled Visual C++ runtime is missing or damaged. Download the complete installer again.
 VcRuntimeLogFailed=Unable to create the runtime installation log directory. Check administrator permissions and disk space.
@@ -227,7 +248,8 @@ chineseSimplified.InstallIntegrityLow=此安装位置带有 Low（低完整性�
 chineseSimplified.InstallIntegrityReparse=此安装位置包含符号链接或重定向目录。请返回上一步，选择普通的本地安装目录。原有用户数据会保留。%n位置：%1
 chineseSimplified.InstallIntegrityAccess=无法安全检查或写入此安装位置。请返回上一步，更换本地安装目录，或检查该目录权限及磁盘空间。原有用户数据会保留。%n位置：%1%n详情：%2
 chineseSimplified.InstallIntegrityPath=请选择本地磁盘内独立的程序文件夹，不要选择磁盘根目录或网络路径。%n位置：%1
-chineseSimplified.HelperStopFailed=旧版网络服务尚未退出（错误码 %1）。请关闭旧客户端和服务管理窗口后重试；仍失败时，请重启 Windows 后再次安装。
+chineseSimplified.InstallDirectoryConflict=此目录中的应用无法确认属于蜂窝，不能安全覆盖。请返回上一步，选择独立的蜂窝目录，例如 %2。现有程序会保留。%n位置：%1
+chineseSimplified.InstallCleanupFailed=安装清理失败，操作：%1，错误码：%2。请将安装日志发给客服确认具体原因。%n日志：%3
 chineseSimplified.VcRuntimeInstalling=正在安装 Microsoft Visual C++ 运行库，请稍候……
 chineseSimplified.VcRuntimeInvalid=安装包中的 Visual C++ 运行库缺失或损坏，请重新下载完整安装包。
 chineseSimplified.VcRuntimeLogFailed=无法创建运行库安装日志目录，请检查管理员权限和磁盘空间。

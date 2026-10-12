@@ -126,6 +126,25 @@ void PortChangesKeepOriginal() {
           "port changes restore first original snapshot");
 }
 
+void ExplicitReconnectRestoresLatestForeignSnapshot() {
+  Fixture f;
+  f.ras = {L"VPN"};
+  f.values[L"VPN"] = Original();
+  ProxySession session;
+  Require(session.Start(Manual(), f.Backend()).success, "initial application starts");
+  const ConnectionConfiguration external{
+      15, L"external.example:17890", L"*.external;<local>",
+      L"https://external.example/proxy.pac"};
+  f.values[L""] = external;
+  Require(session.Start(Manual(), f.Backend()).success, "explicit reconnect replaces foreign settings");
+  Require(session.Stop(std::nullopt, f.Backend()).success, "reconnected session restores");
+  Require(f.values[L""] == external && f.values[L"VPN"] == Original() &&
+          !session.HasPendingCleanup(), "foreign takeover refreshes only its own restoration snapshot");
+  const auto writes = f.writes;
+  Require(session.Stop(std::nullopt, f.Backend()).writeSkipped && f.writes == writes &&
+          f.values[L""] == external, "repeated stop preserves the latest external settings");
+}
+
 void ForeignChangesAndAlreadyRestored() {
   Fixture f;
   ProxySession session;
@@ -347,6 +366,7 @@ int main() {
   try {
     CompleteSnapshotsAndRepeatedStart();
     PortChangesKeepOriginal();
+    ExplicitReconnectRestoresLatestForeignSnapshot();
     ForeignChangesAndAlreadyRestored();
     SafeLegacyAndAdoptedProxy();
     CaptureFailureDoesNotModify();
@@ -358,7 +378,7 @@ int main() {
     UnchangedRetryPreservesPreviouslyAppliedOwnership();
     UnchangedRestoreDoesNotAcquireForeignMixedSettings();
     PartialAndUnknownWritesRemainOwned();
-    std::cout << "PASS: 13 proxy session suites\n";
+    std::cout << "PASS: 14 proxy session suites\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "FAIL: " << error.what() << '\n';
@@ -370,6 +390,7 @@ int main() {
 
 TEST(ProxySession, CompleteSnapshotsAndRepeatedStart) { CompleteSnapshotsAndRepeatedStart(); }
 TEST(ProxySession, PortChangesKeepOriginal) { PortChangesKeepOriginal(); }
+TEST(ProxySession, ExplicitReconnectRestoresLatestForeignSnapshot) { ExplicitReconnectRestoresLatestForeignSnapshot(); }
 TEST(ProxySession, ForeignChangesAndAlreadyRestored) { ForeignChangesAndAlreadyRestored(); }
 TEST(ProxySession, SafeLegacyAndAdoptedProxy) { SafeLegacyAndAdoptedProxy(); }
 TEST(ProxySession, CaptureFailureDoesNotModify) { CaptureFailureDoesNotModify(); }

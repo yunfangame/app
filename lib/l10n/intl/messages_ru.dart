@@ -675,6 +675,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "chainProxyDescription": MessageLookupByLibrary.simpleMessage(
       "Управление дополнительным выходом SOCKS5 или HTTP",
     ),
+    "chainProxyDesktopConnectivityFailed": MessageLookupByLibrary.simpleMessage(
+      "Проверка цепочного прокси завершилась ошибкой. Он отключён, предыдущая конфигурация восстановлена. Попробуйте выбрать другой узел FengWo и повторить попытку.",
+    ),
     "chainProxyDirectModeUnsupported": MessageLookupByLibrary.simpleMessage(
       "Сначала выберите режим «Правила» или «Глобальный»",
     ),

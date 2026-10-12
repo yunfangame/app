@@ -63,6 +63,10 @@ class SetupAction extends _$SetupAction {
 
   bool get _isRunning => _startTime != null && _startTime!.isBeforeNow;
 
+  bool get _canActivateTun =>
+      !requiresListenerReadiness ||
+      (_latestRunRequest?.running ?? ref.read(isStartProvider));
+
   bool get hasPendingAccessControlReconnect => _accessControlReconnectNeeded;
 
   bool consumeHandledAccessControlChange(VpnState? previous, VpnState next) {
@@ -457,6 +461,7 @@ class SetupAction extends _$SetupAction {
       }
       throw StateError('Listener configuration changed during startup');
     } catch (error, stackTrace) {
+      if (!_isCurrent(request)) return;
       if (_isCurrent(request) && tunRevision != _tunRevision) {
         await _startVerified(request, propagateErrors: propagateErrors);
         return;
@@ -972,16 +977,19 @@ class SetupAction extends _$SetupAction {
     final request = _latestRunRequest;
     var restartAfterAuthorization = false;
     await _setupScheduler.run(() async {
-      if (_reloadingMacOSAuthorization) return;
+      if (_reloadingMacOSAuthorization ||
+          (requiresListenerReadiness &&
+              (!ref.mounted || !identical(request, _latestRunRequest)))) {
+        return;
+      }
       await globalState.safeRun(() async {
         await _inspectSystemProxy('before_update');
         final tunRevision = _tunRevision;
         try {
           final updateParams = ref.read(updateParamsProvider);
           ref.read(windowsTunReadyProvider.notifier).value = false;
-          final shouldContinueSetup = await requestAdmin(
-            updateParams.tun.enable,
-          );
+          final shouldContinueSetup =
+              !_canActivateTun || await requestAdmin(updateParams.tun.enable);
           if (!ref.mounted ||
               tunRevision != _tunRevision ||
               !identical(request, _latestRunRequest) ||
@@ -1011,7 +1019,11 @@ class SetupAction extends _$SetupAction {
                 _getEffectiveTunEnable(updateParams.tun.enable);
           }
         } catch (error) {
-          if (tunRevision != _tunRevision) return;
+          if (tunRevision != _tunRevision ||
+              (requiresListenerReadiness &&
+                  (!ref.mounted || !identical(request, _latestRunRequest)))) {
+            return;
+          }
           if (requiresListenerReadiness && request?.running == true) {
             await _failConnection(request!, error);
           } else {
@@ -1023,6 +1035,13 @@ class SetupAction extends _$SetupAction {
       });
     });
     if (restartAfterAuthorization) {
+      if (requiresListenerReadiness &&
+          (!ref.mounted || !identical(request, _latestRunRequest))) {
+        if (requiresFullSetupAfterAuthorization) {
+          _reloadingMacOSAuthorization = false;
+        }
+        return;
+      }
       try {
         if (requiresFullSetupAfterAuthorization) {
           try {
@@ -1909,13 +1928,16 @@ class SetupAction extends _$SetupAction {
     final stableProfile = ref.read(currentProfileProvider);
     var handedOffToCoreRestart = false;
     var authorizationRestartCompleted = false;
+    bool ownsRequest() =>
+        !requiresListenerReadiness ||
+        (ref.mounted && identical(request, _latestRunRequest));
     Future<_SetupTaskResult> runAttempt({required bool forceApply}) {
       return _setupScheduler.run(() {
         return _setupConfig(
           force: forceApply,
           silence: silence,
           preloadInvoke: preloadInvoke,
-          isCurrent: isCurrent,
+          isCurrent: () => ownsRequest() && isCurrent?.call() != false,
           profileOverride: profileOverride,
           discardSuperseded: discardSuperseded,
           onUpdated: () async {
@@ -1930,12 +1952,12 @@ class SetupAction extends _$SetupAction {
       var result = await runAttempt(forceApply: force);
       if (result == _SetupTaskResult.handoffToCoreRestart) {
         handedOffToCoreRestart = true;
-        if (isCurrent?.call() == false) {
+        if (!ownsRequest() || isCurrent?.call() == false) {
           throw StateError('configuration_apply_superseded');
         }
         await _restartCoreAfterAuthorization();
         authorizationRestartCompleted = true;
-        if (isCurrent?.call() == false) {
+        if (!ownsRequest() || isCurrent?.call() == false) {
           throw StateError('configuration_apply_superseded');
         }
         result = await runAttempt(forceApply: true);
@@ -1945,6 +1967,48 @@ class SetupAction extends _$SetupAction {
         await _restoreListenerAfterRestart(request);
       }
     } catch (error) {
+      if (!ownsRequest()) {
+        if (requiresListenerReadiness && propagateErrors) {
+          throw StateError('configuration_apply_superseded');
+        }
+        return;
+      }
+      if (requiresListenerReadiness && isCurrent?.call() == false) {
+        if (handedOffToCoreRestart && authorizationRestartCompleted) {
+          ref.read(authorizedTunEnableProvider.notifier).value =
+              TunAuthorizationState.none;
+          try {
+            await recoverStableCoreConfiguration(
+              stableProfile,
+              reason: 'authorization_reapply_superseded',
+              isCurrent: ownsRequest,
+            );
+          } catch (recoveryError) {
+            if (!ownsRequest()) {
+              if (propagateErrors) {
+                throw StateError('configuration_apply_superseded');
+              }
+              return;
+            }
+            if (request?.running == true) {
+              await _failConnection(request!, recoveryError);
+            } else if (ref.read(isStartProvider)) {
+              await setRunning(false);
+            }
+            rethrow;
+          }
+          if (!ownsRequest()) {
+            if (propagateErrors) {
+              throw StateError('configuration_apply_superseded');
+            }
+            return;
+          }
+        }
+        if (propagateErrors || handedOffToCoreRestart) {
+          throw StateError('configuration_apply_superseded');
+        }
+        return;
+      }
       if (discardSuperseded && isCurrent?.call() == false) return;
       if (handedOffToCoreRestart) {
         ref.read(authorizedTunEnableProvider.notifier).value =
@@ -2004,7 +2068,7 @@ class SetupAction extends _$SetupAction {
       await apply();
       return;
     }
-    if (!requiresWindowsTunAuthorization) {
+    if (!requiresListenerReadiness) {
       Object? failure;
       StackTrace? failureStackTrace;
       await globalState.loadingRun<void>(
@@ -2115,6 +2179,7 @@ class SetupAction extends _$SetupAction {
   Future<void> recoverStableCoreConfiguration(
     Profile? profile, {
     required String reason,
+    bool Function()? isCurrent,
   }) async {
     final request = _latestRunRequest;
     final stopwatch = Stopwatch()..start();
@@ -2123,27 +2188,37 @@ class SetupAction extends _$SetupAction {
       fields: {'reason': reason, 'has_profile': profile != null},
     );
     try {
+      if (isCurrent?.call() == false) return;
       await restartCoreLifecycleOnly();
+      if (isCurrent?.call() == false) return;
       if (profile == null) {
         final configFile = File(await appPath.configFilePath);
-        if (!await configFile.exists()) {
+        final configExists = await configFile.exists();
+        if (isCurrent?.call() == false) return;
+        if (!configExists) {
           await configFile.safeWriteAsString('');
         }
       }
+      if (isCurrent?.call() == false) return;
       final message = await _applyCoreSetupWithDeadline(
         params: _setupParams(profile),
       );
+      if (isCurrent?.call() == false) return;
       if (message.isNotEmpty && !message.endsWith('is empty')) {
         throw StateError(message);
       }
       await ref.read(proxiesActionProvider.notifier).updateGroups();
+      if (isCurrent?.call() == false) return;
       await ref.read(providersProvider.notifier).syncProviders();
-      await _restoreListenerAfterRestart(request);
+      if (isCurrent?.call() == false) return;
+      await _restoreListenerAfterRestart(request, isCurrent: isCurrent);
+      if (isCurrent?.call() == false) return;
       commonPrint.event(
         'configuration.recovery.succeeded',
         fields: {'reason': reason, 'elapsed_ms': stopwatch.elapsedMilliseconds},
       );
     } catch (error) {
+      if (isCurrent?.call() == false) return;
       var stopped = false;
       try {
         await stopCoreLifecycleOnly();
@@ -2258,6 +2333,7 @@ class SetupAction extends _$SetupAction {
   bool _getEffectiveTunEnable(bool enableTun) {
     final authorizationState = ref.read(authorizedTunEnableProvider);
     return enableTun &&
+        _canActivateTun &&
         authorizationState == TunAuthorizationState.authorized &&
         (!requiresWindowsTunAuthorization ||
             ref.read(patchClashConfigProvider).tun.enable);
@@ -2587,6 +2663,7 @@ class SetupAction extends _$SetupAction {
     Profile? profileOverride,
     bool discardSuperseded = false,
   }) async {
+    final request = _latestRunRequest;
     final stableProfile = ref.read(currentProfileProvider);
     var profile = profileOverride ?? stableProfile;
     final patchConfig = ref.read(patchClashConfigProvider);
@@ -2602,8 +2679,12 @@ class SetupAction extends _$SetupAction {
         'mode': patchConfig.mode.name,
       },
     );
+    bool setupIsCurrent() =>
+        isCurrent?.call() != false &&
+        (!requiresListenerReadiness ||
+            (ref.mounted && identical(request, _latestRunRequest)));
     Future<T> runStage<T>(String nextStage, Future<T> Function() action) async {
-      if (isCurrent?.call() == false) {
+      if (!setupIsCurrent()) {
         throw StateError('configuration_apply_superseded');
       }
       stage = nextStage;
@@ -2613,7 +2694,7 @@ class SetupAction extends _$SetupAction {
         fields: {'stage': stage},
       );
       final result = await action();
-      if (isCurrent?.call() == false) {
+      if (!setupIsCurrent()) {
         throw StateError('configuration_apply_superseded');
       }
       commonPrint.event(
@@ -2653,7 +2734,8 @@ class SetupAction extends _$SetupAction {
       });
       final shouldContinueSetup = await runStage(
         'tun_authorization',
-        () => requestAdmin(patchConfig.tun.enable),
+        () async =>
+            !_canActivateTun || await requestAdmin(patchConfig.tun.enable),
       );
       if (!shouldContinueSetup) {
         commonPrint.event(
@@ -2775,7 +2857,12 @@ class SetupAction extends _$SetupAction {
           );
         }
       }
-      final superseded = discardSuperseded && isCurrent?.call() == false;
+      final superseded =
+          (discardSuperseded && isCurrent?.call() == false) ||
+          (requiresListenerReadiness &&
+              (!ref.mounted ||
+                  !identical(request, _latestRunRequest) ||
+                  isCurrent?.call() == false));
       if (coreSetupStarted && !superseded) {
         try {
           if (configRestored) {

@@ -142,7 +142,13 @@ class WindowsProxyGuard {
     if (isCancelled?.call() == true) return null;
     final inspection = await _inspector(port);
     if (isCancelled?.call() == true) return null;
-    if (inspection.success || _starter == null) {
+    if (inspection.success ||
+        _starter == null ||
+        inspection.stage != 'readback_mismatch' ||
+        inspection.enabled == null ||
+        inspection.automaticProxyEnabled == true ||
+        (inspection.enabled == true &&
+            inspection.server != '127.0.0.1:$port')) {
       return WindowsProxyReconcileResult(inspection: inspection);
     }
     final readiness = await waitUntilReadyDetailed(

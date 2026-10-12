@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/windows_identity.dart';
 import 'package:fl_clash/core/desktop/model.dart';
 import 'package:fl_clash/database/database.dart'
     show ProfilesCompanionExt, database;
@@ -16,6 +17,7 @@ import 'package:fl_clash/providers/database.dart';
 import 'package:fl_clash/providers/state.dart';
 import 'package:fl_clash/state.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,7 +31,13 @@ class _FakePathProvider extends PathProviderPlatform {
   Future<String?> getTemporaryPath() async => root;
 
   @override
-  Future<String?> getApplicationSupportPath() async => root;
+  Future<String?> getApplicationSupportPath() async {
+    final directory = Directory(
+      p.join(root, windowsDataCompany, windowsDataProduct),
+    );
+    await directory.create(recursive: true);
+    return directory.path;
+  }
 
   @override
   Future<String?> getApplicationCachePath() async => root;
@@ -1983,7 +1991,7 @@ void main() {
     });
 
     for (final wasRunning in [false, true]) {
-      test('Windows authorization handoff rejects a failed strict reapply, '
+      test('Windows configuration failure respects authorization boundaries, '
           'running=$wasRunning', () async {
         late _WindowsAuthorizationFailureSetupAction setupAction;
         final container = ProviderContainer(
@@ -2020,11 +2028,11 @@ void main() {
         container.read(coreActionProvider);
 
         await expectLater(
-          setupAction.applyProfile(force: true),
+          setupAction.applyProfile(force: true, propagateErrors: true),
           throwsA(same(_strictReapplyFailure)),
         );
 
-        expect(setupAction.authorizationRequestCount, 1);
+        expect(setupAction.authorizationRequestCount, wasRunning ? 1 : 0);
         expect(
           container.read(authorizedTunEnableProvider),
           TunAuthorizationState.none,
@@ -2453,6 +2461,7 @@ class _WindowsAuthorizationFailureSetupAction extends SetupAction {
   Future<void> recoverStableCoreConfiguration(
     Profile? profile, {
     required String reason,
+    bool Function()? isCurrent,
   }) async {
     ref.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
   }

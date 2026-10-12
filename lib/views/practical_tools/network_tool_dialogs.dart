@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/chain_proxy_validation.dart';
 import 'package:fl_clash/common/streaming_unlock.dart';
 import 'package:fl_clash/core/core.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -731,6 +732,27 @@ class _ChainProxyDialogState extends ConsumerState<ChainProxyDialog> {
   ) async {
     final validator = widget.validator;
     if (validator != null) return validator(entry);
+    if (system.isWindows) {
+      final result = await validateChainRuntimeConnectivity(
+        testUrl: testUrl,
+        probe: (url) async =>
+            (await coreController.getDelay(url, chainProxyRuntimeName)).value,
+        onAttempt: (attempt, delay, error) => commonPrint.event(
+          'chain_proxy.validation.attempt',
+          fields: {
+            'attempt': attempt,
+            'success': delay != null && delay > 0,
+            'delay_ms': delay,
+            if (error != null) 'error_type': error.runtimeType.toString(),
+          },
+        ),
+      );
+      commonPrint.event(
+        'chain_proxy.validation.completed',
+        fields: {'success': result.isAvailable},
+      );
+      return result;
+    }
     try {
       final delay = await coreController.getDelay(
         testUrl,
@@ -768,14 +790,14 @@ class _ChainProxyDialogState extends ConsumerState<ChainProxyDialog> {
     final previous = ref.read(appSettingProvider);
     if (enabled && previous.activeChainProxyName != null) return;
     final settingsNotifier = ref.read(appSettingProvider.notifier);
-    final restartCore =
+    final applyConfiguration =
         widget.coreRestarter ??
-        ref.read(coreActionProvider.notifier).restartCore;
+        ref.read(coreActionProvider.notifier).applyChainProxyConfiguration;
 
     Future<bool> restorePrevious() async {
       settingsNotifier.value = previous;
       try {
-        await restartCore();
+        await applyConfiguration();
         return true;
       } catch (error) {
         commonPrint.event(
@@ -794,16 +816,18 @@ class _ChainProxyDialogState extends ConsumerState<ChainProxyDialog> {
       activeChainProxyName: enabled ? entry.name : null,
     );
     try {
-      await restartCore();
+      await applyConfiguration();
       if (enabled) {
         final validation = await _validateActiveProxy(entry, previous.testUrl);
         if (!validation.isAvailable) {
           final restored = await restorePrevious();
           if (mounted) {
+            final l10n = context.appLocalizations;
+            final connectivityFailure = system.isWindows || system.isMacOS
+                ? l10n.chainProxyDesktopConnectivityFailed
+                : l10n.chainProxyConnectivityFailed;
             context.showNotifier(
-              restored
-                  ? context.appLocalizations.chainProxyConnectivityFailed
-                  : context.appLocalizations.chainProxyRollbackFailed,
+              restored ? connectivityFailure : l10n.chainProxyRollbackFailed,
             );
           }
           return;
@@ -888,7 +912,9 @@ class _ChainProxyDialogState extends ConsumerState<ChainProxyDialog> {
                       ? const _RotatingProxyGear(size: 18)
                       : const Icon(Icons.shield_outlined, size: 18),
                   label: Text(
-                    hasActive
+                    _workingName != null
+                        ? l10n.loading
+                        : hasActive
                         ? '${l10n.chainProxyActive} · $activeName'
                         : l10n.chainProxyDisabled,
                   ),

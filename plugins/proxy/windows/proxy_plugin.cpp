@@ -171,25 +171,6 @@ bool ReadProxyRegistry(ProxyReadback& readback, DWORD& errorCode)
   return serverRead;
 }
 
-bool ReadProxySettings(ProxyReadback& readback, DWORD& errorCode)
-{
-  if (!proxy::settings::QueryProxy(
-          readback.enabled, readback.server, errorCode))
-  {
-    return false;
-  }
-  ProxyReadback registry;
-  if (!ReadProxyRegistry(registry, errorCode)) return false;
-  if (registry.enabled != readback.enabled ||
-      (readback.enabled && registry.server != readback.server))
-  {
-    errorCode = ERROR_INVALID_DATA;
-    return false;
-  }
-  errorCode = ERROR_SUCCESS;
-  return true;
-}
-
 bool EnumerateConnections(std::vector<std::wstring>& names, uint32_t& error)
 {
   DWORD size = 0;
@@ -366,19 +347,22 @@ ProxyOperationDetails InspectProxy(const int expectedPort)
 {
   ProxyOperationDetails details;
   details.operation = "inspect";
-  ProxyReadback readback;
-  DWORD error = ERROR_SUCCESS;
-  if (!ReadProxySettings(readback, error))
+  proxy::settings::ConnectionConfiguration readback;
+  uint32_t error = ERROR_SUCCESS;
+  if (!ReadConnection(L"", readback, error))
   {
     details.stage = "readback";
     details.errorCode = error;
     return details;
   }
-  details.enabled = readback.enabled;
+  details.enabled = readback.HasManualProxy();
+  details.automaticProxyEnabled =
+      (readback.flags & (PROXY_TYPE_AUTO_PROXY_URL | PROXY_TYPE_AUTO_DETECT)) != 0;
   details.server = readback.server;
   const auto expected = Utf8ToWide(
       "127.0.0.1:" + std::to_string(expectedPort));
-  details.success = readback.enabled && readback.server == expected;
+  details.success = details.enabled && readback.server == expected &&
+      !*details.automaticProxyEnabled;
   details.stage = details.success ? "verified" : "readback_mismatch";
   return details;
 }
@@ -418,6 +402,11 @@ flutter::EncodableValue EncodeDetails(const ProxyOperationDetails& details)
        flutter::EncodableValue(details.skippedCount)},
       {flutter::EncodableValue("pendingCleanup"),
        flutter::EncodableValue(details.pendingCleanup)}};
+  if (details.automaticProxyEnabled.has_value())
+  {
+    value[flutter::EncodableValue("automaticProxyEnabled")] =
+        flutter::EncodableValue(*details.automaticProxyEnabled);
+  }
   return flutter::EncodableValue(std::move(value));
 }
 

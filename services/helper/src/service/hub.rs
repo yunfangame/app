@@ -22,7 +22,7 @@ use warp::{Filter, Rejection, Reply};
 #[cfg(windows)]
 use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
 
-const LISTEN_PORT: u16 = 47906;
+const LISTEN_PORT: u16 = 47907;
 const CORE_PIPE_PREFIX: &str = r"\\.\pipe\FengWoCore_";
 const PROTOCOL_VERSION_HEADER: &str = "x-fengwo-helper-protocol";
 const PROTOCOL_VERSION: &str = "6";
@@ -641,7 +641,9 @@ mod tests {
 
     #[test]
     fn protocol_6_uses_lowercase_session_ownership() {
-        assert_eq!(LISTEN_PORT, 47906);
+        assert_eq!(LISTEN_PORT, 47907);
+        assert_ne!(LISTEN_PORT, 47890);
+        assert_ne!(LISTEN_PORT, 47906);
         assert_eq!(PROTOCOL_VERSION, "6");
         assert_eq!(PROTOCOL_VERSION_HEADER, "x-fengwo-helper-protocol");
         assert!(is_valid_session_id("0123456789abcdef0123456789abcdef"));

@@ -1,4 +1,5 @@
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/mixed_port.dart';
 import 'package:fl_clash/common/theme.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
@@ -126,6 +127,42 @@ void main() {
       'clash-verge/v2.4.2',
     );
     expect(tester.takeException(), null);
+  });
+
+  testWidgets('general port reset uses the platform default', (tester) async {
+    tester.view.physicalSize = const Size(1000, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    globalState.container = container;
+    container.read(viewSizeProvider.notifier).value = const Size(1000, 800);
+    container
+        .read(patchClashConfigProvider.notifier)
+        .update(
+          (state) =>
+              state.copyWith(mixedPort: 8080, port: 8081, socksPort: 8082),
+        );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _TestApp(child: Scaffold(body: PortItem())),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l10n = tester.element(find.byType(PortItem)).appLocalizations;
+    await tester.tap(find.text(l10n.port));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.reset));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.confirm));
+    await tester.pumpAndSettle();
+    final config = container.read(patchClashConfigProvider);
+    expect(config.mixedPort, defaultMixedPortForPlatform());
+    expect(config.port, 0);
+    expect(config.socksPort, 0);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('DNS mode options update the patch configuration', (

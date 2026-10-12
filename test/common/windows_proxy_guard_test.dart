@@ -77,6 +77,63 @@ void main() {
     expect(result.cleanup?.stage, 'skipped_foreign_or_restored');
   });
 
+  for (final inspection in <String, ProxyOperationResult>{
+    'external automatic proxy': ProxyOperationResult.fromChannel({
+      'success': false,
+      'operation': 'inspect',
+      'stage': 'readback_mismatch',
+      'enabled': false,
+      'automaticProxyEnabled': true,
+    }, operation: 'inspect'),
+    'automatic proxy alongside the expected manual endpoint':
+        ProxyOperationResult.fromChannel({
+          'success': false,
+          'operation': 'inspect',
+          'stage': 'readback_mismatch',
+          'enabled': true,
+          'server': '127.0.0.1:7890',
+          'automaticProxyEnabled': true,
+        }, operation: 'inspect'),
+    'external enabled endpoint': const ProxyOperationResult(
+      success: false,
+      operation: 'inspect',
+      stage: 'readback_mismatch',
+      enabled: true,
+      server: '127.0.0.1:17890',
+    ),
+    'unknown enabled endpoint': const ProxyOperationResult(
+      success: false,
+      operation: 'inspect',
+      stage: 'readback_mismatch',
+      enabled: true,
+    ),
+    'unknown enable state': const ProxyOperationResult(
+      success: false,
+      operation: 'inspect',
+      stage: 'readback_mismatch',
+    ),
+    'failed read with default disabled field': const ProxyOperationResult(
+      success: false,
+      operation: 'inspect',
+      stage: 'readback',
+      enabled: false,
+      errorCode: 5,
+    ),
+  }.entries) {
+    test('guard preserves ${inspection.key}', () async {
+      final guard = WindowsProxyGuard(
+        inspector: (_) async => inspection.value,
+        starter: (_, _) async => throw StateError('must not rewrite'),
+        stopper: (_) async => throw StateError('must not stop'),
+        portProbe: (_) async => throw StateError('must not probe'),
+      );
+      final result = await guard.reconcile(7890, const ['localhost']);
+      expect(result?.inspection, same(inspection.value));
+      expect(result?.repair, isNull);
+      expect(result?.readiness, isNull);
+    });
+  }
+
   test('does not rewrite an effective proxy during reconciliation', () async {
     var starts = 0;
     final guard = WindowsProxyGuard(
