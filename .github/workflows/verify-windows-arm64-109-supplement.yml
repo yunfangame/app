@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          fetch-depth: 3
+          fetch-depth: 4
       - name: Download the exact previously tested 1.0.9 ARM64 package
         uses: actions/download-artifact@v4
         with:
@@ -51,6 +51,12 @@ jobs:
           . ./tooling/windows/arm64/common.ps1
           $environment = Assert-FwArmRunner
           Assert-FwArmProcess $PID
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $installations = @(& $vswhere -latest -products '*' -format json | ConvertFrom-Json)
+          if ($LASTEXITCODE -ne 0 -or $installations.Count -ne 1) { throw 'One installed native Visual Studio toolchain is required' }
+          $major = ([version]$installations[0].installationVersion).Major
+          $generator = switch ($major) { 17 { 'Visual Studio 17 2022' }; 18 { 'Visual Studio 18 2026' }; default { throw 'Unsupported Visual Studio generator' } }
+          ('FENGWO_ARM64_CMAKE_GENERATOR=' + $generator) | Add-Content $env:GITHUB_ENV
           $headers = @{ Authorization = 'Bearer ' + $env:GH_TOKEN; Accept = 'application/vnd.github+json' }
           $run = Invoke-RestMethod -Uri ('https://api.github.com/repos/' + $env:GITHUB_REPOSITORY + '/actions/runs/38195326898') -Headers $headers
           if ($run.status -cne 'completed' -or $run.conclusion -cne 'failure' -or $run.head_sha -cne 'd281e305473d571911ce2efef860f1b7703514ad') { throw 'The fixed original package build provenance differs' }
