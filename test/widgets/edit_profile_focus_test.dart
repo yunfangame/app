@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
 class _FakePathProvider extends PathProviderPlatform {
@@ -23,7 +24,12 @@ class _FakePathProvider extends PathProviderPlatform {
   Future<String?> getTemporaryPath() async => root;
 
   @override
-  Future<String?> getApplicationSupportPath() async => root;
+  Future<String?> getApplicationSupportPath() async {
+    if (!Platform.isWindows) return root;
+    final directory = Directory(p.join(root, 'FengWo', '蜂窝加速器'));
+    await directory.create(recursive: true);
+    return directory.path;
+  }
 
   @override
   Future<String?> getApplicationCachePath() async => root;
@@ -134,10 +140,9 @@ void main() {
     PathProviderPlatform.instance = _FakePathProvider(tempDir.path);
   });
 
-  tearDownAll(() {
-    try {
-      tempDir.deleteSync(recursive: true);
-    } catch (_) {}
+  tearDownAll(() async {
+    await commonPrint.flushDiagnosticEvents();
+    await tempDir.delete(recursive: true);
   });
 
   testWidgets('tabbing into the edit page starts with the form', (

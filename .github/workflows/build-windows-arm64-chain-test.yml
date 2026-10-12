@@ -92,9 +92,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Source manifest enumeration failed' }
           $sourceLock = Get-Content -LiteralPath './tooling/windows/real/release-source-lock.json' -Raw | ConvertFrom-Json
           if ($sourceLock.architecture -cne 'arm64' -or $sourceLock.desktop_default_port -ne 17980 -or $sourceLock.new_helper_port -ne 47907 -or -not $sourceLock.stable_build) { throw 'The stable release source lock differs' }
-          foreach ($source in $sourceLock.files) {
-            if (-not (Test-Path -LiteralPath $source.path -PathType Leaf) -or (Get-FileHash -LiteralPath $source.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $source.sha256) { throw ('Frozen release source changed: ' + $source.path) }
+          $testOnlyOverrides = @{}
+          foreach ($override in $sourceLock.test_only_overrides) {
+            $original = @($sourceLock.files | Where-Object { $_.path -ceq $override.path })
+            if (-not $override.path.StartsWith('test/') -or -not $override.path.EndsWith('.dart') -or $original.Count -ne 1 -or $original[0].sha256 -cne $override.original_sha256 -or $override.corrected_sha256 -notmatch '^[0-9a-f]{64}$') { throw 'Invalid explicit test-only source delta' }
+            if ($testOnlyOverrides.ContainsKey($override.path)) { throw 'Duplicate test-only source delta' }
+            $testOnlyOverrides[$override.path] = $override.corrected_sha256
           }
+          foreach ($source in $sourceLock.files) {
+            $expectedHash = if ($testOnlyOverrides.ContainsKey($source.path)) { $testOnlyOverrides[$source.path] } else { $source.sha256 }
+            if (-not (Test-Path -LiteralPath $source.path -PathType Leaf) -or (Get-FileHash -LiteralPath $source.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedHash) { throw ('Frozen release source changed: ' + $source.path) }
+          }
+          Save-FwArmEvidence (Join-Path $evidence 'test-only-source-delta.json') ([ordered]@{ product_changed = $false; files = $sourceLock.test_only_overrides })
           Save-FwArmEvidence (Join-Path $evidence 'release-source-lock.json') $sourceLock
           $manifest = @($files | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | ForEach-Object { [ordered]@{ path = $_; sha256 = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant() } })
           Save-FwArmEvidence (Join-Path $evidence 'source-manifest.json') ([ordered]@{ source_sha = $env:GITHUB_SHA; run_id = $env:GITHUB_RUN_ID; files = $manifest; unsigned_test_only = $false; stable_build = $true; release_sequence = 2026101209; environment = $environment })
@@ -141,7 +150,7 @@ jobs:
       - name: Verify complete required Flutter and plugin regressions
         run: |
           $evidence = Join-Path $env:RUNNER_TEMP 'windows-109-evidence'
-          flutter test --no-pub --reporter expanded test plugins/proxy/test/proxy_test.dart plugins/proxy/test/proxy_result_test.dart plugins/proxy/test/macos_service_proxy_test.dart plugins/proxy/test/windows_proxy_repair_test.dart | Tee-Object -FilePath (Join-Path $evidence 'flutter-required-tests.txt')
+          flutter test --no-pub --reporter expanded test plugins/proxy/test | Tee-Object -FilePath (Join-Path $evidence 'flutter-required-tests.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Required release regressions failed' }
           ./tooling/windows/test_prepare_vc_runtime.ps1 | Tee-Object -FilePath (Join-Path $evidence 'runtime-preparation-tests.txt')
           ./tooling/windows/test_vc_runtime_bundle.ps1 | Tee-Object -FilePath (Join-Path $evidence 'runtime-bundle-tests.txt')

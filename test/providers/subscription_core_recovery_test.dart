@@ -14,6 +14,7 @@ import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/database.dart';
 import 'package:fl_clash/providers/state.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -196,7 +197,12 @@ class _TestPathProvider extends PathProviderPlatform {
   Future<String?> getTemporaryPath() async => root;
 
   @override
-  Future<String?> getApplicationSupportPath() async => root;
+  Future<String?> getApplicationSupportPath() async {
+    if (!Platform.isWindows) return root;
+    final directory = Directory(p.join(root, 'FengWo', '蜂窝加速器'));
+    await directory.create(recursive: true);
+    return directory.path;
+  }
 
   @override
   Future<String?> getApplicationCachePath() async => root;
