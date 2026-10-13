@@ -29,6 +29,11 @@ class ProxyOperationResult {
     this.restoredCount = 0,
     this.skippedCount = 0,
     this.pendingCleanup = false,
+    this.activeRasCount = 0,
+    this.inactiveRasSkippedCount = 0,
+    this.savedRasEnumerationError = 0,
+    this.traceDroppedCount = 0,
+    this.connectionTrace = const [],
   });
 
   final bool success;
@@ -55,6 +60,11 @@ class ProxyOperationResult {
   final int restoredCount;
   final int skippedCount;
   final bool pendingCleanup;
+  final int activeRasCount;
+  final int inactiveRasSkippedCount;
+  final int savedRasEnumerationError;
+  final int traceDroppedCount;
+  final List<Map<String, Object?>> connectionTrace;
 
   ProxyOperationResult withPlatform(String value) {
     if (platform == value) return this;
@@ -83,6 +93,11 @@ class ProxyOperationResult {
       restoredCount: restoredCount,
       skippedCount: skippedCount,
       pendingCleanup: pendingCleanup,
+      activeRasCount: activeRasCount,
+      inactiveRasSkippedCount: inactiveRasSkippedCount,
+      savedRasEnumerationError: savedRasEnumerationError,
+      traceDroppedCount: traceDroppedCount,
+      connectionTrace: connectionTrace,
     );
   }
 
@@ -123,6 +138,11 @@ class ProxyOperationResult {
       restoredCount: restoredCount,
       skippedCount: skippedCount,
       pendingCleanup: pendingCleanup,
+      activeRasCount: activeRasCount,
+      inactiveRasSkippedCount: inactiveRasSkippedCount,
+      savedRasEnumerationError: savedRasEnumerationError,
+      traceDroppedCount: traceDroppedCount,
+      connectionTrace: connectionTrace,
     );
   }
 
@@ -160,6 +180,11 @@ class ProxyOperationResult {
         restoredCount: _asCount(value['restoredCount']),
         skippedCount: _asCount(value['skippedCount']),
         pendingCleanup: value['pendingCleanup'] == true,
+        activeRasCount: _asCount(value['activeRasCount']),
+        inactiveRasSkippedCount: _asCount(value['inactiveRasSkippedCount']),
+        savedRasEnumerationError: _asCount(value['savedRasEnumerationError']),
+        traceDroppedCount: _asCount(value['traceDroppedCount']),
+        connectionTrace: _parseConnectionTrace(value['connectionTrace']),
       );
     }
     return ProxyOperationResult(
@@ -233,6 +258,17 @@ class ProxyOperationResult {
     if (restoredCount > 0) 'restored_count': restoredCount,
     if (skippedCount > 0) 'skipped_count': skippedCount,
     if (pendingCleanup) 'pending_cleanup': true,
+    if (connectionTrace.isNotEmpty ||
+        activeRasCount > 0 ||
+        inactiveRasSkippedCount > 0 ||
+        savedRasEnumerationError > 0) ...{
+      'active_ras_count': activeRasCount,
+      'inactive_ras_skipped_count': inactiveRasSkippedCount,
+      'saved_ras_enumeration_error': savedRasEnumerationError,
+      'connection_trace': connectionTrace,
+    },
+    if (traceDroppedCount > 0)
+      'connection_trace_dropped_count': traceDroppedCount,
     if (message?.isNotEmpty == true) 'message': message,
     if (command?.isNotEmpty == true) 'command': _bounded(command, 256),
     if (commandExitCode != null) 'command_exit_code': commandExitCode,
@@ -245,6 +281,48 @@ class ProxyOperationResult {
     if (commandSpawnErrorCode != null)
       'command_spawn_error_code': commandSpawnErrorCode,
   };
+
+  static List<Map<String, Object?>> _parseConnectionTrace(Object? value) {
+    if (value is! List) return const [];
+    return List.unmodifiable(
+      value.take(128).whereType<Map>().map((row) {
+        final differences = row['differences'];
+        return <String, Object?>{
+          'connection_kind': row['connectionName'] == '' ? 'default' : 'ras',
+          'connection_name': _bounded(
+            _asOptionalString(row['connectionName']),
+            128,
+          ),
+          'phase': _bounded(_asOptionalString(row['phase']), 64),
+          'success': row['success'] == true,
+          'win32_error': _asInt(row['errorCode']),
+          'elapsed_ms': _asCount(row['elapsedMs']),
+          if (row['active'] is bool) 'active': row['active'],
+          if (row['expectedFlags'] is num)
+            'expected_flags': _asInt(row['expectedFlags']),
+          if (row['actualFlags'] is num)
+            'actual_flags': _asInt(row['actualFlags']),
+          'differences': differences is List
+              ? differences
+                    .whereType<String>()
+                    .where(
+                      const {
+                        'flags',
+                        'proxy_server',
+                        'proxy_bypass',
+                        'pac_url',
+                        'inactive_pac_url_ignored',
+                        'manual_proxy_disabled',
+                        'automatic_proxy_enabled',
+                      }.contains,
+                    )
+                    .toSet()
+                    .toList(growable: false)
+              : const <String>[],
+        };
+      }),
+    );
+  }
 
   static String? _bounded(String? value, [int limit = 1024]) {
     final text = value?.trim();

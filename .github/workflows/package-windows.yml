@@ -235,6 +235,12 @@ jobs:
           node --test tooling/tests/crisp_support_bridge_test.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Crisp message bridge tests failed' }
 
+      - name: Test proxy RAS tracing and log export
+        shell: pwsh
+        run: |
+          flutter test --no-pub --reporter expanded plugins/proxy/test/proxy_result_test.dart test/common/windows_proxy_trace_log_test.dart test/common/diagnostic_log_test.dart
+          if ($LASTEXITCODE -ne 0) { throw 'Proxy RAS trace regression failed' }
+
       - name: Test live API fallback and encryption
         shell: pwsh
         run: |
@@ -270,8 +276,12 @@ jobs:
         run: |
           cmake -S windows -B build/windows/x64 -Dinclude_proxy_tests=ON
           if ($LASTEXITCODE -ne 0) { throw 'Proxy test configuration failed' }
-          cmake --build build/windows/x64 --config Release --target proxy_test
+          cmake --build build/windows/x64 --config Release --target proxy_test proxy_session_test proxy_session_windows_test
           if ($LASTEXITCODE -ne 0) { throw 'Proxy test compilation failed' }
+          & ./build/windows/x64/plugins/proxy/Release/proxy_session_test.exe | Tee-Object -FilePath "$env:RUNNER_TEMP/proxy-session-regression.txt"
+          if ($LASTEXITCODE -ne 0) { throw 'Proxy session regression failed' }
+          & ./build/windows/x64/plugins/proxy/Release/proxy_session_windows_test.exe | Tee-Object -FilePath "$env:RUNNER_TEMP/proxy-session-windows.txt"
+          if ($LASTEXITCODE -ne 0) { throw 'Native proxy session restoration failed' }
           ctest --test-dir build/windows/x64/plugins/proxy -C Release --output-on-failure --no-tests=error -R Proxy
           if ($LASTEXITCODE -ne 0) { throw 'Proxy tests failed' }
           cmake --build build/windows/x64 --config Release --target proxy_winhttp_compatibility_test
@@ -483,6 +493,8 @@ jobs:
             ${{ runner.temp }}/autostart-uninstall-verification/*.json
             ${{ runner.temp }}/autostart-uninstall-verification/*.log
             ${{ runner.temp }}/proxy-winhttp-regression.txt
+            ${{ runner.temp }}/proxy-session-regression.txt
+            ${{ runner.temp }}/proxy-session-windows.txt
           if-no-files-found: warn
 
       - name: Retain installer for failed verification diagnostics

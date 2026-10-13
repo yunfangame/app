@@ -5,6 +5,71 @@ import 'package:proxy/src/proxy_command.dart';
 import 'package:proxy/src/proxy_result.dart';
 
 void main() {
+  test(
+    'RAS trace survives platform tagging and excludes unknown native fields',
+    () {
+      final result = ProxyOperationResult.fromChannel({
+        'success': true,
+        'operation': 'start',
+        'stage': 'verified',
+        'activeRasCount': 0,
+        'inactiveRasSkippedCount': 1,
+        'savedRasEnumerationError': 5,
+        'connectionTrace': [
+          {
+            'connectionName': 'Old broadband',
+            'phase': 'skip_inactive_ras',
+            'success': true,
+            'active': false,
+            'errorCode': 0,
+            'elapsedMs': 2,
+            'differences': ['inactive_pac_url_ignored', 'private PAC URL'],
+            'password': 'must-not-export',
+            'server': 'private-server',
+          },
+        ],
+      }, operation: 'start').withPlatform('windows');
+      final fields = result.toDiagnosticFields();
+      expect(fields['inactive_ras_skipped_count'], 1);
+      expect(fields['active_ras_count'], 0);
+      expect(fields['saved_ras_enumeration_error'], 5);
+      final trace = (fields['connection_trace']! as List).single as Map;
+      expect(trace['active'], false);
+      expect(trace['phase'], 'skip_inactive_ras');
+      expect(trace['differences'], ['inactive_pac_url_ignored']);
+      expect(trace, isNot(contains('password')));
+      expect(trace, isNot(contains('server')));
+      expect(fields.toString(), isNot(contains('must-not-export')));
+      expect(fields.toString(), isNot(contains('private PAC URL')));
+      expect(
+        result.withPlatform('macos').connectionTrace,
+        result.connectionTrace,
+      );
+    },
+  );
+
+  test('RAS connection trace and strings have bounded sizes', () {
+    final text = List.filled(300, 'x').join();
+    final result = ProxyOperationResult.fromChannel({
+      'success': false,
+      'stage': 'readback_mismatch',
+      'traceDroppedCount': 7,
+      'connectionTrace': List.filled(300, {
+        'connectionName': text,
+        'phase': text,
+        'expectedFlags': 3,
+        'actualFlags': 11,
+        'differences': ['flags'],
+      }),
+    }, operation: 'start');
+    expect(result.connectionTrace, hasLength(128));
+    expect(result.connectionTrace.first['connection_name'], hasLength(128));
+    expect(result.connectionTrace.first['phase'], hasLength(64));
+    expect(result.toDiagnosticFields()['connection_trace_dropped_count'], 7);
+    expect(result.connectionTrace.first['expected_flags'], 3);
+    expect(result.connectionTrace.first['actual_flags'], 11);
+  });
+
   group('ProxyOperationResult command diagnostics', () {
     const failure = ProxyOperationResult(
       success: false,
