@@ -14,6 +14,17 @@ class ProxyOperationResult {
     this.fallbackUsed = false,
     this.rasFailureCount = 0,
     this.message,
+    this.activeRasCount = 0,
+    this.inactiveRasSkippedCount = 0,
+    this.savedRasEnumerationError = 0,
+    this.traceDroppedCount = 0,
+    this.connectionTrace = const [],
+    this.snapshotCount = 0,
+    this.restoredCount = 0,
+    this.skippedCount = 0,
+    this.pendingCleanup = false,
+    this.writeSkipped = false,
+    this.restoreAbandoned = false,
   });
 
   final bool success;
@@ -27,6 +38,17 @@ class ProxyOperationResult {
   final bool fallbackUsed;
   final int rasFailureCount;
   final String? message;
+  final int activeRasCount;
+  final int inactiveRasSkippedCount;
+  final int savedRasEnumerationError;
+  final int traceDroppedCount;
+  final List<Map<String, Object?>> connectionTrace;
+  final int snapshotCount;
+  final int restoredCount;
+  final int skippedCount;
+  final bool pendingCleanup;
+  final bool writeSkipped;
+  final bool restoreAbandoned;
 
   factory ProxyOperationResult.fromChannel(
     Object? value, {
@@ -54,6 +76,17 @@ class ProxyOperationResult {
         fallbackUsed: value['fallbackUsed'] == true,
         rasFailureCount: _asInt(value['rasFailureCount']) ?? 0,
         message: _asOptionalString(value['message']),
+        activeRasCount: _asCount(value['activeRasCount']),
+        inactiveRasSkippedCount: _asCount(value['inactiveRasSkippedCount']),
+        savedRasEnumerationError: _asCount(value['savedRasEnumerationError']),
+        traceDroppedCount: _asCount(value['traceDroppedCount']),
+        connectionTrace: _parseConnectionTrace(value['connectionTrace']),
+        snapshotCount: _asCount(value['snapshotCount']),
+        restoredCount: _asCount(value['restoredCount']),
+        skippedCount: _asCount(value['skippedCount']),
+        pendingCleanup: value['pendingCleanup'] == true,
+        writeSkipped: value['writeSkipped'] == true,
+        restoreAbandoned: value['restoreAbandoned'] == true,
       );
     }
     return ProxyOperationResult(
@@ -86,6 +119,15 @@ class ProxyOperationResult {
       'apply_ras' => 'W-PROXY-06',
       'method_channel' || 'invalid_response' => 'W-PROXY-07',
       'unsupported' => 'W-PROXY-08',
+      'restore' ||
+      'restore_readback' ||
+      'restore_mismatch' ||
+      'restore_default' ||
+      'restore_ras' => 'W-PROXY-10',
+      'snapshot' ||
+      'capture_original' ||
+      'capture_default' ||
+      'capture_ras' => 'W-PROXY-11',
       _ => 'W-PROXY-09',
     };
   }
@@ -103,8 +145,78 @@ class ProxyOperationResult {
     if (server?.isNotEmpty == true) 'readback_server': server,
     'fallback_used': fallbackUsed,
     'ras_failure_count': rasFailureCount,
+    if (snapshotCount > 0) 'snapshot_count': snapshotCount,
+    if (restoredCount > 0) 'restored_count': restoredCount,
+    if (skippedCount > 0) 'skipped_count': skippedCount,
+    if (pendingCleanup) 'pending_cleanup': true,
+    if (writeSkipped) 'write_skipped': true,
+    if (restoreAbandoned) 'restore_abandoned': true,
+    if (connectionTrace.isNotEmpty ||
+        activeRasCount > 0 ||
+        inactiveRasSkippedCount > 0 ||
+        savedRasEnumerationError > 0) ...{
+      'active_ras_count': activeRasCount,
+      'inactive_ras_skipped_count': inactiveRasSkippedCount,
+      'saved_ras_enumeration_error': savedRasEnumerationError,
+      'connection_trace': connectionTrace,
+    },
+    if (traceDroppedCount > 0)
+      'connection_trace_dropped_count': traceDroppedCount,
     if (message?.isNotEmpty == true) 'message': message,
   };
+
+  static List<Map<String, Object?>> _parseConnectionTrace(Object? value) {
+    if (value is! List) return const [];
+    return List.unmodifiable(
+      value.take(128).whereType<Map>().map((row) {
+        final differences = row['differences'];
+        return <String, Object?>{
+          'connection_kind': row['connectionName'] == '' ? 'default' : 'ras',
+          'connection_name': _bounded(
+            _asOptionalString(row['connectionName']),
+            128,
+          ),
+          'phase': _bounded(_asOptionalString(row['phase']), 64),
+          'success': row['success'] == true,
+          'win32_error': _asInt(row['errorCode']),
+          'elapsed_ms': _asCount(row['elapsedMs']),
+          if (row['active'] is bool) 'active': row['active'],
+          if (row['expectedFlags'] is num)
+            'expected_flags': _asInt(row['expectedFlags']),
+          if (row['actualFlags'] is num)
+            'actual_flags': _asInt(row['actualFlags']),
+          'differences': differences is List
+              ? differences
+                    .whereType<String>()
+                    .where(
+                      const {
+                        'flags',
+                        'proxy_server',
+                        'proxy_bypass',
+                        'pac_url',
+                        'inactive_pac_url_ignored',
+                        'manual_proxy_disabled',
+                        'automatic_proxy_enabled',
+                      }.contains,
+                    )
+                    .toSet()
+                    .toList(growable: false)
+              : const <String>[],
+        };
+      }),
+    );
+  }
+
+  static String? _bounded(String? value, [int limit = 1024]) {
+    final text = value?.trim();
+    if (text == null || text.isEmpty) return null;
+    return text.length <= limit ? text : text.substring(0, limit);
+  }
+
+  static int _asCount(Object? value) {
+    final count = _asInt(value);
+    return count != null && count > 0 ? count : 0;
+  }
 
   static int? _asInt(Object? value) => switch (value) {
     int() => value,

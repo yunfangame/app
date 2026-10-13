@@ -359,6 +359,120 @@ void PartialAndUnknownWritesRemainOwned() {
   }
 }
 
+void InactiveRasDoesNotBlockWifi() {
+  Fixture f;
+  f.ras = {L"old-broadband"};
+  f.fail_read = L"old-broadband";
+  auto backend = f.Backend();
+  backend.discover = [](proxy::settings::ConnectionDiscovery& result, uint32_t& error) {
+    result.inactive = {L"old-broadband"};
+    error = 0;
+    return true;
+  };
+  ProxySession session;
+  const auto applied = session.Start(Manual(17980), backend);
+  Require(applied.success && applied.activeRasCount == 0 && applied.inactiveRasSkippedCount == 1 &&
+          f.writes == 1 && f.values[L""] == Manual(17980), "unused broken RAS is never read or written");
+  Require(applied.connectionTrace[1].phase == "skip_inactive_ras" &&
+          applied.connectionTrace[1].active == false, "inactive decision is logged");
+  Require(session.Stop(std::nullopt, backend).success && f.values[L""] == Original(),
+          "default connection is restored after inactive RAS skip");
+}
+
+void ActiveRasFailuresStillFail() {
+  Fixture f;
+  f.ras = {L"active-broadband"};
+  f.values[L"active-broadband"] = Original();
+  f.fail_write = L"active-broadband";
+  auto backend = f.Backend();
+  backend.discover = [](proxy::settings::ConnectionDiscovery& result, uint32_t& error) {
+    result.active = {L"active-broadband"};error = 0;return true;
+  };
+  ProxySession session;
+  const auto applied = session.Start(Manual(17980), backend);
+  Require(!applied.success && applied.activeRasCount == 1 && applied.connectionName == L"active-broadband",
+          "active dialup failures are not ignored");
+  Require(session.Stop(std::nullopt, backend).success && f.values[L""] == Original(),
+          "default application rolls back after active RAS failure");
+}
+
+void UnknownRasActivityDoesNotWrite() {
+  Fixture f;
+  auto backend = f.Backend();
+  backend.discover = [](proxy::settings::ConnectionDiscovery&, uint32_t& error) { error = 6;return false; };
+  ProxySession session;
+  const auto result = session.Start(Manual(), backend);
+  Require(!result.success && result.stage == "capture_ras" && result.errorCode == 6 && f.writes == 0,
+          "unknown activity is not interpreted as no active RAS");
+}
+
+void RetainedInactivePacIsAcceptedAndRestored() {
+  Fixture f;
+  auto backend = f.Backend();
+  const auto write = backend.write;
+  backend.write = [&](const std::wstring& name, const ConnectionConfiguration& desired,
+                      uint32_t& error, bool& fallback) {
+    const auto pac = f.values[name].auto_config_url;
+    const auto success = write(name, desired, error, fallback);
+    if (success && (desired.flags & 4) == 0) f.values[name].auto_config_url = pac;
+    return success;
+  };
+  ProxySession session;
+  const auto result = session.Start(Manual(), backend);
+  Require(result.success && f.values[L""].auto_config_url == Original().auto_config_url,
+          "retained disabled PAC does not cause false apply failure");
+  Require(std::any_of(result.connectionTrace.begin(), result.connectionTrace.end(), [](const auto& row) {
+    return std::find(row.differences.begin(), row.differences.end(), "inactive_pac_url_ignored") != row.differences.end();
+  }), "inactive PAC normalization is logged without its URL");
+  const int writes = f.writes;
+  Require(session.Start(Manual(), backend).success && f.writes == writes,
+          "normalized repeat apply remains idempotent");
+  Require(session.Stop(std::nullopt, backend).success && f.values[L""] == Original(),
+          "original active PAC settings are restored");
+}
+
+void EffectiveFieldsRemainStrict() {
+  const auto desired = Manual();
+  for (int field = 0; field < 3; ++field) {
+    auto actual = desired;
+    if (field == 0) actual.flags |= 8;
+    if (field == 1) actual.server = L"127.0.0.1:9000";
+    if (field == 2) actual.bypass = L"foreign";
+    Require(!proxy::settings::AppliedConfigurationMatches(actual, desired),
+            "proxy flags server and bypass mismatches still fail");
+  }
+  auto actual = Original();actual.auto_config_url = L"https://foreign.example/pac";
+  Require(!proxy::settings::AppliedConfigurationMatches(actual, Original()), "active PAC URL remains strict");
+}
+
+void TopologyChangesRequireRetry() {
+  Fixture f;
+  auto backend = f.Backend();
+  int discoveries = 0;
+  backend.discover = [&](proxy::settings::ConnectionDiscovery& result, uint32_t& error) {
+    if (++discoveries > 1) result.active = {L"new-broadband"};error = 0;return true;
+  };
+  ProxySession session;
+  const auto result = session.Start(Manual(), backend);
+  Require(!result.success && result.stage == "capture_ras" && result.errorCode == 1237,
+          "new active RAS during apply requires retry instead of false readiness");
+  Require(session.Stop(std::nullopt, backend).success && f.values[L""] == Original(),
+          "topology-change application remains recoverable");
+}
+
+void HistoricalEnumerationFailureIsDiagnosticOnly() {
+  Fixture f;
+  auto backend = f.Backend();
+  backend.discover = [](proxy::settings::ConnectionDiscovery& result, uint32_t& error) {
+    result.savedEnumerationError = 5;error = 0;return true;
+  };
+  ProxySession session;
+  const auto result = session.Start(Manual(), backend);
+  Require(result.success && result.savedRasEnumerationError == 5,
+          "saved phonebook inventory failure cannot block verified active topology");
+  Require(session.Stop(std::nullopt, backend).success, "phonebook inventory failure does not break cleanup");
+}
+
 }
 
 #ifdef FENGWO_PROXY_SESSION_STANDALONE
@@ -378,7 +492,14 @@ int main() {
     UnchangedRetryPreservesPreviouslyAppliedOwnership();
     UnchangedRestoreDoesNotAcquireForeignMixedSettings();
     PartialAndUnknownWritesRemainOwned();
-    std::cout << "PASS: 14 proxy session suites\n";
+    InactiveRasDoesNotBlockWifi();
+    ActiveRasFailuresStillFail();
+    UnknownRasActivityDoesNotWrite();
+    RetainedInactivePacIsAcceptedAndRestored();
+    EffectiveFieldsRemainStrict();
+    TopologyChangesRequireRetry();
+    HistoricalEnumerationFailureIsDiagnosticOnly();
+    std::cout << "PASS: 21 proxy session suites\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "FAIL: " << error.what() << '\n';
@@ -402,4 +523,11 @@ TEST(ProxySession, UnchangedFailedWriteDoesNotAcquireExternalProxy) { UnchangedF
 TEST(ProxySession, UnchangedRetryPreservesPreviouslyAppliedOwnership) { UnchangedRetryPreservesPreviouslyAppliedOwnership(); }
 TEST(ProxySession, UnchangedRestoreDoesNotAcquireForeignMixedSettings) { UnchangedRestoreDoesNotAcquireForeignMixedSettings(); }
 TEST(ProxySession, PartialAndUnknownWritesRemainOwned) { PartialAndUnknownWritesRemainOwned(); }
+TEST(ProxySession, InactiveRasDoesNotBlockWifi) { InactiveRasDoesNotBlockWifi(); }
+TEST(ProxySession, ActiveRasFailuresStillFail) { ActiveRasFailuresStillFail(); }
+TEST(ProxySession, UnknownRasActivityDoesNotWrite) { UnknownRasActivityDoesNotWrite(); }
+TEST(ProxySession, RetainedInactivePacIsAcceptedAndRestored) { RetainedInactivePacIsAcceptedAndRestored(); }
+TEST(ProxySession, EffectiveFieldsRemainStrict) { EffectiveFieldsRemainStrict(); }
+TEST(ProxySession, TopologyChangesRequireRetry) { TopologyChangesRequireRetry(); }
+TEST(ProxySession, HistoricalEnumerationFailureIsDiagnosticOnly) { HistoricalEnumerationFailureIsDiagnosticOnly(); }
 #endif

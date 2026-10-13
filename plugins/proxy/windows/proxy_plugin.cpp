@@ -224,6 +224,69 @@ bool ReadConnection(const std::wstring& name,
   return true;
 }
 
+bool DiscoverConnections(proxy::settings::ConnectionDiscovery& discovery,
+                         uint32_t& error)
+{
+  std::vector<RASCONNW> connections(1);
+  DWORD size = sizeof(RASCONNW);
+  DWORD count = 0;
+  DWORD status = ERROR_SUCCESS;
+  for (int attempt = 0; attempt < 4; ++attempt)
+  {
+    for (auto& connection : connections) connection.dwSize = sizeof(RASCONNW);
+    size = static_cast<DWORD>(connections.size() * sizeof(RASCONNW));
+    status = RasEnumConnectionsW(connections.data(), &size, &count);
+    if (status != ERROR_BUFFER_TOO_SMALL) break;
+    const size_t required = (size + sizeof(RASCONNW) - 1) / sizeof(RASCONNW);
+    if (required == 0 || required > 1024)
+    {
+      error = ERROR_INVALID_DATA;
+      return false;
+    }
+    connections.resize(required);
+  }
+  if (status != ERROR_SUCCESS || count > connections.size())
+  {
+    error = status == ERROR_SUCCESS ? ERROR_INVALID_DATA : status;
+    return false;
+  }
+  for (DWORD i = 0; i < count; ++i)
+  {
+    RASCONNSTATUSW state = {};
+    state.dwSize = sizeof(state);
+    status = RasGetConnectStatusW(connections[i].hrasconn, &state);
+    if (status != ERROR_SUCCESS)
+    {
+      error = status;
+      return false;
+    }
+    if (state.rasconnstate == RASCS_Disconnected) continue;
+    const std::wstring name = connections[i].szEntryName;
+    if (name.empty())
+    {
+      error = ERROR_INVALID_DATA;
+      return false;
+    }
+    if (std::find(discovery.active.begin(), discovery.active.end(), name) == discovery.active.end())
+      discovery.active.push_back(name);
+  }
+  std::vector<std::wstring> saved;
+  uint32_t saved_error = 0;
+  if (!EnumerateConnections(saved, saved_error))
+  {
+    discovery.savedEnumerationError = saved_error;
+  }
+  else
+  {
+    for (const auto& name : saved)
+      if (std::find(discovery.active.begin(), discovery.active.end(), name) == discovery.active.end() &&
+          std::find(discovery.inactive.begin(), discovery.inactive.end(), name) == discovery.inactive.end())
+        discovery.inactive.push_back(name);
+  }
+  error = ERROR_SUCCESS;
+  return true;
+}
+
 bool WriteConnection(const std::wstring& name,
                      const proxy::settings::ConnectionConfiguration& configuration,
                      uint32_t& error, bool& fallback)
@@ -256,7 +319,10 @@ bool NotifySettingsChanged(ProxyOperationDetails& details)
 
 proxy::settings::ConnectionBackend NativeBackend()
 {
-  return {EnumerateConnections, ReadConnection, WriteConnection, NotifySettingsChanged};
+  auto backend = proxy::settings::ConnectionBackend{
+      EnumerateConnections, ReadConnection, WriteConnection, NotifySettingsChanged};
+  backend.discover = DiscoverConnections;
+  return backend;
 }
 
 ProxyOperationDetails ApplyProxy(proxy::settings::ProxySession& session,
@@ -364,6 +430,63 @@ ProxyOperationDetails InspectProxy(const int expectedPort)
   details.success = details.enabled && readback.server == expected &&
       !*details.automaticProxyEnabled;
   details.stage = details.success ? "verified" : "readback_mismatch";
+  proxy::settings::ConnectionDiscovery discovery;
+  if (!DiscoverConnections(discovery, error))
+  {
+    details.success = false;
+    details.stage = "capture_ras";
+    details.errorCode = error;
+    details.rasFailureCount = 1;
+    return details;
+  }
+  details.activeRasCount = static_cast<int>(discovery.active.size());
+  details.inactiveRasSkippedCount = static_cast<int>(discovery.inactive.size());
+  details.savedRasEnumerationError = discovery.savedEnumerationError;
+  for (const auto& name : discovery.inactive)
+  {
+    if (details.connectionTrace.size() >= 128) { details.traceDroppedCount++; continue; }
+    proxy::settings::ConnectionTrace row;
+    row.name = name;
+    row.phase = "skip_inactive_ras";
+    row.success = true;
+    row.active = false;
+    details.connectionTrace.push_back(std::move(row));
+  }
+  for (const auto& name : discovery.active)
+  {
+    proxy::settings::ConnectionConfiguration actual;
+    const bool read = ReadConnection(name, actual, error);
+    const bool matched = read && actual.HasManualProxy() && actual.server == expected &&
+        (actual.flags & (PROXY_TYPE_AUTO_PROXY_URL | PROXY_TYPE_AUTO_DETECT)) == 0;
+    proxy::settings::ConnectionTrace row;
+    row.name = name;
+    row.phase = "inspect_active_ras";
+    row.active = true;
+    row.success = matched;
+    row.errorCode = read ? matched ? 0 : ERROR_INVALID_DATA : error;
+    row.expectedFlags = PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY;
+    if (read)
+    {
+      row.actualFlags = actual.flags;
+      if (!actual.HasManualProxy()) row.differences.push_back("manual_proxy_disabled");
+      if (actual.server != expected) row.differences.push_back("proxy_server");
+      if ((actual.flags & (PROXY_TYPE_AUTO_PROXY_URL | PROXY_TYPE_AUTO_DETECT)) != 0)
+        row.differences.push_back("automatic_proxy_enabled");
+    }
+    if (!matched)
+    {
+      details.rasFailureCount++;
+      if (details.success)
+      {
+        details.stage = read ? "readback_mismatch" : "readback";
+        details.connectionName = name;
+        details.errorCode = row.errorCode;
+      }
+      details.success = false;
+    }
+    if (details.connectionTrace.size() < 128) details.connectionTrace.push_back(std::move(row));
+    else details.traceDroppedCount++;
+  }
   return details;
 }
 
@@ -407,6 +530,28 @@ flutter::EncodableValue EncodeDetails(const ProxyOperationDetails& details)
     value[flutter::EncodableValue("automaticProxyEnabled")] =
         flutter::EncodableValue(*details.automaticProxyEnabled);
   }
+  value[flutter::EncodableValue("activeRasCount")] = flutter::EncodableValue(details.activeRasCount);
+  value[flutter::EncodableValue("inactiveRasSkippedCount")] = flutter::EncodableValue(details.inactiveRasSkippedCount);
+  value[flutter::EncodableValue("savedRasEnumerationError")] = flutter::EncodableValue(static_cast<int64_t>(details.savedRasEnumerationError));
+  value[flutter::EncodableValue("traceDroppedCount")] = flutter::EncodableValue(details.traceDroppedCount);
+  flutter::EncodableList trace;
+  for (const auto& item : details.connectionTrace)
+  {
+    flutter::EncodableMap row = {
+        {flutter::EncodableValue("connectionName"), flutter::EncodableValue(WideToUtf8(item.name))},
+        {flutter::EncodableValue("phase"), flutter::EncodableValue(item.phase)},
+        {flutter::EncodableValue("success"), flutter::EncodableValue(item.success)},
+        {flutter::EncodableValue("errorCode"), flutter::EncodableValue(static_cast<int64_t>(item.errorCode))},
+        {flutter::EncodableValue("elapsedMs"), flutter::EncodableValue(item.elapsedMs)}};
+    if (item.active.has_value()) row[flutter::EncodableValue("active")] = flutter::EncodableValue(*item.active);
+    if (item.expectedFlags.has_value()) row[flutter::EncodableValue("expectedFlags")] = flutter::EncodableValue(static_cast<int64_t>(*item.expectedFlags));
+    if (item.actualFlags.has_value()) row[flutter::EncodableValue("actualFlags")] = flutter::EncodableValue(static_cast<int64_t>(*item.actualFlags));
+    flutter::EncodableList differences;
+    for (const auto& difference : item.differences) differences.emplace_back(difference);
+    row[flutter::EncodableValue("differences")] = flutter::EncodableValue(std::move(differences));
+    trace.emplace_back(std::move(row));
+  }
+  value[flutter::EncodableValue("connectionTrace")] = flutter::EncodableValue(std::move(trace));
   return flutter::EncodableValue(std::move(value));
 }
 

@@ -1,5 +1,5 @@
 name: fengwo-windows-arm64-package
-run-name: Windows ARM64 stable 1.0.8 · ${{ github.sha }}
+run-name: Windows ARM64 stable 1.0.10 · ${{ github.sha }}
 
 on:
   workflow_dispatch:
@@ -152,6 +152,12 @@ jobs:
           } finally { Pop-Location }
           cargo test --manifest-path services/helper/Cargo.toml --features windows-service
           if ($LASTEXITCODE -ne 0) { throw 'Native ARM64 Helper tests failed' }
+      - name: Test proxy RAS tracing and log export
+        shell: pwsh
+        run: |
+          flutter test --no-pub --reporter expanded plugins/proxy/test/windows_ras_trace_test.dart test/common/windows_proxy_trace_log_test.dart test/common/diagnostic_log_test.dart
+          if ($LASTEXITCODE -ne 0) { throw 'Proxy RAS trace regression failed' }
+
       - name: Build ARM64 stable installer
         id: build_arm64
         shell: pwsh
@@ -204,7 +210,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           cmake -S windows -B build/windows/arm64 -G $env:FENGWO_ARM64_CMAKE_GENERATOR -A ARM64 '-DFLUTTER_TARGET_PLATFORM=windows-arm64' -Dinclude_proxy_tests=ON '-DCMAKE_POLICY_VERSION_MINIMUM=3.5'
           if ($LASTEXITCODE -ne 0) { throw 'ARM64 system proxy configuration failed' }
-          cmake --build build/windows/arm64 --config Release --target proxy_test proxy_session_windows_test proxy_winhttp_compatibility_test
+          cmake --build build/windows/arm64 --config Release --target proxy_test proxy_session_test proxy_session_windows_test proxy_winhttp_compatibility_test
           if ($LASTEXITCODE -ne 0) { throw 'ARM64 system proxy tests did not compile' }
           . ./tooling/windows/arm64/common.ps1
           foreach ($name in @('proxy_test.exe', 'proxy_session_windows_test.exe', 'proxy_winhttp_compatibility_test.exe')) {
@@ -214,6 +220,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native ARM64 system proxy tests failed' }
           [xml]$report = Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-ctest.xml') -Raw
           if ($report.SelectNodes('//testcase').Count -ne 51 -or $report.SelectNodes('//failure|//error|//skipped').Count -ne 0) { throw 'Expected all 51 native proxy tests without skips' }
+          & ./build/windows/arm64/plugins/proxy/Release/proxy_session_test.exe | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-session-regression.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'Proxy session regression failed' }
           & ./build/windows/arm64/plugins/proxy/Release/proxy_session_windows_test.exe | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-session-windows.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Actual WinINet session restoration failed' }
           $raw = Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-raw-bypass.txt'
@@ -238,7 +246,7 @@ jobs:
           ($hash + '  ' + $installer.Name) | Set-Content -LiteralPath dist/ARM64-SHA256SUMS -Encoding utf8NoBOM
       - uses: actions/upload-artifact@v4
         with:
-          name: fengwo-windows-arm64-1.0.8
+          name: fengwo-windows-arm64-1.0.10
           path: |
             dist/fengwo-windows-arm64-setup.exe
             dist/windows-arm64-build.json
