@@ -303,14 +303,14 @@ jobs:
           if ($installers.Count -ne 1) { throw 'Expected exactly one Windows installer' }
           $bundle = Join-Path $PWD 'build/windows/x64/runner/Release'
           $app = Get-Item (Join-Path $bundle 'FengWo.exe')
-          $core = Get-Item (Join-Path $bundle 'FlClashCore.exe')
-          $helper = Get-Item (Join-Path $bundle 'FlClashHelperService.exe')
+          $core = Get-Item (Join-Path $bundle 'FengWoCore.exe')
+          $helper = Get-Item (Join-Path $bundle 'FengWoHelperService.exe')
           $wifiPlugin = Get-Item (Join-Path $bundle 'wifi_ssid_plugin.dll')
           if ($null -eq $app) { throw 'FengWo.exe not found' }
           ./tooling/windows/verify_vc_runtime_bundle.ps1 -Architecture x64 -BundleDirectory $app.DirectoryName
-          if ($null -eq $core) { throw 'FlClashCore.exe not found' }
+          if ($null -eq $core) { throw 'FengWoCore.exe not found' }
           if ($null -eq $wifiPlugin) { throw 'wifi_ssid_plugin.dll not found' }
-          if ($null -eq $helper) { throw 'FlClashHelperService.exe not found' }
+          if ($null -eq $helper) { throw 'FengWoHelperService.exe not found' }
           $manifest = Get-Content -LiteralPath (Join-Path $bundle 'manifest.json') -Raw | ConvertFrom-Json
           $coreHash = (Get-FileHash -LiteralPath $core.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($manifest.coreSha256 -cne $coreHash) { throw 'Packaged Core hash differs from manifest' }
