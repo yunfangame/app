@@ -1,0 +1,74 @@
+name: fengwo-windows-signed-upgrade
+on:
+  push:
+    branches: [codex/desktop-upstream-0897-port]
+    paths: [.github/workflows/verify-windows-signed-release.yml]
+  workflow_dispatch:
+    inputs:
+      download_base:
+        required: true
+        type: string
+      x64_sha256:
+        required: true
+        type: string
+      arm64_sha256:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            runner: windows-2022
+            source: 93667849d93d8e4ea812176549eff98baf657d19
+            baseline_sha256: 68be159a5f3cbd27ba0725714a209df5d9a0faa7e4e3f44bb7325c6a5abd7a72
+          - architecture: arm64
+            runner: windows-11-arm
+            source: 40a1299b2a39df1c3b4fa5e79262acaf323d2c29
+            baseline_sha256: a17759983113e81f52440da0d89dccada003f8b78bd589129aab35aa553e0638
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    env:
+      DOWNLOAD_BASE: ${{ inputs.download_base }}
+      EXPECTED_HASH: ${{ matrix.architecture == 'x64' && inputs.x64_sha256 || inputs.arm64_sha256 }}
+      ARCHITECTURE: ${{ matrix.architecture }}
+      BASELINE_HASH: ${{ matrix.baseline_sha256 }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.source }}
+          persist-credentials: false
+      - name: Download and verify trusted signed installers
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = [uri]$env:DOWNLOAD_BASE
+          if ($base.Scheme -cne 'https' -or $base.Host -notin @('picture.sansen.tech', 'house.zryc.tech') -or $base.AbsolutePath -ne '/' -or $base.Query -or $base.Fragment -or $base.UserInfo) { throw 'Unexpected installer download origin' }
+          if ($env:EXPECTED_HASH -cnotmatch '\A[a-f0-9]{64}\z') { throw 'Expected SHA256 is invalid' }
+          foreach ($version in @('1.0.9', '1.0.10')) {
+            $path = Join-Path $env:RUNNER_TEMP ('fengwo-' + $version + '.exe')
+            $url = $env:DOWNLOAD_BASE.TrimEnd('/') + '/fengwo-windows-' + $env:ARCHITECTURE + '-' + $version + '-setup.exe'
+            Invoke-WebRequest -Uri $url -OutFile $path
+            $expected = if ($version -eq '1.0.9') { $env:BASELINE_HASH } else { $env:EXPECTED_HASH }
+            if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected) { throw 'Installer hash mismatch' }
+            $signature = Get-AuthenticodeSignature -LiteralPath $path
+            if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { throw 'Trusted timestamped Authenticode signature is required' }
+            $certificateHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($signature.SignerCertificate.RawData)).ToLowerInvariant()
+            if ($certificateHash -cne '27e3e2e77a0c5f3428eeb95a35825d4cf0c8710e760e9c8cb12b447d39603252') { throw 'Installer publisher certificate differs from 1.0.9' }
+          }
+      - name: Verify signed 1.0.9 to 1.0.10 overwrite upgrade
+        run: |
+          ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath (Join-Path $env:RUNNER_TEMP 'fengwo-1.0.10.exe') -PreviousInstallerPath (Join-Path $env:RUNNER_TEMP 'fengwo-1.0.9.exe') -ExpectedPreviousVersion '1.0.9' -OutputDirectory (Join-Path $env:RUNNER_TEMP 'signed-upgrade-evidence')
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fengwo-signed-upgrade-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/signed-upgrade-evidence
+          if-no-files-found: warn
