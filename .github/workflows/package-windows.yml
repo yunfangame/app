@@ -54,13 +54,13 @@ jobs:
             [System.Text.UTF8Encoding]::new($false)
           )
 
-      - name: Download verified online v1.0.6 overwrite baseline
+      - name: Download verified online v1.0.9 overwrite baseline
         shell: pwsh
         run: |
-          $baseline = Join-Path $env:RUNNER_TEMP 'fengwo-baseline-1.0.6.exe'
+          $baseline = Join-Path $env:RUNNER_TEMP 'fengwo-baseline-1.0.9.exe'
           Invoke-WebRequest -Uri 'https://picture.sansen.tech/fengwo-windows-amd64-setup.exe' -OutFile $baseline
           $hash = (Get-FileHash -LiteralPath $baseline -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -cne 'd3b75feaa534f6822bd15e5262a6f263962af2e23ba8d8a9b6a4e21930006423') { throw 'The online v1.0.6 baseline changed; refusing an unverified overwrite test' }
+          if ($hash -cne '68be159a5f3cbd27ba0725714a209df5d9a0faa7e4e3f44bb7325c6a5abd7a72') { throw 'The online v1.0.9 baseline changed; refusing an unverified overwrite test' }
           $tokens = $null
           $parseErrors = $null
           $null = [System.Management.Automation.Language.Parser]::ParseFile("$PWD/tooling/windows/test_installed_upgrade.ps1", [ref]$tokens, [ref]$parseErrors)
@@ -419,7 +419,7 @@ jobs:
         shell: pwsh
         run: |
           $installer = Get-ChildItem dist -Filter '*windows*.exe' -File | Select-Object -First 1
-          ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/upgrade-verification" -PreviousInstallerPath "$env:RUNNER_TEMP/fengwo-baseline-1.0.6.exe" -ExpectedPreviousVersion '1.0.6'
+          ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/upgrade-verification" -PreviousInstallerPath "$env:RUNNER_TEMP/fengwo-baseline-1.0.9.exe" -ExpectedPreviousVersion '1.0.9'
 
       - name: Verify installed helper service repair and overwrite
         shell: pwsh
