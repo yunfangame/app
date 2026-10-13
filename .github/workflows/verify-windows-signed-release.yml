@@ -24,10 +24,12 @@ jobs:
       matrix:
         include:
           - architecture: x64
+            filename: fengwo-windows-amd64-setup.exe
             runner: windows-2022
             source: 93667849d93d8e4ea812176549eff98baf657d19
             baseline_sha256: 68be159a5f3cbd27ba0725714a209df5d9a0faa7e4e3f44bb7325c6a5abd7a72
           - architecture: arm64
+            filename: fengwo-windows-arm64-setup.exe
             runner: windows-11-arm
             source: 40a1299b2a39df1c3b4fa5e79262acaf323d2c29
             baseline_sha256: a17759983113e81f52440da0d89dccada003f8b78bd589129aab35aa553e0638
@@ -37,6 +39,7 @@ jobs:
       DOWNLOAD_BASE: ${{ inputs.download_base }}
       EXPECTED_HASH: ${{ matrix.architecture == 'x64' && inputs.x64_sha256 || inputs.arm64_sha256 }}
       ARCHITECTURE: ${{ matrix.architecture }}
+      INSTALLER_FILENAME: ${{ matrix.filename }}
       BASELINE_HASH: ${{ matrix.baseline_sha256 }}
     defaults:
       run:
@@ -50,12 +53,13 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $base = [uri]$env:DOWNLOAD_BASE
-          if ($base.Scheme -cne 'https' -or $base.Host -notin @('picture.sansen.tech', 'house.zryc.tech') -or $base.AbsolutePath -ne '/' -or $base.Query -or $base.Fragment -or $base.UserInfo) { throw 'Unexpected installer download origin' }
+          if ($base.Scheme -cne 'https' -or $base.Host -cne 'zryc.oss-cn-beijing.aliyuncs.com' -or $base.AbsolutePath -cne '/release-tests/fengwo-windows-1.0.10-20261013/' -or $base.Query -or $base.Fragment -or $base.UserInfo -or $base.Port -ne 443) { throw 'Unexpected installer staging location' }
           if ($env:EXPECTED_HASH -cnotmatch '\A[a-f0-9]{64}\z') { throw 'Expected SHA256 is invalid' }
+          $signatureEvidence = @()
           foreach ($version in @('1.0.9', '1.0.10')) {
             $path = Join-Path $env:RUNNER_TEMP ('fengwo-' + $version + '.exe')
-            $url = $env:DOWNLOAD_BASE.TrimEnd('/') + '/fengwo-windows-' + $env:ARCHITECTURE + '-' + $version + '-setup.exe'
-            if ($version -eq '1.0.9') { $url = 'https://picture.sansen.tech/fengwo-windows-' + $env:ARCHITECTURE + '-1.0.9-setup.exe' }
+            $url = $env:DOWNLOAD_BASE.TrimEnd('/') + '/' + $env:INSTALLER_FILENAME
+            if ($version -eq '1.0.9') { $url = 'https://picture.sansen.tech/' + $env:INSTALLER_FILENAME }
             Invoke-WebRequest -Uri $url -OutFile $path
             $expected = if ($version -eq '1.0.9') { $env:BASELINE_HASH } else { $env:EXPECTED_HASH }
             if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected) { throw 'Installer hash mismatch' }
@@ -63,7 +67,11 @@ jobs:
             if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { throw 'Trusted timestamped Authenticode signature is required' }
             $certificateHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($signature.SignerCertificate.RawData)).ToLowerInvariant()
             if ($certificateHash -cne '27e3e2e77a0c5f3428eeb95a35825d4cf0c8710e760e9c8cb12b447d39603252') { throw 'Installer publisher certificate differs from 1.0.9' }
+            $signatureEvidence += @{ version = $version; sha256 = $expected; status = [string]$signature.Status; signer_sha256 = $certificateHash; timestamp_subject = $signature.TimeStamperCertificate.Subject }
           }
+          $evidenceDirectory = Join-Path $env:RUNNER_TEMP 'signed-upgrade-evidence'
+          New-Item -ItemType Directory -Force -Path $evidenceDirectory | Out-Null
+          $signatureEvidence | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $evidenceDirectory 'signature-evidence.json') -Encoding utf8NoBOM
       - name: Verify signed 1.0.9 to 1.0.10 overwrite upgrade
         run: |
           ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath (Join-Path $env:RUNNER_TEMP 'fengwo-1.0.10.exe') -PreviousInstallerPath (Join-Path $env:RUNNER_TEMP 'fengwo-1.0.9.exe') -ExpectedPreviousVersion '1.0.9' -OutputDirectory (Join-Path $env:RUNNER_TEMP 'signed-upgrade-evidence')
