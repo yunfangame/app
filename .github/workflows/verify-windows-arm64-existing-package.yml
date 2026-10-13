@@ -96,14 +96,24 @@ jobs:
           $builtRun = Invoke-RestMethod -Uri ($env:GITHUB_API_URL + '/repos/' + $env:GITHUB_REPOSITORY + '/actions/runs/' + $env:FENGWO_BUILT_RUN_ID) -Headers $headers -TimeoutSec 30
           if ([string]$builtRun.id -cne $env:FENGWO_BUILT_RUN_ID -or $builtRun.status -cne 'completed' -or $builtRun.path -cne '.github/workflows/package-windows-arm64.yml' -or $builtRun.head_repository.full_name -cne $env:GITHUB_REPOSITORY) { throw 'The artifact does not belong to a completed native package build in this repository' }
           if ($sourceManifest.source_sha -cnotmatch '\A[a-f0-9]{40}\z' -or $sourceManifest.source_sha -cne $builtRun.head_sha -or @($sourceManifest.files).Count -eq 0) { throw 'The built source manifest does not match the selected workflow run commit' }
-          if ($builtPackage.architecture -cne 'arm64' -or $builtPackage.version -cne '1.0.8' -or $builtBundle.passed -ne $true) { throw 'The original package did not pass its ARM64 payload verification' }
+          $versionLine = Select-String -Path pubspec.yaml -Pattern '^version:\s*(\d+\.\d+\.\d+)\s*$'
+          if (@($versionLine).Count -ne 1) { throw 'Expected one stable source version' }
+          $expectedVersion = $versionLine.Matches[0].Groups[1].Value
+          if ($builtPackage.architecture -cne 'arm64' -or $builtPackage.version -cne $expectedVersion -or $builtBundle.passed -ne $true) { throw 'The original package did not pass its ARM64 payload verification' }
+          $proxySources = @($sourceManifest.files | Where-Object { $_.path.StartsWith('plugins/proxy/') })
+          if ($proxySources.Count -eq 0) { throw 'The original proxy source manifest is missing' }
+          foreach ($source in $proxySources) {
+            if (-not (Test-Path -LiteralPath $source.path -PathType Leaf) -or (Get-FileHash -LiteralPath $source.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $source.sha256) { throw ('Proxy verification source differs from the built package: ' + $source.path) }
+          }
+          [xml]$proxyReport = Get-Content -LiteralPath (Join-Path $builtEvidence 'proxy-ctest.xml') -Raw
+          if ($proxyReport.SelectNodes('//testcase').Count -ne 58 -or $proxyReport.SelectNodes('//failure|//error|//skipped').Count -ne 0) { throw 'Expected all 58 built native proxy tests without skips' }
           $installer = Get-Item -LiteralPath (Join-Path $env:FENGWO_REUSED_PACKAGE 'dist/fengwo-windows-arm64-setup.exe')
           $bundle = Join-Path $env:FENGWO_REUSED_PACKAGE 'build/windows/arm64/runner/Release'
           $installerHash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($builtPackage.installer.sha256 -cnotmatch '\A[a-f0-9]{64}\z' -or $installerHash -cne $builtPackage.installer.sha256 -or $installer.Length -ne $builtPackage.installer.bytes) { throw 'The reused installer bytes or SHA256 differ from the original build evidence' }
           Save-FwArmEvidence (Join-Path $env:FENGWO_REUSE_EVIDENCE 'provenance.json') ([ordered]@{ diagnostic_only = $true; final_release_verified = $false; built_run_id = $env:FENGWO_BUILT_RUN_ID; package_build_sha = $builtRun.head_sha; package_build_url = $builtRun.html_url; package_build_conclusion = $builtRun.conclusion; verification_run_id = $env:GITHUB_RUN_ID; verification_source_sha = $env:GITHUB_SHA; installer_name = $installer.Name; installer_bytes = $installer.Length; installer_sha256 = $installerHash; built_source_manifest_sha256 = (Get-FileHash -LiteralPath $sourceManifestPath -Algorithm SHA256).Hash.ToLowerInvariant(); built_package_evidence_sha256 = (Get-FileHash -LiteralPath $builtPackagePath -Algorithm SHA256).Hash.ToLowerInvariant(); verification_source_manifest_sha256 = (Get-FileHash -LiteralPath (Join-Path $env:FENGWO_REUSE_EVIDENCE 'verification-source-manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant() })
           ./tooling/windows/verify_vc_runtime_bundle.ps1 -Architecture arm64 -BundleDirectory $bundle
-          ./tooling/windows/arm64/verify_bundle.ps1 -BundleDirectory $bundle -InstallerPath $installer.FullName -EvidenceDirectory (Join-Path $env:FENGWO_REUSE_EVIDENCE 'package')
+          ./tooling/windows/arm64/verify_bundle.ps1 -BundleDirectory $bundle -InstallerPath $installer.FullName -ExpectedVersion $expectedVersion -EvidenceDirectory (Join-Path $env:FENGWO_REUSE_EVIDENCE 'package')
           $verifiedPackage = Get-Content -LiteralPath (Join-Path $env:FENGWO_REUSE_EVIDENCE 'package/package.json') -Raw | ConvertFrom-Json
           foreach ($group in @('payload', 'managed_architecture_independent', 'separate_runtime_bootstrappers')) {
             $expected = @($builtPackage.$group | ForEach-Object { [ordered]@{ path = $(if ($group -ceq 'separate_runtime_bootstrappers') { [IO.Path]::GetFileName($_.path) } else { $_.path }); sha256 = $_.sha256; bytes = $_.bytes; machine = $_.machine } } | Sort-Object path)
@@ -141,6 +151,30 @@ jobs:
         timeout-minutes: 10
         run: |
           ./tooling/windows/test_helper_service_repair.ps1 -InstallerPath (Join-Path $env:FENGWO_REUSED_PACKAGE 'dist/fengwo-windows-arm64-setup.exe') -OutputDirectory (Join-Path $env:FENGWO_REUSE_EVIDENCE 'helper-repair')
+      - name: Verify native ARM64 proxy sessions restoration and WinHTTP
+        id: native_proxy
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./tooling/windows/arm64/common.ps1
+          $build = Join-Path $env:RUNNER_TEMP 'arm64-native-proxy-verification'
+          cmake -S tooling/windows/arm64/proxy_native_tests -B $build -G $env:FENGWO_ARM64_CMAKE_GENERATOR -A ARM64
+          if ($LASTEXITCODE -ne 0) { throw 'Native proxy configuration failed' }
+          cmake --build $build --config Release
+          if ($LASTEXITCODE -ne 0) { throw 'Native proxy compilation failed' }
+          foreach ($name in @('proxy_session_test', 'proxy_session_windows_test', 'proxy_winhttp_compatibility_test')) {
+            if (-not (Get-FwPeIdentity (Join-Path $build ('Release/' + $name + '.exe'))).arm64) { throw 'Proxy test must be a native ARM64 executable' }
+          }
+          & (Join-Path $build 'Release/proxy_session_test.exe') | Tee-Object -FilePath (Join-Path $env:FENGWO_REUSE_EVIDENCE 'proxy-session-regression.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'Native proxy session regression failed' }
+          & (Join-Path $build 'Release/proxy_session_windows_test.exe') | Tee-Object -FilePath (Join-Path $env:FENGWO_REUSE_EVIDENCE 'proxy-session-windows.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'Actual WinINet restoration failed' }
+          $raw = Join-Path $env:FENGWO_REUSE_EVIDENCE 'proxy-raw-bypass.txt'
+          $normalized = Join-Path $env:FENGWO_REUSE_EVIDENCE 'proxy-normalized-bypass.txt'
+          [IO.File]::WriteAllText($raw, 'localhost;*.local;127.*;10.*;172.16.*;192.168.*;::1', [Text.UTF8Encoding]::new($false))
+          & (Join-Path $build 'Release/proxy_winhttp_compatibility_test.exe') $raw $normalized | Tee-Object -FilePath (Join-Path $env:FENGWO_REUSE_EVIDENCE 'proxy-winhttp.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'Native WinHTTP compatibility failed' }
+
       - name: Record diagnostic-only verification outcomes
         if: always()
         shell: pwsh
@@ -151,13 +185,24 @@ jobs:
           RUNTIME_OUTCOME: ${{ steps.runtime.outcome }}
           INSTALLATION_OUTCOME: ${{ steps.installation.outcome }}
           HELPER_OUTCOME: ${{ steps.helper.outcome }}
+          NATIVE_PROXY_OUTCOME: ${{ steps.native_proxy.outcome }}
         run: |
           $env:FENGWO_REUSE_EVIDENCE = Join-Path $env:RUNNER_TEMP 'arm64-existing-package-evidence'
           [void][IO.Directory]::CreateDirectory($env:FENGWO_REUSE_EVIDENCE)
-          $outcomes = [ordered]@{ package = $env:PACKAGE_OUTCOME; coexistence = $env:COEXISTENCE_OUTCOME; legacy = $env:LEGACY_OUTCOME; runtime = $env:RUNTIME_OUTCOME; installation = $env:INSTALLATION_OUTCOME; helper = $env:HELPER_OUTCOME }
+          $outcomes = [ordered]@{ package = $env:PACKAGE_OUTCOME; coexistence = $env:COEXISTENCE_OUTCOME; legacy = $env:LEGACY_OUTCOME; runtime = $env:RUNTIME_OUTCOME; installation = $env:INSTALLATION_OUTCOME; helper = $env:HELPER_OUTCOME; native_proxy = $env:NATIVE_PROXY_OUTCOME }
           $passed = @($outcomes.Values | Where-Object { $_ -cne 'success' }).Count -eq 0
           $result = [ordered]@{ diagnostic_only = $true; final_release_verified = $false; all_existing_harnesses_passed = $passed; built_run_id = $env:FENGWO_BUILT_RUN_ID; verification_run_id = $env:GITHUB_RUN_ID; verification_source_sha = $env:GITHUB_SHA; outcomes = $outcomes; fresh_build_required_for_final_acceptance = $true }
           [IO.File]::WriteAllText((Join-Path $env:FENGWO_REUSE_EVIDENCE 'diagnostic-summary.json'), ($result | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
+      - name: Upload verified customer retest package
+        uses: actions/upload-artifact@v4
+        with:
+          name: fengwo-windows-arm64-verified-retest
+          path: |
+            ${{ runner.temp }}/arm64-reused-package/dist/fengwo-windows-arm64-setup.exe
+            ${{ runner.temp }}/arm64-existing-package-evidence/provenance.json
+            ${{ runner.temp }}/arm64-existing-package-evidence/diagnostic-summary.json
+          if-no-files-found: error
+
       - name: Upload diagnostic verification evidence
         if: always()
         uses: actions/upload-artifact@v4
