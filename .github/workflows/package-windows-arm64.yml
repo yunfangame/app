@@ -177,7 +177,7 @@ jobs:
         shell: pwsh
         run: |
           ./tooling/windows/verify_vc_runtime_bundle.ps1 -Architecture arm64 -BundleDirectory build/windows/arm64/runner/Release
-          ./tooling/windows/arm64/verify_bundle.ps1 -BundleDirectory build/windows/arm64/runner/Release -InstallerPath dist/fengwo-windows-arm64-setup.exe -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'arm64-evidence/package')
+          ./tooling/windows/arm64/verify_bundle.ps1 -BundleDirectory build/windows/arm64/runner/Release -InstallerPath dist/fengwo-windows-arm64-setup.exe -ExpectedVersion '1.0.10' -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'arm64-evidence/package')
       - name: Verify FlClash coexistence across install start overwrite and uninstall
         shell: pwsh
         timeout-minutes: 15
@@ -242,7 +242,7 @@ jobs:
           . ./tooling/windows/arm64/common.ps1
           $installer = Get-Item dist/fengwo-windows-arm64-setup.exe
           $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          Save-FwArmEvidence (Join-Path $PWD 'dist/windows-arm64-build.json') ([ordered]@{ version = '1.0.8'; architecture = 'arm64'; source_branch = $env:GITHUB_REF_NAME; source_sha = $env:GITHUB_SHA; run_id = $env:GITHUB_RUN_ID; installer_name = $installer.Name; installer_bytes = $installer.Length; installer_sha256 = $hash; native_runner = 'windows-11-arm'; real_customer_account_tested = $false; old_x64_to_arm64_migration_verified = $false })
+          Save-FwArmEvidence (Join-Path $PWD 'dist/windows-arm64-build.json') ([ordered]@{ version = '1.0.10'; architecture = 'arm64'; source_branch = $env:GITHUB_REF_NAME; source_sha = $env:GITHUB_SHA; run_id = $env:GITHUB_RUN_ID; installer_name = $installer.Name; installer_bytes = $installer.Length; installer_sha256 = $hash; native_runner = 'windows-11-arm'; real_customer_account_tested = $false; old_x64_to_arm64_migration_verified = $false })
           ($hash + '  ' + $installer.Name) | Set-Content -LiteralPath dist/ARM64-SHA256SUMS -Encoding utf8NoBOM
       - uses: actions/upload-artifact@v4
         with:
