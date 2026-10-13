@@ -55,6 +55,7 @@ jobs:
           foreach ($version in @('1.0.9', '1.0.10')) {
             $path = Join-Path $env:RUNNER_TEMP ('fengwo-' + $version + '.exe')
             $url = $env:DOWNLOAD_BASE.TrimEnd('/') + '/fengwo-windows-' + $env:ARCHITECTURE + '-' + $version + '-setup.exe'
+            if ($version -eq '1.0.9') { $url = 'https://picture.sansen.tech/fengwo-windows-' + $env:ARCHITECTURE + '-1.0.9-setup.exe' }
             Invoke-WebRequest -Uri $url -OutFile $path
             $expected = if ($version -eq '1.0.9') { $env:BASELINE_HASH } else { $env:EXPECTED_HASH }
             if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected) { throw 'Installer hash mismatch' }
