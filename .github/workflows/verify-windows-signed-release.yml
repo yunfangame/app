@@ -119,7 +119,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $url = [uri]$env:STAGE_PUT_URL
-          if ($url.Scheme -cne 'https' -or $url.Host -cne 'zryc.oss-cn-beijing.aliyuncs.com' -or $url.AbsolutePath -cne ('/release-tests/fengwo-windows-1.0.10-20261013/' + $env:INSTALLER_FILENAME) -or -not $url.Query -or $url.Fragment -or $url.UserInfo) { throw 'Unexpected isolated upload capability' }
+          if ($url.Scheme -cne 'https' -or $url.Host -cne 'zryc.oss-cn-beijing.aliyuncs.com' -or [uri]::UnescapeDataString($url.AbsolutePath) -cne ('/release-tests/fengwo-windows-1.0.10-20261013/' + $env:INSTALLER_FILENAME) -or -not $url.Query -or $url.Fragment -or $url.UserInfo -or $url.Port -ne 443) { throw 'Unexpected isolated upload capability' }
           $path = Join-Path $env:RUNNER_TEMP 'fengwo-1.0.10.exe'
           if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:EXPECTED_HASH) { throw 'Tested signed package changed before staging upload' }
           $config = @(
@@ -135,7 +135,7 @@ jobs:
             'write-out = "%{http_code}"'
           ) -join "`n"
           $status = $config | & curl.exe --config -
-          if ($LASTEXITCODE -ne 0 -or $status -cne '200') { throw 'Isolated staging upload failed' }
+          if ($LASTEXITCODE -ne 0 -or $status -cne '200') { throw ('Isolated staging upload failed; curl exit=' + $LASTEXITCODE + '; HTTP=' + $status) }
           $readback = Join-Path $env:RUNNER_TEMP 'staging-readback.exe'
           Invoke-WebRequest -Uri ($env:DOWNLOAD_BASE.TrimEnd('/') + '/' + $env:INSTALLER_FILENAME) -OutFile $readback
           if ((Get-FileHash -LiteralPath $readback -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:EXPECTED_HASH) { throw 'Isolated staging public readback mismatch' }
