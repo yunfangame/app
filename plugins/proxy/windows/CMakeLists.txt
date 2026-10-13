@@ -100,6 +100,11 @@ add_custom_command(TARGET ${TEST_RUNNER} POST_BUILD
 include(GoogleTest)
 gtest_discover_tests(${TEST_RUNNER} PROPERTIES RUN_SERIAL TRUE)
 
+add_executable(proxy_session_test test/proxy_session_test.cpp)
+apply_standard_settings(proxy_session_test)
+target_compile_definitions(proxy_session_test PRIVATE FENGWO_PROXY_SESSION_STANDALONE)
+add_test(NAME proxy_session_test COMMAND proxy_session_test)
+
 add_executable(proxy_session_windows_test
   test/proxy_session_windows_test.cpp
 )
