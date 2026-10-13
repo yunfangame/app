@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
 import 'package:fl_clash/common/api_health.dart';
 import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/api_request_router.dart';
+import 'package:fl_clash/common/print.dart';
 import 'package:fl_clash/common/subscription_v2.dart';
 import 'package:fl_clash/common/xboard_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -1178,10 +1179,27 @@ void main() {
       final directory = await Directory.systemTemp.createTemp(
         'subscription-v2-shared-',
       );
-      addTearDown(() => directory.delete(recursive: true));
       final previousPathProvider = PathProviderPlatform.instance;
       PathProviderPlatform.instance = _TemporaryPathProvider(directory.path);
-      addTearDown(() => PathProviderPlatform.instance = previousPathProvider);
+      addTearDown(() async {
+        await commonPrint.flushDiagnosticEvents();
+        PathProviderPlatform.instance = previousPathProvider;
+        for (var attempt = 0; attempt < 10; attempt++) {
+          try {
+            if (await directory.exists()) {
+              await directory.delete(recursive: true);
+            }
+            break;
+          } on FileSystemException catch (error) {
+            if (!Platform.isWindows ||
+                error.osError?.errorCode != 32 ||
+                attempt == 9) {
+              rethrow;
+            }
+            await Future<void>.delayed(const Duration(milliseconds: 100));
+          }
+        }
+      });
       FlutterSecureStorage.setMockInitialValues({});
       addTearDown(() => FlutterSecureStorage.setMockInitialValues({}));
       final server = await _FakeSubscriptionV2Server.create();
