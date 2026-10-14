@@ -1,5 +1,10 @@
+param(
+  [string]$AuditDirectory = 'FengWo-Disconnect-Audit-20261014',
+  [string]$InitialPhase = 'baseline-109-disconnected'
+)
 $ErrorActionPreference = 'Stop'
-$script:AuditRoot = Join-Path ([Environment]::GetFolderPath('Desktop')) 'FengWo-Disconnect-Audit-20261014'
+if ($AuditDirectory -notmatch '^FengWo-[a-zA-Z0-9_-]+$') { throw 'Invalid audit directory' }
+$script:AuditRoot = Join-Path ([Environment]::GetFolderPath('Desktop')) $AuditDirectory
 New-Item -ItemType Directory -Force -Path $script:AuditRoot | Out-Null
 Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
 Set-Content -Encoding UTF8 (Join-Path $script:AuditRoot 'transcript.txt') 'Audit initialization; configuration payloads are intentionally excluded.'
@@ -89,4 +94,4 @@ function Save-FengWoAudit([string]$Phase) {
   $snapshot | ConvertTo-Json -Depth 15 | Set-Content -Encoding UTF8 (Join-Path $script:AuditRoot ($Phase+'.json'))
   Write-Output ('AUDIT '+$Phase+' ProxyFlags='+$proxy.Flags+' Server='+$proxy.Server+' HTTP='+$probe.status+' Bytes='+$probe.bytes+' Error='+$probe.error)
 }
-Save-FengWoAudit 'baseline-109-disconnected'
+Save-FengWoAudit $InitialPhase

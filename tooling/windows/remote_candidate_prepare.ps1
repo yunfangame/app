@@ -1,14 +1,17 @@
+param(
+  [Parameter(Mandatory=$true)][string]$InstallerPath,
+  [Parameter(Mandatory=$true)][string]$ExpectedHash
+)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { throw 'This prepared candidate is x64 only' }
 if (Get-Process FengWo -ErrorAction SilentlyContinue) { throw 'Exit the client before preparing the upgrade' }
-$root = Join-Path ([Environment]::GetFolderPath('Desktop')) 'FengWo-Disconnect-Audit-20261014'
-New-Item -ItemType Directory -Force -Path $root | Out-Null
-$installer = Join-Path $root 'fengwo-windows-amd64-setup.exe'
-$url = 'https://zryc.oss-cn-beijing.aliyuncs.com/release-tests/fengwo-windows-1.0.11-20261014/fengwo-windows-amd64-setup.exe'
-Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $installer -TimeoutSec 120
+$root = $script:AuditRoot
+if (-not $root -or -not (Test-Path -LiteralPath $root)) { throw 'Initialize the audit directory first' }
+if ($ExpectedHash -cnotmatch '^[a-f0-9]{64}$') { throw 'Invalid expected installer hash' }
+$installer = (Get-Item -LiteralPath $InstallerPath).FullName
 $hash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
-if ($hash -cne 'ee8aec20dcd802c44b48864a4920f8e591d00ce709ecfdbe94812dfb2b43fbcc') { throw 'Candidate installer hash mismatch' }
+if ($hash -cne $ExpectedHash) { throw 'Candidate installer hash mismatch' }
 $signature = Get-AuthenticodeSignature $installer
 if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { throw 'Candidate installer signature or timestamp is not trusted' }
 $sha = [Security.Cryptography.SHA256]::Create()
