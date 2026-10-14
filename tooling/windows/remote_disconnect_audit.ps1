@@ -7,7 +7,7 @@ Start-Transcript -Path (Join-Path $script:AuditRoot 'transcript.txt') -Append | 
 Add-Type -AssemblyName System.Web.Extensions
 $script:JsonParser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
 $script:JsonParser.MaxJsonLength = 16777216
-Add-Type -TypeDefinition @'
+if (-not ('DisconnectAudit' -as [type])) { Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
@@ -43,6 +43,7 @@ public static class DisconnectAudit {
   }
 }
 '@
+}
 function Save-FengWoAudit([string]$Phase) {
   if ($Phase -notmatch '^[a-zA-Z0-9_-]+$') { throw 'Invalid phase' }
   $preferences = $null
