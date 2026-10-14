@@ -42,15 +42,13 @@ class AppStateManager extends ConsumerStatefulWidget {
 
 class _AppStateManagerState extends ConsumerState<AppStateManager>
     with WidgetsBindingObserver {
-  Timer? _ticketTimer;
-
   void _syncTickets() {
     final controller = globalState.xboardTicketController;
     controller.updateSession(
       globalState.xboardSession,
       offline: globalState.isOfflineMode,
     );
-    unawaited(controller.refreshSummary());
+    controller.refreshNow();
   }
 
   @override
@@ -59,9 +57,10 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
     WidgetsBinding.instance.addObserver(this);
     globalState.xboardSessionRevisionNotifier.addListener(_syncTickets);
     globalState.offlineModeNotifier.addListener(_syncTickets);
-    _ticketTimer = Timer.periodic(
-      const Duration(seconds: 30),
-      (_) => _syncTickets(),
+    _syncTickets();
+    globalState.xboardTicketController.startPolling(
+      foreground:
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _syncTickets();
@@ -112,7 +111,7 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
 
   @override
   void dispose() {
-    _ticketTimer?.cancel();
+    globalState.xboardTicketController.stopPolling();
     globalState.xboardSessionRevisionNotifier.removeListener(_syncTickets);
     globalState.offlineModeNotifier.removeListener(_syncTickets);
     WidgetsBinding.instance.removeObserver(this);
@@ -122,6 +121,9 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
   @override
   Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
     commonPrint.log('$state');
+    globalState.xboardTicketController.setForeground(
+      state == AppLifecycleState.resumed,
+    );
     if (state == AppLifecycleState.resumed) {
       _syncTickets();
       unawaited(systemDnsCoordinator?.resync() ?? Future.value());

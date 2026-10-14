@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/common/xboard_tickets.dart';
 import 'package:fl_clash/views/account/fengwo_tickets.dart';
+import 'package:fl_clash/widgets/inherited.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -36,6 +39,102 @@ Widget app(
 );
 
 void main() {
+  testWidgets('offstage ticket panels use the ordinary foreground interval', (
+    tester,
+  ) async {
+    final fixture = TicketFixture();
+    var summaryCalls = 0;
+    var fetchCalls = 0;
+    final controller = XboardTicketController(
+      pollJitterSeconds: () => 0,
+      api: XboardTicketApi(
+        requester: (uri, auth, body) {
+          if (uri.path.endsWith('/summary')) summaryCalls++;
+          if (uri.path.endsWith('/fetch')) fetchCalls++;
+          return fixture.request(uri, auth, body);
+        },
+      ),
+    )..updateSession(ticketSession(), offline: false);
+    addTearDown(controller.dispose);
+    try {
+      await tester.pumpWidget(
+        PageActivityScope(isActive: false, child: app(controller)),
+      );
+      controller.startPolling(foreground: true);
+      await tester.pump(Duration.zero);
+      expect(summaryCalls, 1);
+      await tester.pump(const Duration(seconds: 30));
+      expect(fetchCalls, 0);
+      await tester.pumpWidget(
+        PageActivityScope(isActive: true, child: app(controller)),
+      );
+      await tester.pump(const Duration(seconds: 30));
+      expect(fetchCalls, 1);
+      await tester.pumpWidget(
+        PageActivityScope(isActive: false, child: app(controller)),
+      );
+      await tester.pump(const Duration(seconds: 119));
+      expect(summaryCalls, 1);
+      await tester.pump(const Duration(seconds: 1));
+      expect(summaryCalls, 2);
+    } finally {
+      controller.stopPolling();
+    }
+  });
+
+  testWidgets('background detail responses are not automatically marked read', (
+    tester,
+  ) async {
+    final fixture = TicketFixture();
+    final pending = Completer<Object?>();
+    var detailCalls = 0;
+    var fetchCalls = 0;
+    final controller = XboardTicketController(
+      pollJitterSeconds: () => 0,
+      api: XboardTicketApi(
+        requester: (uri, auth, body) {
+          if (uri.path.endsWith('/fetch')) fetchCalls++;
+          if (uri.path.endsWith('/detail') && ++detailCalls == 1) {
+            return pending.future;
+          }
+          return fixture.request(uri, auth, body);
+        },
+      ),
+    )..updateSession(ticketSession(), offline: false);
+    addTearDown(controller.dispose);
+    try {
+      await controller.refresh();
+      await tester.pumpWidget(app(controller));
+      controller.startPolling(foreground: true);
+      await tester.pump(Duration.zero);
+      await tester.tap(find.byKey(const ValueKey('ticket-1')));
+      await tester.pump(const Duration(milliseconds: 300));
+      controller.setForeground(false);
+      pending.complete(
+        await fixture.request(
+          Uri.parse('https://example.com/api/v1/user/ticket-sync/detail?id=1'),
+          'one',
+          null,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(fixture.readCalls, 0);
+      expect(controller.unreadCount, 1);
+      final previousFetches = fetchCalls;
+      await tester.pump(const Duration(minutes: 10));
+      expect(detailCalls, 1);
+      expect(fetchCalls, previousFetches);
+      controller.setForeground(true);
+      await tester.pump(Duration.zero);
+      await tester.pumpAndSettle();
+      expect(detailCalls, 2);
+      expect(fixture.readCalls, 1);
+      expect(controller.unreadCount, 0);
+    } finally {
+      controller.stopPolling();
+    }
+  });
+
   testWidgets(
     'bounded ticket list scrolls without growing and filters closed tickets',
     (tester) async {

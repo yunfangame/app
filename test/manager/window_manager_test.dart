@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:fl_clash/common/render.dart';
+import 'package:fl_clash/common/xboard_tickets.dart';
 import 'package:fl_clash/manager/window_manager.dart';
 import 'package:fl_clash/models/config.dart';
 import 'package:fl_clash/providers/providers.dart';
@@ -48,6 +49,7 @@ class _StoreAction extends StoreAction {
 }
 
 class _Rig {
+  final tickets = XboardTicketController();
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
   late final ProviderContainer container;
   late final _SystemAction action;
@@ -84,6 +86,7 @@ class _Rig {
     store = container.read(storeActionProvider.notifier) as _StoreAction;
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox());
+      tickets.dispose();
       render?.resume();
       container.dispose();
       binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -98,7 +101,11 @@ class _Rig {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: WindowManager(isWindows: isWindows, child: const SizedBox()),
+        child: WindowManager(
+          isWindows: isWindows,
+          ticketController: tickets,
+          child: const SizedBox(),
+        ),
       ),
     );
   }
@@ -115,6 +122,33 @@ class _Rig {
 }
 
 void main() {
+  for (final isWindows in [true, false]) {
+    testWidgets(
+      'desktop $isWindows pauses ticket polling when hidden or blurred',
+      (tester) async {
+        final rig = _Rig();
+        await rig.mount(tester, isWindows: isWindows);
+        await rig.emit('hide');
+        expect(rig.tickets.isForeground, isFalse);
+        rig.tickets.setForeground(true);
+        expect(rig.tickets.isForeground, isFalse);
+        await rig.emit('focus');
+        expect(rig.tickets.isForeground, isTrue);
+        await rig.emit('minimize');
+        expect(rig.tickets.isForeground, isFalse);
+        await rig.emit('restore');
+        expect(rig.tickets.isForeground, isTrue);
+        await rig.emit('blur');
+        expect(rig.tickets.isForeground, isFalse);
+        rig.tickets.setForeground(false);
+        await rig.emit('focus');
+        expect(rig.tickets.isForeground, isFalse);
+        rig.tickets.setForeground(true);
+        expect(rig.tickets.isForeground, isTrue);
+      },
+    );
+  }
+
   testWidgets('Windows close waits for its diagnostic to reach disk', (
     tester,
   ) async {

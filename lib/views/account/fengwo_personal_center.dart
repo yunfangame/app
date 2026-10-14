@@ -45,10 +45,13 @@ class _FengWoPersonalCenterViewState
   final _loginIpScrollController = ScrollController();
   late final XboardAuthService _authService;
   late final XboardTicketController _tickets;
-  Timer? _ticketTimer;
 
   Future<void> _loadTickets() async {
-    if (!mounted) return;
+    if (!mounted ||
+        !PageActivityScope.isActiveOf(context) ||
+        !_tickets.isForeground) {
+      return;
+    }
     _tickets.updateSession(
       globalState.xboardSession,
       offline: globalState.isOfflineMode,
@@ -75,13 +78,6 @@ class _FengWoPersonalCenterViewState
     super.initState();
     _authService = widget.authService ?? XboardAuthService();
     _tickets = widget.ticketController ?? globalState.xboardTicketController;
-    _ticketTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted &&
-          PageActivityScope.isActiveOf(context) &&
-          !_tickets.loading) {
-        unawaited(_loadTickets());
-      }
-    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadUserInfo();
       _loadLoginIps();
@@ -106,7 +102,6 @@ class _FengWoPersonalCenterViewState
 
   @override
   void dispose() {
-    _ticketTimer?.cancel();
     _oldPasswordController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
