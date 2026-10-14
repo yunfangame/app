@@ -1,7 +1,12 @@
 $ErrorActionPreference = 'Stop'
 $script:AuditRoot = Join-Path ([Environment]::GetFolderPath('Desktop')) 'FengWo-Disconnect-Audit-20261014'
 New-Item -ItemType Directory -Force -Path $script:AuditRoot | Out-Null
+Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+Set-Content -Encoding UTF8 (Join-Path $script:AuditRoot 'transcript.txt') 'Audit initialization; configuration payloads are intentionally excluded.'
 Start-Transcript -Path (Join-Path $script:AuditRoot 'transcript.txt') -Append | Out-Null
+Add-Type -AssemblyName System.Web.Extensions
+$script:JsonParser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+$script:JsonParser.MaxJsonLength = 16777216
 Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
@@ -43,9 +48,10 @@ function Save-FengWoAudit([string]$Phase) {
   $preferences = $null
   $files = @(Get-ChildItem (Join-Path $env:APPDATA 'FengWo') -Filter shared_preferences.json -Recurse -ErrorAction SilentlyContinue)
   foreach ($file in $files) {
-    $values = Get-Content $file.FullName -Raw | ConvertFrom-Json
-    $config = $values.'flutter.config'
-    if ($config -is [string]) { $config = $config | ConvertFrom-Json }
+    try { $values = $script:JsonParser.DeserializeObject([IO.File]::ReadAllText($file.FullName)) }
+    catch { throw 'Cannot parse preferences; configuration contents omitted' }
+    $config = $values['flutter.config']
+    if ($config -is [string]) { $config = $script:JsonParser.DeserializeObject($config) }
     if ($null -ne $config) {
       $preferences = [ordered]@{ currentProfileId=$config.currentProfileId; mode=$config.patchClashConfig.mode; network=$config.networkProps; tun=$config.patchClashConfig.tun; selectedMap=$config.selectedMap }
     }
