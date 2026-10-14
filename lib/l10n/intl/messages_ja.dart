@@ -506,7 +506,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "brandName": MessageLookupByLibrary.simpleMessage("FengWo Accelerator"),
     "buyNow": MessageLookupByLibrary.simpleMessage("今すぐ購入"),
     "bypassDomain": MessageLookupByLibrary.simpleMessage("バイパスドメイン"),
-    "bypassDomainDesc": MessageLookupByLibrary.simpleMessage("システムプロキシ有効時のみ適用"),
+    "bypassDomainDesc": MessageLookupByLibrary.simpleMessage(
+      "システムプロキシの除外とルールモードのイントラネット直接接続",
+    ),
     "bypassDomainDns": MessageLookupByLibrary.simpleMessage("イントラネット DNS サーバー"),
     "bypassDomainDnsInvalid": MessageLookupByLibrary.simpleMessage(
       "無効な DNS です。IP アドレスまたは system:// を入力してください",

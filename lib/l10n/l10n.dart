@@ -3548,10 +3548,10 @@ class AppLocalizations {
     );
   }
 
-  /// `Only takes effect when the system proxy is enabled`
+  /// `System proxy exclusions and rule-mode intranet routing`
   String get bypassDomainDesc {
     return Intl.message(
-      'Only takes effect when the system proxy is enabled',
+      'System proxy exclusions and rule-mode intranet routing',
       name: 'bypassDomainDesc',
       desc: '',
       args: [],
