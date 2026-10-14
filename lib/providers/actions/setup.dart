@@ -1146,6 +1146,20 @@ class SetupAction extends _$SetupAction {
     if (!system.isWindows || proxy == null) return;
     try {
       final config = ref.read(patchClashConfigProvider);
+      if (config.mixedPort == 0) {
+        commonPrint.event(
+          'system_proxy.configuration_snapshot.skipped',
+          fields: {
+            'phase': phase,
+            'reason': 'local_listener_disabled',
+            'tun_requested': config.tun.enable,
+            'system_proxy_requested': ref
+                .read(networkSettingProvider)
+                .systemProxy,
+          },
+        );
+        return;
+      }
       final result = await proxy!.inspectProxy(config.mixedPort);
       commonPrint.event(
         'system_proxy.configuration_snapshot',
