@@ -76,7 +76,10 @@ function Save-FengWoAudit([string]$Phase) {
   $app = Get-Process FengWo -ErrorAction SilentlyContinue
   $snapshot = [ordered]@{
     phase=$Phase; time=(Get-Date).ToString('o'); version=$(if($app){(Get-Item $app.Path).VersionInfo.ProductVersion});
+    candidate_installer_sha256=$script:CandidateHash;
+    executable_sha256=$(if($app){(Get-FileHash -Algorithm SHA256 $app.Path).Hash.ToLowerInvariant()});
     proxy=$proxy; preferences=$preferences;
+    winhttp=@(netsh winhttp show proxy);
     adapters=@(Get-NetAdapter -IncludeHidden | Select-Object Name,InterfaceDescription,Status,InterfaceIndex);
     routes=@(Get-NetRoute | Select-Object InterfaceIndex,DestinationPrefix,NextHop,RouteMetric);
     dns=@(Get-DnsClientServerAddress | Select-Object InterfaceIndex,AddressFamily,ServerAddresses);
