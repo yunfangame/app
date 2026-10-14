@@ -26,15 +26,33 @@ final systemProxyRefreshSignal = SystemProxyRefreshSignal();
 typedef SystemProxyCleanupHandler =
     Future<bool> Function(int port, bool Function() isCancelled);
 
+typedef SystemProxyShutdownHandler =
+    Future<ProxyOperationResult> Function(int port, bool terminal);
+
 class SystemProxyCleanupSignal {
   SystemProxyCleanupHandler? _handler;
+  SystemProxyShutdownHandler? _shutdownHandler;
 
-  void attach(SystemProxyCleanupHandler handler) => _handler = handler;
+  void attach(
+    SystemProxyCleanupHandler handler, {
+    SystemProxyShutdownHandler? shutdown,
+  }) {
+    _handler = handler;
+    _shutdownHandler = shutdown;
+  }
 
-  void detach() => _handler = null;
+  void detach() {
+    _handler = null;
+    _shutdownHandler = null;
+  }
 
   Future<bool> request(int port, {required bool Function() isCancelled}) =>
       _handler?.call(port, isCancelled) ?? Future.value(false);
+
+  Future<ProxyOperationResult?> shutdown(
+    int port, {
+    bool terminal = true,
+  }) async => _shutdownHandler?.call(port, terminal);
 }
 
 final systemProxyCleanupSignal = SystemProxyCleanupSignal();

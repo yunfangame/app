@@ -52,8 +52,12 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
   bool _systemProxyGuardCheckScheduled = false;
   Future<void>? _systemProxyGuardCheck;
   int _requestedRevision = 0;
+  bool _shutdownRequested = false;
+  bool _exitRequested = false;
+  Future<ProxyOperationResult>? _shutdownOperation;
 
-  bool _isCurrent(int revision) => mounted && revision == _requestedRevision;
+  bool _isCurrent(int revision) =>
+      mounted && !_shutdownRequested && revision == _requestedRevision;
 
   Future<void> _updateProxy(ProxyState proxyState, int revision) async {
     if (!mounted || !_isCurrent(revision)) return;
@@ -193,7 +197,9 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
           );
         }
       }
-      if (result?.success == true && macOSGuard != null) {
+      if (result?.success == true &&
+          macOSGuard != null &&
+          _isCurrent(revision)) {
         _startMacOSProxyGuard();
       }
     } else {
@@ -309,7 +315,9 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
   Future<void> _scheduleSystemProxyGuardCheck() {
     final windowsGuard = _windowsProxyGuard;
     final macOSGuard = _macOSProxyGuard;
-    if ((windowsGuard == null && macOSGuard == null) || !mounted) {
+    if ((windowsGuard == null && macOSGuard == null) ||
+        !mounted ||
+        _shutdownRequested) {
       return Future<void>.value();
     }
     if (_systemProxyGuardCheckScheduled) {
@@ -385,6 +393,7 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
   }
 
   void _scheduleUpdateProxy(ProxyState proxyState) {
+    if (_shutdownRequested) return;
     final revision = ++_requestedRevision;
     _pendingUpdate = _pendingUpdate
         .then((_) => _updateProxy(proxyState, revision))
@@ -427,7 +436,56 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
     return operation;
   }
 
+  Future<ProxyOperationResult> _scheduleProxyShutdown(int port, bool terminal) {
+    _exitRequested = _exitRequested || terminal;
+    final current = _shutdownOperation;
+    if (current != null) return current;
+    _shutdownRequested = true;
+    _requestedRevision++;
+    _stopMacOSProxyGuard();
+    commonPrint.event(
+      'system_proxy.shutdown.requested',
+      fields: {'port': port, 'terminal': terminal},
+    );
+    final operation = _pendingUpdate.then((_) async {
+      commonPrint.event(
+        'system_proxy.shutdown.started',
+        fields: {'port': port},
+      );
+      final result = await _proxyClient!.stopProxyDetailed(
+        expectedPort: port >= 1 && port <= 65535 ? port : null,
+      );
+      commonPrint.event(
+        'system_proxy.shutdown.completed',
+        fields: {'port': port, ...result.toDiagnosticFields()},
+      );
+      return result;
+    });
+    _shutdownOperation = operation;
+    _pendingUpdate = operation.then<void>(
+      (result) {
+        if ((!result.success || !_exitRequested) &&
+            identical(_shutdownOperation, operation)) {
+          _shutdownOperation = null;
+          if (!_exitRequested) _shutdownRequested = false;
+        }
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (identical(_shutdownOperation, operation)) {
+          _shutdownOperation = null;
+          if (!_exitRequested) _shutdownRequested = false;
+        }
+        commonPrint.event(
+          'system_proxy.shutdown.failed',
+          fields: {'port': port, 'error_type': error.runtimeType.toString()},
+        );
+      },
+    );
+    return operation;
+  }
+
   void _scheduleStartupRepair(ProxyState proxyState) {
+    if (_shutdownRequested) return;
     final windowsGuard = _windowsProxyGuard;
     final macOSGuard = _macOSProxyGuard;
     if (windowsGuard == null && macOSGuard == null) return;
@@ -509,7 +567,10 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
     _windowsProxyGuard = widget.windowsProxyGuard;
     _macOSProxyGuard = widget.macOSProxyGuard;
     if (_proxyClient != null) {
-      systemProxyCleanupSignal.attach(_scheduleProxyCleanup);
+      systemProxyCleanupSignal.attach(
+        _scheduleProxyCleanup,
+        shutdown: _scheduleProxyShutdown,
+      );
     }
     if (_isWindows && _proxyClient != null) {
       _windowsProxyGuard ??= WindowsProxyGuard(

@@ -51,6 +51,20 @@ void main() {
   });
 
   for (final platform in ['windows', 'macos']) {
+    test(
+      '$platform failed listener stop cannot report cleanup success',
+      () async {
+        final rig = _Rig(platform);
+        addTearDown(rig.container.dispose);
+        rig.action.stopResult = false;
+        await expectLater(rig.action.setRunning(false), throwsStateError);
+        expect(rig.action.listeners, [false]);
+        expect(rig.container.read(windowsTunReadyProvider), isFalse);
+        rig.action.stopResult = true;
+        await rig.action.setRunning(false);
+        expect(rig.action.listeners, [false, false]);
+      },
+    );
     for (final loggedIn in [false, true]) {
       for (final cachedAuthorization in [false, true]) {
         test(
@@ -573,6 +587,7 @@ class _IntentSetup extends SetupAction {
   int readinessChecks = 0;
   int restarts = 0;
   int lifecycleStops = 0;
+  bool stopResult = true;
   AuthorizeCode authorizationResult = AuthorizeCode.none;
   Future<void> Function(int count)? onRestart;
   final preparedTun = <bool>[];
@@ -661,7 +676,7 @@ class _IntentSetup extends SetupAction {
   @override
   Future<bool> setCoreRunning(bool running) async {
     listeners.add(running);
-    return true;
+    return running || stopResult;
   }
 
   @override

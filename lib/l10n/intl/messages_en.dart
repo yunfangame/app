@@ -1510,6 +1510,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "Specify the corresponding nameserver policy",
     ),
     "network": MessageLookupByLibrary.simpleMessage("Network"),
+    "networkCleanupFailed": MessageLookupByLibrary.simpleMessage(
+      "Network cleanup did not complete. Exit or sign-out was cancelled. Retry or export the logs.",
+    ),
     "networkDesc": MessageLookupByLibrary.simpleMessage(
       "Modify network-related settings",
     ),

@@ -19,7 +19,7 @@ class SystemAction extends _$SystemAction {
     return packages;
   }
 
-  Future<void> handleExit([bool needSave = false]) {
+  Future<void> handleExit([bool needSave = false]) async {
     ref
         .read(proxiesActionProvider.notifier)
         .cancelHongKongSelection(manual: true);
@@ -28,12 +28,59 @@ class SystemAction extends _$SystemAction {
       closeWindow: closeWindow,
       closeCore: closeCore,
       exitApplication: exitApplication,
+      prepareExit: prepareExitResources,
+      onPhase: (phase) =>
+          commonPrint.event('app.exit.phase', fields: {'phase': phase}),
     );
-    return coordinator.exit(cleanup: () => cleanupExitResources(needSave));
+    try {
+      await coordinator.exit(cleanup: () => cleanupExitResources(needSave));
+    } catch (error) {
+      commonPrint.event(
+        'app.exit.failed',
+        fields: {
+          'error_type': error.runtimeType.toString(),
+          'exit_requested': coordinator.applicationExitRequested,
+        },
+      );
+      if (coordinator.applicationExitRequested) rethrow;
+      await commonPrint.flushDiagnosticEvents();
+      await reportExitCleanupFailure();
+      throw NetworkCleanupException(
+        currentAppLocalizations.networkCleanupFailed,
+      );
+    }
+  }
+
+  @protected
+  Future<void> reportExitCleanupFailure() async {
+    try {
+      await window?.show();
+    } catch (error) {
+      commonPrint.event(
+        'app.exit.recovery_window.failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
+    }
+    globalState.showNotifier(currentAppLocalizations.networkCleanupFailed);
   }
 
   Future<void> handleLogout() async {
-    await Future.wait([stopRunningForLogout(), cleanupLogoutIntegrations()]);
+    commonPrint.event('app.logout.cleanup.started');
+    try {
+      await Future.wait([stopRunningForLogout(), cleanupLogoutIntegrations()]);
+      await repairResidualSystemProxy('logout');
+      commonPrint.event('app.logout.cleanup.completed');
+      await commonPrint.flushDiagnosticEvents();
+    } catch (error) {
+      commonPrint.event(
+        'app.logout.cleanup.failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
+      await commonPrint.flushDiagnosticEvents();
+      throw NetworkCleanupException(
+        currentAppLocalizations.networkCleanupFailed,
+      );
+    }
   }
 
   @protected
@@ -55,9 +102,20 @@ class SystemAction extends _$SystemAction {
     final proxyService = proxy;
     if (proxyService == null) return;
     final port = ref.read(patchClashConfigProvider).mixedPort;
-    final result = await proxyService.stopProxyDetailed(
-      expectedPort: system.isWindows || system.isMacOS ? port : null,
-    );
+    final queued = reason == 'exit' || reason == 'logout'
+        ? await systemProxyCleanupSignal.shutdown(
+            port,
+            terminal: reason == 'exit',
+          )
+        : null;
+    final result =
+        queued ??
+        await proxyService.stopProxyDetailed(
+          expectedPort:
+              (system.isWindows || system.isMacOS) && port >= 1 && port <= 65535
+              ? port
+              : null,
+        );
     commonPrint.event(
       'system_proxy.cleanup.completed',
       fields: {'reason': reason, ...result.toDiagnosticFields()},
@@ -74,11 +132,55 @@ class SystemAction extends _$SystemAction {
   Duration get exitWatchdogDuration => const Duration(seconds: 3);
 
   @protected
+  Future<void> repairResidualSystemProxy(String reason) async {
+    final proxyService = proxy;
+    if (proxyService == null || (!system.isWindows && !system.isMacOS)) return;
+    final port = ref.read(patchClashConfigProvider).mixedPort;
+    if (port < 1 || port > 65535) return;
+    final result = await proxyService.repairStaleProxyDetailed(port);
+    commonPrint.event(
+      'system_proxy.cleanup.residual_checked',
+      fields: {'reason': reason, 'port': port, ...result.toDiagnosticFields()},
+    );
+    if (!result.success) {
+      throw StateError(
+        'system proxy residual cleanup failed: ${result.diagnosticCode}',
+      );
+    }
+  }
+
+  @protected
+  Future<void> prepareExitResources() async {
+    await Future.wait([
+      stopRunningForExit(),
+      restoreDnsForExit(),
+      cleanupSystemProxy('exit'),
+    ]);
+    if (system.isDesktop &&
+        ref.read(coreStatusProvider) != CoreStatus.connected) {
+      await closeCore();
+    }
+    await repairResidualSystemProxy('exit');
+  }
+
+  @protected
+  Future<void> stopRunningForExit() {
+    if (system.isDesktop &&
+        ref.read(coreStatusProvider) != CoreStatus.connected) {
+      return Future.value();
+    }
+    return ref.read(setupActionProvider.notifier).setRunning(false);
+  }
+
+  @protected
+  Future<void> restoreDnsForExit() async {
+    await systemDnsCoordinator?.shutdown();
+  }
+
+  @protected
   Future<void> cleanupExitResources(bool needSave) async {
     await Future.wait([
       if (needSave) preferences.saveConfig(ref.read(configProvider)),
-      if (systemDnsCoordinator != null) systemDnsCoordinator!.shutdown(),
-      cleanupSystemProxy('exit'),
       if (tray != null) tray!.destroy(),
     ]);
   }
@@ -95,8 +197,10 @@ class SystemAction extends _$SystemAction {
   }
 
   @protected
-  Future<void> exitApplication() {
-    return system.exit();
+  Future<void> exitApplication() async {
+    commonPrint.event('app.exit.process_exit');
+    await commonPrint.flushDiagnosticEvents();
+    await system.exit();
   }
 
   Future<void> handleClose([bool exit = true]) async {

@@ -54,13 +54,13 @@ jobs:
             [System.Text.UTF8Encoding]::new($false)
           )
 
-      - name: Download verified online v1.0.9 overwrite baseline
+      - name: Download verified online v1.0.10 overwrite baseline
         shell: pwsh
         run: |
-          $baseline = Join-Path $env:RUNNER_TEMP 'fengwo-baseline-1.0.9.exe'
+          $baseline = Join-Path $env:RUNNER_TEMP 'fengwo-baseline-1.0.10.exe'
           Invoke-WebRequest -Uri 'https://picture.sansen.tech/fengwo-windows-amd64-setup.exe' -OutFile $baseline
           $hash = (Get-FileHash -LiteralPath $baseline -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -cne '68be159a5f3cbd27ba0725714a209df5d9a0faa7e4e3f44bb7325c6a5abd7a72') { throw 'The online v1.0.9 baseline changed; refusing an unverified overwrite test' }
+          if ($hash -cne '157b8ebf8c4cb8289c58afedecd56fcc65a35c900e6813e7f71fbf255e7ceb85') { throw 'The online v1.0.10 baseline changed; refusing an unverified overwrite test' }
           $tokens = $null
           $parseErrors = $null
           $null = [System.Management.Automation.Language.Parser]::ParseFile("$PWD/tooling/windows/test_installed_upgrade.ps1", [ref]$tokens, [ref]$parseErrors)
@@ -199,6 +199,9 @@ jobs:
             'test/common/network_diagnostic_test.dart',
             'test/manager/core_manager_test.dart',
             'test/manager/proxy_manager_test.dart',
+            'test/providers/system_action_test.dart',
+            'test/providers/startup_auto_connect_test.dart',
+            'test/providers/startup_tun_intent_test.dart',
             'test/providers/action_test.dart',
             'test/providers/config_test.dart',
             'test/providers/hong_kong_selection_action_test.dart',
@@ -419,7 +422,7 @@ jobs:
         shell: pwsh
         run: |
           $installer = Get-ChildItem dist -Filter '*windows*.exe' -File | Select-Object -First 1
-          ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/upgrade-verification" -PreviousInstallerPath "$env:RUNNER_TEMP/fengwo-baseline-1.0.9.exe" -ExpectedPreviousVersion '1.0.9'
+          ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/upgrade-verification" -PreviousInstallerPath "$env:RUNNER_TEMP/fengwo-baseline-1.0.10.exe" -ExpectedPreviousVersion '1.0.10'
 
       - name: Verify installed helper service repair and overwrite
         shell: pwsh

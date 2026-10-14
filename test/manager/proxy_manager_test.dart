@@ -253,6 +253,155 @@ class _Rig {
 void main() {
   setUpAll(() => AppLocalizations.load(const Locale('en')));
 
+  for (final platform in ['windows', 'macos', 'linux']) {
+    testWidgets(
+      '$platform exit drains the native write and blocks re-enabling',
+      (tester) async {
+        final rig = _Rig();
+        final write = Completer<ProxyOperationResult>();
+        rig.client.start = (_) => write.future;
+        await rig.mount(
+          tester,
+          isWindows: platform == 'windows',
+          isMacOS: platform == 'macos',
+        );
+        await tester.pump();
+        expect(rig.client.events, ['start:7890']);
+        final shutdown = systemProxyCleanupSignal.shutdown(7890);
+        rig.container
+            .read(patchClashConfigProvider.notifier)
+            .update((state) => state.copyWith(mixedPort: 7891));
+        await systemProxyRefreshSignal.request();
+        await tester.pump();
+        expect(rig.client.stopPorts, isEmpty);
+        write.complete(_started);
+        await tester.pumpAndSettle();
+        expect((await shutdown)?.success, isTrue);
+        expect(rig.client.events, [
+          'start:7890',
+          'started:7890',
+          'stop:7890',
+          'stopped:7890',
+        ]);
+        await rig.setup.setRunning(false);
+        await rig.setup.setRunning(true);
+        await tester.pumpAndSettle();
+        await systemProxyCleanupSignal.shutdown(7891);
+        expect(rig.client.startPorts, [7890]);
+        expect(rig.client.stopPorts, [7890]);
+        expect(rig.notifications, isEmpty);
+      },
+    );
+  }
+
+  testWidgets('exit cancels readiness before any proxy write', (tester) async {
+    final rig = _Rig();
+    final readiness = Completer<WindowsProxyReadinessResult>();
+    rig.guard.readiness = (_) => readiness.future;
+    await rig.mount(tester);
+    await tester.pump();
+    final shutdown = systemProxyCleanupSignal.shutdown(7890);
+    expect(rig.guard.cancellation?.call(), isTrue);
+    readiness.complete(
+      const WindowsProxyReadinessResult(
+        status: WindowsProxyReadinessStatus.ready,
+        port: 7890,
+        attempts: 1,
+        elapsed: Duration.zero,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect((await shutdown)?.success, isTrue);
+    expect(rig.client.startPorts, isEmpty);
+    expect(rig.client.stopPorts, [7890]);
+  });
+
+  testWidgets('logout cleanup permits a new login to enable the proxy', (
+    tester,
+  ) async {
+    final rig = _Rig();
+    final write = Completer<ProxyOperationResult>();
+    rig.client.start = (_) => write.future;
+    await rig.mount(tester);
+    await tester.pump();
+    await rig.setup.setRunning(false);
+    final shutdown = systemProxyCleanupSignal.shutdown(7890, terminal: false);
+    await tester.pump();
+    write.complete(_started);
+    await tester.pumpAndSettle();
+    expect((await shutdown)?.success, isTrue);
+    expect(rig.client.startPorts, [7890]);
+    expect(rig.client.stopPorts, [7890]);
+    rig.client.start = null;
+    await rig.setup.setRunning(true);
+    await tester.pumpAndSettle();
+    expect(rig.client.startPorts, [7890, 7890]);
+  });
+
+  testWidgets('exit upgrades an in-flight logout cleanup to terminal', (
+    tester,
+  ) async {
+    final rig = _Rig();
+    await rig.mount(tester);
+    await tester.pumpAndSettle();
+    await rig.setup.setRunning(false);
+    final stop = Completer<ProxyOperationResult>();
+    rig.client.stop = (_) => stop.future;
+    final logout = systemProxyCleanupSignal.shutdown(7890, terminal: false);
+    await tester.pump();
+    final exit = systemProxyCleanupSignal.shutdown(7890);
+    stop.complete(_stopped);
+    await tester.pumpAndSettle();
+    expect((await logout)?.success, isTrue);
+    expect((await exit)?.success, isTrue);
+    await rig.setup.setRunning(true);
+    await tester.pumpAndSettle();
+    expect(rig.client.startPorts, [7890]);
+    expect(rig.client.stopPorts, [7890]);
+  });
+
+  for (final throws in [false, true]) {
+    testWidgets('failed exit cleanup remains blocked and can retry: $throws', (
+      tester,
+    ) async {
+      final rig = _Rig();
+      await rig.mount(tester);
+      await tester.pumpAndSettle();
+      rig.client.stop = (_) async {
+        if (throws) throw StateError('Proxy restore failed');
+        return _stopFailure;
+      };
+      final first = systemProxyCleanupSignal.shutdown(7890);
+      final outcome = throws
+          ? expectLater(first, throwsStateError)
+          : expectLater(first, completion(_stopFailure));
+      await tester.pumpAndSettle();
+      await outcome;
+      rig.container
+          .read(patchClashConfigProvider.notifier)
+          .update((state) => state.copyWith(mixedPort: 7891));
+      await tester.pumpAndSettle();
+      expect(rig.client.startPorts, [7890]);
+      rig.client.stop = null;
+      final retry = systemProxyCleanupSignal.shutdown(7891);
+      await tester.pumpAndSettle();
+      expect((await retry)?.success, isTrue);
+      expect(rig.client.stopPorts, [7890, 7891]);
+    });
+  }
+
+  testWidgets('TUN-only exit does not pass zero as an expected proxy port', (
+    tester,
+  ) async {
+    final rig = _Rig();
+    await rig.mount(tester);
+    await tester.pumpAndSettle();
+    final shutdown = systemProxyCleanupSignal.shutdown(0);
+    await tester.pumpAndSettle();
+    expect((await shutdown)?.success, isTrue);
+    expect(rig.client.stopPorts, [null]);
+  });
+
   testWidgets(
     'default Windows startup guard uses guarded repair instead of stop',
     (tester) async {

@@ -684,6 +684,9 @@ class SetupAction extends _$SetupAction {
         if (!succeeded && request.running && requiresListenerReadiness) {
           throw StateError('Core listener did not start');
         }
+        if (!succeeded && !request.running && system.isDesktop) {
+          throw StateError('Core listener did not stop');
+        }
       } catch (error) {
         commonPrint.event(
           'connection.core_transition.failed',

@@ -1122,6 +1122,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "nameserverPolicy": MessageLookupByLibrary.simpleMessage("域名服务器策略"),
     "nameserverPolicyDesc": MessageLookupByLibrary.simpleMessage("指定对应域名服务器策略"),
     "network": MessageLookupByLibrary.simpleMessage("网络"),
+    "networkCleanupFailed": MessageLookupByLibrary.simpleMessage(
+      "网络清理未完成，已中止退出或登出。请重试或导出日志。",
+    ),
     "networkDesc": MessageLookupByLibrary.simpleMessage("修改网络相关设置"),
     "networkDetection": MessageLookupByLibrary.simpleMessage("网络检测"),
     "networkDiagnosticConfigDnsFailed": MessageLookupByLibrary.simpleMessage(

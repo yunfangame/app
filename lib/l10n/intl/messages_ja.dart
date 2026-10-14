@@ -1280,6 +1280,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "対応するネームサーバーポリシーを指定",
     ),
     "network": MessageLookupByLibrary.simpleMessage("ネットワーク"),
+    "networkCleanupFailed": MessageLookupByLibrary.simpleMessage(
+      "ネットワーク設定の復元が完了していないため、終了またはログアウトを中止しました。再試行するか、ログをエクスポートしてください。",
+    ),
     "networkDesc": MessageLookupByLibrary.simpleMessage("ネットワーク関連設定の変更"),
     "networkDetection": MessageLookupByLibrary.simpleMessage("ネットワーク検出"),
     "networkDiagnosticConfigDnsFailed": MessageLookupByLibrary.simpleMessage(
