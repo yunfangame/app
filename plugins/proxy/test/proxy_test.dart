@@ -658,6 +658,31 @@ destination: default
         expect(calls, ['RepairStaleProxyDetailed']);
       },
     );
+    for (final port in <int?>[null, 0]) {
+      test('stops Windows proxy with no listener port: $port', () async {
+        MethodCall? capturedCall;
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(proxy.methodChannel, (call) async {
+              capturedCall = call;
+              if (call.arguments is! Map ||
+                  (call.arguments as Map).containsKey('expectedPort')) {
+                throw PlatformException(code: 'bad_args');
+              }
+              return {
+                'success': true,
+                'operation': 'stop',
+                'stage': 'verified',
+                'enabled': false,
+              };
+            });
+
+        final result = await proxy.stopProxyDetailed(expectedPort: port);
+
+        expect(result.success, isTrue);
+        expect(capturedCall?.method, 'StopProxyDetailed');
+        expect(capturedCall?.arguments, isEmpty);
+      });
+    }
 
     test('parses detailed Windows proxy failures', () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

@@ -22,7 +22,11 @@ class CommonAction extends _$CommonAction {
     if (enablesSystemProxyOnConnect) {
       ref
           .read(networkSettingProvider.notifier)
-          .update((state) => state.copyWith(systemProxy: true));
+          .update(
+            (state) => state.copyWith(
+              systemProxy: ref.read(patchClashConfigProvider).mixedPort != 0,
+            ),
+          );
     }
     if (!isCurrent()) return;
     commonPrint.event('connection.auto.requested');
@@ -35,9 +39,13 @@ class CommonAction extends _$CommonAction {
     if (running && enablesSystemProxyOnConnect) {
       ref
           .read(networkSettingProvider.notifier)
-          .update((state) => state.copyWith(systemProxy: true));
+          .update(
+            (state) => state.copyWith(
+              systemProxy: ref.read(patchClashConfigProvider).mixedPort != 0,
+            ),
+          );
     }
-    ref
+    await ref
         .read(setupActionProvider.notifier)
         .setRunning(running, initialize: running && !ref.read(initProvider));
   }

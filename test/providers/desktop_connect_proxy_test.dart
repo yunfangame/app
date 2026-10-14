@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fl_clash/providers/providers.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:riverpod/riverpod.dart';
@@ -25,6 +27,70 @@ void main() {
       },
     );
   }
+
+  for (final automatic in [false, true]) {
+    for (final enabled in [false, true]) {
+      test(
+        'desktop TUN-only start keeps proxy disabled with automatic=$automatic and previous=$enabled',
+        () async {
+          final rig = _createRig(
+            desktop: true,
+            initialized: true,
+            systemProxy: enabled,
+          );
+          addTearDown(rig.container.dispose);
+          rig.container
+              .read(patchClashConfigProvider.notifier)
+              .update((state) => state.copyWith(mixedPort: 0));
+          if (automatic) {
+            await rig.container
+                .read(commonActionProvider.notifier)
+                .startAfterLogin(isCurrent: () => true);
+          } else {
+            await rig.container
+                .read(commonActionProvider.notifier)
+                .toggleRunning();
+          }
+          expect(
+            rig.container.read(networkSettingProvider).systemProxy,
+            isFalse,
+          );
+          expect(rig.setup.requests.single.systemProxyAtRequest, isFalse);
+          expect(rig.setup.requests.single.running, isTrue);
+        },
+      );
+    }
+  }
+
+  test(
+    'disconnect waits for runtime cleanup without changing preferences',
+    () async {
+      final rig = _createRig(
+        desktop: true,
+        initialized: true,
+        systemProxy: true,
+        started: true,
+      );
+      addTearDown(rig.container.dispose);
+      final cleanup = Completer<void>();
+      rig.setup.cleanup = cleanup.future;
+      final previous = rig.container.read(networkSettingProvider);
+      var completed = false;
+      final stopping = rig.container
+          .read(commonActionProvider.notifier)
+          .toggleRunning()
+          .then((_) {
+            completed = true;
+          });
+      await Future<void>.delayed(Duration.zero);
+      expect(completed, isFalse);
+      expect(rig.container.read(networkSettingProvider), previous);
+      cleanup.complete();
+      await stopping;
+      expect(completed, isTrue);
+      expect(rig.container.read(networkSettingProvider), previous);
+    },
+  );
 
   for (final scenario in [
     (name: 'stop connected client', started: true, pending: false),
@@ -111,6 +177,7 @@ class _QuietCommon extends CommonAction {
 }
 
 class _RecordingSetup extends SetupAction {
+  Future<void>? cleanup;
   final requests =
       <({bool running, bool initialize, bool systemProxyAtRequest})>[];
 
@@ -125,5 +192,9 @@ class _RecordingSetup extends SetupAction {
       initialize: initialize,
       systemProxyAtRequest: ref.read(networkSettingProvider).systemProxy,
     ));
+    if (!running) await cleanup;
   }
+
+  @override
+  Future<void> startAutomatically() => setRunning(true);
 }

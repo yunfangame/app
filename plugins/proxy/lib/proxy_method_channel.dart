@@ -59,7 +59,10 @@ class MethodChannelProxy extends ProxyPlatform {
     try {
       final result = await methodChannel.invokeMethod<Object?>(
         _stopProxyDetailedMethod,
-        expectedPort == null ? null : {'expectedPort': expectedPort},
+        {
+          if (expectedPort != null && expectedPort != 0)
+            'expectedPort': expectedPort,
+        },
       );
       return ProxyOperationResult.fromChannel(result, operation: 'stop');
     } on MissingPluginException {
