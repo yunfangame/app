@@ -27,17 +27,17 @@ jobs:
           - architecture: x64
             filename: fengwo-windows-amd64-setup.exe
             runner: windows-2022
-            source: 93667849d93d8e4ea812176549eff98baf657d19
-            baseline_sha256: 68be159a5f3cbd27ba0725714a209df5d9a0faa7e4e3f44bb7325c6a5abd7a72
-            artifact_id: 11787283466
-            unsigned_sha256: 762cd96ebe3bd909b4f9db72dedff064261ce1c4bbbd9f394701ab03d9f06584
+            source: 45371a12167a21b3045fa167457f89cbbc51bfd2
+            baseline_sha256: 157b8ebf8c4cb8289c58afedecd56fcc65a35c900e6813e7f71fbf255e7ceb85
+            artifact_id: 11869651203
+            unsigned_sha256: 0e0deff4d8de964e75c45671b7f9aa54f53ee79decf3d659cf9eebc036c6a5c7
           - architecture: arm64
             filename: fengwo-windows-arm64-setup.exe
             runner: windows-11-arm
-            source: 40a1299b2a39df1c3b4fa5e79262acaf323d2c29
-            baseline_sha256: a17759983113e81f52440da0d89dccada003f8b78bd589129aab35aa553e0638
-            artifact_id: 11790031459
-            unsigned_sha256: b2f4e472599746b7ab002b88d519b85bd729e7537c0ed9122ab8010d64e51024
+            source: 7f9af02e03256342da483186bf56607a7552f149
+            baseline_sha256: d9b682f45386adc6f026c64f0496ed8fbd0e86aca1360d0314c76d4283f144fb
+            artifact_id: 11869461574
+            unsigned_sha256: 012ff3a358b1b0b2e0c73734730771529c793ace42dfe255f56b4de1bff69152
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     env:
@@ -62,7 +62,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $base = [uri]$env:DOWNLOAD_BASE
-          if ($base.Scheme -cne 'https' -or $base.Host -cne 'zryc.oss-cn-beijing.aliyuncs.com' -or $base.AbsolutePath -cne '/release-tests/fengwo-windows-1.0.10-20261013/' -or $base.Query -or $base.Fragment -or $base.UserInfo -or $base.Port -ne 443) { throw 'Unexpected installer staging location' }
+          if ($base.Scheme -cne 'https' -or $base.Host -cne 'zryc.oss-cn-beijing.aliyuncs.com' -or $base.AbsolutePath -cne '/release-tests/fengwo-windows-1.0.11-20261014/' -or $base.Query -or $base.Fragment -or $base.UserInfo -or $base.Port -ne 443) { throw 'Unexpected installer staging location' }
           if ($env:EXPECTED_HASH -cnotmatch '\A[a-f0-9]{64}\z') { throw 'Expected SHA256 is invalid' }
           $headers = @{ Authorization = 'Bearer ' + $env:GH_TOKEN; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
           $archive = Join-Path $env:RUNNER_TEMP 'unsigned-build.zip'
@@ -92,35 +92,35 @@ jobs:
             [Array]::Copy($value, 0, $reconstructed, [int]$segment.offset, $length)
           }
           [Array]::Copy($trailer, 0, $reconstructed, $original.Length, $trailer.Length)
-          [IO.File]::WriteAllBytes((Join-Path $env:RUNNER_TEMP 'fengwo-1.0.10.exe'), $reconstructed)
+          [IO.File]::WriteAllBytes((Join-Path $env:RUNNER_TEMP 'fengwo-1.0.11.exe'), $reconstructed)
           $signatureEvidence = @()
-          foreach ($version in @('1.0.9', '1.0.10')) {
+          foreach ($version in @('1.0.10', '1.0.11')) {
             $path = Join-Path $env:RUNNER_TEMP ('fengwo-' + $version + '.exe')
-            if ($version -eq '1.0.9') {
+            if ($version -eq '1.0.10') {
               Invoke-WebRequest -Uri ('https://picture.sansen.tech/' + $env:INSTALLER_FILENAME) -OutFile $path
             }
-            $expected = if ($version -eq '1.0.9') { $env:BASELINE_HASH } else { $env:EXPECTED_HASH }
+            $expected = if ($version -eq '1.0.10') { $env:BASELINE_HASH } else { $env:EXPECTED_HASH }
             if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected) { throw 'Installer hash mismatch' }
             $signature = Get-AuthenticodeSignature -LiteralPath $path
             if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { throw 'Trusted timestamped Authenticode signature is required' }
             $certificateHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($signature.SignerCertificate.RawData)).ToLowerInvariant()
-            if ($certificateHash -cne '27e3e2e77a0c5f3428eeb95a35825d4cf0c8710e760e9c8cb12b447d39603252') { throw 'Installer publisher certificate differs from 1.0.9' }
+            if ($certificateHash -cne '27e3e2e77a0c5f3428eeb95a35825d4cf0c8710e760e9c8cb12b447d39603252') { throw 'Installer publisher certificate differs from 1.0.10' }
             $signatureEvidence += @{ version = $version; sha256 = $expected; status = [string]$signature.Status; signer_sha256 = $certificateHash; timestamp_subject = $signature.TimeStamperCertificate.Subject }
           }
           $evidenceDirectory = Join-Path $env:RUNNER_TEMP 'signed-upgrade-evidence'
           New-Item -ItemType Directory -Force -Path $evidenceDirectory | Out-Null
           $signatureEvidence | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $evidenceDirectory 'signature-evidence.json') -Encoding utf8NoBOM
-      - name: Verify signed 1.0.9 to 1.0.10 overwrite upgrade
+      - name: Verify signed 1.0.10 to 1.0.11 overwrite upgrade
         run: |
-          ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath (Join-Path $env:RUNNER_TEMP 'fengwo-1.0.10.exe') -PreviousInstallerPath (Join-Path $env:RUNNER_TEMP 'fengwo-1.0.9.exe') -ExpectedPreviousVersion '1.0.9' -OutputDirectory (Join-Path $env:RUNNER_TEMP 'signed-upgrade-evidence')
+          ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath (Join-Path $env:RUNNER_TEMP 'fengwo-1.0.11.exe') -PreviousInstallerPath (Join-Path $env:RUNNER_TEMP 'fengwo-1.0.10.exe') -ExpectedPreviousVersion '1.0.10' -OutputDirectory (Join-Path $env:RUNNER_TEMP 'signed-upgrade-evidence')
       - name: Upload tested identical signed package to isolated staging
         env:
           STAGE_PUT_URL: ${{ matrix.architecture == 'x64' && secrets.FENGWO_WINDOWS_X64_STAGE_PUT_URL || secrets.FENGWO_WINDOWS_ARM64_STAGE_PUT_URL }}
         run: |
           $ErrorActionPreference = 'Stop'
           $url = [uri]$env:STAGE_PUT_URL
-          if ($url.Scheme -cne 'https' -or $url.Host -cne 'zryc.oss-cn-beijing.aliyuncs.com' -or [uri]::UnescapeDataString($url.AbsolutePath) -cne ('/release-tests/fengwo-windows-1.0.10-20261013/' + $env:INSTALLER_FILENAME) -or -not $url.Query -or $url.Fragment -or $url.UserInfo -or $url.Port -ne 443) { throw 'Unexpected isolated upload capability' }
-          $path = Join-Path $env:RUNNER_TEMP 'fengwo-1.0.10.exe'
+          if ($url.Scheme -cne 'https' -or $url.Host -cne 'zryc.oss-cn-beijing.aliyuncs.com' -or [uri]::UnescapeDataString($url.AbsolutePath) -cne ('/release-tests/fengwo-windows-1.0.11-20261014/' + $env:INSTALLER_FILENAME) -or -not $url.Query -or $url.Fragment -or $url.UserInfo -or $url.Port -ne 443) { throw 'Unexpected isolated upload capability' }
+          $path = Join-Path $env:RUNNER_TEMP 'fengwo-1.0.11.exe'
           if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:EXPECTED_HASH) { throw 'Tested signed package changed before staging upload' }
           $config = @(
             'url = "' + $env:STAGE_PUT_URL + '"'
