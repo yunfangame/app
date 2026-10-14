@@ -1,7 +1,6 @@
 #include "../proxy_ras.h"
 
 #include <gtest/gtest.h>
-#include <cwchar>
 
 namespace {
 
@@ -24,7 +23,9 @@ struct RasFixture {
     for (DWORD i = 0; i < *count; ++i) {
       EXPECT_EQ(connections[i].dwSize, sizeof(RASCONNW));
       connections[i].hrasconn = reinterpret_cast<HRASCONN>(static_cast<uintptr_t>(i + 1));
-      std::wcsncpy(connections[i].szEntryName, f.names[i].c_str(), RAS_MaxEntryName);
+      const auto length = std::min(f.names[i].size(), static_cast<size_t>(RAS_MaxEntryName));
+      std::copy_n(f.names[i].data(), length, connections[i].szEntryName);
+      connections[i].szEntryName[length] = L'\0';
     }
     *size = required;
     return ERROR_SUCCESS;
@@ -68,7 +69,7 @@ TEST(ProxyRas, OnlyEstablishedConnectionsAreActive) {
 }
 
 TEST(ProxyRas, DisappearingHandleReenumerates) {
-  for (DWORD failure : {ERROR_INVALID_HANDLE, ERROR_PORT_NOT_OPEN}) {
+  for (DWORD failure : std::vector<DWORD>{ERROR_INVALID_HANDLE, ERROR_PORT_NOT_OPEN}) {
     RasFixture f;
     f.names = {L"disconnecting"};
     f.status_error = failure;
