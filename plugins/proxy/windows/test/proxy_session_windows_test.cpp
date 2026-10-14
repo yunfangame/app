@@ -246,6 +246,9 @@ void ActualLegacyRegistryRepair() {
     error = native_error;
     return success;
   };
+  ConnectionConfiguration snapshot;
+  uint32_t error = 0;
+  Require(backend.capture(L"", snapshot, error), "Cannot capture the clean fixture snapshot");
   HKEY key = nullptr;
   Require(RegOpenKeyExW(HKEY_CURRENT_USER,
           L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
@@ -262,9 +265,6 @@ void ActualLegacyRegistryRepair() {
   Require(status == ERROR_SUCCESS, "Cannot write owned legacy fixture");
   Require(read_status == ERROR_SUCCESS && fixture_type == REG_SZ,
           "Legacy fixture must trigger invalid type (13), not an undersized buffer (234)");
-  ConnectionConfiguration snapshot;
-  uint32_t error = 0;
-  Require(backend.capture(L"", snapshot, error), "Legacy fixture must retain a readable WinINet snapshot");
   auto strict = backend;
   strict.capture = {};
   ProxySession old_policy;
