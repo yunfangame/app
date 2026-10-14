@@ -7,6 +7,7 @@
 #include <string>
 
 #include "../proxy_settings.h"
+#include "../proxy_registry.h"
 
 #pragma comment(lib, "advapi32")
 
@@ -46,41 +47,16 @@ bool Notify(SessionOperationDetails& details) {
   return true;
 }
 
-void VerifyRegistry(const ConnectionConfiguration& configuration) {
-  HKEY key = nullptr;
-  Require(RegOpenKeyExW(HKEY_CURRENT_USER,
-          L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
-          0, KEY_QUERY_VALUE, &key) == ERROR_SUCCESS, "Cannot read current-user proxy registry");
-  DWORD enabled = 0;
-  DWORD type = 0;
-  DWORD size = sizeof(enabled);
-  auto enabled_status = RegQueryValueExW(key, L"ProxyEnable", nullptr, &type,
-      reinterpret_cast<LPBYTE>(&enabled), &size);
-  if (enabled_status == ERROR_FILE_NOT_FOUND) {
-    enabled_status = ERROR_SUCCESS;
-    enabled = 0;
-    type = REG_DWORD;
+bool VerifyRegistry(const ConnectionConfiguration& configuration, DWORD& error) {
+  proxy::settings::RegistryProxyReadback registry;
+  if (!proxy::settings::ReadProxyRegistry(registry, error)) return false;
+  if (registry.enabled != configuration.HasManualProxy() ||
+      (registry.enabled && registry.server != configuration.server)) {
+    error = ERROR_INVALID_DATA;
+    return false;
   }
-  const bool enabled_valid = enabled_status == ERROR_SUCCESS && type == REG_DWORD;
-  DWORD server_type = 0;
-  DWORD server_size = 0;
-  auto server_status = RegQueryValueExW(key, L"ProxyServer", nullptr, &server_type,
-                                       nullptr, &server_size);
-  std::wstring server;
-  bool server_valid = server_status == ERROR_FILE_NOT_FOUND;
-  if (server_status == ERROR_SUCCESS && (server_type == REG_SZ || server_type == REG_EXPAND_SZ)) {
-    std::vector<wchar_t> buffer(server_size / sizeof(wchar_t) + 1, L'\0');
-    server_status = RegQueryValueExW(key, L"ProxyServer", nullptr, &server_type,
-                                    reinterpret_cast<LPBYTE>(buffer.data()), &server_size);
-    server_valid = server_status == ERROR_SUCCESS;
-    if (server_valid) server.assign(buffer.data());
-  }
-  RegCloseKey(key);
-  Require(enabled_valid && server_valid, "Current-user proxy registry has invalid values");
-  Require((enabled != 0) == configuration.HasManualProxy(),
-          "WinINet FLAGS_UI disagrees with registry ProxyEnable");
-  Require(enabled == 0 || server == configuration.server,
-          "WinINet proxy address disagrees with registry ProxyServer");
+  error = ERROR_SUCCESS;
+  return true;
 }
 
 ConnectionConfiguration Read() {
@@ -88,7 +64,7 @@ ConnectionConfiguration Read() {
   DWORD error = 0;
   Require(proxy::settings::QueryConnection(L"", configuration, error),
           "Cannot query complete WinINet configuration");
-  VerifyRegistry(configuration);
+  Require(VerifyRegistry(configuration, error), "Cannot corroborate WinINet with proxy registry");
   return configuration;
 }
 
@@ -125,6 +101,10 @@ class SnapshotGuard {
 
 int ansi_reads = 0;
 int ansi_writes = 0;
+int legacy_wide_reads = 0;
+int denied_wide_reads = 0;
+int invalid_wide_reads = 0;
+int invalid_ansi_reads = 0;
 
 BOOL WINAPI RejectWideQuery(HINTERNET, DWORD, LPVOID, LPDWORD) {
   SetLastError(ERROR_INVALID_PARAMETER);
@@ -133,6 +113,49 @@ BOOL WINAPI RejectWideQuery(HINTERNET, DWORD, LPVOID, LPDWORD) {
 
 BOOL WINAPI RejectWideWrite(HINTERNET, DWORD, LPVOID, DWORD) {
   SetLastError(ERROR_INVALID_PARAMETER);
+  return FALSE;
+}
+
+BOOL WINAPI FillLegacyWideQuery(HINTERNET handle, DWORD option, LPVOID buffer, LPDWORD size) {
+  auto* list = static_cast<INTERNET_PER_CONN_OPTION_LISTW*>(buffer);
+  Require(handle == nullptr && option == INTERNET_OPTION_PER_CONNECTION_OPTION &&
+          *size == sizeof(*list) && list->dwOptionCount == 4 &&
+          std::wstring(list->pszConnection) == L"VPN-A", "Wrong legacy Unicode query schema");
+  legacy_wide_reads++;
+  if (list->pOptions[0].dwOption == INTERNET_PER_CONN_FLAGS_UI) {
+    SetLastError(ERROR_INVALID_DATA);
+    return FALSE;
+  }
+  Require(list->pOptions[0].dwOption == INTERNET_PER_CONN_FLAGS,
+          "Error 13 fallback did not use complete legacy flags");
+  const auto fixture = FixtureConfiguration();
+  list->pOptions[0].Value.dwValue = fixture.flags;
+  const std::wstring values[] = {fixture.server, fixture.bypass, fixture.auto_config_url};
+  for (size_t i = 0; i < 3; ++i) {
+    const auto bytes = (values[i].size() + 1) * sizeof(wchar_t);
+    auto* memory = static_cast<wchar_t*>(GlobalAlloc(GPTR, bytes));
+    Require(memory != nullptr, "Cannot allocate legacy Unicode query fixture");
+    std::memcpy(memory, values[i].c_str(), bytes);
+    list->pOptions[i + 1].Value.pszValue = memory;
+  }
+  return TRUE;
+}
+
+BOOL WINAPI DenyWideQuery(HINTERNET, DWORD, LPVOID, LPDWORD) {
+  denied_wide_reads++;
+  SetLastError(ERROR_ACCESS_DENIED);
+  return FALSE;
+}
+
+BOOL WINAPI InvalidWideQuery(HINTERNET, DWORD, LPVOID, LPDWORD) {
+  invalid_wide_reads++;
+  SetLastError(ERROR_INVALID_DATA);
+  return FALSE;
+}
+
+BOOL WINAPI InvalidAnsiQuery(HINTERNET, DWORD, LPVOID, LPDWORD) {
+  invalid_ansi_reads++;
+  SetLastError(ERROR_INVALID_DATA);
   return FALSE;
 }
 
@@ -195,12 +218,26 @@ void TypedFallback() {
   Require(proxy::settings::WriteConnection(L"VPN-A", configuration, error, fallback,
           RejectWideWrite, VerifyAnsiWrite) && fallback && error == ERROR_SUCCESS &&
           ansi_writes == 1, "Complete writer fallback failed");
+  const int ansi_before = ansi_reads;
+  Require(proxy::settings::QueryConnection(L"VPN-A", configuration, error,
+          FillLegacyWideQuery, FillAnsiQuery) && configuration == FixtureConfiguration() &&
+          error == ERROR_SUCCESS && legacy_wide_reads == 2 && ansi_reads == ansi_before,
+          "Error 13 legacy Unicode query did not preserve complete snapshot");
+  Require(!proxy::settings::QueryConnection(L"VPN-A", configuration, error,
+          DenyWideQuery, FillAnsiQuery) && error == ERROR_ACCESS_DENIED &&
+          denied_wide_reads == 1 && ansi_reads == ansi_before,
+          "Access denied was hidden by an unsupported fallback");
+  Require(!proxy::settings::QueryConnection(L"VPN-A", configuration, error,
+          InvalidWideQuery, InvalidAnsiQuery) && error == ERROR_INVALID_DATA &&
+          invalid_wide_reads == 2 && invalid_ansi_reads == 1,
+          "Unreadable complete snapshots must fail with a bounded error 13 retry");
 }
 
 struct NativeFixture {
   int reads = 0;
   int writes = 0;
   int notifications = 0;
+  std::function<void()> after_query;
 
   ConnectionBackend Backend() {
     return {
@@ -213,7 +250,11 @@ struct NativeFixture {
         reads++;
         DWORD native_error = 0;
         const bool success = proxy::settings::QueryConnection(name, configuration, native_error);
-        if (success && name.empty()) VerifyRegistry(configuration);
+        if (success && name.empty() && after_query) after_query();
+        if (success && name.empty() && !VerifyRegistry(configuration, native_error)) {
+          error = native_error;
+          return false;
+        }
         error = native_error;
         return success;
       },
@@ -230,6 +271,141 @@ struct NativeFixture {
     };
   }
 };
+
+void ActualLegacyRegistryRepair() {
+  SnapshotGuard original;
+  struct LegacyValue {
+    const char* label;
+    const wchar_t* name;
+    DWORD type;
+    const void* data;
+    DWORD size;
+  };
+  const wchar_t short_string[] = L"x";
+  const wchar_t long_string[] = L"legacy-invalid-type";
+  const DWORD number = 1;
+  const wchar_t multiple[] = L"invalid\0";
+  const LegacyValue fixtures[] = {
+    {"enable_short_string", L"ProxyEnable", REG_SZ, short_string, sizeof(short_string)},
+    {"enable_long_string", L"ProxyEnable", REG_SZ, long_string, sizeof(long_string)},
+    {"enable_binary", L"ProxyEnable", REG_BINARY, &number, sizeof(number)},
+    {"server_dword", L"ProxyServer", REG_DWORD, &number, sizeof(number)},
+    {"server_binary", L"ProxyServer", REG_BINARY, &number, sizeof(number)},
+    {"server_multi_string", L"ProxyServer", REG_MULTI_SZ, multiple, sizeof(multiple)},
+  };
+  int invalid_data_reproductions = 0;
+  int more_data_reproductions = 0;
+  for (const auto& fixture : fixtures) {
+    Apply(FixtureConfiguration());
+    NativeFixture native;
+    auto backend = native.Backend();
+    backend.capture = [](const std::wstring& name, ConnectionConfiguration& configuration,
+                         uint32_t& error) {
+      DWORD native_error = 0;
+      const bool success = proxy::settings::QueryConnection(name, configuration, native_error);
+      error = native_error;
+      return success;
+    };
+    ConnectionConfiguration snapshot;
+    uint32_t error = 0;
+    Require(backend.capture(L"", snapshot, error), "Cannot capture clean fixture snapshot");
+    HKEY key = nullptr;
+    Require(RegOpenKeyExW(HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+        0, KEY_SET_VALUE, &key) == ERROR_SUCCESS, "Cannot prepare registry fixture");
+    const auto status = RegSetValueExW(key, fixture.name, 0, fixture.type,
+        static_cast<const BYTE*>(fixture.data), fixture.size);
+    RegCloseKey(key);
+    Require(status == ERROR_SUCCESS, "Cannot write legacy registry fixture");
+    proxy::settings::RegistryProxyReadback raw;
+    DWORD raw_error = 0;
+    const bool raw_success = proxy::settings::ReadProxyRegistry(raw, raw_error);
+    auto strict = backend;
+    strict.capture = {};
+    ProxySession old_policy;
+    const auto rejected = old_policy.Start(Manual(), strict);
+    std::cout << "LEGACY_FIXTURE: " << fixture.label << " raw_success=" << raw_success
+              << " raw_error=" << raw_error << " old_success=" << rejected.success
+              << " stage=" << rejected.stage << " error=" << rejected.errorCode
+              << " writes=" << native.writes << "\n";
+    if (rejected.success) {
+      const auto stopped = old_policy.Stop(std::nullopt, strict);
+      std::cout << "NORMALIZED_OLD_CLEANUP: " << fixture.label << " success="
+                << stopped.success << " stage=" << stopped.stage << " error="
+                << stopped.errorCode << "\n";
+      Apply(snapshot);
+      Require(Read() == snapshot, "Cannot restore normalized fixture baseline");
+      continue;
+    }
+    Require(rejected.stage == "capture_default" && native.writes == 0,
+            "Legacy snapshot rejection wrote settings or failed at an unexpected stage");
+    Require(rejected.errorCode == ERROR_INVALID_DATA || rejected.errorCode == ERROR_MORE_DATA,
+            "Unexpected native legacy registry error");
+    invalid_data_reproductions += rejected.errorCode == ERROR_INVALID_DATA ? 1 : 0;
+    more_data_reproductions += rejected.errorCode == ERROR_MORE_DATA ? 1 : 0;
+    ConnectionConfiguration repaired_original;
+    Require(backend.capture(L"", repaired_original, error), "Cannot capture actual legacy WinINet snapshot");
+    ProxySession repaired;
+    const auto applied = repaired.Start(Manual(), backend);
+    Require(applied.success && Read() == Manual(), "Actual registry repair failed");
+    Require(repaired.Stop(std::nullopt, backend).success && Read() == repaired_original,
+            "Repaired session did not restore its original complete WinINet snapshot");
+    std::cout << "REPAIRED: " << fixture.label << " native_error=" << rejected.errorCode
+              << " verified and original settings restored\n";
+  }
+  original.Restore();
+  Require(more_data_reproductions > 0, "Actual ERROR_MORE_DATA fixture was not reproduced");
+  std::cout << "LEGACY_SUMMARY: snapshot_error_13=" << invalid_data_reproductions
+            << " snapshot_error_234=" << more_data_reproductions << "\n";
+  std::cout << "PASS: native legacy registry matrix retains actual errors and restores test settings\n";
+}
+
+void ActualRegistryRaceRepair() {
+  SnapshotGuard original;
+  Apply(FixtureConfiguration());
+  const auto snapshot = Read();
+  NativeFixture native;
+  int remaining_mutations = 1;
+  native.after_query = [&]() {
+    if (remaining_mutations == 0) return;
+    remaining_mutations--;
+    HKEY key = nullptr;
+    Require(RegOpenKeyExW(HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+        0, KEY_SET_VALUE, &key) == ERROR_SUCCESS, "Cannot open concurrent-writer fixture");
+    const DWORD invalid = 0;
+    const auto status = RegSetValueExW(key, L"ProxyEnable", 0, REG_BINARY,
+        reinterpret_cast<const BYTE*>(&invalid), sizeof(invalid));
+    RegCloseKey(key);
+    Require(status == ERROR_SUCCESS, "Cannot inject concurrent registry type change");
+  };
+  auto strict = native.Backend();
+  ProxySession old_policy;
+  const auto rejected = old_policy.Start(Manual(), strict);
+  Require(!rejected.success && rejected.stage == "capture_default" &&
+          rejected.errorCode == ERROR_INVALID_DATA && native.writes == 0,
+          "Actual controlled registry race did not reproduce snapshot error 13");
+  std::cout << "CONTROLLED_RACE_REPRODUCED: W-PROXY-11 (13), actual registry reader, zero writes\n";
+  Apply(snapshot);
+  remaining_mutations = 1;
+  auto repaired_backend = native.Backend();
+  repaired_backend.capture = [](const std::wstring& name, ConnectionConfiguration& configuration,
+                                uint32_t& error) {
+    DWORD native_error = 0;
+    const bool success = proxy::settings::QueryConnection(name, configuration, native_error);
+    error = native_error;
+    return success;
+  };
+  ProxySession repaired;
+  const auto applied = repaired.Start(Manual(), repaired_backend);
+  Require(applied.success && Read() == Manual() && remaining_mutations == 0,
+          "Controlled registry race repair did not pass strict native readback");
+  const auto stopped = repaired.Stop(std::nullopt, repaired_backend);
+  Require(stopped.success && Read() == snapshot && !repaired.HasPendingCleanup(),
+          "Controlled race repair did not restore the complete original snapshot");
+  original.Restore();
+  std::cout << "PASS: controlled error 13 race repaired and original PAC/autodetect settings restored\n";
+}
 
 void ActualWindowsSession() {
   SnapshotGuard original;
@@ -281,12 +457,21 @@ int main() {
   try {
     wchar_t actions[16] = {};
     wchar_t mutation[16] = {};
+    wchar_t authorized_machine[MAX_COMPUTERNAME_LENGTH + 1] = {};
+    wchar_t machine[MAX_COMPUTERNAME_LENGTH + 1] = {};
+    DWORD machine_length = MAX_COMPUTERNAME_LENGTH + 1;
     GetEnvironmentVariableW(L"GITHUB_ACTIONS", actions, 16);
     GetEnvironmentVariableW(L"FENGWO_PROXY_MUTATING_TEST", mutation, 16);
-    Require(std::wstring(actions) == L"true" && std::wstring(mutation) == L"1",
-            "Requires an isolated CI Windows account");
+    GetEnvironmentVariableW(L"FENGWO_PROXY_TEST_MACHINE", authorized_machine,
+                            MAX_COMPUTERNAME_LENGTH + 1);
+    const bool named_test_machine = GetComputerNameW(machine, &machine_length) &&
+        authorized_machine[0] != L'\0' && std::wstring(machine) == authorized_machine;
+    Require((std::wstring(actions) == L"true" || named_test_machine) &&
+            std::wstring(mutation) == L"1", "Requires an explicitly selected isolated Windows test account");
     TypedFallback();
     ActualWindowsSession();
+    ActualLegacyRegistryRepair();
+    ActualRegistryRaceRepair();
     std::cout << "PASS: typed complete W/ANSI fallback, real WinINet restoration and registry corroboration\n";
     return 0;
   } catch (const std::exception& error) {

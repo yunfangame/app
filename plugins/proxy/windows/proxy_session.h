@@ -90,6 +90,7 @@ struct ConnectionBackend {
                      uint32_t&, bool&)> write;
   std::function<bool(SessionOperationDetails&)> notify;
   std::function<bool(ConnectionDiscovery&, uint32_t&)> discover = {};
+  std::function<bool(const std::wstring&, ConnectionConfiguration&, uint32_t&)> capture = {};
 };
 
 class ProxySession {
@@ -112,7 +113,7 @@ class ProxySession {
             return entry.first == name;
           })) continue;
       ConnectionConfiguration value;
-      if (!backend.read(name, value, details.errorCode)) {
+      if (!(backend.capture ? backend.capture : backend.read)(name, value, details.errorCode)) {
         Trace(details, name, "capture", false, details.errorCode);
         details.stage = name.empty() ? "capture_default" : "capture_ras";
         details.connectionName = name;
@@ -120,6 +121,15 @@ class ProxySession {
         return Finish(details);
       }
       Trace(details, name, "capture", true, 0, &value);
+      if (backend.capture) {
+        ConnectionConfiguration corroborated;
+        uint32_t corroboration_error = 0;
+        const bool read = backend.read(name, corroborated, corroboration_error);
+        const bool matched = read && AppliedConfigurationMatches(corroborated, value);
+        Trace(details, name, "preflight_readback", matched,
+              !read ? corroboration_error : matched ? 0 : 13,
+              read ? &corroborated : nullptr, &value);
+      }
       current.push_back({name, value});
     }
     bool wrote = false;
@@ -127,7 +137,11 @@ class ProxySession {
       const auto& name = item.first;
       const auto& before = item.second;
       auto found = entries_.find(name);
-      if (AppliedConfigurationMatches(before, desired)) {
+      ConnectionConfiguration verified;
+      uint32_t verify_error = 0;
+      if (AppliedConfigurationMatches(before, desired) &&
+          (!backend.capture || (backend.read(name, verified, verify_error) &&
+                                AppliedConfigurationMatches(verified, desired)))) {
         if (found != entries_.end() && IsOwned(found->second, before)) {
           found->second.applied = before;
           found->second.transition.reset();
@@ -289,7 +303,7 @@ class ProxySession {
       auto& entry = it->second;
       ConnectionConfiguration current;
       uint32_t error = 0;
-      if (!backend.read(name, current, error)) {
+      if (!(backend.capture ? backend.capture : backend.read)(name, current, error)) {
         Trace(details, name, "restore_capture", false, error);
         RecordFailure(details, "readback", error, name);
         ++it;
@@ -298,7 +312,11 @@ class ProxySession {
       Trace(details, name, "restore_capture", true, 0, &current);
       if (name.empty()) SetReadback(details, current);
       const auto restored = Restoration(entry, current);
-      if (current == restored) {
+      ConnectionConfiguration verified;
+      uint32_t verify_error = 0;
+      if (current == restored &&
+          (!backend.capture || (backend.read(name, verified, verify_error) &&
+                                AppliedConfigurationMatches(verified, restored)))) {
         Trace(details, name, "already_restored", true, 0, &current, &restored);
         details.skippedCount++;
         it = entries_.erase(it);

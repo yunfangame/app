@@ -19,6 +19,9 @@ set(PLUGIN_NAME "proxy_plugin")
 list(APPEND PLUGIN_SOURCES
   "proxy_plugin.cpp"
   "proxy_plugin.h"
+  "proxy_settings.h"
+  "proxy_registry.h"
+  "proxy_ras.h"
   "proxy_task_runner.h"
 )
 
@@ -83,6 +86,7 @@ FetchContent_MakeAvailable(googletest)
 add_executable(${TEST_RUNNER}
   test/proxy_plugin_test.cpp
   test/proxy_session_test.cpp
+  test/proxy_ras_test.cpp
   test/proxy_task_runner_test.cpp
   ${PLUGIN_SOURCES}
 )

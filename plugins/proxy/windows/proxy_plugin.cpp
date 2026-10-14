@@ -10,6 +10,8 @@
 #include <Ras.h>
 #include <RasError.h>
 #include "proxy_settings.h"
+#include "proxy_ras.h"
+#include "proxy_registry.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -31,15 +33,6 @@ namespace
 
 constexpr int kMinProxyPort = 1;
 constexpr int kMaxProxyPort = 65535;
-constexpr wchar_t kInternetSettingsKey[] =
-    L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
-
-struct ProxyReadback
-{
-  bool enabled = false;
-  std::wstring server;
-};
-
 using ProxyOperationDetails = proxy::settings::SessionOperationDetails;
 
 std::wstring Utf8ToWide(const std::string& value)
@@ -105,72 +98,6 @@ bool IsStringList(const flutter::EncodableList& values)
       });
 }
 
-bool ReadStringValue(
-    HKEY key,
-    const wchar_t* name,
-    std::wstring& value,
-    DWORD& errorCode)
-{
-  DWORD type = 0;
-  DWORD size = 0;
-  auto status = RegQueryValueExW(key, name, nullptr, &type, nullptr, &size);
-  if (status == ERROR_FILE_NOT_FOUND)
-  {
-    value.clear();
-    return true;
-  }
-  if (status != ERROR_SUCCESS ||
-      (type != REG_SZ && type != REG_EXPAND_SZ))
-  {
-    errorCode = status == ERROR_SUCCESS ? ERROR_INVALID_DATA : status;
-    return false;
-  }
-  std::vector<wchar_t> buffer(size / sizeof(wchar_t) + 1, L'\0');
-  status = RegQueryValueExW(
-      key, name, nullptr, &type,
-      reinterpret_cast<LPBYTE>(buffer.data()), &size);
-  if (status != ERROR_SUCCESS)
-  {
-    errorCode = status;
-    return false;
-  }
-  value.assign(buffer.data());
-  return true;
-}
-
-bool ReadProxyRegistry(ProxyReadback& readback, DWORD& errorCode)
-{
-  HKEY key = nullptr;
-  auto status = RegOpenKeyExW(
-      HKEY_CURRENT_USER, kInternetSettingsKey, 0, KEY_QUERY_VALUE, &key);
-  if (status != ERROR_SUCCESS)
-  {
-    errorCode = status;
-    return false;
-  }
-  DWORD enabled = 0;
-  DWORD type = 0;
-  DWORD size = sizeof(enabled);
-  status = RegQueryValueExW(
-      key, L"ProxyEnable", nullptr, &type,
-      reinterpret_cast<LPBYTE>(&enabled), &size);
-  if (status == ERROR_FILE_NOT_FOUND)
-  {
-    enabled = 0;
-  }
-  else if (status != ERROR_SUCCESS || type != REG_DWORD)
-  {
-    RegCloseKey(key);
-    errorCode = status == ERROR_SUCCESS ? ERROR_INVALID_DATA : status;
-    return false;
-  }
-  readback.enabled = enabled != 0;
-  const bool serverRead =
-      ReadStringValue(key, L"ProxyServer", readback.server, errorCode);
-  RegCloseKey(key);
-  return serverRead;
-}
-
 bool EnumerateConnections(std::vector<std::wstring>& names, uint32_t& error)
 {
   DWORD size = 0;
@@ -195,9 +122,9 @@ bool EnumerateConnections(std::vector<std::wstring>& names, uint32_t& error)
   return true;
 }
 
-bool ReadConnection(const std::wstring& name,
-                    proxy::settings::ConnectionConfiguration& configuration,
-                    uint32_t& error)
+bool CaptureConnection(const std::wstring& name,
+                       proxy::settings::ConnectionConfiguration& configuration,
+                       uint32_t& error)
 {
   DWORD native_error = ERROR_SUCCESS;
   if (!proxy::settings::QueryConnection(name, configuration, native_error))
@@ -205,10 +132,20 @@ bool ReadConnection(const std::wstring& name,
     error = native_error;
     return false;
   }
+  error = ERROR_SUCCESS;
+  return true;
+}
+
+bool ReadConnection(const std::wstring& name,
+                    proxy::settings::ConnectionConfiguration& configuration,
+                    uint32_t& error)
+{
+  if (!CaptureConnection(name, configuration, error)) return false;
   if (name.empty())
   {
-    ProxyReadback registry;
-    if (!ReadProxyRegistry(registry, native_error))
+    DWORD native_error = ERROR_SUCCESS;
+    proxy::settings::RegistryProxyReadback registry;
+    if (!proxy::settings::ReadProxyRegistry(registry, native_error))
     {
       error = native_error;
       return false;
@@ -227,49 +164,7 @@ bool ReadConnection(const std::wstring& name,
 bool DiscoverConnections(proxy::settings::ConnectionDiscovery& discovery,
                          uint32_t& error)
 {
-  std::vector<RASCONNW> connections(1);
-  DWORD size = sizeof(RASCONNW);
-  DWORD count = 0;
-  DWORD status = ERROR_SUCCESS;
-  for (int attempt = 0; attempt < 4; ++attempt)
-  {
-    for (auto& connection : connections) connection.dwSize = sizeof(RASCONNW);
-    size = static_cast<DWORD>(connections.size() * sizeof(RASCONNW));
-    status = RasEnumConnectionsW(connections.data(), &size, &count);
-    if (status != ERROR_BUFFER_TOO_SMALL) break;
-    const size_t required = (size + sizeof(RASCONNW) - 1) / sizeof(RASCONNW);
-    if (required == 0 || required > 1024)
-    {
-      error = ERROR_INVALID_DATA;
-      return false;
-    }
-    connections.resize(required);
-  }
-  if (status != ERROR_SUCCESS || count > connections.size())
-  {
-    error = status == ERROR_SUCCESS ? ERROR_INVALID_DATA : status;
-    return false;
-  }
-  for (DWORD i = 0; i < count; ++i)
-  {
-    RASCONNSTATUSW state = {};
-    state.dwSize = sizeof(state);
-    status = RasGetConnectStatusW(connections[i].hrasconn, &state);
-    if (status != ERROR_SUCCESS)
-    {
-      error = status;
-      return false;
-    }
-    if (state.rasconnstate == RASCS_Disconnected) continue;
-    const std::wstring name = connections[i].szEntryName;
-    if (name.empty())
-    {
-      error = ERROR_INVALID_DATA;
-      return false;
-    }
-    if (std::find(discovery.active.begin(), discovery.active.end(), name) == discovery.active.end())
-      discovery.active.push_back(name);
-  }
+  if (!proxy::settings::DiscoverActiveConnections(discovery.active, error)) return false;
   std::vector<std::wstring> saved;
   uint32_t saved_error = 0;
   if (!EnumerateConnections(saved, saved_error))
@@ -322,6 +217,7 @@ proxy::settings::ConnectionBackend NativeBackend()
   auto backend = proxy::settings::ConnectionBackend{
       EnumerateConnections, ReadConnection, WriteConnection, NotifySettingsChanged};
   backend.discover = DiscoverConnections;
+  backend.capture = CaptureConnection;
   return backend;
 }
 
