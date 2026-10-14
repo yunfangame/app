@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -14,6 +15,8 @@ typedef XboardTicketRequester =
       String authData,
       Map<String, Object?>? body,
     );
+
+typedef XboardTicketViewRefresh = Future<bool?> Function();
 
 int _number(Object? value) => int.tryParse('$value') ?? 0;
 
@@ -157,10 +160,29 @@ class XboardTicketApi {
 }
 
 class XboardTicketController extends ChangeNotifier {
-  XboardTicketController({XboardTicketApi? api})
-    : api = api ?? XboardTicketApi();
+  XboardTicketController({
+    XboardTicketApi? api,
+    int Function()? pollJitterSeconds,
+  }) : api = api ?? XboardTicketApi(),
+       _pollJitterSeconds =
+           pollJitterSeconds ?? (() => Random().nextInt(31) - 15);
 
   final XboardTicketApi api;
+  final int Function() _pollJitterSeconds;
+  final _activeViews = <Object, XboardTicketViewRefresh?>{};
+  Timer? _pollTimer;
+  bool _pollImmediate = false;
+  Future<bool?>? _pollOperation;
+  bool _polling = false;
+  bool _appForeground = true;
+  bool _windowForeground = true;
+  bool get _foreground => _appForeground && _windowForeground;
+  int _pollFailures = 0;
+  int _dataRevision = 0;
+  Future<bool?>? _listOperation;
+  int? _listRequestStatus;
+  int? _listRequestDataRevision;
+  bool _listRequestMore = false;
   XboardLoginResult? _session;
   int _generation = 0;
   int _listRevision = 0;
@@ -176,9 +198,127 @@ class XboardTicketController extends ChangeNotifier {
   int openCount = 0;
   int closedCount = 0;
   List<XboardTicket> tickets = const [];
-  Future<void>? _summaryOperation;
+  Future<bool?>? _summaryOperation;
 
   XboardLoginResult? get session => _session;
+  bool get isForeground => _foreground;
+  bool get _canPoll =>
+      _polling && _foreground && !_disposed && !_offline && _session != null;
+
+  void startPolling({required bool foreground}) {
+    if (_disposed) return;
+    _polling = true;
+    _appForeground = foreground;
+    _requestPoll();
+  }
+
+  void stopPolling() {
+    _polling = false;
+    _pollTimer?.cancel();
+  }
+
+  void refreshNow() => _requestPoll();
+
+  void setForeground(bool foreground) {
+    if (_disposed) return;
+    final previous = _foreground;
+    _appForeground = foreground;
+    _foregroundChanged(previous);
+  }
+
+  void setWindowForeground(bool foreground) {
+    if (_disposed) return;
+    final previous = _foreground;
+    _windowForeground = foreground;
+    _foregroundChanged(previous);
+  }
+
+  void _foregroundChanged(bool previous) {
+    if (previous == _foreground) return;
+    _pollTimer?.cancel();
+    if (_foreground) _requestPoll();
+  }
+
+  void setViewActive(
+    Object owner,
+    bool active, {
+    XboardTicketViewRefresh? refresh,
+  }) {
+    if (_disposed) return;
+    if (active) {
+      if (_activeViews.containsKey(owner) && _activeViews[owner] == refresh) {
+        return;
+      }
+      _activeViews[owner] = refresh;
+    } else {
+      if (!_activeViews.containsKey(owner)) return;
+      _activeViews.remove(owner);
+    }
+    _schedulePoll();
+  }
+
+  void _requestPoll() {
+    _pollTimer?.cancel();
+    _pollImmediate = false;
+    if (!_canPoll || _pollOperation != null) return;
+    _pollImmediate = true;
+    _pollTimer = Timer(Duration.zero, () {
+      _pollImmediate = false;
+      unawaited(_poll());
+    });
+  }
+
+  void _schedulePoll() {
+    if (_pollImmediate && (_pollTimer?.isActive ?? false) && _canPoll) return;
+    _pollTimer?.cancel();
+    _pollImmediate = false;
+    if (!_canPoll || _pollOperation != null) return;
+    final seconds = switch (_pollFailures) {
+      0 => _activeViews.isEmpty ? 120 : 30,
+      1 => 240,
+      _ => 480,
+    };
+    final jitter = _pollJitterSeconds().clamp(-15, 15);
+    _pollTimer = Timer(
+      Duration(seconds: seconds + jitter),
+      () => unawaited(_poll()),
+    );
+  }
+
+  void _recordPollResult(bool? success, {bool reschedule = true}) {
+    if (success == null) return;
+    _pollFailures = success ? 0 : min(_pollFailures + 1, 2);
+    if (reschedule) _schedulePoll();
+  }
+
+  Future<void> _poll() async {
+    if (!_canPoll || _pollOperation != null) return;
+    final generation = _generation;
+    final dataRevision = _dataRevision;
+    final operation = () async {
+      if (_activeViews.isEmpty) return _refreshSummary();
+      final refresh = _activeViews.values.last;
+      if (refresh == null) return _refreshList();
+      try {
+        final success = await refresh();
+        if (!_canPoll || generation != _generation) return null;
+        if (success == false) return false;
+        return _refreshSummary();
+      } catch (_) {
+        return false;
+      }
+    }();
+    _pollOperation = operation;
+    final success = await operation;
+    if (!identical(_pollOperation, operation)) return;
+    _pollOperation = null;
+    if (generation != _generation || _disposed) return;
+    if (dataRevision == _dataRevision) {
+      _recordPollResult(success, reschedule: false);
+    }
+    _schedulePoll();
+  }
+
   bool isCurrent(XboardLoginResult session) =>
       !_disposed &&
       !_offline &&
@@ -194,9 +334,14 @@ class XboardTicketController extends ChangeNotifier {
     _generation++;
     _listRevision++;
     _summaryRevision++;
+    _dataRevision++;
     _session = session;
     _offline = offline;
     _summaryOperation = null;
+    _listOperation = null;
+    _pollOperation = null;
+    _pollFailures = 0;
+    _pollTimer?.cancel();
     loading = false;
     failed = false;
     hasMore = false;
@@ -205,6 +350,7 @@ class XboardTicketController extends ChangeNotifier {
     unreadCount = openCount = closedCount = 0;
     tickets = const [];
     notifyListeners();
+    _requestPoll();
   }
 
   void _summary(Map data) {
@@ -213,27 +359,43 @@ class XboardTicketController extends ChangeNotifier {
     closedCount = _number(data['closed_count']);
   }
 
-  Future<void> refreshSummary() {
+  Future<void> refreshSummary() async {
+    await _refreshSummary();
+  }
+
+  Future<bool?> _observeRefresh(Future<bool?> operation, int generation) async {
+    final success = await operation;
+    if (generation == _generation && !_disposed && _pollOperation == null) {
+      _recordPollResult(success);
+    }
+    return success;
+  }
+
+  Future<bool?> _refreshSummary() {
     final current = _summaryOperation;
     if (current != null) return current;
     final session = _session;
-    if (session == null || _offline || _disposed) return Future.value();
+    if (session == null || _offline || _disposed || !_foreground) {
+      return Future.value();
+    }
     final generation = _generation;
     final revision = ++_summaryRevision;
-    final operation = () async {
+    final request = () async {
       try {
         final data = await api.request(session, 'ticket-sync/summary');
         if (_disposed ||
             generation != _generation ||
             revision != _summaryRevision) {
-          return;
+          return null;
         }
         _summary(data as Map);
         notifyListeners();
+        return true;
       } catch (_) {
-        return;
+        return generation == _generation && !_disposed ? false : null;
       }
     }();
+    final operation = _observeRefresh(request, generation);
     _summaryOperation = operation;
     return operation.whenComplete(() {
       if (identical(_summaryOperation, operation)) _summaryOperation = null;
@@ -241,12 +403,25 @@ class XboardTicketController extends ChangeNotifier {
   }
 
   Future<void> refresh({int? filter, bool more = false}) async {
+    await _refreshList(filter: filter, more: more);
+  }
+
+  Future<bool?> _refreshList({int? filter, bool more = false}) {
     final session = _session;
     if (session == null ||
         _offline ||
         _disposed ||
+        !_foreground ||
         (more && (loading || !hasMore))) {
-      return;
+      return Future.value();
+    }
+    final requestedStatus = filter ?? status;
+    if (!more &&
+        _listOperation != null &&
+        !_listRequestMore &&
+        _listRequestStatus == requestedStatus &&
+        _listRequestDataRevision == _dataRevision) {
+      return _listOperation!;
     }
     if (filter != null && filter != status) {
       status = filter;
@@ -261,45 +436,60 @@ class XboardTicketController extends ChangeNotifier {
     loading = true;
     failed = false;
     notifyListeners();
-    try {
-      final data =
-          await api.request(
-                session,
-                'ticket-sync/fetch',
-                query: {'status': status, 'page': nextPage, 'limit': 30},
-              )
-              as Map;
-      if (_disposed || generation != _generation || revision != _listRevision) {
-        return;
+    final request = () async {
+      try {
+        final data =
+            await api.request(
+                  session,
+                  'ticket-sync/fetch',
+                  query: {'status': status, 'page': nextPage, 'limit': 30},
+                )
+                as Map;
+        if (_disposed ||
+            generation != _generation ||
+            revision != _listRevision) {
+          return null;
+        }
+        final items = (data['items'] as List)
+            .map((item) => XboardTicket.fromMap(item as Map))
+            .toList();
+        tickets = List.unmodifiable(
+          more
+              ? {
+                  ...{for (final t in tickets) t.id: t},
+                  ...{for (final t in items) t.id: t},
+                }.values
+              : items,
+        );
+        hasMore = data['has_more'] == true;
+        page = nextPage;
+        if (summaryRevision == _summaryRevision) _summary(data);
+        return true;
+      } catch (_) {
+        if (!_disposed &&
+            generation == _generation &&
+            revision == _listRevision) {
+          failed = true;
+          return false;
+        }
+        return null;
+      } finally {
+        if (!_disposed &&
+            generation == _generation &&
+            revision == _listRevision) {
+          loading = false;
+          notifyListeners();
+        }
       }
-      final items = (data['items'] as List)
-          .map((item) => XboardTicket.fromMap(item as Map))
-          .toList();
-      tickets = List.unmodifiable(
-        more
-            ? {
-                ...{for (final t in tickets) t.id: t},
-                ...{for (final t in items) t.id: t},
-              }.values
-            : items,
-      );
-      hasMore = data['has_more'] == true;
-      page = nextPage;
-      if (summaryRevision == _summaryRevision) _summary(data);
-    } catch (_) {
-      if (!_disposed &&
-          generation == _generation &&
-          revision == _listRevision) {
-        failed = true;
-      }
-    } finally {
-      if (!_disposed &&
-          generation == _generation &&
-          revision == _listRevision) {
-        loading = false;
-        notifyListeners();
-      }
-    }
+    }();
+    final operation = _observeRefresh(request, generation);
+    _listRequestStatus = requestedStatus;
+    _listRequestDataRevision = _dataRevision;
+    _listRequestMore = more;
+    _listOperation = operation;
+    return operation.whenComplete(() {
+      if (identical(_listOperation, operation)) _listOperation = null;
+    });
   }
 
   Future<XboardTicketDetail> detail(int id) async {
@@ -335,7 +525,11 @@ class XboardTicketController extends ChangeNotifier {
       },
     );
     if (generation != _generation || !isCurrent(session)) return;
-    await refresh();
+    _dataRevision++;
+    _listRevision++;
+    _summaryRevision++;
+    _summaryOperation = null;
+    if (_foreground) await refresh();
   }
 
   Future<void> mutate(String action, Map<String, Object?> body) async {
@@ -348,12 +542,18 @@ class XboardTicketController extends ChangeNotifier {
     if (generation != _generation || !isCurrent(session)) {
       throw StateError('Session changed');
     }
-    await refresh(filter: action == 'save' ? 0 : null);
+    _dataRevision++;
+    _listRevision++;
+    _summaryRevision++;
+    _summaryOperation = null;
+    if (_foreground) await refresh(filter: action == 'save' ? 0 : null);
   }
 
   @override
   void dispose() {
     _disposed = true;
+    stopPolling();
+    _activeViews.clear();
     _generation++;
     super.dispose();
   }

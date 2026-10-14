@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_tickets.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
@@ -13,8 +14,15 @@ class WindowManager extends ConsumerStatefulWidget {
   final Widget child;
   @visibleForTesting
   final bool? isWindows;
+  @visibleForTesting
+  final XboardTicketController? ticketController;
 
-  const WindowManager({super.key, this.isWindows, required this.child});
+  const WindowManager({
+    super.key,
+    this.isWindows,
+    this.ticketController,
+    required this.child,
+  });
 
   @override
   ConsumerState<WindowManager> createState() => _WindowContainerState();
@@ -26,6 +34,8 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   int _boundsSyncRevision = 0;
 
   bool get _isWindows => widget.isWindows ?? system.isWindows;
+  XboardTicketController get _tickets =>
+      widget.ticketController ?? globalState.xboardTicketController;
 
   void _cancelWindowBoundsSync() {
     _boundsSyncTimer?.cancel();
@@ -109,6 +119,9 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   @override
   void onWindowEvent(String eventName) {
     super.onWindowEvent(eventName);
+    if (eventName == 'hide') {
+      _tickets.setWindowForeground(false);
+    }
     if (_isWindows && eventName == 'show') {
       render?.resume();
       _scheduleWindowBoundsSync();
@@ -121,6 +134,7 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   void onWindowFocus() {
     super.onWindowFocus();
     commonPrint.log('focus');
+    _tickets.setWindowForeground(true);
     render?.resume();
     _scheduleWindowBoundsSync();
     unawaited(
@@ -135,6 +149,12 @@ class _WindowContainerState extends ConsumerState<WindowManager>
         );
       }),
     );
+  }
+
+  @override
+  void onWindowBlur() {
+    _tickets.setWindowForeground(false);
+    super.onWindowBlur();
   }
 
   @override
@@ -172,6 +192,7 @@ class _WindowContainerState extends ConsumerState<WindowManager>
 
   @override
   void onWindowMinimize() async {
+    _tickets.setWindowForeground(false);
     _cancelWindowBoundsSync();
     ref.read(storeActionProvider.notifier).savePreferencesDebounce();
     commonPrint.log('minimize');
@@ -182,6 +203,7 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   @override
   void onWindowRestore() {
     commonPrint.log('restore');
+    _tickets.setWindowForeground(true);
     render?.resume();
     super.onWindowRestore();
   }
