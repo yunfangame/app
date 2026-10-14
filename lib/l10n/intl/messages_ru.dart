@@ -598,7 +598,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "buyNow": MessageLookupByLibrary.simpleMessage("Купить"),
     "bypassDomain": MessageLookupByLibrary.simpleMessage("Обход домена"),
     "bypassDomainDesc": MessageLookupByLibrary.simpleMessage(
-      "Действует только при включенном системном прокси",
+      "Исключения системного прокси и прямое подключение к интрасети в режиме правил",
     ),
     "bypassDomainDns": MessageLookupByLibrary.simpleMessage(
       "DNS-сервер интрасети",

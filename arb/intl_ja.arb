@@ -433,7 +433,7 @@
   "network": "ネットワーク",
   "networkDesc": "ネットワーク関連設定の変更",
   "bypassDomain": "バイパスドメイン",
-  "bypassDomainDesc": "システムプロキシ有効時のみ適用",
+  "bypassDomainDesc": "システムプロキシの除外とルールモードのイントラネット直接接続",
   "resetTip": "リセットを確定",
   "icon": "アイコン",
   "noData": "データなし",
