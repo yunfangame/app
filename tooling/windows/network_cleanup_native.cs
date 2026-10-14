@@ -3,9 +3,63 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.IO;
+using System.Security.Cryptography;
 
 namespace FengWoNetworkCleanupTests
 {
+    public static class SystemInternetProbe
+    {
+        [DllImport("wininet.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr InternetOpenW(string agent, uint accessType, string proxy, string bypass, uint flags);
+        [DllImport("wininet.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr InternetOpenUrlW(IntPtr session, string url, string headers, uint headerLength, uint flags, UIntPtr context);
+        [DllImport("wininet.dll", SetLastError = true)]
+        private static extern bool InternetSetOptionW(IntPtr handle, uint option, ref uint value, uint bytes);
+        [DllImport("wininet.dll", SetLastError = true)]
+        private static extern bool HttpQueryInfoW(IntPtr handle, uint info, ref uint value, ref uint bytes, ref uint index);
+        [DllImport("wininet.dll", SetLastError = true)]
+        private static extern bool InternetReadFile(IntPtr handle, byte[] buffer, uint capacity, out uint bytes);
+        [DllImport("wininet.dll")]
+        private static extern bool InternetCloseHandle(IntPtr handle);
+
+        public sealed class Response
+        {
+            public uint Status { get; set; }
+            public long Bytes { get; set; }
+            public string Sha256 { get; set; }
+        }
+
+        public static Response Fetch(string url)
+        {
+            if (new Uri(url).Scheme != "https") throw new ArgumentException("HTTPS is required", "url");
+            IntPtr session = InternetOpenW("FengWo-native-cleanup-acceptance", 0, null, null, 0);
+            if (session == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            try {
+                uint timeout = 20000;
+                foreach (uint option in new uint[] { 2, 5, 6 })
+                    if (!InternetSetOptionW(session, option, ref timeout, 4)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                IntPtr request = InternetOpenUrlW(session, url, null, 0, 0x80000000u | 0x04000000u | 0x00080000u | 0x00000200u, UIntPtr.Zero);
+                if (request == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+                try {
+                    uint status = 0, length = 4, index = 0;
+                    if (!HttpQueryInfoW(request, 19u | 0x20000000u, ref status, ref length, ref index)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                    using (MemoryStream body = new MemoryStream()) {
+                        byte[] buffer = new byte[8192];
+                        uint count;
+                        do {
+                            if (!InternetReadFile(request, buffer, (uint)buffer.Length, out count)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                            body.Write(buffer, 0, (int)count);
+                            if (body.Length > 1024 * 1024) throw new InvalidOperationException("Unexpected network probe payload size");
+                        } while (count != 0);
+                        using (SHA256 sha = SHA256.Create())
+                            return new Response { Status = status, Bytes = body.Length, Sha256 = BitConverter.ToString(sha.ComputeHash(body.ToArray())).Replace("-", "").ToLowerInvariant() };
+                    }
+                } finally { InternetCloseHandle(request); }
+            } finally { InternetCloseHandle(session); }
+        }
+    }
+
     public static class TrayCommand
     {
         private delegate bool EnumCallback(IntPtr window, IntPtr parameter);

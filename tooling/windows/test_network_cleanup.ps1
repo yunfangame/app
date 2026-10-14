@@ -64,28 +64,16 @@ function Send-TestCommand([string]$Command) {
 
 function Test-Internet([bool]$ExpectProxy = $false) {
     $responses = foreach ($uri in @('https://house.zryc.tech/fengwoupdate.json', 'https://zryc.oss-cn-beijing.aliyuncs.com/fengwoupdate.json')) {
-        $request = [Net.HttpWebRequest]::Create($uri)
-        $request.Proxy = [Net.WebRequest]::GetSystemWebProxy()
-        $selectedProxy = $request.Proxy.GetProxy([Uri]$uri)
-        if ($ExpectProxy -and ($selectedProxy.Host -ne '127.0.0.1' -or $selectedProxy.Port -ne $mixedPort)) {
-            throw 'The system-aware request did not select the enabled local proxy'
+        $snapshot = $proxyFixture.Capture()
+        if ($ExpectProxy -and (($snapshot.Flags -band 2) -eq 0 -or $snapshot.Server -cne ('127.0.0.1:'+$mixedPort))) {
+            throw 'The native system proxy did not select the enabled local proxy'
         }
-        if (-not $ExpectProxy -and $selectedProxy.AbsoluteUri -cne ([Uri]$uri).AbsoluteUri) { throw 'The restored system request still selects a proxy' }
-        $request.Timeout = 20000
-        $request.ReadWriteTimeout = 20000
-        try { $response = $request.GetResponse() } catch { throw ("Internet probe failed for " + $uri + ': ' + $_.Exception.Message) }
-        try {
-            if ([int]$response.StatusCode -ne 200) { throw "Internet probe failed: $uri" }
-            $bytes = [IO.MemoryStream]::new()
-            try {
-                $response.GetResponseStream().CopyTo($bytes)
-                if ($bytes.Length -lt 100 -or $bytes.Length -gt 1024 * 1024) { throw 'Unexpected network probe payload size' }
-                $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes.ToArray())).ToLowerInvariant()
-            } finally { $bytes.Dispose() }
-            $reference = @($networkBaseline | Where-Object uri -eq $uri)
-            if ($reference.Count -gt 0 -and $reference[0].sha256 -cne $hash) { throw 'The HTTPS payload differs from the direct network baseline' }
-            [ordered]@{ uri = $uri; status = [int]$response.StatusCode; sha256 = $hash; proxy_requested = $ExpectProxy }
-        } finally { $response.Dispose() }
+        if (-not $ExpectProxy -and (($snapshot.Flags -band 14) -ne 0 -or $snapshot.Pac)) { throw 'The restored system configuration still selects a proxy or automatic configuration' }
+        try { $response = [FengWoNetworkCleanupTests.SystemInternetProbe]::Fetch($uri) } catch { throw ("Native WinINet probe failed for " + $uri + ': ' + $_.Exception.Message) }
+        if ($response.Status -ne 200 -or $response.Bytes -lt 100) { throw "Internet probe failed: $uri" }
+        $reference = @($networkBaseline | Where-Object uri -eq $uri)
+        if ($reference.Count -gt 0 -and $reference[0].sha256 -cne $response.Sha256) { throw 'The HTTPS payload differs from the direct network baseline' }
+        [ordered]@{ uri = $uri; status = [int]$response.Status; sha256 = $response.Sha256; bytes = $response.Bytes; proxy_requested = $ExpectProxy; transport = 'WinINet-PRECONFIG'; proxy_flags = $snapshot.Flags }
     }
     return @($responses)
 }
