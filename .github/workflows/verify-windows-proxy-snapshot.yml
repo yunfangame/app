@@ -1,0 +1,68 @@
+name: fengwo-native-proxy-snapshot
+
+on:
+  push:
+    branches:
+      - 'codex/windows-proxy-snapshot-check-*'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            runner: windows-2022
+          - architecture: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    env:
+      FENGWO_PROXY_MUTATING_TEST: '1'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile native isolated snapshot tests
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./tooling/windows/arm64/common.ps1
+          Assert-FwNativeRunner -Architecture '${{ matrix.architecture }}'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $installation = (& $vswhere -latest -products '*' -format json | ConvertFrom-Json)[0]
+          $major = ([version]$installation.installationVersion).Major
+          $generator = switch ($major) { 17 { 'Visual Studio 17 2022' }; 18 { 'Visual Studio 18 2026' }; default { throw 'Unsupported native Visual Studio generator' } }
+          cmake -S plugins/proxy/windows/test/native_snapshot -B build/proxy-snapshot -G $generator -A '${{ matrix.architecture }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Native snapshot configuration failed' }
+          cmake --build build/proxy-snapshot --config Release
+          if ($LASTEXITCODE -ne 0) { throw 'Native snapshot compilation failed' }
+          foreach ($name in @('proxy_session_test.exe','proxy_session_windows_test.exe')) {
+            $identity = Get-FwPeIdentity (Join-Path $PWD ('build/proxy-snapshot/Release/' + $name))
+            if (-not $identity.'${{ matrix.architecture }}') { throw 'Snapshot test architecture mismatch' }
+          }
+      - name: Verify native error 13 and restoration
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ctest --test-dir build/proxy-snapshot -C Release --output-on-failure --no-tests=error --output-junit build/proxy-snapshot/results.xml
+          if ($LASTEXITCODE -ne 0) { throw 'Native snapshot tests failed' }
+          [xml]$report = Get-Content build/proxy-snapshot/results.xml -Raw
+          if ($report.SelectNodes('//testcase').Count -ne 2 -or $report.SelectNodes('//failure|//error|//skipped').Count -ne 0) { throw 'Expected both snapshot suites without skips' }
+          & ./build/proxy-snapshot/Release/proxy_session_windows_test.exe | Tee-Object build/proxy-snapshot/native-reproduction.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Native error 13 reproduction failed' }
+          @{ source_sha=$env:GITHUB_SHA; architecture='${{ matrix.architecture }}'; run_id=$env:GITHUB_RUN_ID; publication_allowed=$false } | ConvertTo-Json | Set-Content build/proxy-snapshot/provenance.json -Encoding UTF8
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fengwo-native-proxy-snapshot-${{ matrix.architecture }}-${{ github.run_id }}
+          path: |
+            build/proxy-snapshot/Release/*.exe
+            build/proxy-snapshot/*.txt
+            build/proxy-snapshot/*.json
+            build/proxy-snapshot/*.xml
+          retention-days: 7

@@ -249,12 +249,19 @@ void ActualLegacyRegistryRepair() {
   HKEY key = nullptr;
   Require(RegOpenKeyExW(HKEY_CURRENT_USER,
           L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
-          0, KEY_SET_VALUE, &key) == ERROR_SUCCESS, "Cannot prepare owned registry fixture");
-  const wchar_t invalid[] = L"legacy-invalid-type";
+          0, KEY_SET_VALUE | KEY_QUERY_VALUE, &key) == ERROR_SUCCESS, "Cannot prepare owned registry fixture");
+  const wchar_t invalid[] = L"0";
   const auto status = RegSetValueExW(key, L"ProxyEnable", 0, REG_SZ,
       reinterpret_cast<const BYTE*>(invalid), sizeof(invalid));
+  DWORD fixture_type = 0;
+  DWORD fixture_value = 0;
+  DWORD fixture_size = sizeof(fixture_value);
+  const auto read_status = RegQueryValueExW(key, L"ProxyEnable", nullptr, &fixture_type,
+      reinterpret_cast<LPBYTE>(&fixture_value), &fixture_size);
   RegCloseKey(key);
   Require(status == ERROR_SUCCESS, "Cannot write owned legacy fixture");
+  Require(read_status == ERROR_SUCCESS && fixture_type == REG_SZ,
+          "Legacy fixture must trigger invalid type (13), not an undersized buffer (234)");
   ConnectionConfiguration snapshot;
   uint32_t error = 0;
   Require(backend.capture(L"", snapshot, error), "Legacy fixture must retain a readable WinINet snapshot");
