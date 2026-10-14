@@ -23,7 +23,7 @@ struct RasFixture {
     for (DWORD i = 0; i < *count; ++i) {
       EXPECT_EQ(connections[i].dwSize, sizeof(RASCONNW));
       connections[i].hrasconn = reinterpret_cast<HRASCONN>(static_cast<uintptr_t>(i + 1));
-      const auto length = std::min(f.names[i].size(), static_cast<size_t>(RAS_MaxEntryName));
+      const auto length = (std::min)(f.names[i].size(), static_cast<size_t>(RAS_MaxEntryName));
       std::copy_n(f.names[i].data(), length, connections[i].szEntryName);
       connections[i].szEntryName[length] = L'\0';
     }
