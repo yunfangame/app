@@ -208,6 +208,7 @@ jobs:
         timeout-minutes: 10
         run: |
           $ErrorActionPreference = 'Stop'
+          $env:FENGWO_PROXY_MUTATING_TEST = '1'
           cmake -S windows -B build/windows/arm64 -G $env:FENGWO_ARM64_CMAKE_GENERATOR -A ARM64 '-DFLUTTER_TARGET_PLATFORM=windows-arm64' -Dinclude_proxy_tests=ON '-DCMAKE_POLICY_VERSION_MINIMUM=3.5'
           if ($LASTEXITCODE -ne 0) { throw 'ARM64 system proxy configuration failed' }
           cmake --build build/windows/arm64 --config Release --target proxy_test proxy_session_test proxy_session_windows_test proxy_winhttp_compatibility_test
@@ -219,7 +220,7 @@ jobs:
           ctest --test-dir build/windows/arm64/plugins/proxy -C Release --output-on-failure --no-tests=error -R Proxy --output-junit (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-ctest.xml') | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-ctest.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Native ARM64 system proxy tests failed' }
           [xml]$report = Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-ctest.xml') -Raw
-          if ($report.SelectNodes('//testcase').Count -ne 58 -or $report.SelectNodes('//failure|//error|//skipped').Count -ne 0) { throw 'Expected all 58 native proxy tests without skips' }
+          if ($report.SelectNodes('//testcase').Count -ne 68 -or $report.SelectNodes('//failure|//error|//skipped').Count -ne 0) { throw 'Expected all 68 native proxy tests without skips' }
           & ./build/windows/arm64/plugins/proxy/Release/proxy_session_test.exe | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-session-regression.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Proxy session regression failed' }
           & ./build/windows/arm64/plugins/proxy/Release/proxy_session_windows_test.exe | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/proxy-session-windows.txt')
