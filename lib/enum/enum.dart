@@ -225,6 +225,7 @@ enum FunctionTag {
   updateGroups,
   addCheckIpNum,
   applyProfile,
+  applyBypassDomains,
   savePreferences,
   changeProxy,
   checkIp,

@@ -31,6 +31,7 @@ class SetupAction extends _$SetupAction {
   final _accessControlScheduler = SerialTaskScheduler();
   final _modeRestartScheduler = SerialTaskScheduler();
   int _accessControlRevision = 0;
+  int _bypassRevision = 0;
   bool _accessControlReconnectNeeded = false;
   AccessControlProps? _managedAccessControl;
   _RunRequest? _latestRunRequest;
@@ -185,6 +186,8 @@ class SetupAction extends _$SetupAction {
       }
     });
     ref.onDispose(() {
+      _bypassRevision++;
+      debouncer.cancel(FunctionTag.applyBypassDomains);
       _runtimeTimer?.cancel();
       _physicalNetworkRecoveryRevision++;
     });
@@ -196,7 +199,65 @@ class SetupAction extends _$SetupAction {
   @protected
   void requestBypassProfileApply() {
     if (!ref.read(initProvider)) return;
-    applyProfileDebounce(force: true, silence: true);
+    final revision = ++_bypassRevision;
+    debouncer.call(FunctionTag.applyBypassDomains, () async {
+      if (!ref.mounted || revision != _bypassRevision) return;
+      await refreshBypassProfile();
+    });
+  }
+
+  @protected
+  bool get supportsBypassVpnRefresh => system.isAndroid;
+
+  @protected
+  Future<void> syncBypassVpnState(SharedState state) async {
+    await preferences.saveShareState(state);
+    final error = await service?.syncState(state.needSyncSharedState);
+    if (error == null || error.isNotEmpty) {
+      throw StateError(error ?? 'Android VPN service is unavailable');
+    }
+  }
+
+  @protected
+  Future<bool> requestBypassVpnRestart() async =>
+      await service?.restart() ?? false;
+
+  @protected
+  void notifyBypassRefreshFailure() {
+    globalState.showNotifier(currentAppLocalizations.vpnConfigChangeDetected);
+  }
+
+  @protected
+  Future<void> refreshBypassProfile() async {
+    final revision = _bypassRevision;
+    final runRequest = _latestRunRequest;
+    final wasRunning = ref.read(isStartProvider);
+    bool stillCurrent() =>
+        ref.mounted &&
+        revision == _bypassRevision &&
+        identical(runRequest, _latestRunRequest) &&
+        ref.read(isStartProvider);
+    try {
+      await applyProfile(force: true, silence: true);
+      if (!supportsBypassVpnRefresh || !wasRunning || !stillCurrent()) return;
+      await syncBypassVpnState(ref.read(sharedStateProvider));
+      if (!stillCurrent()) return;
+      if (!await requestBypassVpnRestart()) {
+        throw StateError('Unable to request bypass VPN refresh');
+      }
+      commonPrint.event(
+        'network.bypass.vpn_refresh.requested',
+        fields: {'mode': ref.read(patchClashConfigProvider).mode.name},
+      );
+    } catch (error) {
+      commonPrint.event(
+        'network.bypass.apply.failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
+      if (ref.mounted && revision == _bypassRevision) {
+        notifyBypassRefreshFailure();
+      }
+    }
   }
 
   SetupParams get _setupParams {

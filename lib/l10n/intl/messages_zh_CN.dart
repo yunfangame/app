@@ -436,7 +436,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "brandName": MessageLookupByLibrary.simpleMessage("蜂窝加速器"),
     "buyNow": MessageLookupByLibrary.simpleMessage("立即购买"),
     "bypassDomain": MessageLookupByLibrary.simpleMessage("排除域名"),
-    "bypassDomainDesc": MessageLookupByLibrary.simpleMessage("仅在系统代理启用时生效"),
+    "bypassDomainDesc": MessageLookupByLibrary.simpleMessage("系统代理排除与规则模式内网直连"),
     "bypassDomainDns": MessageLookupByLibrary.simpleMessage("内网 DNS 服务器"),
     "bypassDomainDnsInvalid": MessageLookupByLibrary.simpleMessage(
       "DNS 格式无效，请填写 IP 地址或 system://",

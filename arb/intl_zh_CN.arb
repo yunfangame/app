@@ -422,7 +422,7 @@
   "network": "网络",
   "networkDesc": "修改网络相关设置",
   "bypassDomain": "排除域名",
-  "bypassDomainDesc": "仅在系统代理启用时生效",
+  "bypassDomainDesc": "系统代理排除与规则模式内网直连",
   "resetTip": "确定要重置吗?",
   "icon": "图片",
   "noData": "暂无数据",

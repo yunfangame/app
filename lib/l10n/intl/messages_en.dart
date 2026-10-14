@@ -569,7 +569,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "buyNow": MessageLookupByLibrary.simpleMessage("Buy now"),
     "bypassDomain": MessageLookupByLibrary.simpleMessage("Bypass domain"),
     "bypassDomainDesc": MessageLookupByLibrary.simpleMessage(
-      "Only takes effect when the system proxy is enabled",
+      "System proxy exclusions and rule-mode intranet routing",
     ),
     "bypassDomainDns": MessageLookupByLibrary.simpleMessage(
       "Intranet DNS Server",
