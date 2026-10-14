@@ -32,6 +32,7 @@ $helperInstalled = $false
 $failure = $null
 $cleanupErrors = [Collections.Generic.List[string]]::new()
 $originalTestHome = $env:FENGWO_NETWORK_TEST_HOME
+$networkBaseline = @()
 $routesBefore = @(Get-NetRoute -AddressFamily IPv4 | Select-Object InterfaceIndex, DestinationPrefix, NextHop, RouteMetric | Sort-Object InterfaceIndex, DestinationPrefix, NextHop | ConvertTo-Json -Compress)
 $dnsBefore = @(Get-DnsClientServerAddress | Select-Object InterfaceIndex, AddressFamily, ServerAddresses | Sort-Object InterfaceIndex, AddressFamily)
 
@@ -62,7 +63,7 @@ function Send-TestCommand([string]$Command) {
 }
 
 function Test-Internet([bool]$ExpectProxy = $false) {
-    $responses = foreach ($uri in @('https://www.baidu.com', 'https://www.microsoft.com')) {
+    $responses = foreach ($uri in @('https://house.zryc.tech/fengwoupdate.json', 'https://zryc.oss-cn-beijing.aliyuncs.com/fengwoupdate.json')) {
         $request = [Net.HttpWebRequest]::Create($uri)
         $request.Proxy = [Net.WebRequest]::GetSystemWebProxy()
         $selectedProxy = $request.Proxy.GetProxy([Uri]$uri)
@@ -72,10 +73,18 @@ function Test-Internet([bool]$ExpectProxy = $false) {
         if (-not $ExpectProxy -and $selectedProxy.AbsoluteUri -cne ([Uri]$uri).AbsoluteUri) { throw 'The restored system request still selects a proxy' }
         $request.Timeout = 20000
         $request.ReadWriteTimeout = 20000
-        $response = $request.GetResponse()
+        try { $response = $request.GetResponse() } catch { throw ("Internet probe failed for " + $uri + ': ' + $_.Exception.Message) }
         try {
             if ([int]$response.StatusCode -ne 200) { throw "Internet probe failed: $uri" }
-            [ordered]@{ uri = $uri; status = [int]$response.StatusCode }
+            $bytes = [IO.MemoryStream]::new()
+            try {
+                $response.GetResponseStream().CopyTo($bytes)
+                if ($bytes.Length -lt 100 -or $bytes.Length -gt 1024 * 1024) { throw 'Unexpected network probe payload size' }
+                $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes.ToArray())).ToLowerInvariant()
+            } finally { $bytes.Dispose() }
+            $reference = @($networkBaseline | Where-Object uri -eq $uri)
+            if ($reference.Count -gt 0 -and $reference[0].sha256 -cne $hash) { throw 'The HTTPS payload differs from the direct network baseline' }
+            [ordered]@{ uri = $uri; status = [int]$response.StatusCode; sha256 = $hash; proxy_requested = $ExpectProxy }
         } finally { $response.Dispose() }
     }
     return @($responses)
@@ -122,6 +131,9 @@ function Assert-Cleaned {
 
 try {
     if (Test-Path -LiteralPath $profileDirectory) { Move-Item -LiteralPath $profileDirectory -Destination $profileBackup }
+    $null = $proxyFixture.SetDirect()
+    $networkBaseline = @(Test-Internet)
+    $networkBaseline | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $output 'direct-network-baseline.json') -Encoding utf8NoBOM
     $helperInstalled = $true
     Invoke-TestHelper 'install'
     foreach ($action in @('tray-exit', 'logout')) {
@@ -178,6 +190,9 @@ try {
 } catch {
     $failure = $_.Exception.Message
 } finally {
+    if ($failure -and (Test-Path -LiteralPath (Join-Path $profileDirectory 'diagnostics'))) {
+        try { Copy-Item -LiteralPath (Join-Path $profileDirectory 'diagnostics') -Destination (Join-Path $output 'failure-app-diagnostics') -Recurse -Force } catch { $cleanupErrors.Add($_.Exception.Message) }
+    }
     if ($process) { try { if (-not $process.HasExited) { $process.Kill(); $null = $process.WaitForExit(10000) } } catch { $cleanupErrors.Add($_.Exception.Message) }; $process.Dispose() }
     if ($helperInstalled) { try { Invoke-TestHelper 'stop'; Invoke-TestHelper 'uninstall' } catch { $cleanupErrors.Add($_.Exception.Message) } }
     try { $restore = $proxyFixture.Restore(); if (-not $restore.Passed) { throw ($restore.Errors -join '; ') } } catch { $cleanupErrors.Add($_.Exception.Message) }

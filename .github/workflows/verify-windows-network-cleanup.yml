@@ -81,10 +81,18 @@ jobs:
           New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'network-cleanup') -Force | Out-Null
           [ordered]@{ source_sha = (git rev-parse HEAD); architecture = '${{ matrix.architecture }}'; production_entrypoint = 'lib/main.dart'; acceptance_entrypoint = 'tooling/windows/network_cleanup_entry.dart' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'network-cleanup/source.json') -Encoding utf8NoBOM
       - name: Compile test-only native application entrypoint
+        id: build_acceptance
         shell: pwsh
         run: |
           flutter build windows --release --target=tooling/windows/network_cleanup_entry.dart --dart-define-from-file=env.json
           if ($LASTEXITCODE -ne 0) { throw 'Native acceptance application build failed' }
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.build_acceptance.outcome == 'success'
+        with:
+          name: fengwo-network-cleanup-test-bundle-${{ matrix.architecture }}
+          path: build/windows/${{ matrix.architecture }}/runner/Release
+          if-no-files-found: error
+          retention-days: 7
       - name: Verify actual tray exit logout proxy TUN routes DNS and internet
         shell: pwsh
         run: |
