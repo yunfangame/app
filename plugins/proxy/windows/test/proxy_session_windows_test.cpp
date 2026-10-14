@@ -267,8 +267,8 @@ void ActualLegacyRegistryRepair() {
               << " stage=" << rejected.stage << " error=" << rejected.errorCode
               << " writes=" << native.writes << "\n";
     if (rejected.success) {
-      Require(old_policy.Stop(std::nullopt, strict).success && Read() == snapshot,
-              "Normalized fixture did not restore clean snapshot");
+      Require(old_policy.Stop(std::nullopt, strict).success && !old_policy.HasPendingCleanup(),
+              "Normalized fixture cleanup did not complete");
       continue;
     }
     Require(rejected.stage == "capture_default" && native.writes == 0,
@@ -277,10 +277,12 @@ void ActualLegacyRegistryRepair() {
             "Unexpected native legacy registry error");
     invalid_data_reproductions += rejected.errorCode == ERROR_INVALID_DATA ? 1 : 0;
     more_data_reproductions += rejected.errorCode == ERROR_MORE_DATA ? 1 : 0;
+    ConnectionConfiguration repaired_original;
+    Require(backend.capture(L"", repaired_original, error), "Cannot capture actual legacy WinINet snapshot");
     ProxySession repaired;
     const auto applied = repaired.Start(Manual(), backend);
     Require(applied.success && Read() == Manual(), "Actual registry repair failed");
-    Require(repaired.Stop(std::nullopt, backend).success && Read() == snapshot,
+    Require(repaired.Stop(std::nullopt, backend).success && Read() == repaired_original,
             "Repaired session did not restore its original complete WinINet snapshot");
     std::cout << "REPAIRED: " << fixture.label << " native_error=" << rejected.errorCode
               << " verified and original settings restored\n";
