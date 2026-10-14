@@ -250,7 +250,7 @@ void ActualLegacyRegistryRepair() {
   Require(RegOpenKeyExW(HKEY_CURRENT_USER,
           L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
           0, KEY_SET_VALUE | KEY_QUERY_VALUE, &key) == ERROR_SUCCESS, "Cannot prepare owned registry fixture");
-  const wchar_t invalid[] = L"0";
+  const wchar_t invalid[] = L"x";
   const auto status = RegSetValueExW(key, L"ProxyEnable", 0, REG_SZ,
       reinterpret_cast<const BYTE*>(invalid), sizeof(invalid));
   DWORD fixture_type = 0;
@@ -269,6 +269,9 @@ void ActualLegacyRegistryRepair() {
   strict.capture = {};
   ProxySession old_policy;
   const auto rejected = old_policy.Start(Manual(), strict);
+  std::cout << "OLD_POLICY_RESULT: success=" << rejected.success << " stage="
+            << rejected.stage << " error=" << rejected.errorCode
+            << " writes=" << native.writes << "\n";
   Require(!rejected.success && rejected.stage == "capture_default" &&
           rejected.errorCode == ERROR_INVALID_DATA && native.writes == 0,
           "Actual legacy fixture did not reproduce W-PROXY-11 (13)");
