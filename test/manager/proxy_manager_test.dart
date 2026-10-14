@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:fl_clash/common/macos_proxy_guard.dart';
+import 'package:fl_clash/common/network.dart';
 import 'package:fl_clash/common/proxy.dart'
     show systemProxyCleanupSignal, systemProxyRefreshSignal;
 import 'package:fl_clash/common/windows_proxy_guard.dart';
@@ -55,6 +56,7 @@ const _serviceUnavailable = ProxyOperationResult(
 
 class _ProxyClient extends Proxy {
   final startPorts = <int>[];
+  final startBypassDomains = <List<String>>[];
   final stopPorts = <int?>[];
   final staleRepairPorts = <int>[];
   final events = <String>[];
@@ -71,6 +73,7 @@ class _ProxyClient extends Proxy {
     List<String> bypassDomain = const [],
   ]) async {
     startPorts.add(port);
+    startBypassDomains.add(List<String>.from(bypassDomain));
     events.add('start:$port');
     final result = await (start?.call(port) ?? Future.value(_started));
     events.add('started:$port');
@@ -246,6 +249,47 @@ class _Rig {
 
 void main() {
   setUpAll(() => AppLocalizations.load(const Locale('en')));
+
+  for (final running in [false, true]) {
+    testWidgets(
+      'saved bypass domains update native proxy only when running=$running',
+      (tester) async {
+        final rig = _Rig();
+        if (!running) rig.client.inspection = _stopped;
+        await rig.mount(tester, initiallyRunning: running);
+        await tester.pumpAndSettle();
+        rig.client.startPorts.clear();
+        rig.client.startBypassDomains.clear();
+        final before = rig.container.read(networkSettingProvider);
+        rig.container
+            .read(networkSettingProvider.notifier)
+            .update(
+              (state) => state.copyWith(bypassDomain: ['*.corp.example']),
+            );
+        await tester.pumpAndSettle();
+        expect(
+          rig.container.read(networkSettingProvider),
+          before.copyWith(bypassDomain: ['*.corp.example']),
+        );
+        if (running) {
+          expect(rig.client.startPorts, [7890]);
+          expect(
+            rig.client.startBypassDomains.single,
+            contains('*.corp.example'),
+          );
+          expect(
+            rig.client.startBypassDomains.single,
+            containsAll(localNetworkBypassDomains),
+          );
+        } else {
+          expect(rig.client.startPorts, isEmpty);
+        }
+        expect(rig.setup.requests, isEmpty);
+        expect(rig.notifications, isEmpty);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   for (final platform in ['windows', 'macos', 'linux']) {
     testWidgets(
