@@ -22,3 +22,4 @@ $evidence = [ordered]@{ phase='candidate-prepared'; time=(Get-Date).ToString('o'
 $evidence | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $root 'candidate-prepared.json')
 Write-Output ('CANDIDATE_READY SHA256='+$hash+' OV='+$signature.Status+' PROFILE_BACKUP=True')
 $script:CandidateInstaller = $installer
+$script:CandidateHash = $hash
