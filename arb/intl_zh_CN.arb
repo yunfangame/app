@@ -1,4 +1,10 @@
 {
+  "bypassDomainRouting": "规则模式内网直连",
+  "bypassDomainRoutingDesc": "直连规则与内网 DNS 分流",
+  "bypassDomainDns": "内网 DNS 服务器",
+  "bypassDomainSystemDns": "系统 DNS",
+  "bypassDomainInvalid": "域名格式无效，不能包含网址、路径或端口",
+  "bypassDomainDnsInvalid": "DNS 格式无效，请填写 IP 地址或 system://",
   "tunHelperPortInUse": "内部辅助服务端口 {port} 被其他程序占用。请退出冲突程序及其辅助服务后重试，或导出日志联系客服。修改代理端口或重复授权无法释放此端口。",
   "@tunHelperPortInUse": {"placeholders": {"port": {"type": "int"}}},
   "apiDiagnostics": "API 诊断",

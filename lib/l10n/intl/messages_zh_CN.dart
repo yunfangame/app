@@ -457,6 +457,18 @@ class MessageLookup extends MessageLookupByLibrary {
     "buyNow": MessageLookupByLibrary.simpleMessage("立即购买"),
     "bypassDomain": MessageLookupByLibrary.simpleMessage("排除域名"),
     "bypassDomainDesc": MessageLookupByLibrary.simpleMessage("仅在系统代理启用时生效"),
+    "bypassDomainDns": MessageLookupByLibrary.simpleMessage("内网 DNS 服务器"),
+    "bypassDomainDnsInvalid": MessageLookupByLibrary.simpleMessage(
+      "DNS 格式无效，请填写 IP 地址或 system://",
+    ),
+    "bypassDomainInvalid": MessageLookupByLibrary.simpleMessage(
+      "域名格式无效，不能包含网址、路径或端口",
+    ),
+    "bypassDomainRouting": MessageLookupByLibrary.simpleMessage("规则模式内网直连"),
+    "bypassDomainRoutingDesc": MessageLookupByLibrary.simpleMessage(
+      "直连规则与内网 DNS 分流",
+    ),
+    "bypassDomainSystemDns": MessageLookupByLibrary.simpleMessage("系统 DNS"),
     "cacheCorrupt": MessageLookupByLibrary.simpleMessage("缓存已损坏，是否清空？"),
     "campusNetworkApplyFailed": MessageLookupByLibrary.simpleMessage(
       "防干扰模式应用失败，请检查网络后重试",

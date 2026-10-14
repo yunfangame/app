@@ -97,9 +97,7 @@ void main() {
         final entry = find.byKey(const ValueKey('advanced-app-routing-tile'));
         expect(
           find.byKey(const ValueKey('advanced-bypass-domain-tile')),
-          platform == TargetPlatform.android || platform == TargetPlatform.iOS
-              ? findsNothing
-              : findsOneWidget,
+          platform == TargetPlatform.iOS ? findsNothing : findsOneWidget,
         );
         if (platform == TargetPlatform.android) {
           expect(entry, findsOneWidget);
@@ -242,9 +240,49 @@ void main() {
             container.read(networkSettingProvider),
             initial.copyWith(bypassDomain: []),
           );
+          final routing = find.byKey(
+            const ValueKey('advanced-bypass-routing-switch'),
+          );
+          await tester.ensureVisible(routing);
+          await tester.pumpAndSettle();
+          expect(tester.widget<Switch>(routing).value, isFalse);
+          await tester.tap(routing);
+          await tester.pumpAndSettle();
+          expect(
+            container.read(networkSettingProvider).bypassDomainRouting,
+            isTrue,
+          );
+          final dns = find.byKey(const ValueKey('advanced-bypass-dns-tile'));
+          await tester.ensureVisible(dns);
+          await tester.pumpAndSettle();
+          await tester.tap(dns);
+          await tester.pumpAndSettle();
+          await tester.enterText(find.byType(TextFormField), 'invalid#Proxy');
+          await tester.tap(find.text(l10n.submit));
+          await tester.pumpAndSettle();
+          expect(find.text(l10n.bypassDomainDnsInvalid), findsOneWidget);
+          await tester.enterText(find.byType(TextFormField), '10.0.0.53:5353');
+          await tester.tap(find.text(l10n.submit));
+          await tester.pumpAndSettle();
+          expect(
+            container.read(networkSettingProvider).bypassDomainDns,
+            '10.0.0.53:5353',
+          );
+          await tester.tap(dns);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(l10n.reset));
+          await tester.pumpAndSettle();
+          expect(
+            container.read(networkSettingProvider),
+            initial.copyWith(bypassDomain: [], bypassDomainRouting: true),
+          );
           expect(tester.takeException(), isNull);
         },
-        variant: const TargetPlatformVariant({TargetPlatform.windows}),
+        variant: const TargetPlatformVariant({
+          TargetPlatform.windows,
+          TargetPlatform.android,
+          TargetPlatform.macOS,
+        }),
       );
     }
   }
@@ -379,24 +417,39 @@ void main() {
       find.byKey(const ValueKey('advanced-system-proxy-switch')),
     );
     await tester.pump();
-    expect(container.read(networkSettingProvider).systemProxy, isFalse);
+    expect(container.read(vpnSettingProvider).systemProxy, isFalse);
+    expect(container.read(networkSettingProvider).systemProxy, isTrue);
 
     final autoCloseConnections = find.byKey(
       const ValueKey('advanced-auto-close-connections-switch'),
     );
     expect(container.read(appSettingProvider).closeConnections, isFalse);
+    await tester.ensureVisible(autoCloseConnections);
+    await tester.pumpAndSettle();
     await tester.tap(autoCloseConnections);
     await tester.pump();
     expect(container.read(appSettingProvider).closeConnections, isTrue);
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('advanced-core-ipv6-switch')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('advanced-core-ipv6-switch')));
     await tester.pump();
     expect(container.read(patchClashConfigProvider).ipv6, isTrue);
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('advanced-dns-ipv6-switch')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('advanced-dns-ipv6-switch')));
     await tester.pump();
     expect(container.read(patchClashConfigProvider).dns.ipv6, isTrue);
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('advanced-mixed-port-button')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('advanced-mixed-port-button')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField), '8080');

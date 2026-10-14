@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/bypass_domain.dart';
 import 'package:fl_clash/common/campus_network.dart';
 import 'package:fl_clash/common/mixed_port.dart';
 import 'package:fl_clash/common/network_diagnostic_selection.dart';
@@ -355,13 +356,18 @@ class _FengWoAdvancedSettingsViewState
   }
 
   Future<void> _editBypassDomains() async {
+    final l10n = context.appLocalizations;
     final current = ref.read(networkSettingProvider).bypassDomain;
     final result = await Navigator.of(context).push<List<String>>(
       MaterialPageRoute(
         builder: (_) => ListInputPage(
-          title: context.appLocalizations.bypassDomain,
+          title: l10n.bypassDomain,
           items: List<String>.from(current),
           itemMaxLength: TextInputLimits.domain,
+          itemValidator: (value) =>
+              value == null || value.isEmpty || isValidBypassDomain(value)
+              ? null
+              : l10n.bypassDomainInvalid,
           titleBuilder: Text.new,
         ),
       ),
@@ -379,6 +385,33 @@ class _FengWoAdvancedSettingsViewState
     commonPrint.event(
       'system_proxy.bypass_domains.saved',
       fields: {'previous_count': current.length, 'count': result.length},
+    );
+  }
+
+  Future<void> _editBypassDns() async {
+    final l10n = context.appLocalizations;
+    final current = ref.read(networkSettingProvider).bypassDomainDns;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (_) => InputDialog(
+        title: l10n.bypassDomainDns,
+        value: current,
+        resetValue: systemBypassDns,
+        maxLength: TextInputLimits.dnsServer,
+        validator: (value) => value == null || isValidBypassDns(value)
+            ? null
+            : l10n.bypassDomainDnsInvalid,
+      ),
+    );
+    if (!mounted || result == null) return;
+    final server = result.trim().isEmpty ? systemBypassDns : result.trim();
+    if (server == current) return;
+    ref
+        .read(networkSettingProvider.notifier)
+        .update((state) => state.copyWith(bypassDomainDns: server));
+    commonPrint.event(
+      'system_proxy.bypass_dns.saved',
+      fields: {'source': server == systemBypassDns ? 'system' : 'custom'},
     );
   }
 
@@ -567,8 +600,17 @@ class _FengWoAdvancedSettingsViewState
     final allowLan = ref.watch(
       patchClashConfigProvider.select((state) => state.allowLan),
     );
-    final systemProxy = ref.watch(
-      networkSettingProvider.select((state) => state.systemProxy),
+    final android = defaultTargetPlatform == TargetPlatform.android;
+    final systemProxy = android
+        ? ref.watch(vpnSettingProvider.select((state) => state.systemProxy))
+        : ref.watch(
+            networkSettingProvider.select((state) => state.systemProxy),
+          );
+    final bypassRouting = ref.watch(
+      networkSettingProvider.select((state) => state.bypassDomainRouting),
+    );
+    final bypassDns = ref.watch(
+      networkSettingProvider.select((state) => state.bypassDomainDns),
     );
     final closeConnections = ref.watch(
       appSettingProvider.select((state) => state.closeConnections),
@@ -619,7 +661,7 @@ class _FengWoAdvancedSettingsViewState
               },
             ),
           ),
-          if (system.isDesktop) ...[
+          if (system.isDesktop || android) ...[
             Divider(height: 1, color: colors.outline),
             _SettingsRow(
               colors: colors,
@@ -631,24 +673,72 @@ class _FengWoAdvancedSettingsViewState
                 key: const ValueKey('advanced-system-proxy-switch'),
                 value: systemProxy,
                 onChanged: (value) {
-                  ref
-                      .read(networkSettingProvider.notifier)
-                      .update((state) => state.copyWith(systemProxy: value));
+                  if (android) {
+                    ref
+                        .read(vpnSettingProvider.notifier)
+                        .update((state) => state.copyWith(systemProxy: value));
+                  } else {
+                    ref
+                        .read(networkSettingProvider.notifier)
+                        .update((state) => state.copyWith(systemProxy: value));
+                  }
                 },
               ),
             ),
-            if (defaultTargetPlatform != TargetPlatform.android &&
-                defaultTargetPlatform != TargetPlatform.iOS) ...[
+          ],
+          if (defaultTargetPlatform != TargetPlatform.iOS) ...[
+            Divider(height: 1, color: colors.outline),
+            InkWell(
+              key: const ValueKey('advanced-bypass-domain-tile'),
+              onTap: _editBypassDomains,
+              child: _SettingsRow(
+                colors: colors,
+                icon: Icons.alt_route_rounded,
+                iconColor: colors.blue,
+                title: l10n.bypassDomain,
+                subtitle: l10n.bypassDomainDesc,
+                trailing: const Icon(Icons.chevron_right),
+              ),
+            ),
+            Divider(height: 1, color: colors.outline),
+            _SettingsRow(
+              colors: colors,
+              icon: Icons.route_outlined,
+              iconColor: colors.green,
+              title: l10n.bypassDomainRouting,
+              subtitle: l10n.bypassDomainRoutingDesc,
+              trailing: Switch(
+                key: const ValueKey('advanced-bypass-routing-switch'),
+                value: bypassRouting,
+                onChanged: (value) {
+                  ref
+                      .read(networkSettingProvider.notifier)
+                      .update(
+                        (state) => state.copyWith(bypassDomainRouting: value),
+                      );
+                  commonPrint.event(
+                    'system_proxy.bypass_routing.saved',
+                    fields: {
+                      'enabled': value,
+                      'mode': ref.read(patchClashConfigProvider).mode.name,
+                    },
+                  );
+                },
+              ),
+            ),
+            if (bypassRouting) ...[
               Divider(height: 1, color: colors.outline),
               InkWell(
-                key: const ValueKey('advanced-bypass-domain-tile'),
-                onTap: _editBypassDomains,
+                key: const ValueKey('advanced-bypass-dns-tile'),
+                onTap: _editBypassDns,
                 child: _SettingsRow(
                   colors: colors,
-                  icon: Icons.alt_route_rounded,
+                  icon: Icons.dns_outlined,
                   iconColor: colors.blue,
-                  title: l10n.bypassDomain,
-                  subtitle: l10n.bypassDomainDesc,
+                  title: l10n.bypassDomainDns,
+                  subtitle: bypassDns == systemBypassDns
+                      ? l10n.bypassDomainSystemDns
+                      : bypassDns,
                   trailing: const Icon(Icons.chevron_right),
                 ),
               ),

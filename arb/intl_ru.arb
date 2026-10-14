@@ -1,4 +1,10 @@
 {
+  "bypassDomainRouting": "Прямое подключение к интрасети в режиме правил",
+  "bypassDomainRoutingDesc": "Прямые правила и DNS интрасети",
+  "bypassDomainDns": "DNS-сервер интрасети",
+  "bypassDomainSystemDns": "Системный DNS",
+  "bypassDomainInvalid": "Некорректный домен: URL, пути и порты не поддерживаются",
+  "bypassDomainDnsInvalid": "Некорректный DNS: укажите IP-адрес или system://",
   "tunHelperPortInUse": "Порт внутренней вспомогательной службы {port} занят другой программой. Закройте конфликтующую программу и её службу, затем повторите попытку или экспортируйте журналы для поддержки. Изменение порта прокси или повторная авторизация не освободят этот порт.",
   "@tunHelperPortInUse": {"placeholders": {"port": {"type": "int"}}},
   "apiDiagnostics": "Диагностика API",

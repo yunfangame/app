@@ -1,4 +1,10 @@
 {
+  "bypassDomainRouting": "Intranet Direct in Rule Mode",
+  "bypassDomainRoutingDesc": "Direct rules and intranet DNS",
+  "bypassDomainDns": "Intranet DNS Server",
+  "bypassDomainSystemDns": "System DNS",
+  "bypassDomainInvalid": "Invalid domain; URLs, paths and ports are not supported",
+  "bypassDomainDnsInvalid": "Invalid DNS server; enter an IP address or system://",
   "tunHelperPortInUse": "The internal helper service port {port} is occupied by another program. Close the conflicting program and its helper service, then retry, or export logs for support. Changing the proxy port or authorizing again will not release this port.",
   "@tunHelperPortInUse": {"placeholders": {"port": {"type": "int"}}},
   "apiDiagnostics": "API diagnostics",

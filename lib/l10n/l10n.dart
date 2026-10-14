@@ -54,6 +54,66 @@ class AppLocalizations {
     return Localizations.of<AppLocalizations>(context, AppLocalizations);
   }
 
+  /// `Intranet Direct in Rule Mode`
+  String get bypassDomainRouting {
+    return Intl.message(
+      'Intranet Direct in Rule Mode',
+      name: 'bypassDomainRouting',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Direct rules and intranet DNS`
+  String get bypassDomainRoutingDesc {
+    return Intl.message(
+      'Direct rules and intranet DNS',
+      name: 'bypassDomainRoutingDesc',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Intranet DNS Server`
+  String get bypassDomainDns {
+    return Intl.message(
+      'Intranet DNS Server',
+      name: 'bypassDomainDns',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `System DNS`
+  String get bypassDomainSystemDns {
+    return Intl.message(
+      'System DNS',
+      name: 'bypassDomainSystemDns',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Invalid domain; URLs, paths and ports are not supported`
+  String get bypassDomainInvalid {
+    return Intl.message(
+      'Invalid domain; URLs, paths and ports are not supported',
+      name: 'bypassDomainInvalid',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Invalid DNS server; enter an IP address or system://`
+  String get bypassDomainDnsInvalid {
+    return Intl.message(
+      'Invalid DNS server; enter an IP address or system://',
+      name: 'bypassDomainDnsInvalid',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `The internal helper service port {port} is occupied by another program. Close the conflicting program and its helper service, then retry, or export logs for support. Changing the proxy port or authorizing again will not release this port.`
   String tunHelperPortInUse(int port) {
     return Intl.message(
