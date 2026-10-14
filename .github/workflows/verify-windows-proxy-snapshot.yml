@@ -49,9 +49,10 @@ jobs:
       - name: Verify native error 13 and restoration
         run: |
           $ErrorActionPreference = 'Stop'
-          ctest --test-dir build/proxy-snapshot -C Release --output-on-failure --no-tests=error --output-junit build/proxy-snapshot/results.xml
+          $reportPath = Join-Path $PWD 'build/proxy-snapshot/results.xml'
+          ctest --test-dir build/proxy-snapshot -C Release --output-on-failure --no-tests=error --output-junit $reportPath
           if ($LASTEXITCODE -ne 0) { throw 'Native snapshot tests failed' }
-          [xml]$report = Get-Content build/proxy-snapshot/results.xml -Raw
+          [xml]$report = Get-Content $reportPath -Raw
           if ($report.SelectNodes('//testcase').Count -ne 2 -or $report.SelectNodes('//failure|//error|//skipped').Count -ne 0) { throw 'Expected both snapshot suites without skips' }
           & ./build/proxy-snapshot/Release/proxy_session_windows_test.exe | Tee-Object build/proxy-snapshot/native-reproduction.txt
           if ($LASTEXITCODE -ne 0) { throw 'Native error 13 reproduction failed' }
