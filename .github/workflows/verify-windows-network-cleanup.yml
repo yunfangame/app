@@ -83,7 +83,7 @@ jobs:
       - name: Compile test-only native application entrypoint
         shell: pwsh
         run: |
-          flutter build windows --release --target-platform=windows-${{ matrix.architecture }} --target=tooling/windows/network_cleanup_entry.dart --dart-define-from-file=env.json
+          flutter build windows --release --target=tooling/windows/network_cleanup_entry.dart --dart-define-from-file=env.json
           if ($LASTEXITCODE -ne 0) { throw 'Native acceptance application build failed' }
       - name: Verify actual tray exit logout proxy TUN routes DNS and internet
         shell: pwsh
