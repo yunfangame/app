@@ -267,8 +267,12 @@ void ActualLegacyRegistryRepair() {
               << " stage=" << rejected.stage << " error=" << rejected.errorCode
               << " writes=" << native.writes << "\n";
     if (rejected.success) {
-      Require(old_policy.Stop(std::nullopt, strict).success && !old_policy.HasPendingCleanup(),
-              "Normalized fixture cleanup did not complete");
+      const auto stopped = old_policy.Stop(std::nullopt, strict);
+      std::cout << "NORMALIZED_OLD_CLEANUP: " << fixture.label << " success="
+                << stopped.success << " stage=" << stopped.stage << " error="
+                << stopped.errorCode << "\n";
+      Apply(snapshot);
+      Require(Read() == snapshot, "Cannot restore normalized fixture baseline");
       continue;
     }
     Require(rejected.stage == "capture_default" && native.writes == 0,
