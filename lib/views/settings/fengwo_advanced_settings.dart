@@ -354,6 +354,34 @@ class _FengWoAdvancedSettingsViewState
         .update((state) => state.copyWith.dns(nameserver: result));
   }
 
+  Future<void> _editBypassDomains() async {
+    final current = ref.read(networkSettingProvider).bypassDomain;
+    final result = await Navigator.of(context).push<List<String>>(
+      MaterialPageRoute(
+        builder: (_) => ListInputPage(
+          title: context.appLocalizations.bypassDomain,
+          items: List<String>.from(current),
+          itemMaxLength: TextInputLimits.domain,
+          titleBuilder: Text.new,
+        ),
+      ),
+    );
+    if (!mounted ||
+        result == null ||
+        stringListEquality.equals(result, current)) {
+      return;
+    }
+    ref
+        .read(networkSettingProvider.notifier)
+        .update(
+          (state) => state.copyWith(bypassDomain: List<String>.from(result)),
+        );
+    commonPrint.event(
+      'system_proxy.bypass_domains.saved',
+      fields: {'previous_count': current.length, 'count': result.length},
+    );
+  }
+
   Future<void> _updateGeoResource(
     GeoResource resource, {
     bool showSuccess = true,
@@ -609,6 +637,22 @@ class _FengWoAdvancedSettingsViewState
                 },
               ),
             ),
+            if (defaultTargetPlatform != TargetPlatform.android &&
+                defaultTargetPlatform != TargetPlatform.iOS) ...[
+              Divider(height: 1, color: colors.outline),
+              InkWell(
+                key: const ValueKey('advanced-bypass-domain-tile'),
+                onTap: _editBypassDomains,
+                child: _SettingsRow(
+                  colors: colors,
+                  icon: Icons.alt_route_rounded,
+                  iconColor: colors.blue,
+                  title: l10n.bypassDomain,
+                  subtitle: l10n.bypassDomainDesc,
+                  trailing: const Icon(Icons.chevron_right),
+                ),
+              ),
+            ],
           ],
           Divider(height: 1, color: colors.outline),
           _SettingsRow(
