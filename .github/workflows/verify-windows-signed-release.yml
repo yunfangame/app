@@ -30,17 +30,17 @@ jobs:
           - architecture: x64
             filename: fengwo-windows-amd64-setup.exe
             runner: windows-2022
-            source: f0c7106a1b8342f128a925a4bc902ab2490fd527
+            source: b3d7b417691f3befa89bf01fb90c97ca627465b2
             baseline_sha256: 157b8ebf8c4cb8289c58afedecd56fcc65a35c900e6813e7f71fbf255e7ceb85
-            artifact_id: 11874663330
-            unsigned_sha256: 36d4c79d50a82d354cb06c1e4caa6adf62e78bbaaed3fb68cf44e94cd6b74f42
+            artifact_id: 11884063354
+            unsigned_sha256: bf131bce2966e29ff5bfeff703cfaed0936009164758e401ebbbc557cdd2ea2e
           - architecture: arm64
             filename: fengwo-windows-arm64-setup.exe
             runner: windows-11-arm
-            source: 4b866b878f7380953846e50e6f4198ecaa474f09
+            source: 63033b73783563423e764a29ad2ca8984d64d29c
             baseline_sha256: d9b682f45386adc6f026c64f0496ed8fbd0e86aca1360d0314c76d4283f144fb
-            artifact_id: 11875477603
-            unsigned_sha256: 411074fd711f7c277509be4d4a28a5e365ed157d6830a28bbd8283d8ee2321aa
+            artifact_id: 11883723712
+            unsigned_sha256: fa128b2ed527d132ac9ca3cbc8217d4ff5d23387894a7acdd3c8af845c4572fc
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     env:
