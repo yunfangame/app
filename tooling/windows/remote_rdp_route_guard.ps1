@@ -6,7 +6,7 @@ foreach ($peer in $peers) {
     if ($peer -notmatch '^\d+\.\d+\.\d+\.\d+$' -or $peer -match '^127\.') { continue }
     $route = Find-NetRoute -RemoteIPAddress $peer | Where-Object { $_.DestinationPrefix } | Select-Object -First 1
     if ($null -eq $route) { throw 'Cannot determine the current RDP route' }
-    $adapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex
+    $adapter = Get-NetAdapter -IncludeHidden | Where-Object { $_.InterfaceIndex -eq $route.InterfaceIndex }
     if ($adapter.Name -match 'FengWo|Clash|Meta|TUN') { throw 'RDP is already using a tunnel route' }
     $prefix = $peer+'/32'
     $existing = @(Get-NetRoute -DestinationPrefix $prefix -ErrorAction SilentlyContinue)
