@@ -163,7 +163,10 @@ try {
             $events = Join-Path $profileDirectory 'diagnostics/events.jsonl'
             Copy-Item -LiteralPath $events -Destination (Join-Path $env:FENGWO_NETWORK_TEST_HOME 'events.jsonl')
             $entries = @(Get-Content -LiteralPath $events | ForEach-Object { $_ | ConvertFrom-Json })
-            foreach ($event in @('system_proxy.cleanup.residual_checked', 'app.exit.process_exit') + $(if ($action -eq 'logout') { @('auth.logout.completed', 'app.logout.cleanup.completed') } else { @() })) {
+            $expectedEvents = @('app.exit.process_exit', 'connection.cleanup.completed')
+            if ($mixedPort -gt 0) { $expectedEvents += 'system_proxy.cleanup.residual_checked' }
+            if ($action -eq 'logout') { $expectedEvents += @('auth.logout.completed', 'app.logout.cleanup.completed') }
+            foreach ($event in $expectedEvents) {
                 if (@($entries | Where-Object event -eq $event).Count -eq 0) { throw "Missing production lifecycle evidence: $event" }
             }
             $results.Add([ordered]@{ case = $case; passed = $true; active = $active; logout = $logout; reconnected = $reconnected; cleaned = $cleaned; native_tray_item = $trayItem })
