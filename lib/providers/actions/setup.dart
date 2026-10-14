@@ -176,6 +176,26 @@ class SetupAction extends _$SetupAction {
   void build() {
     ref.listen(patchClashConfigProvider, (previous, next) {
       if (previous?.tun != next.tun) _tunRevision++;
+      if (previous != null &&
+          previous.mode != next.mode &&
+          ref.read(networkSettingProvider).bypassDomainRouting) {
+        requestBypassProfileApply();
+      }
+    });
+    ref.listen(networkSettingProvider, (previous, next) {
+      if (previous == null ||
+          !(previous.bypassDomainRouting || next.bypassDomainRouting) ||
+          ref.read(patchClashConfigProvider).mode != Mode.rule) {
+        return;
+      }
+      if (previous.bypassDomainRouting != next.bypassDomainRouting ||
+          previous.bypassDomainDns != next.bypassDomainDns ||
+          !stringListEquality.equals(
+            previous.bypassDomain,
+            next.bypassDomain,
+          )) {
+        requestBypassProfileApply();
+      }
     });
     ref.onDispose(() {
       _closeTunProgress?.call();
@@ -183,6 +203,12 @@ class SetupAction extends _$SetupAction {
       _runtimeTimer?.cancel();
       _physicalNetworkRecoveryRevision++;
     });
+  }
+
+  @protected
+  void requestBypassProfileApply() {
+    if (!ref.read(initProvider)) return;
+    applyProfileDebounce(force: true, silence: true);
   }
 
   @protected
@@ -2278,6 +2304,7 @@ class SetupAction extends _$SetupAction {
     );
     final overrideDns = ref.read(overrideDnsProvider);
     final appSettings = ref.read(appSettingProvider);
+    final networkSettings = ref.read(networkSettingProvider);
     final appendSystemDns = networkVM2.a;
     final routeMode = networkVM2.b;
     final Map<String, String> selectedMap =
@@ -2312,6 +2339,17 @@ class SetupAction extends _$SetupAction {
       rawConfig = await handleEvaluate(scriptContent!, rawConfig);
     }
     final directory = await appPath.profilesPath;
+    commonPrint.event(
+      'network.bypass.prepare',
+      fields: {
+        'enabled': networkSettings.bypassDomainRouting,
+        'mode': realPatchConfig.mode.name,
+        'domain_count': bypassDomainRules(networkSettings.bypassDomain).length,
+        'dns_source': networkSettings.bypassDomainDns == systemBypassDns
+            ? 'system'
+            : 'custom',
+      },
+    );
     final res = makeRealProfileTask(
       MakeRealProfileState(
         rules: rules,
@@ -2327,6 +2365,9 @@ class SetupAction extends _$SetupAction {
         chainProxy: activeChainProxy(appSettings),
         chainProxyGlobalTarget: selectedMap[GroupName.GLOBAL.name],
         chainProxyBypassDomains: chainProxyBypassDomains,
+        bypassDomainRouting: networkSettings.bypassDomainRouting,
+        bypassDomains: networkSettings.bypassDomain,
+        bypassDomainDns: networkSettings.bypassDomainDns,
       ),
     );
     return res;

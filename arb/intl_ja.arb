@@ -1,4 +1,10 @@
 {
+  "bypassDomainRouting": "ルールモードのイントラネット直接接続",
+  "bypassDomainRoutingDesc": "直接接続ルールとイントラネット DNS",
+  "bypassDomainDns": "イントラネット DNS サーバー",
+  "bypassDomainSystemDns": "システム DNS",
+  "bypassDomainInvalid": "無効なドメインです。URL、パス、ポートは使用できません",
+  "bypassDomainDnsInvalid": "無効な DNS です。IP アドレスまたは system:// を入力してください",
   "tunHelperPortInUse": "内部補助サービスのポート {port} は別のプログラムに使用されています。競合するプログラムとその補助サービスを終了して再試行するか、ログをエクスポートしてサポートに連絡してください。プロキシポートの変更や再承認では、このポートは解放されません。",
   "@tunHelperPortInUse": {"placeholders": {"port": {"type": "int"}}},
   "apiDiagnostics": "API 診断",

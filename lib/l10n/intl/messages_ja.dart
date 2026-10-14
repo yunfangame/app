@@ -507,6 +507,20 @@ class MessageLookup extends MessageLookupByLibrary {
     "buyNow": MessageLookupByLibrary.simpleMessage("今すぐ購入"),
     "bypassDomain": MessageLookupByLibrary.simpleMessage("バイパスドメイン"),
     "bypassDomainDesc": MessageLookupByLibrary.simpleMessage("システムプロキシ有効時のみ適用"),
+    "bypassDomainDns": MessageLookupByLibrary.simpleMessage("イントラネット DNS サーバー"),
+    "bypassDomainDnsInvalid": MessageLookupByLibrary.simpleMessage(
+      "無効な DNS です。IP アドレスまたは system:// を入力してください",
+    ),
+    "bypassDomainInvalid": MessageLookupByLibrary.simpleMessage(
+      "無効なドメインです。URL、パス、ポートは使用できません",
+    ),
+    "bypassDomainRouting": MessageLookupByLibrary.simpleMessage(
+      "ルールモードのイントラネット直接接続",
+    ),
+    "bypassDomainRoutingDesc": MessageLookupByLibrary.simpleMessage(
+      "直接接続ルールとイントラネット DNS",
+    ),
+    "bypassDomainSystemDns": MessageLookupByLibrary.simpleMessage("システム DNS"),
     "cacheCorrupt": MessageLookupByLibrary.simpleMessage(
       "キャッシュが破損しています。クリアしますか？",
     ),

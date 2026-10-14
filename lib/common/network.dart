@@ -65,7 +65,17 @@ List<String> withLocalNetworkBypassDomains(Iterable<String> values) {
   }.toList();
 }
 
-List<String> withLocalNetworkFakeIpFilters(Iterable<Object?> values) {
+List<String> withLocalNetworkFakeIpFilters(
+  Iterable<Object?> values, {
+  bool ruleMode = false,
+}) {
+  if (ruleMode) {
+    return {
+      for (final domain in localNetworkFakeIpFilters)
+        '${domain.contains('*') ? 'DOMAIN-WILDCARD' : 'DOMAIN'},$domain,real-ip',
+      ...values.whereType<String>(),
+    }.toList();
+  }
   return {...values.whereType<String>(), ...localNetworkFakeIpFilters}.toList();
 }
 
