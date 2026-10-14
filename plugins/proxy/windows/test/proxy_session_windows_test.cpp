@@ -177,6 +177,7 @@ struct NativeFixture {
   int reads = 0;
   int writes = 0;
   int notifications = 0;
+  std::function<void()> after_query;
 
   ConnectionBackend Backend() {
     return {
@@ -189,6 +190,7 @@ struct NativeFixture {
         reads++;
         DWORD native_error = 0;
         const bool success = proxy::settings::QueryConnection(name, configuration, native_error);
+        if (success && name.empty() && after_query) after_query();
         if (success && name.empty() && !VerifyRegistry(configuration, native_error)) {
           error = native_error;
           return false;
@@ -293,8 +295,56 @@ void ActualLegacyRegistryRepair() {
   }
   original.Restore();
   Require(more_data_reproductions > 0, "Actual ERROR_MORE_DATA fixture was not reproduced");
-  Require(invalid_data_reproductions > 0, "Actual ERROR_INVALID_DATA fixture was not reproduced");
-  std::cout << "PASS: actual legacy snapshot failures 13 and 234 repaired without error normalization\n";
+  std::cout << "LEGACY_SUMMARY: snapshot_error_13=" << invalid_data_reproductions
+            << " snapshot_error_234=" << more_data_reproductions << "\n";
+  std::cout << "PASS: native legacy registry matrix retains actual errors and restores test settings\n";
+}
+
+void ActualRegistryRaceRepair() {
+  SnapshotGuard original;
+  Apply(FixtureConfiguration());
+  const auto snapshot = Read();
+  NativeFixture native;
+  int remaining_mutations = 1;
+  native.after_query = [&]() {
+    if (remaining_mutations == 0) return;
+    remaining_mutations--;
+    HKEY key = nullptr;
+    Require(RegOpenKeyExW(HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+        0, KEY_SET_VALUE, &key) == ERROR_SUCCESS, "Cannot open concurrent-writer fixture");
+    const DWORD invalid = 0;
+    const auto status = RegSetValueExW(key, L"ProxyEnable", 0, REG_BINARY,
+        reinterpret_cast<const BYTE*>(&invalid), sizeof(invalid));
+    RegCloseKey(key);
+    Require(status == ERROR_SUCCESS, "Cannot inject concurrent registry type change");
+  };
+  auto strict = native.Backend();
+  ProxySession old_policy;
+  const auto rejected = old_policy.Start(Manual(), strict);
+  Require(!rejected.success && rejected.stage == "capture_default" &&
+          rejected.errorCode == ERROR_INVALID_DATA && native.writes == 0,
+          "Actual controlled registry race did not reproduce snapshot error 13");
+  std::cout << "CONTROLLED_RACE_REPRODUCED: W-PROXY-11 (13), actual registry reader, zero writes\n";
+  Apply(snapshot);
+  remaining_mutations = 1;
+  auto repaired_backend = native.Backend();
+  repaired_backend.capture = [](const std::wstring& name, ConnectionConfiguration& configuration,
+                                uint32_t& error) {
+    DWORD native_error = 0;
+    const bool success = proxy::settings::QueryConnection(name, configuration, native_error);
+    error = native_error;
+    return success;
+  };
+  ProxySession repaired;
+  const auto applied = repaired.Start(Manual(), repaired_backend);
+  Require(applied.success && Read() == Manual() && remaining_mutations == 0,
+          "Controlled registry race repair did not pass strict native readback");
+  const auto stopped = repaired.Stop(std::nullopt, repaired_backend);
+  Require(stopped.success && Read() == snapshot && !repaired.HasPendingCleanup(),
+          "Controlled race repair did not restore the complete original snapshot");
+  original.Restore();
+  std::cout << "PASS: controlled error 13 race repaired and original PAC/autodetect settings restored\n";
 }
 
 void ActualWindowsSession() {
@@ -361,6 +411,7 @@ int main() {
     TypedFallback();
     ActualWindowsSession();
     ActualLegacyRegistryRepair();
+    ActualRegistryRaceRepair();
     std::cout << "PASS: typed complete W/ANSI fallback, real WinINet restoration and registry corroboration\n";
     return 0;
   } catch (const std::exception& error) {
