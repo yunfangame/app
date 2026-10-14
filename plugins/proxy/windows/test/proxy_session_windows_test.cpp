@@ -7,6 +7,7 @@
 #include <string>
 
 #include "../proxy_settings.h"
+#include "../proxy_registry.h"
 
 #pragma comment(lib, "advapi32")
 
@@ -46,41 +47,16 @@ bool Notify(SessionOperationDetails& details) {
   return true;
 }
 
-void VerifyRegistry(const ConnectionConfiguration& configuration) {
-  HKEY key = nullptr;
-  Require(RegOpenKeyExW(HKEY_CURRENT_USER,
-          L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
-          0, KEY_QUERY_VALUE, &key) == ERROR_SUCCESS, "Cannot read current-user proxy registry");
-  DWORD enabled = 0;
-  DWORD type = 0;
-  DWORD size = sizeof(enabled);
-  auto enabled_status = RegQueryValueExW(key, L"ProxyEnable", nullptr, &type,
-      reinterpret_cast<LPBYTE>(&enabled), &size);
-  if (enabled_status == ERROR_FILE_NOT_FOUND) {
-    enabled_status = ERROR_SUCCESS;
-    enabled = 0;
-    type = REG_DWORD;
+bool VerifyRegistry(const ConnectionConfiguration& configuration, DWORD& error) {
+  proxy::settings::RegistryProxyReadback registry;
+  if (!proxy::settings::ReadProxyRegistry(registry, error)) return false;
+  if (registry.enabled != configuration.HasManualProxy() ||
+      (registry.enabled && registry.server != configuration.server)) {
+    error = ERROR_INVALID_DATA;
+    return false;
   }
-  const bool enabled_valid = enabled_status == ERROR_SUCCESS && type == REG_DWORD;
-  DWORD server_type = 0;
-  DWORD server_size = 0;
-  auto server_status = RegQueryValueExW(key, L"ProxyServer", nullptr, &server_type,
-                                       nullptr, &server_size);
-  std::wstring server;
-  bool server_valid = server_status == ERROR_FILE_NOT_FOUND;
-  if (server_status == ERROR_SUCCESS && (server_type == REG_SZ || server_type == REG_EXPAND_SZ)) {
-    std::vector<wchar_t> buffer(server_size / sizeof(wchar_t) + 1, L'\0');
-    server_status = RegQueryValueExW(key, L"ProxyServer", nullptr, &server_type,
-                                    reinterpret_cast<LPBYTE>(buffer.data()), &server_size);
-    server_valid = server_status == ERROR_SUCCESS;
-    if (server_valid) server.assign(buffer.data());
-  }
-  RegCloseKey(key);
-  Require(enabled_valid && server_valid, "Current-user proxy registry has invalid values");
-  Require((enabled != 0) == configuration.HasManualProxy(),
-          "WinINet FLAGS_UI disagrees with registry ProxyEnable");
-  Require(enabled == 0 || server == configuration.server,
-          "WinINet proxy address disagrees with registry ProxyServer");
+  error = ERROR_SUCCESS;
+  return true;
 }
 
 ConnectionConfiguration Read() {
@@ -88,7 +64,7 @@ ConnectionConfiguration Read() {
   DWORD error = 0;
   Require(proxy::settings::QueryConnection(L"", configuration, error),
           "Cannot query complete WinINet configuration");
-  VerifyRegistry(configuration);
+  Require(VerifyRegistry(configuration, error), "Cannot corroborate WinINet with proxy registry");
   return configuration;
 }
 
@@ -213,9 +189,9 @@ struct NativeFixture {
         reads++;
         DWORD native_error = 0;
         const bool success = proxy::settings::QueryConnection(name, configuration, native_error);
-        if (success && name.empty()) {
-          try { VerifyRegistry(configuration); }
-          catch (const std::exception&) { error = ERROR_INVALID_DATA; return false; }
+        if (success && name.empty() && !VerifyRegistry(configuration, native_error)) {
+          error = native_error;
+          return false;
         }
         error = native_error;
         return success;
@@ -236,53 +212,83 @@ struct NativeFixture {
 
 void ActualLegacyRegistryRepair() {
   SnapshotGuard original;
-  Apply(FixtureConfiguration());
-  NativeFixture native;
-  auto backend = native.Backend();
-  backend.capture = [](const std::wstring& name, ConnectionConfiguration& configuration,
-                       uint32_t& error) {
-    DWORD native_error = 0;
-    const bool success = proxy::settings::QueryConnection(name, configuration, native_error);
-    error = native_error;
-    return success;
+  struct LegacyValue {
+    const char* label;
+    const wchar_t* name;
+    DWORD type;
+    const void* data;
+    DWORD size;
   };
-  ConnectionConfiguration snapshot;
-  uint32_t error = 0;
-  Require(backend.capture(L"", snapshot, error), "Cannot capture the clean fixture snapshot");
-  HKEY key = nullptr;
-  Require(RegOpenKeyExW(HKEY_CURRENT_USER,
-          L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
-          0, KEY_SET_VALUE | KEY_QUERY_VALUE, &key) == ERROR_SUCCESS, "Cannot prepare owned registry fixture");
-  const wchar_t invalid[] = L"x";
-  const auto status = RegSetValueExW(key, L"ProxyEnable", 0, REG_SZ,
-      reinterpret_cast<const BYTE*>(invalid), sizeof(invalid));
-  DWORD fixture_type = 0;
-  DWORD fixture_value = 0;
-  DWORD fixture_size = sizeof(fixture_value);
-  const auto read_status = RegQueryValueExW(key, L"ProxyEnable", nullptr, &fixture_type,
-      reinterpret_cast<LPBYTE>(&fixture_value), &fixture_size);
-  RegCloseKey(key);
-  Require(status == ERROR_SUCCESS, "Cannot write owned legacy fixture");
-  Require(read_status == ERROR_SUCCESS && fixture_type == REG_SZ,
-          "Legacy fixture must trigger invalid type (13), not an undersized buffer (234)");
-  auto strict = backend;
-  strict.capture = {};
-  ProxySession old_policy;
-  const auto rejected = old_policy.Start(Manual(), strict);
-  std::cout << "OLD_POLICY_RESULT: success=" << rejected.success << " stage="
-            << rejected.stage << " error=" << rejected.errorCode
-            << " writes=" << native.writes << "\n";
-  Require(!rejected.success && rejected.stage == "capture_default" &&
-          rejected.errorCode == ERROR_INVALID_DATA && native.writes == 0,
-          "Actual legacy fixture did not reproduce W-PROXY-11 (13)");
-  std::cout << "REPRODUCED: W-PROXY-11 (13), capture_default, zero writes\n";
-  ProxySession repaired;
-  const auto applied = repaired.Start(Manual(), backend);
-  Require(applied.success && Read().HasManualProxy(), "Actual legacy registry repair failed");
-  Require(repaired.Stop(std::nullopt, backend).success && Read() == snapshot,
-          "Actual repaired session did not restore its original WinINet snapshot");
+  const wchar_t short_string[] = L"x";
+  const wchar_t long_string[] = L"legacy-invalid-type";
+  const DWORD number = 1;
+  const wchar_t multiple[] = L"invalid\0";
+  const LegacyValue fixtures[] = {
+    {"enable_short_string", L"ProxyEnable", REG_SZ, short_string, sizeof(short_string)},
+    {"enable_long_string", L"ProxyEnable", REG_SZ, long_string, sizeof(long_string)},
+    {"enable_binary", L"ProxyEnable", REG_BINARY, &number, sizeof(number)},
+    {"server_dword", L"ProxyServer", REG_DWORD, &number, sizeof(number)},
+    {"server_binary", L"ProxyServer", REG_BINARY, &number, sizeof(number)},
+    {"server_multi_string", L"ProxyServer", REG_MULTI_SZ, multiple, sizeof(multiple)},
+  };
+  int invalid_data_reproductions = 0;
+  int more_data_reproductions = 0;
+  for (const auto& fixture : fixtures) {
+    Apply(FixtureConfiguration());
+    NativeFixture native;
+    auto backend = native.Backend();
+    backend.capture = [](const std::wstring& name, ConnectionConfiguration& configuration,
+                         uint32_t& error) {
+      DWORD native_error = 0;
+      const bool success = proxy::settings::QueryConnection(name, configuration, native_error);
+      error = native_error;
+      return success;
+    };
+    ConnectionConfiguration snapshot;
+    uint32_t error = 0;
+    Require(backend.capture(L"", snapshot, error), "Cannot capture clean fixture snapshot");
+    HKEY key = nullptr;
+    Require(RegOpenKeyExW(HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+        0, KEY_SET_VALUE, &key) == ERROR_SUCCESS, "Cannot prepare registry fixture");
+    const auto status = RegSetValueExW(key, fixture.name, 0, fixture.type,
+        static_cast<const BYTE*>(fixture.data), fixture.size);
+    RegCloseKey(key);
+    Require(status == ERROR_SUCCESS, "Cannot write legacy registry fixture");
+    proxy::settings::RegistryProxyReadback raw;
+    DWORD raw_error = 0;
+    const bool raw_success = proxy::settings::ReadProxyRegistry(raw, raw_error);
+    auto strict = backend;
+    strict.capture = {};
+    ProxySession old_policy;
+    const auto rejected = old_policy.Start(Manual(), strict);
+    std::cout << "LEGACY_FIXTURE: " << fixture.label << " raw_success=" << raw_success
+              << " raw_error=" << raw_error << " old_success=" << rejected.success
+              << " stage=" << rejected.stage << " error=" << rejected.errorCode
+              << " writes=" << native.writes << "\n";
+    if (rejected.success) {
+      Require(old_policy.Stop(std::nullopt, strict).success && Read() == snapshot,
+              "Normalized fixture did not restore clean snapshot");
+      continue;
+    }
+    Require(rejected.stage == "capture_default" && native.writes == 0,
+            "Legacy snapshot rejection wrote settings or failed at an unexpected stage");
+    Require(rejected.errorCode == ERROR_INVALID_DATA || rejected.errorCode == ERROR_MORE_DATA,
+            "Unexpected native legacy registry error");
+    invalid_data_reproductions += rejected.errorCode == ERROR_INVALID_DATA ? 1 : 0;
+    more_data_reproductions += rejected.errorCode == ERROR_MORE_DATA ? 1 : 0;
+    ProxySession repaired;
+    const auto applied = repaired.Start(Manual(), backend);
+    Require(applied.success && Read() == Manual(), "Actual registry repair failed");
+    Require(repaired.Stop(std::nullopt, backend).success && Read() == snapshot,
+            "Repaired session did not restore its original complete WinINet snapshot");
+    std::cout << "REPAIRED: " << fixture.label << " native_error=" << rejected.errorCode
+              << " verified and original settings restored\n";
+  }
   original.Restore();
-  std::cout << "PASS: actual legacy registry repaired, verified and original settings restored\n";
+  Require(more_data_reproductions > 0, "Actual ERROR_MORE_DATA fixture was not reproduced");
+  Require(invalid_data_reproductions > 0, "Actual ERROR_INVALID_DATA fixture was not reproduced");
+  std::cout << "PASS: actual legacy snapshot failures 13 and 234 repaired without error normalization\n";
 }
 
 void ActualWindowsSession() {

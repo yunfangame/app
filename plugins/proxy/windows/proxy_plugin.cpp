@@ -11,6 +11,7 @@
 #include <RasError.h>
 #include "proxy_settings.h"
 #include "proxy_ras.h"
+#include "proxy_registry.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -32,15 +33,6 @@ namespace
 
 constexpr int kMinProxyPort = 1;
 constexpr int kMaxProxyPort = 65535;
-constexpr wchar_t kInternetSettingsKey[] =
-    L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
-
-struct ProxyReadback
-{
-  bool enabled = false;
-  std::wstring server;
-};
-
 using ProxyOperationDetails = proxy::settings::SessionOperationDetails;
 
 std::wstring Utf8ToWide(const std::string& value)
@@ -106,72 +98,6 @@ bool IsStringList(const flutter::EncodableList& values)
       });
 }
 
-bool ReadStringValue(
-    HKEY key,
-    const wchar_t* name,
-    std::wstring& value,
-    DWORD& errorCode)
-{
-  DWORD type = 0;
-  DWORD size = 0;
-  auto status = RegQueryValueExW(key, name, nullptr, &type, nullptr, &size);
-  if (status == ERROR_FILE_NOT_FOUND)
-  {
-    value.clear();
-    return true;
-  }
-  if (status != ERROR_SUCCESS ||
-      (type != REG_SZ && type != REG_EXPAND_SZ))
-  {
-    errorCode = status == ERROR_SUCCESS ? ERROR_INVALID_DATA : status;
-    return false;
-  }
-  std::vector<wchar_t> buffer(size / sizeof(wchar_t) + 1, L'\0');
-  status = RegQueryValueExW(
-      key, name, nullptr, &type,
-      reinterpret_cast<LPBYTE>(buffer.data()), &size);
-  if (status != ERROR_SUCCESS)
-  {
-    errorCode = status;
-    return false;
-  }
-  value.assign(buffer.data());
-  return true;
-}
-
-bool ReadProxyRegistry(ProxyReadback& readback, DWORD& errorCode)
-{
-  HKEY key = nullptr;
-  auto status = RegOpenKeyExW(
-      HKEY_CURRENT_USER, kInternetSettingsKey, 0, KEY_QUERY_VALUE, &key);
-  if (status != ERROR_SUCCESS)
-  {
-    errorCode = status;
-    return false;
-  }
-  DWORD enabled = 0;
-  DWORD type = 0;
-  DWORD size = sizeof(enabled);
-  status = RegQueryValueExW(
-      key, L"ProxyEnable", nullptr, &type,
-      reinterpret_cast<LPBYTE>(&enabled), &size);
-  if (status == ERROR_FILE_NOT_FOUND)
-  {
-    enabled = 0;
-  }
-  else if (status != ERROR_SUCCESS || type != REG_DWORD)
-  {
-    RegCloseKey(key);
-    errorCode = status == ERROR_SUCCESS ? ERROR_INVALID_DATA : status;
-    return false;
-  }
-  readback.enabled = enabled != 0;
-  const bool serverRead =
-      ReadStringValue(key, L"ProxyServer", readback.server, errorCode);
-  RegCloseKey(key);
-  return serverRead;
-}
-
 bool EnumerateConnections(std::vector<std::wstring>& names, uint32_t& error)
 {
   DWORD size = 0;
@@ -218,8 +144,8 @@ bool ReadConnection(const std::wstring& name,
   if (name.empty())
   {
     DWORD native_error = ERROR_SUCCESS;
-    ProxyReadback registry;
-    if (!ReadProxyRegistry(registry, native_error))
+    proxy::settings::RegistryProxyReadback registry;
+    if (!proxy::settings::ReadProxyRegistry(registry, native_error))
     {
       error = native_error;
       return false;

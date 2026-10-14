@@ -21,6 +21,7 @@ list(APPEND PLUGIN_SOURCES
   "proxy_plugin.h"
   "proxy_task_runner.h"
   "proxy_settings.h"
+  "proxy_registry.h"
   "proxy_session.h"
   "proxy_ras.h"
 )
