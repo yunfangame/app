@@ -10,6 +10,7 @@
 #include <Ras.h>
 #include <RasError.h>
 #include "proxy_settings.h"
+#include "proxy_ras.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -195,9 +196,9 @@ bool EnumerateConnections(std::vector<std::wstring>& names, uint32_t& error)
   return true;
 }
 
-bool ReadConnection(const std::wstring& name,
-                    proxy::settings::ConnectionConfiguration& configuration,
-                    uint32_t& error)
+bool CaptureConnection(const std::wstring& name,
+                       proxy::settings::ConnectionConfiguration& configuration,
+                       uint32_t& error)
 {
   DWORD native_error = ERROR_SUCCESS;
   if (!proxy::settings::QueryConnection(name, configuration, native_error))
@@ -205,8 +206,18 @@ bool ReadConnection(const std::wstring& name,
     error = native_error;
     return false;
   }
+  error = ERROR_SUCCESS;
+  return true;
+}
+
+bool ReadConnection(const std::wstring& name,
+                    proxy::settings::ConnectionConfiguration& configuration,
+                    uint32_t& error)
+{
+  if (!CaptureConnection(name, configuration, error)) return false;
   if (name.empty())
   {
+    DWORD native_error = ERROR_SUCCESS;
     ProxyReadback registry;
     if (!ReadProxyRegistry(registry, native_error))
     {
@@ -227,49 +238,7 @@ bool ReadConnection(const std::wstring& name,
 bool DiscoverConnections(proxy::settings::ConnectionDiscovery& discovery,
                          uint32_t& error)
 {
-  std::vector<RASCONNW> connections(1);
-  DWORD size = sizeof(RASCONNW);
-  DWORD count = 0;
-  DWORD status = ERROR_SUCCESS;
-  for (int attempt = 0; attempt < 4; ++attempt)
-  {
-    for (auto& connection : connections) connection.dwSize = sizeof(RASCONNW);
-    size = static_cast<DWORD>(connections.size() * sizeof(RASCONNW));
-    status = RasEnumConnectionsW(connections.data(), &size, &count);
-    if (status != ERROR_BUFFER_TOO_SMALL) break;
-    const size_t required = (size + sizeof(RASCONNW) - 1) / sizeof(RASCONNW);
-    if (required == 0 || required > 1024)
-    {
-      error = ERROR_INVALID_DATA;
-      return false;
-    }
-    connections.resize(required);
-  }
-  if (status != ERROR_SUCCESS || count > connections.size())
-  {
-    error = status == ERROR_SUCCESS ? ERROR_INVALID_DATA : status;
-    return false;
-  }
-  for (DWORD i = 0; i < count; ++i)
-  {
-    RASCONNSTATUSW state = {};
-    state.dwSize = sizeof(state);
-    status = RasGetConnectStatusW(connections[i].hrasconn, &state);
-    if (status != ERROR_SUCCESS)
-    {
-      error = status;
-      return false;
-    }
-    if (state.rasconnstate == RASCS_Disconnected) continue;
-    const std::wstring name = connections[i].szEntryName;
-    if (name.empty())
-    {
-      error = ERROR_INVALID_DATA;
-      return false;
-    }
-    if (std::find(discovery.active.begin(), discovery.active.end(), name) == discovery.active.end())
-      discovery.active.push_back(name);
-  }
+  if (!proxy::settings::DiscoverActiveConnections(discovery.active, error)) return false;
   std::vector<std::wstring> saved;
   uint32_t saved_error = 0;
   if (!EnumerateConnections(saved, saved_error))
@@ -322,6 +291,7 @@ proxy::settings::ConnectionBackend NativeBackend()
   auto backend = proxy::settings::ConnectionBackend{
       EnumerateConnections, ReadConnection, WriteConnection, NotifySettingsChanged};
   backend.discover = DiscoverConnections;
+  backend.capture = CaptureConnection;
   return backend;
 }
 

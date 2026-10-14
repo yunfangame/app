@@ -22,6 +22,7 @@ list(APPEND PLUGIN_SOURCES
   "proxy_task_runner.h"
   "proxy_settings.h"
   "proxy_session.h"
+  "proxy_ras.h"
 )
 
 # Define the plugin library target. Its name must not be changed (see comment
@@ -85,6 +86,7 @@ FetchContent_MakeAvailable(googletest)
 add_executable(${TEST_RUNNER}
   test/proxy_plugin_test.cpp
   test/proxy_session_test.cpp
+  test/proxy_ras_test.cpp
   test/proxy_task_runner_test.cpp
   ${PLUGIN_SOURCES}
 )

@@ -213,7 +213,10 @@ struct NativeFixture {
         reads++;
         DWORD native_error = 0;
         const bool success = proxy::settings::QueryConnection(name, configuration, native_error);
-        if (success && name.empty()) VerifyRegistry(configuration);
+        if (success && name.empty()) {
+          try { VerifyRegistry(configuration); }
+          catch (const std::exception&) { error = ERROR_INVALID_DATA; return false; }
+        }
         error = native_error;
         return success;
       },
@@ -230,6 +233,47 @@ struct NativeFixture {
     };
   }
 };
+
+void ActualLegacyRegistryRepair() {
+  SnapshotGuard original;
+  Apply(FixtureConfiguration());
+  NativeFixture native;
+  auto backend = native.Backend();
+  backend.capture = [](const std::wstring& name, ConnectionConfiguration& configuration,
+                       uint32_t& error) {
+    DWORD native_error = 0;
+    const bool success = proxy::settings::QueryConnection(name, configuration, native_error);
+    error = native_error;
+    return success;
+  };
+  HKEY key = nullptr;
+  Require(RegOpenKeyExW(HKEY_CURRENT_USER,
+          L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+          0, KEY_SET_VALUE, &key) == ERROR_SUCCESS, "Cannot prepare owned registry fixture");
+  const wchar_t invalid[] = L"legacy-invalid-type";
+  const auto status = RegSetValueExW(key, L"ProxyEnable", 0, REG_SZ,
+      reinterpret_cast<const BYTE*>(invalid), sizeof(invalid));
+  RegCloseKey(key);
+  Require(status == ERROR_SUCCESS, "Cannot write owned legacy fixture");
+  ConnectionConfiguration snapshot;
+  uint32_t error = 0;
+  Require(backend.capture(L"", snapshot, error), "Legacy fixture must retain a readable WinINet snapshot");
+  auto strict = backend;
+  strict.capture = {};
+  ProxySession old_policy;
+  const auto rejected = old_policy.Start(Manual(), strict);
+  Require(!rejected.success && rejected.stage == "capture_default" &&
+          rejected.errorCode == ERROR_INVALID_DATA && native.writes == 0,
+          "Actual legacy fixture did not reproduce W-PROXY-11 (13)");
+  std::cout << "REPRODUCED: W-PROXY-11 (13), capture_default, zero writes\n";
+  ProxySession repaired;
+  const auto applied = repaired.Start(Manual(), backend);
+  Require(applied.success && Read().HasManualProxy(), "Actual legacy registry repair failed");
+  Require(repaired.Stop(std::nullopt, backend).success && Read() == snapshot,
+          "Actual repaired session did not restore its original WinINet snapshot");
+  original.Restore();
+  std::cout << "PASS: actual legacy registry repaired, verified and original settings restored\n";
+}
 
 void ActualWindowsSession() {
   SnapshotGuard original;
@@ -281,12 +325,20 @@ int main() {
   try {
     wchar_t actions[16] = {};
     wchar_t mutation[16] = {};
+    wchar_t authorized_machine[MAX_COMPUTERNAME_LENGTH + 1] = {};
+    wchar_t machine[MAX_COMPUTERNAME_LENGTH + 1] = {};
+    DWORD machine_length = MAX_COMPUTERNAME_LENGTH + 1;
     GetEnvironmentVariableW(L"GITHUB_ACTIONS", actions, 16);
     GetEnvironmentVariableW(L"FENGWO_PROXY_MUTATING_TEST", mutation, 16);
-    Require(std::wstring(actions) == L"true" && std::wstring(mutation) == L"1",
-            "Requires an isolated CI Windows account");
+    GetEnvironmentVariableW(L"FENGWO_PROXY_TEST_MACHINE", authorized_machine,
+                            MAX_COMPUTERNAME_LENGTH + 1);
+    const bool named_test_machine = GetComputerNameW(machine, &machine_length) &&
+        authorized_machine[0] != L'\0' && std::wstring(machine) == authorized_machine;
+    Require((std::wstring(actions) == L"true" || named_test_machine) &&
+            std::wstring(mutation) == L"1", "Requires an explicitly selected isolated Windows test account");
     TypedFallback();
     ActualWindowsSession();
+    ActualLegacyRegistryRepair();
     std::cout << "PASS: typed complete W/ANSI fallback, real WinINet restoration and registry corroboration\n";
     return 0;
   } catch (const std::exception& error) {

@@ -473,6 +473,98 @@ void HistoricalEnumerationFailureIsDiagnosticOnly() {
   Require(session.Stop(std::nullopt, backend).success, "phonebook inventory failure does not break cleanup");
 }
 
+void RegistryMismatchCanBeRepairedFromSnapshot() {
+  for (const bool already_applied : {false, true}) {
+    Fixture f;
+    if (already_applied) f.values[L""] = Manual();
+    const auto original = f.values[L""];
+    auto backend = f.Backend();
+    backend.capture = backend.read;
+    const auto read = backend.read;
+    const auto write = backend.write;
+    bool registry_matches = false;
+    backend.read = [&](const std::wstring& name, ConnectionConfiguration& value, uint32_t& error) {
+      if (!registry_matches) { error = 13; return false; }
+      return read(name, value, error);
+    };
+    backend.write = [&](const std::wstring& name, const ConnectionConfiguration& value,
+                        uint32_t& error, bool& fallback) {
+      const bool success = write(name, value, error, fallback);
+      if (success) registry_matches = true;
+      return success;
+    };
+    auto strict_backend = backend;
+    strict_backend.capture = {};
+    ProxySession previous_policy;
+    const auto rejected = previous_policy.Start(Manual(), strict_backend);
+    Require(!rejected.success && rejected.stage == "capture_default" &&
+            rejected.errorCode == 13 && f.writes == 0,
+            "previous strict snapshot policy reproduces W-PROXY-11 (13)");
+    ProxySession session;
+    const auto result = session.Start(Manual(), backend);
+    Require(result.success && f.writes == 1 && !result.writeSkipped,
+            "legacy registry mismatch is repaired even when WinINet already has the desired proxy");
+    Require(std::any_of(result.connectionTrace.begin(), result.connectionTrace.end(),
+            [](const proxy::settings::ConnectionTrace& trace) {
+              return trace.phase == "preflight_readback" && !trace.success && trace.errorCode == 13;
+            }), "repaired legacy mismatch remains visible in the operation trace");
+    registry_matches = false;
+    Require(session.Stop(std::nullopt, backend).success && f.values[L""] == original &&
+            !session.HasPendingCleanup(), "cleanup repairs registry mismatch and restores the WinINet snapshot");
+  }
+}
+
+void SnapshotDoesNotBypassAppliedVerification() {
+  Fixture f;
+  auto backend = f.Backend();
+  backend.capture = backend.read;
+  backend.read = [](const std::wstring&, ConnectionConfiguration&, uint32_t& error) {
+    error = 13;
+    return false;
+  };
+  ProxySession session;
+  const auto result = session.Start(Manual(), backend);
+  Require(!result.success && result.stage == "readback" && result.errorCode == 13 &&
+          f.writes == 1 && session.HasPendingCleanup(),
+          "post-write registry mismatch still fails and retains recoverable ownership");
+  backend.read = backend.capture;
+  Require(session.Stop(std::nullopt, backend).success && f.values[L""] == Original(),
+          "failed verified application restores its original snapshot");
+}
+
+void UnreadableSnapshotDoesNotWrite() {
+  Fixture f;
+  auto backend = f.Backend();
+  backend.capture = [](const std::wstring&, ConnectionConfiguration&, uint32_t& error) {
+    error = 13;
+    return false;
+  };
+  ProxySession session;
+  const auto result = session.Start(Manual(), backend);
+  Require(!result.success && result.stage == "capture_default" && result.errorCode == 13 &&
+          f.writes == 0 && !session.HasPendingCleanup(),
+          "invalid WinINet snapshot cannot be replaced with guessed settings");
+}
+
+void MismatchedRegistryDoesNotAcquireForeignSettings() {
+  Fixture f;
+  auto backend = f.Backend();
+  backend.capture = backend.read;
+  ProxySession session;
+  Require(session.Start(Manual(), backend).success, "foreign snapshot test starts");
+  const auto foreign = Manual(9000);
+  f.values[L""] = foreign;
+  backend.read = [](const std::wstring&, ConnectionConfiguration&, uint32_t& error) {
+    error = 13;
+    return false;
+  };
+  const auto writes = f.writes;
+  const auto stopped = session.Stop(std::nullopt, backend);
+  Require(stopped.success && stopped.restoreAbandoned && f.writes == writes &&
+          f.values[L""] == foreign && !session.HasPendingCleanup(),
+          "registry mismatch never grants ownership of another application's proxy");
+}
+
 }
 
 #ifdef FENGWO_PROXY_SESSION_STANDALONE
@@ -499,7 +591,11 @@ int main() {
     EffectiveFieldsRemainStrict();
     TopologyChangesRequireRetry();
     HistoricalEnumerationFailureIsDiagnosticOnly();
-    std::cout << "PASS: 21 proxy session suites\n";
+    RegistryMismatchCanBeRepairedFromSnapshot();
+    SnapshotDoesNotBypassAppliedVerification();
+    UnreadableSnapshotDoesNotWrite();
+    MismatchedRegistryDoesNotAcquireForeignSettings();
+    std::cout << "PASS: 25 proxy session suites\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "FAIL: " << error.what() << '\n';
@@ -530,4 +626,8 @@ TEST(ProxySession, RetainedInactivePacIsAcceptedAndRestored) { RetainedInactiveP
 TEST(ProxySession, EffectiveFieldsRemainStrict) { EffectiveFieldsRemainStrict(); }
 TEST(ProxySession, TopologyChangesRequireRetry) { TopologyChangesRequireRetry(); }
 TEST(ProxySession, HistoricalEnumerationFailureIsDiagnosticOnly) { HistoricalEnumerationFailureIsDiagnosticOnly(); }
+TEST(ProxySession, RegistryMismatchCanBeRepairedFromSnapshot) { RegistryMismatchCanBeRepairedFromSnapshot(); }
+TEST(ProxySession, SnapshotDoesNotBypassAppliedVerification) { SnapshotDoesNotBypassAppliedVerification(); }
+TEST(ProxySession, UnreadableSnapshotDoesNotWrite) { UnreadableSnapshotDoesNotWrite(); }
+TEST(ProxySession, MismatchedRegistryDoesNotAcquireForeignSettings) { MismatchedRegistryDoesNotAcquireForeignSettings(); }
 #endif
