@@ -5,7 +5,10 @@ on:
     paths: [.github/workflows/verify-windows-signed-release.yml]
   workflow_dispatch:
     inputs:
-      download_base:
+      x64_signature_patch:
+        required: true
+        type: string
+      arm64_signature_patch:
         required: true
         type: string
       x64_sha256:
@@ -41,7 +44,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     env:
-      DOWNLOAD_BASE: ${{ inputs.download_base }}
+      SIGNATURE_PATCH: ${{ matrix.architecture == 'x64' && inputs.x64_signature_patch || inputs.arm64_signature_patch }}
       EXPECTED_HASH: ${{ matrix.architecture == 'x64' && inputs.x64_sha256 || inputs.arm64_sha256 }}
       ARCHITECTURE: ${{ matrix.architecture }}
       INSTALLER_FILENAME: ${{ matrix.filename }}
@@ -61,8 +64,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $base = [uri]$env:DOWNLOAD_BASE
-          if ($base.Scheme -cne 'https' -or $base.Host -cne 'zryc.oss-cn-beijing.aliyuncs.com' -or $base.AbsolutePath -cne '/release-tests/fengwo-windows-1.0.11-20261014/' -or $base.Query -or $base.Fragment -or $base.UserInfo -or $base.Port -ne 443) { throw 'Unexpected installer staging location' }
           if ($env:EXPECTED_HASH -cnotmatch '\A[a-f0-9]{64}\z') { throw 'Expected SHA256 is invalid' }
           $headers = @{ Authorization = 'Bearer ' + $env:GH_TOKEN; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
           $archive = Join-Path $env:RUNNER_TEMP 'unsigned-build.zip'
@@ -71,8 +72,7 @@ jobs:
           Expand-Archive -LiteralPath $archive -DestinationPath $unpacked
           $unsigned = @(Get-ChildItem -LiteralPath $unpacked -Recurse -File -Filter $env:INSTALLER_FILENAME)
           if ($unsigned.Count -ne 1 -or (Get-FileHash -LiteralPath $unsigned[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:UNSIGNED_HASH) { throw 'Original tested build artifact mismatch' }
-          $patchUrl = $env:DOWNLOAD_BASE.TrimEnd('/') + '/windows-' + $env:ARCHITECTURE + '-signature.json'
-          $patch = Invoke-RestMethod -Uri $patchUrl
+          $patch = $env:SIGNATURE_PATCH | ConvertFrom-Json
           if ($patch.passed -ne $true -or $patch.unsigned_sha256 -cne $env:UNSIGNED_HASH -or $patch.signed_sha256 -cne $env:EXPECTED_HASH) { throw 'Signature patch does not match pinned artifacts' }
           $original = [IO.File]::ReadAllBytes($unsigned[0].FullName)
           if ($original.Length -ne $patch.unsigned_bytes) { throw 'Unsigned artifact size mismatch' }
@@ -113,33 +113,20 @@ jobs:
       - name: Verify signed 1.0.10 to 1.0.11 overwrite upgrade
         run: |
           ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath (Join-Path $env:RUNNER_TEMP 'fengwo-1.0.11.exe') -PreviousInstallerPath (Join-Path $env:RUNNER_TEMP 'fengwo-1.0.10.exe') -ExpectedPreviousVersion '1.0.10' -OutputDirectory (Join-Path $env:RUNNER_TEMP 'signed-upgrade-evidence')
-      - name: Upload tested identical signed package to isolated staging
-        env:
-          STAGE_PUT_URL: ${{ matrix.architecture == 'x64' && secrets.FENGWO_WINDOWS_X64_STAGE_PUT_URL || secrets.FENGWO_WINDOWS_ARM64_STAGE_PUT_URL }}
+      - name: Prepare tested identical signed package as an immutable CI artifact
         run: |
           $ErrorActionPreference = 'Stop'
-          $url = [uri]$env:STAGE_PUT_URL
-          if ($url.Scheme -cne 'https' -or $url.Host -cne 'zryc.oss-cn-beijing.aliyuncs.com' -or [uri]::UnescapeDataString($url.AbsolutePath) -cne ('/release-tests/fengwo-windows-1.0.11-20261014/' + $env:INSTALLER_FILENAME) -or -not $url.Query -or $url.Fragment -or $url.UserInfo -or $url.Port -ne 443) { throw 'Unexpected isolated upload capability' }
           $path = Join-Path $env:RUNNER_TEMP 'fengwo-1.0.11.exe'
-          if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:EXPECTED_HASH) { throw 'Tested signed package changed before staging upload' }
-          $config = @(
-            'url = "' + $env:STAGE_PUT_URL + '"'
-            'upload-file = "' + $path.Replace('\', '\\') + '"'
-            'header = "Content-Type: application/octet-stream"'
-            'header = "Cache-Control: no-cache"'
-            'connect-timeout = 20'
-            'max-time = 600'
-            'silent'
-            'fail'
-            'output = "NUL"'
-            'write-out = "%{http_code}"'
-          ) -join "`n"
-          $status = $config | & curl.exe --config -
-          if ($LASTEXITCODE -ne 0 -or $status -cne '200') { throw ('Isolated staging upload failed; curl exit=' + $LASTEXITCODE + '; HTTP=' + $status) }
-          $readback = Join-Path $env:RUNNER_TEMP 'staging-readback.exe'
-          Invoke-WebRequest -Uri ($env:DOWNLOAD_BASE.TrimEnd('/') + '/' + $env:INSTALLER_FILENAME) -OutFile $readback
-          if ((Get-FileHash -LiteralPath $readback -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:EXPECTED_HASH) { throw 'Isolated staging public readback mismatch' }
-          @{ passed = $true; sha256 = $env:EXPECTED_HASH; sizeBytes = (Get-Item -LiteralPath $path).Length; architecture = $env:ARCHITECTURE } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'signed-upgrade-evidence/staging-upload.json') -Encoding utf8NoBOM
+          if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:EXPECTED_HASH) { throw 'Tested signed package changed before artifact creation' }
+          $output = Join-Path $env:RUNNER_TEMP 'signed-package'
+          New-Item -ItemType Directory -Force -Path $output | Out-Null
+          Copy-Item -LiteralPath $path -Destination (Join-Path $output $env:INSTALLER_FILENAME)
+          @{ passed = $true; sha256 = $env:EXPECTED_HASH; sizeBytes = (Get-Item -LiteralPath $path).Length; architecture = $env:ARCHITECTURE; publication_performed = $false } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'signed-upgrade-evidence/package-artifact.json') -Encoding utf8NoBOM
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fengwo-tested-signed-package-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/signed-package
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:
