@@ -7793,6 +7793,16 @@ class AppLocalizations {
     );
   }
 
+  /// `Network cleanup did not complete. Exit or sign-out was cancelled. Retry or export the logs.`
+  String get networkCleanupFailed {
+    return Intl.message(
+      'Network cleanup did not complete. Exit or sign-out was cancelled. Retry or export the logs.',
+      name: 'networkCleanupFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Saved sign-in information on this device will be cleared.`
   String get logoutConfirmMessage {
     return Intl.message(

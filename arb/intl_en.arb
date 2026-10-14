@@ -924,6 +924,7 @@
   "confirmReset": "Reset now",
   "subscriptionResetSuccess": "Subscription reset and synchronized",
   "logoutConfirmTitle": "Sign out of this account?",
+  "networkCleanupFailed": "Network cleanup did not complete. Exit or sign-out was cancelled. Retry or export the logs.",
   "logoutConfirmMessage": "Saved sign-in information on this device will be cleared.",
   "userInfoFailed": "Unable to load account information",
   "requestFailed": "Request failed. Please try again later",

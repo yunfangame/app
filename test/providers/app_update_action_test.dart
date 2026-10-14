@@ -442,6 +442,9 @@ class _ScopedInstallerExit extends SystemAction {
   final List<String> calls;
 
   @override
+  Future<void> prepareExitResources() async {}
+
+  @override
   Future<void> cleanupExitResources(bool needSave) async {
     calls.add('cleanup:$needSave');
   }

@@ -924,6 +924,7 @@
   "confirmReset": "リセットする",
   "subscriptionResetSuccess": "購読情報をリセットして同期しました",
   "logoutConfirmTitle": "このアカウントからログアウトしますか？",
+  "networkCleanupFailed": "ネットワーク設定の復元が完了していないため、終了またはログアウトを中止しました。再試行するか、ログをエクスポートしてください。",
   "logoutConfirmMessage": "この端末に保存されたログイン情報は削除されます。",
   "userInfoFailed": "アカウント情報を読み込めませんでした",
   "requestFailed": "リクエストに失敗しました。後でもう一度お試しください",

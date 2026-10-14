@@ -924,6 +924,7 @@
   "confirmReset": "确认重置",
   "subscriptionResetSuccess": "订阅已重置并重新同步",
   "logoutConfirmTitle": "退出当前账户？",
+  "networkCleanupFailed": "网络清理未完成，已中止退出或登出。请重试或导出日志。",
   "logoutConfirmMessage": "本机保存的登录信息将被清除。",
   "userInfoFailed": "个人资料加载失败",
   "requestFailed": "请求失败，请稍后重试",

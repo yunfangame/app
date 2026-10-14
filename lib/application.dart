@@ -1322,6 +1322,12 @@ class ApplicationState extends ConsumerState<Application> {
         'cleanup logout resources failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
+      commonPrint.event(
+        'auth.logout.network_cleanup.failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
+      await commonPrint.flushDiagnosticEvents();
+      rethrow;
     }
     if (activeSession != null && activeSession.token.isNotEmpty) {
       try {

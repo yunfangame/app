@@ -110,11 +110,7 @@ void main() {
               downloadBytes: 0,
               transferEnableBytes: 100,
               expiredAtEpochSeconds: expired ? 1 : null,
-              rawData: {
-                'transfer_enable': 100,
-                'u': expired ? 0 : 100,
-                'd': 0,
-              },
+              rawData: {'transfer_enable': 100, 'u': expired ? 0 : 100, 'd': 0},
             ),
           );
           var queries = 0;
@@ -272,6 +268,7 @@ void main() {
 
     try {
       expect(proxies.manualSelectionRevision, revision + 1);
+      await Future<void>.delayed(Duration.zero);
       expect(action.events, ['cleanup']);
     } finally {
       action.cleanup.complete();
@@ -414,6 +411,9 @@ class _TestExitAction extends SystemAction {
 
   @override
   Duration get exitWatchdogDuration => const Duration(hours: 1);
+
+  @override
+  Future<void> prepareExitResources() async {}
 
   @override
   Future<void> cleanupExitResources(bool needSave) {

@@ -1561,6 +1561,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "Указать соответствующую политику сервера имен",
     ),
     "network": MessageLookupByLibrary.simpleMessage("Сеть"),
+    "networkCleanupFailed": MessageLookupByLibrary.simpleMessage(
+      "Восстановление сетевых настроек не завершено. Выход из приложения или аккаунта отменён. Повторите попытку или экспортируйте журналы.",
+    ),
     "networkDesc": MessageLookupByLibrary.simpleMessage(
       "Изменение настроек, связанных с сетью",
     ),
