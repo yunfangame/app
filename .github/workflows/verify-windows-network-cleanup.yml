@@ -1,0 +1,103 @@
+name: fengwo-windows-network-cleanup
+
+on:
+  push:
+    branches:
+      - codex/desktop-upstream-0897-port
+    paths:
+      - .github/workflows/verify-windows-network-cleanup.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            runner: windows-2022
+            source: codex/desktop-upstream-0897-port
+          - architecture: arm64
+            runner: windows-11-arm
+            source: codex/windows-arm64-compat
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.source }}
+          submodules: recursive
+          persist-credentials: false
+      - name: Prepare x64 Flutter
+        if: matrix.architecture == 'x64'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.44.4'
+          cache: true
+      - name: Prepare native ARM64 Flutter and compiler
+        if: matrix.architecture == 'arm64'
+        shell: pwsh
+        run: |
+          git config --global core.longpaths true
+          ./tooling/windows/arm64/prepare_flutter.ps1 -SdkDirectory (Join-Path $env:RUNNER_TEMP 'flutter-arm64-3.44.4') -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'network-cleanup/toolchain')
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $installation = (& $vswhere -latest -products '*' -format json | ConvertFrom-Json)[0]
+          $major = ([version]$installation.installationVersion).Major
+          $generator = switch ($major) { 17 { 'Visual Studio 17 2022' }; 18 { 'Visual Studio 18 2026' }; default { throw 'Unsupported native Visual Studio generator' } }
+          ('FENGWO_ARM64_CMAKE_GENERATOR=' + $generator) | Add-Content -LiteralPath $env:GITHUB_ENV
+          $ninja = Join-Path $installation.installationPath 'Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe'
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) { (Split-Path -Parent $ninja) | Add-Content -LiteralPath $env:GITHUB_PATH }
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.4'
+          architecture: ${{ matrix.architecture }}
+          cache-dependency-path: core/go.sum
+      - name: Prepare isolated acceptance build
+        shell: pwsh
+        env:
+          AES_KEY: ${{ secrets.REMOTE_CONFIG_AES_KEY }}
+          SIGNING_PUBLIC_KEY: ${{ secrets.REMOTE_CONFIG_SIGNING_PUBLIC_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:AES_KEY) -or [string]::IsNullOrWhiteSpace($env:SIGNING_PUBLIC_KEY)) { throw 'Missing production build keys' }
+          $definitions = @{ APP_ENV = 'stable'; REMOTE_CONFIG_AES_KEY = $env:AES_KEY; REMOTE_CONFIG_SIGNING_PUBLIC_KEY = $env:SIGNING_PUBLIC_KEY } | ConvertTo-Json -Compress
+          [IO.File]::WriteAllText((Join-Path $PWD 'env.json'), $definitions, [Text.UTF8Encoding]::new($false))
+          flutter pub get
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter dependencies failed' }
+          if ('${{ matrix.architecture }}' -eq 'arm64') {
+            ./tooling/windows/prepare_arm64_javascript.ps1 -ProjectRoot $PWD -CmakePath (Get-Command cmake).Source -Generator $env:FENGWO_ARM64_CMAKE_GENERATOR -Configuration Release
+            flutter pub get
+            if ($LASTEXITCODE -ne 0) { throw 'ARM64 package overrides failed' }
+          }
+          ./tooling/windows/prepare_vc_runtime.ps1 -Architecture '${{ matrix.architecture }}' -OutputDirectory '.dart_tool/windows_runtime/${{ matrix.architecture }}'
+          if ($LASTEXITCODE -ne 0) { throw 'VC runtime preparation failed' }
+          $tokens = $null
+          $errors = $null
+          $null = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'tooling/windows/test_network_cleanup.ps1'), [ref]$tokens, [ref]$errors)
+          if ($errors.Count -ne 0) { throw ($errors | Out-String) }
+          New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'network-cleanup') -Force | Out-Null
+          [ordered]@{ source_sha = (git rev-parse HEAD); architecture = '${{ matrix.architecture }}'; production_entrypoint = 'lib/main.dart'; acceptance_entrypoint = 'tooling/windows/network_cleanup_entry.dart' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'network-cleanup/source.json') -Encoding utf8NoBOM
+      - name: Compile test-only native application entrypoint
+        shell: pwsh
+        run: |
+          flutter build windows --release --target-platform=windows-${{ matrix.architecture }} --target=tooling/windows/network_cleanup_entry.dart --dart-define-from-file=env.json
+          if ($LASTEXITCODE -ne 0) { throw 'Native acceptance application build failed' }
+      - name: Verify actual tray exit logout proxy TUN routes DNS and internet
+        shell: pwsh
+        run: |
+          ./tooling/windows/test_network_cleanup.ps1 -Architecture '${{ matrix.architecture }}' -BundleDirectory 'build/windows/${{ matrix.architecture }}/runner/Release' -OutputDirectory (Join-Path $env:RUNNER_TEMP 'network-cleanup')
+      - name: Remove temporary build definitions
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path -LiteralPath env.json) { Remove-Item -LiteralPath env.json -Force }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fengwo-network-cleanup-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/network-cleanup
+          if-no-files-found: warn
+          retention-days: 14

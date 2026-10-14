@@ -197,6 +197,15 @@ namespace FengWoCoexistenceTests
             }
         }
 
+        public ProxySnapshot SetDirect()
+        {
+            mutated = true;
+            Apply(new ProxySnapshot { Flags = 1, Server = String.Empty, Bypass = String.Empty, Pac = String.Empty });
+            ProxySnapshot actual = Capture();
+            if ((actual.Flags & 2) != 0) throw new InvalidOperationException("Isolated direct baseline was not applied");
+            return actual;
+        }
+
         public ProxySnapshot SetForeign(int port)
         {
             if (port != 7890) throw new ArgumentOutOfRangeException("port");
