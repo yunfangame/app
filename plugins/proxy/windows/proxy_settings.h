@@ -124,6 +124,14 @@ inline bool QueryConnection(
   DWORD size = sizeof(list);
   BOOL success = queryWide(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, &size);
   error = success ? ERROR_SUCCESS : GetLastError();
+  if (!success && error == ERROR_INVALID_DATA) {
+    freeWide();
+    options[0].dwOption = INTERNET_PER_CONN_FLAGS;
+    list.dwOptionError = 0;
+    size = sizeof(list);
+    success = queryWide(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, &size);
+    error = success ? ERROR_SUCCESS : GetLastError();
+  }
   if (success) {
     configuration.flags = options[0].Value.dwValue;
     configuration.server = options[1].Value.pszValue == nullptr ? L"" : options[1].Value.pszValue;
@@ -133,7 +141,7 @@ inline bool QueryConnection(
     return true;
   }
   freeWide();
-  if (error != ERROR_INVALID_PARAMETER) return false;
+  if (error != ERROR_INVALID_PARAMETER && error != ERROR_INVALID_DATA) return false;
   std::string connectionAnsi;
   if (!ToAnsi(list.pszConnection, connectionAnsi)) {
     error = ERROR_NO_UNICODE_TRANSLATION;
@@ -155,7 +163,8 @@ inline bool QueryConnection(
   size = sizeof(ansi);
   success = queryAnsi(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &ansi, &size);
   error = success ? ERROR_SUCCESS : GetLastError();
-  if (!success && error == ERROR_INVALID_PARAMETER) {
+  if (!success && ansiOptions[0].dwOption == INTERNET_PER_CONN_FLAGS_UI &&
+      (error == ERROR_INVALID_PARAMETER || error == ERROR_INVALID_DATA)) {
     freeAnsi();
     ansiOptions[0].dwOption = INTERNET_PER_CONN_FLAGS;
     ansi.dwOptionError = 0;

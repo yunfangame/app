@@ -101,6 +101,10 @@ class SnapshotGuard {
 
 int ansi_reads = 0;
 int ansi_writes = 0;
+int legacy_wide_reads = 0;
+int denied_wide_reads = 0;
+int invalid_wide_reads = 0;
+int invalid_ansi_reads = 0;
 
 BOOL WINAPI RejectWideQuery(HINTERNET, DWORD, LPVOID, LPDWORD) {
   SetLastError(ERROR_INVALID_PARAMETER);
@@ -109,6 +113,49 @@ BOOL WINAPI RejectWideQuery(HINTERNET, DWORD, LPVOID, LPDWORD) {
 
 BOOL WINAPI RejectWideWrite(HINTERNET, DWORD, LPVOID, DWORD) {
   SetLastError(ERROR_INVALID_PARAMETER);
+  return FALSE;
+}
+
+BOOL WINAPI FillLegacyWideQuery(HINTERNET handle, DWORD option, LPVOID buffer, LPDWORD size) {
+  auto* list = static_cast<INTERNET_PER_CONN_OPTION_LISTW*>(buffer);
+  Require(handle == nullptr && option == INTERNET_OPTION_PER_CONNECTION_OPTION &&
+          *size == sizeof(*list) && list->dwOptionCount == 4 &&
+          std::wstring(list->pszConnection) == L"VPN-A", "Wrong legacy Unicode query schema");
+  legacy_wide_reads++;
+  if (list->pOptions[0].dwOption == INTERNET_PER_CONN_FLAGS_UI) {
+    SetLastError(ERROR_INVALID_DATA);
+    return FALSE;
+  }
+  Require(list->pOptions[0].dwOption == INTERNET_PER_CONN_FLAGS,
+          "Error 13 fallback did not use complete legacy flags");
+  const auto fixture = FixtureConfiguration();
+  list->pOptions[0].Value.dwValue = fixture.flags;
+  const std::wstring values[] = {fixture.server, fixture.bypass, fixture.auto_config_url};
+  for (size_t i = 0; i < 3; ++i) {
+    const auto bytes = (values[i].size() + 1) * sizeof(wchar_t);
+    auto* memory = static_cast<wchar_t*>(GlobalAlloc(GPTR, bytes));
+    Require(memory != nullptr, "Cannot allocate legacy Unicode query fixture");
+    std::memcpy(memory, values[i].c_str(), bytes);
+    list->pOptions[i + 1].Value.pszValue = memory;
+  }
+  return TRUE;
+}
+
+BOOL WINAPI DenyWideQuery(HINTERNET, DWORD, LPVOID, LPDWORD) {
+  denied_wide_reads++;
+  SetLastError(ERROR_ACCESS_DENIED);
+  return FALSE;
+}
+
+BOOL WINAPI InvalidWideQuery(HINTERNET, DWORD, LPVOID, LPDWORD) {
+  invalid_wide_reads++;
+  SetLastError(ERROR_INVALID_DATA);
+  return FALSE;
+}
+
+BOOL WINAPI InvalidAnsiQuery(HINTERNET, DWORD, LPVOID, LPDWORD) {
+  invalid_ansi_reads++;
+  SetLastError(ERROR_INVALID_DATA);
   return FALSE;
 }
 
@@ -171,6 +218,19 @@ void TypedFallback() {
   Require(proxy::settings::WriteConnection(L"VPN-A", configuration, error, fallback,
           RejectWideWrite, VerifyAnsiWrite) && fallback && error == ERROR_SUCCESS &&
           ansi_writes == 1, "Complete writer fallback failed");
+  const int ansi_before = ansi_reads;
+  Require(proxy::settings::QueryConnection(L"VPN-A", configuration, error,
+          FillLegacyWideQuery, FillAnsiQuery) && configuration == FixtureConfiguration() &&
+          error == ERROR_SUCCESS && legacy_wide_reads == 2 && ansi_reads == ansi_before,
+          "Error 13 legacy Unicode query did not preserve complete snapshot");
+  Require(!proxy::settings::QueryConnection(L"VPN-A", configuration, error,
+          DenyWideQuery, FillAnsiQuery) && error == ERROR_ACCESS_DENIED &&
+          denied_wide_reads == 1 && ansi_reads == ansi_before,
+          "Access denied was hidden by an unsupported fallback");
+  Require(!proxy::settings::QueryConnection(L"VPN-A", configuration, error,
+          InvalidWideQuery, InvalidAnsiQuery) && error == ERROR_INVALID_DATA &&
+          invalid_wide_reads == 2 && invalid_ansi_reads == 1,
+          "Unreadable complete snapshots must fail with a bounded error 13 retry");
 }
 
 struct NativeFixture {
