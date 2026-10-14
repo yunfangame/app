@@ -9077,7 +9077,7 @@ $ProxiesDataCopyWith<$Res> get proxiesData {
 /// @nodoc
 mixin _$MakeRealProfileState {
 
- String get profilesPath; int get profileId; Map<String, dynamic> get rawConfig; PatchClashConfig get realPatchConfig; bool get overrideDns; bool get appendSystemDns; List<ProxyGroup> get proxyGroups; List<Rule> get rules; List<Rule> get addedRules; String get defaultUA; ChainProxyConfig? get chainProxy; String? get chainProxyGlobalTarget; List<String> get chainProxyBypassDomains;
+ String get profilesPath; int get profileId; Map<String, dynamic> get rawConfig; PatchClashConfig get realPatchConfig; bool get overrideDns; bool get appendSystemDns; List<ProxyGroup> get proxyGroups; List<Rule> get rules; List<Rule> get addedRules; String get defaultUA; ChainProxyConfig? get chainProxy; String? get chainProxyGlobalTarget; List<String> get chainProxyBypassDomains; bool get bypassDomainRouting; List<String> get bypassDomains; String get bypassDomainDns;
 /// Create a copy of MakeRealProfileState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -9088,16 +9088,16 @@ $MakeRealProfileStateCopyWith<MakeRealProfileState> get copyWith => _$MakeRealPr
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is MakeRealProfileState&&(identical(other.profilesPath, profilesPath) || other.profilesPath == profilesPath)&&(identical(other.profileId, profileId) || other.profileId == profileId)&&const DeepCollectionEquality().equals(other.rawConfig, rawConfig)&&(identical(other.realPatchConfig, realPatchConfig) || other.realPatchConfig == realPatchConfig)&&(identical(other.overrideDns, overrideDns) || other.overrideDns == overrideDns)&&(identical(other.appendSystemDns, appendSystemDns) || other.appendSystemDns == appendSystemDns)&&const DeepCollectionEquality().equals(other.proxyGroups, proxyGroups)&&const DeepCollectionEquality().equals(other.rules, rules)&&const DeepCollectionEquality().equals(other.addedRules, addedRules)&&(identical(other.defaultUA, defaultUA) || other.defaultUA == defaultUA)&&(identical(other.chainProxy, chainProxy) || other.chainProxy == chainProxy)&&(identical(other.chainProxyGlobalTarget, chainProxyGlobalTarget) || other.chainProxyGlobalTarget == chainProxyGlobalTarget)&&const DeepCollectionEquality().equals(other.chainProxyBypassDomains, chainProxyBypassDomains));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is MakeRealProfileState&&(identical(other.profilesPath, profilesPath) || other.profilesPath == profilesPath)&&(identical(other.profileId, profileId) || other.profileId == profileId)&&const DeepCollectionEquality().equals(other.rawConfig, rawConfig)&&(identical(other.realPatchConfig, realPatchConfig) || other.realPatchConfig == realPatchConfig)&&(identical(other.overrideDns, overrideDns) || other.overrideDns == overrideDns)&&(identical(other.appendSystemDns, appendSystemDns) || other.appendSystemDns == appendSystemDns)&&const DeepCollectionEquality().equals(other.proxyGroups, proxyGroups)&&const DeepCollectionEquality().equals(other.rules, rules)&&const DeepCollectionEquality().equals(other.addedRules, addedRules)&&(identical(other.defaultUA, defaultUA) || other.defaultUA == defaultUA)&&(identical(other.chainProxy, chainProxy) || other.chainProxy == chainProxy)&&(identical(other.chainProxyGlobalTarget, chainProxyGlobalTarget) || other.chainProxyGlobalTarget == chainProxyGlobalTarget)&&const DeepCollectionEquality().equals(other.chainProxyBypassDomains, chainProxyBypassDomains)&&(identical(other.bypassDomainRouting, bypassDomainRouting) || other.bypassDomainRouting == bypassDomainRouting)&&const DeepCollectionEquality().equals(other.bypassDomains, bypassDomains)&&(identical(other.bypassDomainDns, bypassDomainDns) || other.bypassDomainDns == bypassDomainDns));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,profilesPath,profileId,const DeepCollectionEquality().hash(rawConfig),realPatchConfig,overrideDns,appendSystemDns,const DeepCollectionEquality().hash(proxyGroups),const DeepCollectionEquality().hash(rules),const DeepCollectionEquality().hash(addedRules),defaultUA,chainProxy,chainProxyGlobalTarget,const DeepCollectionEquality().hash(chainProxyBypassDomains));
+int get hashCode => Object.hash(runtimeType,profilesPath,profileId,const DeepCollectionEquality().hash(rawConfig),realPatchConfig,overrideDns,appendSystemDns,const DeepCollectionEquality().hash(proxyGroups),const DeepCollectionEquality().hash(rules),const DeepCollectionEquality().hash(addedRules),defaultUA,chainProxy,chainProxyGlobalTarget,const DeepCollectionEquality().hash(chainProxyBypassDomains),bypassDomainRouting,const DeepCollectionEquality().hash(bypassDomains),bypassDomainDns);
 
 @override
 String toString() {
-  return 'MakeRealProfileState(profilesPath: $profilesPath, profileId: $profileId, rawConfig: $rawConfig, realPatchConfig: $realPatchConfig, overrideDns: $overrideDns, appendSystemDns: $appendSystemDns, proxyGroups: $proxyGroups, rules: $rules, addedRules: $addedRules, defaultUA: $defaultUA, chainProxy: $chainProxy, chainProxyGlobalTarget: $chainProxyGlobalTarget, chainProxyBypassDomains: $chainProxyBypassDomains)';
+  return 'MakeRealProfileState(profilesPath: $profilesPath, profileId: $profileId, rawConfig: $rawConfig, realPatchConfig: $realPatchConfig, overrideDns: $overrideDns, appendSystemDns: $appendSystemDns, proxyGroups: $proxyGroups, rules: $rules, addedRules: $addedRules, defaultUA: $defaultUA, chainProxy: $chainProxy, chainProxyGlobalTarget: $chainProxyGlobalTarget, chainProxyBypassDomains: $chainProxyBypassDomains, bypassDomainRouting: $bypassDomainRouting, bypassDomains: $bypassDomains, bypassDomainDns: $bypassDomainDns)';
 }
 
 
@@ -9108,7 +9108,7 @@ abstract mixin class $MakeRealProfileStateCopyWith<$Res>  {
   factory $MakeRealProfileStateCopyWith(MakeRealProfileState value, $Res Function(MakeRealProfileState) _then) = _$MakeRealProfileStateCopyWithImpl;
 @useResult
 $Res call({
- String profilesPath, int profileId, Map<String, dynamic> rawConfig, PatchClashConfig realPatchConfig, bool overrideDns, bool appendSystemDns, List<ProxyGroup> proxyGroups, List<Rule> rules, List<Rule> addedRules, String defaultUA, ChainProxyConfig? chainProxy, String? chainProxyGlobalTarget, List<String> chainProxyBypassDomains
+ String profilesPath, int profileId, Map<String, dynamic> rawConfig, PatchClashConfig realPatchConfig, bool overrideDns, bool appendSystemDns, List<ProxyGroup> proxyGroups, List<Rule> rules, List<Rule> addedRules, String defaultUA, ChainProxyConfig? chainProxy, String? chainProxyGlobalTarget, List<String> chainProxyBypassDomains, bool bypassDomainRouting, List<String> bypassDomains, String bypassDomainDns
 });
 
 
@@ -9125,7 +9125,7 @@ class _$MakeRealProfileStateCopyWithImpl<$Res>
 
 /// Create a copy of MakeRealProfileState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? profilesPath = null,Object? profileId = null,Object? rawConfig = null,Object? realPatchConfig = null,Object? overrideDns = null,Object? appendSystemDns = null,Object? proxyGroups = null,Object? rules = null,Object? addedRules = null,Object? defaultUA = null,Object? chainProxy = freezed,Object? chainProxyGlobalTarget = freezed,Object? chainProxyBypassDomains = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? profilesPath = null,Object? profileId = null,Object? rawConfig = null,Object? realPatchConfig = null,Object? overrideDns = null,Object? appendSystemDns = null,Object? proxyGroups = null,Object? rules = null,Object? addedRules = null,Object? defaultUA = null,Object? chainProxy = freezed,Object? chainProxyGlobalTarget = freezed,Object? chainProxyBypassDomains = null,Object? bypassDomainRouting = null,Object? bypassDomains = null,Object? bypassDomainDns = null,}) {
   return _then(_self.copyWith(
 profilesPath: null == profilesPath ? _self.profilesPath : profilesPath // ignore: cast_nullable_to_non_nullable
 as String,profileId: null == profileId ? _self.profileId : profileId // ignore: cast_nullable_to_non_nullable
@@ -9140,7 +9140,10 @@ as List<Rule>,defaultUA: null == defaultUA ? _self.defaultUA : defaultUA // igno
 as String,chainProxy: freezed == chainProxy ? _self.chainProxy : chainProxy // ignore: cast_nullable_to_non_nullable
 as ChainProxyConfig?,chainProxyGlobalTarget: freezed == chainProxyGlobalTarget ? _self.chainProxyGlobalTarget : chainProxyGlobalTarget // ignore: cast_nullable_to_non_nullable
 as String?,chainProxyBypassDomains: null == chainProxyBypassDomains ? _self.chainProxyBypassDomains : chainProxyBypassDomains // ignore: cast_nullable_to_non_nullable
-as List<String>,
+as List<String>,bypassDomainRouting: null == bypassDomainRouting ? _self.bypassDomainRouting : bypassDomainRouting // ignore: cast_nullable_to_non_nullable
+as bool,bypassDomains: null == bypassDomains ? _self.bypassDomains : bypassDomains // ignore: cast_nullable_to_non_nullable
+as List<String>,bypassDomainDns: null == bypassDomainDns ? _self.bypassDomainDns : bypassDomainDns // ignore: cast_nullable_to_non_nullable
+as String,
   ));
 }
 /// Create a copy of MakeRealProfileState
@@ -9246,10 +9249,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String profilesPath,  int profileId,  Map<String, dynamic> rawConfig,  PatchClashConfig realPatchConfig,  bool overrideDns,  bool appendSystemDns,  List<ProxyGroup> proxyGroups,  List<Rule> rules,  List<Rule> addedRules,  String defaultUA,  ChainProxyConfig? chainProxy,  String? chainProxyGlobalTarget,  List<String> chainProxyBypassDomains)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String profilesPath,  int profileId,  Map<String, dynamic> rawConfig,  PatchClashConfig realPatchConfig,  bool overrideDns,  bool appendSystemDns,  List<ProxyGroup> proxyGroups,  List<Rule> rules,  List<Rule> addedRules,  String defaultUA,  ChainProxyConfig? chainProxy,  String? chainProxyGlobalTarget,  List<String> chainProxyBypassDomains,  bool bypassDomainRouting,  List<String> bypassDomains,  String bypassDomainDns)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _MakeRealProfileState() when $default != null:
-return $default(_that.profilesPath,_that.profileId,_that.rawConfig,_that.realPatchConfig,_that.overrideDns,_that.appendSystemDns,_that.proxyGroups,_that.rules,_that.addedRules,_that.defaultUA,_that.chainProxy,_that.chainProxyGlobalTarget,_that.chainProxyBypassDomains);case _:
+return $default(_that.profilesPath,_that.profileId,_that.rawConfig,_that.realPatchConfig,_that.overrideDns,_that.appendSystemDns,_that.proxyGroups,_that.rules,_that.addedRules,_that.defaultUA,_that.chainProxy,_that.chainProxyGlobalTarget,_that.chainProxyBypassDomains,_that.bypassDomainRouting,_that.bypassDomains,_that.bypassDomainDns);case _:
   return orElse();
 
 }
@@ -9267,10 +9270,10 @@ return $default(_that.profilesPath,_that.profileId,_that.rawConfig,_that.realPat
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String profilesPath,  int profileId,  Map<String, dynamic> rawConfig,  PatchClashConfig realPatchConfig,  bool overrideDns,  bool appendSystemDns,  List<ProxyGroup> proxyGroups,  List<Rule> rules,  List<Rule> addedRules,  String defaultUA,  ChainProxyConfig? chainProxy,  String? chainProxyGlobalTarget,  List<String> chainProxyBypassDomains)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String profilesPath,  int profileId,  Map<String, dynamic> rawConfig,  PatchClashConfig realPatchConfig,  bool overrideDns,  bool appendSystemDns,  List<ProxyGroup> proxyGroups,  List<Rule> rules,  List<Rule> addedRules,  String defaultUA,  ChainProxyConfig? chainProxy,  String? chainProxyGlobalTarget,  List<String> chainProxyBypassDomains,  bool bypassDomainRouting,  List<String> bypassDomains,  String bypassDomainDns)  $default,) {final _that = this;
 switch (_that) {
 case _MakeRealProfileState():
-return $default(_that.profilesPath,_that.profileId,_that.rawConfig,_that.realPatchConfig,_that.overrideDns,_that.appendSystemDns,_that.proxyGroups,_that.rules,_that.addedRules,_that.defaultUA,_that.chainProxy,_that.chainProxyGlobalTarget,_that.chainProxyBypassDomains);case _:
+return $default(_that.profilesPath,_that.profileId,_that.rawConfig,_that.realPatchConfig,_that.overrideDns,_that.appendSystemDns,_that.proxyGroups,_that.rules,_that.addedRules,_that.defaultUA,_that.chainProxy,_that.chainProxyGlobalTarget,_that.chainProxyBypassDomains,_that.bypassDomainRouting,_that.bypassDomains,_that.bypassDomainDns);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -9287,10 +9290,10 @@ return $default(_that.profilesPath,_that.profileId,_that.rawConfig,_that.realPat
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String profilesPath,  int profileId,  Map<String, dynamic> rawConfig,  PatchClashConfig realPatchConfig,  bool overrideDns,  bool appendSystemDns,  List<ProxyGroup> proxyGroups,  List<Rule> rules,  List<Rule> addedRules,  String defaultUA,  ChainProxyConfig? chainProxy,  String? chainProxyGlobalTarget,  List<String> chainProxyBypassDomains)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String profilesPath,  int profileId,  Map<String, dynamic> rawConfig,  PatchClashConfig realPatchConfig,  bool overrideDns,  bool appendSystemDns,  List<ProxyGroup> proxyGroups,  List<Rule> rules,  List<Rule> addedRules,  String defaultUA,  ChainProxyConfig? chainProxy,  String? chainProxyGlobalTarget,  List<String> chainProxyBypassDomains,  bool bypassDomainRouting,  List<String> bypassDomains,  String bypassDomainDns)?  $default,) {final _that = this;
 switch (_that) {
 case _MakeRealProfileState() when $default != null:
-return $default(_that.profilesPath,_that.profileId,_that.rawConfig,_that.realPatchConfig,_that.overrideDns,_that.appendSystemDns,_that.proxyGroups,_that.rules,_that.addedRules,_that.defaultUA,_that.chainProxy,_that.chainProxyGlobalTarget,_that.chainProxyBypassDomains);case _:
+return $default(_that.profilesPath,_that.profileId,_that.rawConfig,_that.realPatchConfig,_that.overrideDns,_that.appendSystemDns,_that.proxyGroups,_that.rules,_that.addedRules,_that.defaultUA,_that.chainProxy,_that.chainProxyGlobalTarget,_that.chainProxyBypassDomains,_that.bypassDomainRouting,_that.bypassDomains,_that.bypassDomainDns);case _:
   return null;
 
 }
@@ -9302,7 +9305,7 @@ return $default(_that.profilesPath,_that.profileId,_that.rawConfig,_that.realPat
 
 
 class _MakeRealProfileState implements MakeRealProfileState {
-  const _MakeRealProfileState({required this.profilesPath, required this.profileId, required final  Map<String, dynamic> rawConfig, required this.realPatchConfig, required this.overrideDns, required this.appendSystemDns, required final  List<ProxyGroup> proxyGroups, required final  List<Rule> rules, required final  List<Rule> addedRules, required this.defaultUA, this.chainProxy, this.chainProxyGlobalTarget, final  List<String> chainProxyBypassDomains = const []}): _rawConfig = rawConfig,_proxyGroups = proxyGroups,_rules = rules,_addedRules = addedRules,_chainProxyBypassDomains = chainProxyBypassDomains;
+  const _MakeRealProfileState({required this.profilesPath, required this.profileId, required final  Map<String, dynamic> rawConfig, required this.realPatchConfig, required this.overrideDns, required this.appendSystemDns, required final  List<ProxyGroup> proxyGroups, required final  List<Rule> rules, required final  List<Rule> addedRules, required this.defaultUA, this.chainProxy, this.chainProxyGlobalTarget, final  List<String> chainProxyBypassDomains = const [], this.bypassDomainRouting = false, final  List<String> bypassDomains = const [], this.bypassDomainDns = 'system://'}): _rawConfig = rawConfig,_proxyGroups = proxyGroups,_rules = rules,_addedRules = addedRules,_chainProxyBypassDomains = chainProxyBypassDomains,_bypassDomains = bypassDomains;
   
 
 @override final  String profilesPath;
@@ -9348,6 +9351,15 @@ class _MakeRealProfileState implements MakeRealProfileState {
   return EqualUnmodifiableListView(_chainProxyBypassDomains);
 }
 
+@override@JsonKey() final  bool bypassDomainRouting;
+ final  List<String> _bypassDomains;
+@override@JsonKey() List<String> get bypassDomains {
+  if (_bypassDomains is EqualUnmodifiableListView) return _bypassDomains;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableListView(_bypassDomains);
+}
+
+@override@JsonKey() final  String bypassDomainDns;
 
 /// Create a copy of MakeRealProfileState
 /// with the given fields replaced by the non-null parameter values.
@@ -9359,16 +9371,16 @@ _$MakeRealProfileStateCopyWith<_MakeRealProfileState> get copyWith => __$MakeRea
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _MakeRealProfileState&&(identical(other.profilesPath, profilesPath) || other.profilesPath == profilesPath)&&(identical(other.profileId, profileId) || other.profileId == profileId)&&const DeepCollectionEquality().equals(other._rawConfig, _rawConfig)&&(identical(other.realPatchConfig, realPatchConfig) || other.realPatchConfig == realPatchConfig)&&(identical(other.overrideDns, overrideDns) || other.overrideDns == overrideDns)&&(identical(other.appendSystemDns, appendSystemDns) || other.appendSystemDns == appendSystemDns)&&const DeepCollectionEquality().equals(other._proxyGroups, _proxyGroups)&&const DeepCollectionEquality().equals(other._rules, _rules)&&const DeepCollectionEquality().equals(other._addedRules, _addedRules)&&(identical(other.defaultUA, defaultUA) || other.defaultUA == defaultUA)&&(identical(other.chainProxy, chainProxy) || other.chainProxy == chainProxy)&&(identical(other.chainProxyGlobalTarget, chainProxyGlobalTarget) || other.chainProxyGlobalTarget == chainProxyGlobalTarget)&&const DeepCollectionEquality().equals(other._chainProxyBypassDomains, _chainProxyBypassDomains));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _MakeRealProfileState&&(identical(other.profilesPath, profilesPath) || other.profilesPath == profilesPath)&&(identical(other.profileId, profileId) || other.profileId == profileId)&&const DeepCollectionEquality().equals(other._rawConfig, _rawConfig)&&(identical(other.realPatchConfig, realPatchConfig) || other.realPatchConfig == realPatchConfig)&&(identical(other.overrideDns, overrideDns) || other.overrideDns == overrideDns)&&(identical(other.appendSystemDns, appendSystemDns) || other.appendSystemDns == appendSystemDns)&&const DeepCollectionEquality().equals(other._proxyGroups, _proxyGroups)&&const DeepCollectionEquality().equals(other._rules, _rules)&&const DeepCollectionEquality().equals(other._addedRules, _addedRules)&&(identical(other.defaultUA, defaultUA) || other.defaultUA == defaultUA)&&(identical(other.chainProxy, chainProxy) || other.chainProxy == chainProxy)&&(identical(other.chainProxyGlobalTarget, chainProxyGlobalTarget) || other.chainProxyGlobalTarget == chainProxyGlobalTarget)&&const DeepCollectionEquality().equals(other._chainProxyBypassDomains, _chainProxyBypassDomains)&&(identical(other.bypassDomainRouting, bypassDomainRouting) || other.bypassDomainRouting == bypassDomainRouting)&&const DeepCollectionEquality().equals(other._bypassDomains, _bypassDomains)&&(identical(other.bypassDomainDns, bypassDomainDns) || other.bypassDomainDns == bypassDomainDns));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,profilesPath,profileId,const DeepCollectionEquality().hash(_rawConfig),realPatchConfig,overrideDns,appendSystemDns,const DeepCollectionEquality().hash(_proxyGroups),const DeepCollectionEquality().hash(_rules),const DeepCollectionEquality().hash(_addedRules),defaultUA,chainProxy,chainProxyGlobalTarget,const DeepCollectionEquality().hash(_chainProxyBypassDomains));
+int get hashCode => Object.hash(runtimeType,profilesPath,profileId,const DeepCollectionEquality().hash(_rawConfig),realPatchConfig,overrideDns,appendSystemDns,const DeepCollectionEquality().hash(_proxyGroups),const DeepCollectionEquality().hash(_rules),const DeepCollectionEquality().hash(_addedRules),defaultUA,chainProxy,chainProxyGlobalTarget,const DeepCollectionEquality().hash(_chainProxyBypassDomains),bypassDomainRouting,const DeepCollectionEquality().hash(_bypassDomains),bypassDomainDns);
 
 @override
 String toString() {
-  return 'MakeRealProfileState(profilesPath: $profilesPath, profileId: $profileId, rawConfig: $rawConfig, realPatchConfig: $realPatchConfig, overrideDns: $overrideDns, appendSystemDns: $appendSystemDns, proxyGroups: $proxyGroups, rules: $rules, addedRules: $addedRules, defaultUA: $defaultUA, chainProxy: $chainProxy, chainProxyGlobalTarget: $chainProxyGlobalTarget, chainProxyBypassDomains: $chainProxyBypassDomains)';
+  return 'MakeRealProfileState(profilesPath: $profilesPath, profileId: $profileId, rawConfig: $rawConfig, realPatchConfig: $realPatchConfig, overrideDns: $overrideDns, appendSystemDns: $appendSystemDns, proxyGroups: $proxyGroups, rules: $rules, addedRules: $addedRules, defaultUA: $defaultUA, chainProxy: $chainProxy, chainProxyGlobalTarget: $chainProxyGlobalTarget, chainProxyBypassDomains: $chainProxyBypassDomains, bypassDomainRouting: $bypassDomainRouting, bypassDomains: $bypassDomains, bypassDomainDns: $bypassDomainDns)';
 }
 
 
@@ -9379,7 +9391,7 @@ abstract mixin class _$MakeRealProfileStateCopyWith<$Res> implements $MakeRealPr
   factory _$MakeRealProfileStateCopyWith(_MakeRealProfileState value, $Res Function(_MakeRealProfileState) _then) = __$MakeRealProfileStateCopyWithImpl;
 @override @useResult
 $Res call({
- String profilesPath, int profileId, Map<String, dynamic> rawConfig, PatchClashConfig realPatchConfig, bool overrideDns, bool appendSystemDns, List<ProxyGroup> proxyGroups, List<Rule> rules, List<Rule> addedRules, String defaultUA, ChainProxyConfig? chainProxy, String? chainProxyGlobalTarget, List<String> chainProxyBypassDomains
+ String profilesPath, int profileId, Map<String, dynamic> rawConfig, PatchClashConfig realPatchConfig, bool overrideDns, bool appendSystemDns, List<ProxyGroup> proxyGroups, List<Rule> rules, List<Rule> addedRules, String defaultUA, ChainProxyConfig? chainProxy, String? chainProxyGlobalTarget, List<String> chainProxyBypassDomains, bool bypassDomainRouting, List<String> bypassDomains, String bypassDomainDns
 });
 
 
@@ -9396,7 +9408,7 @@ class __$MakeRealProfileStateCopyWithImpl<$Res>
 
 /// Create a copy of MakeRealProfileState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? profilesPath = null,Object? profileId = null,Object? rawConfig = null,Object? realPatchConfig = null,Object? overrideDns = null,Object? appendSystemDns = null,Object? proxyGroups = null,Object? rules = null,Object? addedRules = null,Object? defaultUA = null,Object? chainProxy = freezed,Object? chainProxyGlobalTarget = freezed,Object? chainProxyBypassDomains = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? profilesPath = null,Object? profileId = null,Object? rawConfig = null,Object? realPatchConfig = null,Object? overrideDns = null,Object? appendSystemDns = null,Object? proxyGroups = null,Object? rules = null,Object? addedRules = null,Object? defaultUA = null,Object? chainProxy = freezed,Object? chainProxyGlobalTarget = freezed,Object? chainProxyBypassDomains = null,Object? bypassDomainRouting = null,Object? bypassDomains = null,Object? bypassDomainDns = null,}) {
   return _then(_MakeRealProfileState(
 profilesPath: null == profilesPath ? _self.profilesPath : profilesPath // ignore: cast_nullable_to_non_nullable
 as String,profileId: null == profileId ? _self.profileId : profileId // ignore: cast_nullable_to_non_nullable
@@ -9411,7 +9423,10 @@ as List<Rule>,defaultUA: null == defaultUA ? _self.defaultUA : defaultUA // igno
 as String,chainProxy: freezed == chainProxy ? _self.chainProxy : chainProxy // ignore: cast_nullable_to_non_nullable
 as ChainProxyConfig?,chainProxyGlobalTarget: freezed == chainProxyGlobalTarget ? _self.chainProxyGlobalTarget : chainProxyGlobalTarget // ignore: cast_nullable_to_non_nullable
 as String?,chainProxyBypassDomains: null == chainProxyBypassDomains ? _self._chainProxyBypassDomains : chainProxyBypassDomains // ignore: cast_nullable_to_non_nullable
-as List<String>,
+as List<String>,bypassDomainRouting: null == bypassDomainRouting ? _self.bypassDomainRouting : bypassDomainRouting // ignore: cast_nullable_to_non_nullable
+as bool,bypassDomains: null == bypassDomains ? _self._bypassDomains : bypassDomains // ignore: cast_nullable_to_non_nullable
+as List<String>,bypassDomainDns: null == bypassDomainDns ? _self.bypassDomainDns : bypassDomainDns // ignore: cast_nullable_to_non_nullable
+as String,
   ));
 }
 

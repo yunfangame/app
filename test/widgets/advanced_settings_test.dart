@@ -7,15 +7,185 @@ import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/common/theme.dart';
 import 'package:fl_clash/views/application_setting.dart';
 import 'package:fl_clash/views/settings/fengwo_advanced_settings.dart';
 import 'package:fl_clash/widgets/inherited.dart';
+import 'package:fl_clash/widgets/input.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final size in [const Size(390, 844), const Size(1280, 1000)]) {
+    for (final themeMode in [ThemeMode.light, ThemeMode.dark]) {
+      testWidgets(
+        'bypass domains add edit delete and persist at $size in $themeMode',
+        (tester) async {
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          final container = ProviderContainer(
+            overrides: [
+              currentProfileProvider.overrideWithValue(null),
+              systemActionProvider.overrideWith(_RoutingSystemAction.new),
+            ],
+          );
+          addTearDown(container.dispose);
+          globalState.container = container;
+          container.read(viewSizeProvider.notifier).value = size;
+          const initial = NetworkProps(
+            systemProxy: false,
+            bypassDomain: ['intranet.example', '*.corp.example'],
+            routeMode: RouteMode.bypassPrivate,
+          );
+          container.read(networkSettingProvider.notifier).value = initial;
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: _TestApp(
+                themeMode: themeMode,
+                child: const FengWoAdvancedSettingsView(
+                  campusNetworkConfigLoader: _loadTwoCampusLines,
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final entry = find.byKey(
+            const ValueKey('advanced-bypass-domain-tile'),
+          );
+          await tester.ensureVisible(entry);
+          await tester.pumpAndSettle();
+          await tester.tap(entry);
+          await tester.pumpAndSettle();
+          expect(find.byType(ListInputPage), findsOneWidget);
+          final l10n = tester
+              .element(find.byType(ListInputPage))
+              .appLocalizations;
+
+          await tester.tap(find.text(l10n.add));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(l10n.confirm));
+          await tester.pumpAndSettle();
+          expect(find.text(l10n.emptyTip(l10n.value)), findsOneWidget);
+          await tester.enterText(
+            find.byType(TextFormField),
+            'intranet.example',
+          );
+          await tester.tap(find.text(l10n.confirm));
+          await tester.pumpAndSettle();
+          expect(find.text(l10n.existsTip(l10n.value)), findsOneWidget);
+          await tester.enterText(find.byType(TextFormField), 'hr.corp.example');
+          await tester.tap(find.text(l10n.confirm));
+          await tester.pumpAndSettle();
+          expect(find.text('hr.corp.example'), findsOneWidget);
+          expect(container.read(networkSettingProvider), initial);
+
+          await tester.tap(find.text('intranet.example'));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byType(TextFormField),
+            'portal.corp.example',
+          );
+          await tester.tap(find.text(l10n.confirm));
+          await tester.pumpAndSettle();
+          expect(find.text('intranet.example'), findsNothing);
+          expect(find.text('portal.corp.example'), findsOneWidget);
+          final removedRow = find.ancestor(
+            of: find.text('hr.corp.example'),
+            matching: find.byKey(const ValueKey('hr.corp.example')),
+          );
+          await tester.tap(
+            find.descendant(of: removedRow, matching: find.byType(Checkbox)),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.byIcon(Icons.delete));
+          await tester.pumpAndSettle();
+          expect(find.text('hr.corp.example'), findsNothing);
+          await tester.binding.handlePopRoute();
+          await tester.pumpAndSettle();
+          final saved = initial.copyWith(
+            bypassDomain: ['portal.corp.example', '*.corp.example'],
+          );
+          expect(container.read(networkSettingProvider), saved);
+
+          await tester.ensureVisible(entry);
+          await tester.pumpAndSettle();
+          await tester.tap(entry);
+          await tester.pumpAndSettle();
+          expect(find.text('portal.corp.example'), findsOneWidget);
+          await tester.tap(find.text(l10n.add));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byType(TextFormField),
+            'cancelled.example',
+          );
+          await tester.binding.handlePopRoute();
+          await tester.pumpAndSettle();
+          expect(find.text('cancelled.example'), findsNothing);
+          await tester.tap(find.byType(Checkbox).first);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(l10n.selectAll));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byIcon(Icons.delete));
+          await tester.pumpAndSettle();
+          expect(find.text(l10n.noData), findsOneWidget);
+          await tester.binding.handlePopRoute();
+          await tester.pumpAndSettle();
+          expect(
+            container.read(networkSettingProvider),
+            initial.copyWith(bypassDomain: []),
+          );
+          final routing = find.byKey(
+            const ValueKey('advanced-bypass-routing-switch'),
+          );
+          await tester.ensureVisible(routing);
+          await tester.pumpAndSettle();
+          expect(tester.widget<Switch>(routing).value, isFalse);
+          await tester.tap(routing);
+          await tester.pumpAndSettle();
+          expect(
+            container.read(networkSettingProvider).bypassDomainRouting,
+            isTrue,
+          );
+          final dns = find.byKey(const ValueKey('advanced-bypass-dns-tile'));
+          await tester.ensureVisible(dns);
+          await tester.pumpAndSettle();
+          await tester.tap(dns);
+          await tester.pumpAndSettle();
+          await tester.enterText(find.byType(TextFormField), 'invalid#Proxy');
+          await tester.tap(find.text(l10n.submit));
+          await tester.pumpAndSettle();
+          expect(find.text(l10n.bypassDomainDnsInvalid), findsOneWidget);
+          await tester.enterText(find.byType(TextFormField), '10.0.0.53:5353');
+          await tester.tap(find.text(l10n.submit));
+          await tester.pumpAndSettle();
+          expect(
+            container.read(networkSettingProvider).bypassDomainDns,
+            '10.0.0.53:5353',
+          );
+          await tester.tap(dns);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(l10n.reset));
+          await tester.pumpAndSettle();
+          expect(
+            container.read(networkSettingProvider),
+            initial.copyWith(bypassDomain: [], bypassDomainRouting: true),
+          );
+          expect(tester.takeException(), isNull);
+        },
+        variant: const TargetPlatformVariant({
+          TargetPlatform.windows,
+          TargetPlatform.android,
+          TargetPlatform.macOS,
+        }),
+      );
+    }
+  }
+
   for (final size in [const Size(390, 844), const Size(760, 1000)]) {
     testWidgets(
       'startup auto-connect defaults off and toggles on Android at ${size.width}',
@@ -191,16 +361,29 @@ void main() {
       find.byKey(const ValueKey('advanced-system-proxy-switch')),
     );
     await tester.pump();
-    expect(container.read(networkSettingProvider).systemProxy, isFalse);
+    expect(container.read(vpnSettingProvider).systemProxy, isFalse);
+    expect(container.read(networkSettingProvider).systemProxy, isTrue);
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('advanced-core-ipv6-switch')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('advanced-core-ipv6-switch')));
     await tester.pump();
     expect(container.read(patchClashConfigProvider).ipv6, isTrue);
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('advanced-dns-ipv6-switch')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('advanced-dns-ipv6-switch')));
     await tester.pump();
     expect(container.read(patchClashConfigProvider).dns.ipv6, isTrue);
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('advanced-mixed-port-button')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('advanced-mixed-port-button')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField), '8080');
@@ -970,6 +1153,7 @@ class _TestApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: globalState.navigatorKey,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2468E8)),
       ),
@@ -987,6 +1171,11 @@ class _TestApp extends StatelessWidget {
         GlobalWidgetsLocalizations.delegate,
       ],
       supportedLocales: AppLocalizations.delegate.supportedLocales,
+      builder: (context, child) {
+        globalState.measure = Measure.of(context, 1);
+        globalState.theme = CommonTheme.of(context, 1);
+        return child!;
+      },
       home: child,
     );
   }

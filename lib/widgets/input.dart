@@ -224,6 +224,7 @@ class ListInputPage extends ConsumerStatefulWidget {
   final Widget Function(String item)? leadingBuilder;
   final String? valueLabel;
   final int? itemMaxLength;
+  final FormFieldValidator<String>? itemValidator;
 
   const ListInputPage({
     super.key,
@@ -234,6 +235,7 @@ class ListInputPage extends ConsumerStatefulWidget {
     this.valueLabel,
     this.subtitleBuilder,
     this.itemMaxLength,
+    this.itemValidator,
   });
 
   @override
@@ -281,7 +283,7 @@ class _ListInputPageState extends ConsumerState<ListInputPage> {
       if (index != -1 && !current) {
         return appLocalizations.existsTip(appLocalizations.value);
       }
-      return null;
+      return widget.itemValidator?.call(value);
     }
 
     final value = await globalState.showCommonDialog<String>(

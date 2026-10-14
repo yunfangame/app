@@ -6,6 +6,7 @@ import 'package:archive/archive_io.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:drift_flutter/drift_flutter.dart';
+import 'package:fl_clash/common/bypass_domain.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/database/database.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -229,6 +230,7 @@ Future<VM2<String, String>> _makeRealProfileTask(
       dnsConfig['fake-ip-filter'] is Iterable
           ? dnsConfig['fake-ip-filter'] as Iterable<Object?>
           : const [],
+      ruleMode: dnsConfig['fake-ip-filter-mode'] == 'rule',
     );
   }
   List<String> rules = [];
@@ -294,7 +296,14 @@ Future<VM2<String, String>> _makeRealProfileTask(
     globalTarget: data.chainProxyGlobalTarget,
     bypassDomains: data.chainProxyBypassDomains,
   );
-  final normalizedConfig = normalizeRuntimeDelayProbeUrls(finalConfig);
+  final bypassConfig = applyBypassDomainConfig(
+    finalConfig,
+    realPatchConfig.mode,
+    enabled: data.bypassDomainRouting,
+    domains: data.bypassDomains,
+    nameserver: data.bypassDomainDns,
+  );
+  final normalizedConfig = normalizeRuntimeDelayProbeUrls(bypassConfig);
   final yaml = await _encodeYaml(normalizedConfig);
   return VM2(yaml, yaml.toMd5());
 }

@@ -345,6 +345,9 @@ abstract class MakeRealProfileState with _$MakeRealProfileState {
     ChainProxyConfig? chainProxy,
     String? chainProxyGlobalTarget,
     @Default([]) List<String> chainProxyBypassDomains,
+    @Default(false) bool bypassDomainRouting,
+    @Default([]) List<String> bypassDomains,
+    @Default('system://') String bypassDomainDns,
   }) = _MakeRealProfileState;
 }
 

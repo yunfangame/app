@@ -222,6 +222,8 @@ _NetworkProps _$NetworkPropsFromJson(Map<String, dynamic> json) =>
               ?.map((e) => e as String)
               .toList() ??
           defaultBypassDomain,
+      bypassDomainRouting: json['bypassDomainRouting'] as bool? ?? false,
+      bypassDomainDns: json['bypassDomainDns'] as String? ?? 'system://',
       routeMode:
           $enumDecodeNullable(_$RouteModeEnumMap, json['routeMode']) ??
           RouteMode.config,
@@ -233,6 +235,8 @@ Map<String, dynamic> _$NetworkPropsToJson(_NetworkProps instance) =>
     <String, dynamic>{
       'systemProxy': instance.systemProxy,
       'bypassDomain': instance.bypassDomain,
+      'bypassDomainRouting': instance.bypassDomainRouting,
+      'bypassDomainDns': instance.bypassDomainDns,
       'routeMode': _$RouteModeEnumMap[instance.routeMode]!,
       'autoSetSystemDns': instance.autoSetSystemDns,
       'appendSystemDns': instance.appendSystemDns,

@@ -571,6 +571,22 @@ class MessageLookup extends MessageLookupByLibrary {
     "bypassDomainDesc": MessageLookupByLibrary.simpleMessage(
       "Only takes effect when the system proxy is enabled",
     ),
+    "bypassDomainDns": MessageLookupByLibrary.simpleMessage(
+      "Intranet DNS Server",
+    ),
+    "bypassDomainDnsInvalid": MessageLookupByLibrary.simpleMessage(
+      "Invalid DNS server; enter an IP address or system://",
+    ),
+    "bypassDomainInvalid": MessageLookupByLibrary.simpleMessage(
+      "Invalid domain; URLs, paths and ports are not supported",
+    ),
+    "bypassDomainRouting": MessageLookupByLibrary.simpleMessage(
+      "Intranet Direct in Rule Mode",
+    ),
+    "bypassDomainRoutingDesc": MessageLookupByLibrary.simpleMessage(
+      "Direct rules and intranet DNS",
+    ),
+    "bypassDomainSystemDns": MessageLookupByLibrary.simpleMessage("System DNS"),
     "cacheCorrupt": MessageLookupByLibrary.simpleMessage(
       "The cache is corrupt. Do you want to clear it?",
     ),

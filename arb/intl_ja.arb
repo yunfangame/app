@@ -1,4 +1,10 @@
 {
+  "bypassDomainRouting": "ルールモードのイントラネット直接接続",
+  "bypassDomainRoutingDesc": "直接接続ルールとイントラネット DNS",
+  "bypassDomainDns": "イントラネット DNS サーバー",
+  "bypassDomainSystemDns": "システム DNS",
+  "bypassDomainInvalid": "無効なドメインです。URL、パス、ポートは使用できません",
+  "bypassDomainDnsInvalid": "無効な DNS です。IP アドレスまたは system:// を入力してください",
   "apiDiagnostics": "API 診断",
   "apiReachabilityHint": "ログイン時に、アプリは複数の API から利用可能な接続先を自動選択します。ここでは設定と接続性のみを診断し、ログイン成功を保証せず、手動選択もできません。",
   "apiFailureHelp": "再試行、通信権限の確認、またはサポート用ログの出力を行ってください。このエラーだけではファイアウォールやウイルス対策ソフトによる遮断と断定できません。保護機能は無効にしないでください。",

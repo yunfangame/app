@@ -576,6 +576,24 @@ class MessageLookup extends MessageLookupByLibrary {
     "bypassDomainDesc": MessageLookupByLibrary.simpleMessage(
       "Действует только при включенном системном прокси",
     ),
+    "bypassDomainDns": MessageLookupByLibrary.simpleMessage(
+      "DNS-сервер интрасети",
+    ),
+    "bypassDomainDnsInvalid": MessageLookupByLibrary.simpleMessage(
+      "Некорректный DNS: укажите IP-адрес или system://",
+    ),
+    "bypassDomainInvalid": MessageLookupByLibrary.simpleMessage(
+      "Некорректный домен: URL, пути и порты не поддерживаются",
+    ),
+    "bypassDomainRouting": MessageLookupByLibrary.simpleMessage(
+      "Прямое подключение к интрасети в режиме правил",
+    ),
+    "bypassDomainRoutingDesc": MessageLookupByLibrary.simpleMessage(
+      "Прямые правила и DNS интрасети",
+    ),
+    "bypassDomainSystemDns": MessageLookupByLibrary.simpleMessage(
+      "Системный DNS",
+    ),
     "cacheCorrupt": MessageLookupByLibrary.simpleMessage(
       "Кэш поврежден. Хотите очистить его?",
     ),

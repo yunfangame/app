@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fl_clash/common/api_network_diagnostic.dart';
+import 'package:fl_clash/common/bypass_domain.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/campus_network.dart';
 import 'package:fl_clash/common/default_rule_target.dart';
