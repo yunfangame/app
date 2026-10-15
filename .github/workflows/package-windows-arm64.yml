@@ -126,6 +126,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          flutter test --no-pub --reporter expanded test/common/tray_test.dart | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/tray-copy-tests.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'Tray shell-copy tests failed' }
           flutter analyze --no-pub --no-fatal-infos
           if ($LASTEXITCODE -ne 0) { throw 'Static analysis failed' }
           flutter test --no-pub --reporter expanded test/setup_test.dart test/windows_runtime_bundle_test.dart test/common/windows_identity_test.dart test/common/migration_test.dart test/common/windows_integrity_test.dart test/common/protocol_test.dart test/common/windows_proxy_guard_test.dart test/core/transport_test.dart test/core/desktop test/core/service_test.dart test/core/protocol_contract_test.dart test/manager/core_manager_test.dart test/manager/proxy_manager_test.dart test/manager/window_manager_test.dart test/common/window_recovery_test.dart test/providers/system_action_test.dart test/providers/windows_tun_authorization_test.dart test/common/subscription_entry_reminder_test.dart test/widgets/subscription_entry_reminder_dialog_test.dart test/widgets/subscription_entry_reminder_host_test.dart plugins/proxy/test/proxy_test.dart plugins/proxy/test/proxy_result_test.dart plugins/proxy/test/macos_service_proxy_test.dart

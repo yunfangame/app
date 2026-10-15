@@ -13,6 +13,41 @@ import 'constant.dart';
 import 'system.dart';
 import 'window.dart';
 
+MenuItem buildCopyEnvMenuItem({
+  required String label,
+  required int port,
+  required bool isWindows,
+}) {
+  final url = 'http://127.0.0.1:$port';
+  if (!isWindows) {
+    return MenuItem(
+      label: label,
+      onClick: (_) async {
+        await Clipboard.setData(ClipboardData(text: 'export all_proxy=$url'));
+      },
+    );
+  }
+  final commands = {
+    'Bash': 'export ALL_PROXY="$url"',
+    'CMD': 'set "ALL_PROXY=$url"',
+    'PowerShell': '\$env:ALL_PROXY = "$url"',
+  };
+  return MenuItem.submenu(
+    label: label,
+    submenu: Menu(
+      items: [
+        for (final command in commands.entries)
+          MenuItem(
+            label: command.key,
+            onClick: (_) async {
+              await Clipboard.setData(ClipboardData(text: command.value));
+            },
+          ),
+      ],
+    ),
+  );
+}
+
 class Tray {
   static Tray? _instance;
 
@@ -173,11 +208,10 @@ class Tray {
       },
       checked: trayState.autoLaunch,
     );
-    final copyEnvVarMenuItem = MenuItem(
+    final copyEnvVarMenuItem = buildCopyEnvMenuItem(
       label: appLocalizations.copyEnvVar,
-      onClick: (_) async {
-        await _copyEnv(trayState.port);
-      },
+      port: trayState.port,
+      isWindows: system.isWindows,
     );
     menuItems.add(autoStartMenuItem);
     menuItems.add(copyEnvVarMenuItem);
@@ -212,16 +246,6 @@ class Tray {
     } else {
       await trayManager.setTitle(traffic.trayTitle);
     }
-  }
-
-  Future<void> _copyEnv(int port) async {
-    final url = 'http://127.0.0.1:$port';
-
-    final cmdline = system.isWindows
-        ? '\$env:ALL_PROXY = "$url"'
-        : 'export all_proxy=$url';
-
-    await Clipboard.setData(ClipboardData(text: cmdline));
   }
 }
 
