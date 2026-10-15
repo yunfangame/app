@@ -30,17 +30,19 @@ jobs:
           - architecture: x64
             filename: fengwo-windows-amd64-setup.exe
             runner: windows-2022
-            source: b3d7b417691f3befa89bf01fb90c97ca627465b2
+            source: 4f5c1f50b8e3fd25376fee8aa8b8a8715786fcb0
             baseline_sha256: 157b8ebf8c4cb8289c58afedecd56fcc65a35c900e6813e7f71fbf255e7ceb85
-            artifact_id: 11884063354
-            unsigned_sha256: bf131bce2966e29ff5bfeff703cfaed0936009164758e401ebbbc557cdd2ea2e
+            artifact_id: 11917999107
+            unsigned_filename: fengwo-windows-x64-coexistence-unsigned.exe
+            unsigned_sha256: 6260a0c796ebdd8cbf26713b868ca9e1106fdbea173b52b89b47547b62785fb0
           - architecture: arm64
             filename: fengwo-windows-arm64-setup.exe
             runner: windows-11-arm
-            source: 63033b73783563423e764a29ad2ca8984d64d29c
+            source: c45a45d1acfaf1c29ddb961b121f220efeecef56
             baseline_sha256: d9b682f45386adc6f026c64f0496ed8fbd0e86aca1360d0314c76d4283f144fb
-            artifact_id: 11883723712
-            unsigned_sha256: fa128b2ed527d132ac9ca3cbc8217d4ff5d23387894a7acdd3c8af845c4572fc
+            artifact_id: 11920212816
+            unsigned_filename: fengwo-windows-arm64-setup.exe
+            unsigned_sha256: 3fc2dca98f79c9c16242b9bc6945d75041e2a95e906edd6aa3253f5615680e4b
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     env:
@@ -50,6 +52,7 @@ jobs:
       INSTALLER_FILENAME: ${{ matrix.filename }}
       BASELINE_HASH: ${{ matrix.baseline_sha256 }}
       UNSIGNED_HASH: ${{ matrix.unsigned_sha256 }}
+      UNSIGNED_FILENAME: ${{ matrix.unsigned_filename }}
       ARTIFACT_ID: ${{ matrix.artifact_id }}
     defaults:
       run:
@@ -70,7 +73,7 @@ jobs:
           Invoke-WebRequest -Uri ('https://api.github.com/repos/yunfangame/app/actions/artifacts/' + $env:ARTIFACT_ID + '/zip') -Headers $headers -OutFile $archive
           $unpacked = Join-Path $env:RUNNER_TEMP 'unsigned-build'
           Expand-Archive -LiteralPath $archive -DestinationPath $unpacked
-          $unsigned = @(Get-ChildItem -LiteralPath $unpacked -Recurse -File -Filter $env:INSTALLER_FILENAME)
+          $unsigned = @(Get-ChildItem -LiteralPath $unpacked -Recurse -File -Filter $env:UNSIGNED_FILENAME)
           if ($unsigned.Count -ne 1 -or (Get-FileHash -LiteralPath $unsigned[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:UNSIGNED_HASH) { throw 'Original tested build artifact mismatch' }
           $patch = $env:SIGNATURE_PATCH | ConvertFrom-Json
           if ($patch.passed -ne $true -or $patch.unsigned_sha256 -cne $env:UNSIGNED_HASH -or $patch.signed_sha256 -cne $env:EXPECTED_HASH) { throw 'Signature patch does not match pinned artifacts' }
