@@ -2,6 +2,7 @@ name: fengwo-desktop-coexistence
 run-name: Unsigned Windows x64 coexistence · ${{ github.sha }}
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - 'codex/desktop-coexistence-check-*'
@@ -86,6 +87,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $evidence = Join-Path $env:RUNNER_TEMP 'desktop-coexistence-evidence'
+          flutter test --no-pub --reporter expanded test/common/tray_test.dart | Tee-Object -FilePath (Join-Path $evidence 'tray-copy-tests.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'Tray shell-copy tests failed' }
           flutter analyze --no-pub --no-fatal-infos | Tee-Object -FilePath (Join-Path $evidence 'flutter-analyze.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Desktop analysis failed' }
           flutter test --no-pub --reporter expanded test/setup_test.dart test/windows_runtime_bundle_test.dart test/common/windows_identity_test.dart test/common/windows_integrity_test.dart test/common/protocol_test.dart test/common/windows_proxy_guard_test.dart test/common/window_recovery_test.dart test/core/transport_test.dart test/core/desktop test/core/service_test.dart test/core/protocol_contract_test.dart test/manager/core_manager_test.dart test/manager/proxy_manager_test.dart test/manager/window_manager_test.dart test/providers/system_action_test.dart plugins/proxy/test/proxy_test.dart plugins/proxy/test/proxy_result_test.dart plugins/proxy/test/macos_service_proxy_test.dart plugins/proxy/test/windows_proxy_repair_test.dart | Tee-Object -FilePath (Join-Path $evidence 'flutter-focused-tests.txt')
