@@ -17,6 +17,10 @@ on:
       arm64_sha256:
         required: true
         type: string
+      verify_published_urls:
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -54,6 +58,7 @@ jobs:
       UNSIGNED_HASH: ${{ matrix.unsigned_sha256 }}
       UNSIGNED_FILENAME: ${{ matrix.unsigned_filename }}
       ARTIFACT_ID: ${{ matrix.artifact_id }}
+      VERIFY_PUBLISHED_URLS: ${{ inputs.verify_published_urls }}
     defaults:
       run:
         shell: pwsh
@@ -96,11 +101,14 @@ jobs:
           }
           [Array]::Copy($trailer, 0, $reconstructed, $original.Length, $trailer.Length)
           [IO.File]::WriteAllBytes((Join-Path $env:RUNNER_TEMP 'fengwo-1.0.11.exe'), $reconstructed)
+          if ($env:VERIFY_PUBLISHED_URLS -eq 'true') {
+            Invoke-WebRequest -Uri ('https://picture.sansen.tech/' + $env:INSTALLER_FILENAME) -OutFile (Join-Path $env:RUNNER_TEMP 'fengwo-1.0.11.exe')
+          }
           $signatureEvidence = @()
           foreach ($version in @('1.0.10', '1.0.11')) {
             $path = Join-Path $env:RUNNER_TEMP ('fengwo-' + $version + '.exe')
             if ($version -eq '1.0.10') {
-              Invoke-WebRequest -Uri ('https://picture.sansen.tech/' + $env:INSTALLER_FILENAME) -OutFile $path
+              Invoke-WebRequest -Uri ('https://picture.sansen.tech/release-backups/clients-before-20261015/clients-20261015-023738-ebf549e8/' + $env:INSTALLER_FILENAME) -OutFile $path
             }
             $expected = if ($version -eq '1.0.10') { $env:BASELINE_HASH } else { $env:EXPECTED_HASH }
             if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected) { throw 'Installer hash mismatch' }
@@ -113,6 +121,7 @@ jobs:
           $evidenceDirectory = Join-Path $env:RUNNER_TEMP 'signed-upgrade-evidence'
           New-Item -ItemType Directory -Force -Path $evidenceDirectory | Out-Null
           $signatureEvidence | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $evidenceDirectory 'signature-evidence.json') -Encoding utf8NoBOM
+          @{ production_candidate_downloaded = ($env:VERIFY_PUBLISHED_URLS -eq 'true'); candidate_url = ('https://picture.sansen.tech/' + $env:INSTALLER_FILENAME); baseline_version = '1.0.10'; baseline_sha256 = $env:BASELINE_HASH; expected_candidate_sha256 = $env:EXPECTED_HASH } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidenceDirectory 'online-source-evidence.json') -Encoding utf8NoBOM
       - name: Verify signed 1.0.10 to 1.0.11 overwrite upgrade
         run: |
           ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath (Join-Path $env:RUNNER_TEMP 'fengwo-1.0.11.exe') -PreviousInstallerPath (Join-Path $env:RUNNER_TEMP 'fengwo-1.0.10.exe') -ExpectedPreviousVersion '1.0.10' -OutputDirectory (Join-Path $env:RUNNER_TEMP 'signed-upgrade-evidence')
