@@ -58,6 +58,8 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     private lateinit var scope: CoroutineScope
 
+    private lateinit var updateNetworkClient: UpdateNetworkClient
+
     private val vpnPrepareCallback = PendingCallback<Boolean>()
 
     private val requestNotificationCallback = PendingCallback<Boolean>()
@@ -94,6 +96,20 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
     override fun onMethodCall(call: MethodCall, rawResult: Result) {
         val result = MainThreadResult(rawResult)
         when (call.method) {
+            "fetchUpdateConfig" -> {
+                updateNetworkClient.fetch(
+                    call.argument<String>("id") ?: "",
+                    call.argument<String>("url") ?: "",
+                    call.argument<String>("kind") ?: "",
+                    result,
+                )
+            }
+
+            "cancelUpdateConfig" -> {
+                updateNetworkClient.cancel(call.arguments as? String ?: "")
+                result.success(null)
+            }
+
             "moveTaskToBack" -> {
                 activity?.moveTaskToBack(true)
                 result.success(true)
@@ -351,12 +367,14 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        updateNetworkClient = UpdateNetworkClient(flutterPluginBinding.applicationContext, scope)
         channel =
             MethodChannel(flutterPluginBinding.binaryMessenger, "${Components.PACKAGE_NAME}/app")
         channel.setMethodCallHandler(this)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        updateNetworkClient.close()
         finishUpdateInstall("failed")
         channel.setMethodCallHandler(null)
         scope.cancel()

@@ -1,0 +1,200 @@
+{
+  "recordType": "update_check_repair_source_submission",
+  "date": "2026-10-15",
+  "platform": "android",
+  "status": "TESTED_CANDIDATE_SOURCE_RETAINED_NOT_PUBLISHED",
+  "branch": "codex/android-upstream-0897-test",
+  "sourceParent": "bca9b5932920b67a086703a0858fcdfe8eddf3f2",
+  "existingSharedTransportFix": null,
+  "candidateSourceBase": "bca9b5932920b67a086703a0858fcdfe8eddf3f2",
+  "candidateVersion": "1.0.10+2026106120",
+  "candidateSourceComposition": "Android release base plus the listed scoped update-check source changes.",
+  "sourceFiles": [
+    {
+      "path": "lib/common/app_update.dart",
+      "sha256": "ce988a99722e1261d4f14d75b73b1a3e4c86fb0e19a952e5d7d06c61c18a8aa5",
+      "candidateProductSourceMatches": true
+    },
+    {
+      "path": "lib/common/android_update_transport.dart",
+      "sha256": "b3998d6db8ffe650680af18afe16b5bb26011d773478b867133e7b943b5a5df5",
+      "candidateProductSourceMatches": true
+    },
+    {
+      "path": "android/app/src/main/kotlin/com/follow/clash/plugins/AppPlugin.kt",
+      "sha256": "12b55c7ee9e60249b40d85e390eb20196d4796d36c635e2bc0b42860d1429680",
+      "candidateProductSourceMatches": true
+    },
+    {
+      "path": "android/app/src/main/kotlin/com/follow/clash/plugins/UpdateNetworkClient.kt",
+      "sha256": "f53a03abc52f2dba4f69f86199fa2e682efee040069e752aea0fa69ced8947ba",
+      "candidateProductSourceMatches": true
+    },
+    {
+      "path": "android/tests/app/UpdateRequestPolicyTest.kt",
+      "sha256": "d1933655f6d9e9a16d6d36a760a54bc483c62a2181487eeb67ed058f47f6dcab",
+      "candidateProductSourceMatches": null
+    },
+    {
+      "path": "test/common/app_update_transport_test.dart",
+      "sha256": "b8ecff59a72b8d137a65ef646c68ef3638f15a9a2feccefa40b9c65733916576",
+      "candidateProductSourceMatches": null
+    },
+    {
+      "path": "test/common/android_update_transport_test.dart",
+      "sha256": "efc226cb9190b6320e2a99ab32948076ae6a754e53e5aefba1081e7825d9d37e",
+      "candidateProductSourceMatches": null
+    }
+  ],
+  "release": {
+    "filename": "fengwo.apk",
+    "version": "1.0.10",
+    "build": "2026106120",
+    "bytes": 136637009,
+    "sha256": "6d8383ce33adc9d1c43a8b5841c99680bee25a78b09b7ec9ea7736ba88e995b0",
+    "signingCertificateSha256": "9f1b52aca9af0780cd6eed4906b6bd968b36e4716420d26bd9db02662614096a",
+    "originalSigningCertificatePreserved": true,
+    "actualOverwriteInstallTested": true,
+    "physicalDeviceTested": false
+  },
+  "tests": {
+    "root": {
+      "passed": 2432,
+      "skipped": 1,
+      "log": "android-root-tests.log"
+    },
+    "precommit": {
+      "passed": 45,
+      "skipped": 0,
+      "log": "android-precommit-tests.log"
+    },
+    "controlled": {
+      "android-arm64-v8a": {
+        "passed": 8,
+        "skipped": 0,
+        "log": "android-arm64-v8a-controlled-tests.log"
+      },
+      "android-armeabi-v7a": {
+        "passed": 8,
+        "skipped": 0,
+        "log": "android-armeabi-v7a-controlled-tests.log"
+      },
+      "android-x86_64": {
+        "passed": 8,
+        "skipped": 0,
+        "log": "android-x86_64-controlled-tests.log"
+      }
+    },
+    "actualAndroid": [
+      {
+        "name": "disconnected",
+        "passed": true,
+        "checkId": "hn8dhxm6pc_10",
+        "elapsedMs": 3893,
+        "actualTunPresent": false,
+        "allowBypass": true,
+        "httpProxy": true,
+        "mode": "rule",
+        "ui": "android-ui-candidate-disconnected-settled.png"
+      },
+      {
+        "name": "connected_proxy_primary_blocked",
+        "passed": true,
+        "checkId": "hn8dj2ob5j_17",
+        "elapsedMs": 3812,
+        "actualTunPresent": true,
+        "allowBypass": true,
+        "httpProxy": true,
+        "mode": "rule",
+        "ui": "android-ui-candidate-proxy-blocked-result.png"
+      },
+      {
+        "name": "strict_vpn_no_http_proxy_no_bypass",
+        "passed": true,
+        "checkId": "hn8dkg1yfc_10",
+        "elapsedMs": 5514,
+        "actualTunPresent": true,
+        "allowBypass": false,
+        "httpProxy": false,
+        "mode": "rule",
+        "ui": "android-ui-strict-ok-result.png"
+      },
+      {
+        "name": "strict_global_vpn",
+        "passed": true,
+        "checkId": "hn8dmd4trt_17",
+        "elapsedMs": 1652,
+        "actualTunPresent": true,
+        "allowBypass": false,
+        "httpProxy": false,
+        "mode": "global",
+        "ui": "android-ui-strict-global-result.png"
+      }
+    ],
+    "native": [
+      {
+        "name": "TEST-com.follow.clash.ServiceStateMachineTest.xml",
+        "passed": 38,
+        "skipped": 0
+      },
+      {
+        "name": "TEST-com.follow.clash.models.SharedStateTest.xml",
+        "passed": 9,
+        "skipped": 0
+      },
+      {
+        "name": "TEST-com.follow.clash.packages.ChinaPackageMatcherTest.xml",
+        "passed": 0,
+        "skipped": 11
+      },
+      {
+        "name": "TEST-com.follow.clash.plugins.AppUpdatePackagePolicyTest.xml",
+        "passed": 5,
+        "skipped": 0
+      },
+      {
+        "name": "TEST-com.follow.clash.plugins.UpdateRequestPolicyTest.xml",
+        "passed": 3,
+        "skipped": 0
+      }
+    ],
+    "scopeNote": "The signed candidate passed actual headless emulator checks with active tun0 and allowBypass=false; no global app exclusion was introduced."
+  },
+  "evidence": {
+    "originalTestsDirectory": "/Users/lilaibin/Documents/ChatGPT/\u6539\u9020app\u8ba1\u5212/\u6d4b\u8bd5\u8bb0\u5f55/Android-Mac\u66f4\u65b0\u68c0\u67e5\u4fee\u590d-20261015",
+    "originalReleaseDirectory": "/Users/lilaibin/Documents/ChatGPT/\u6539\u9020app\u8ba1\u5212/\u53d1\u5e03/Android-Mac\u66f4\u65b0\u68c0\u67e5\u4fee\u590d-20261015",
+    "independentRetention": {
+      "localOnly": true,
+      "archive": "/Users/lilaibin/Documents/ChatGPT/\u6539\u9020app\u8ba1\u5212/\u6d4b\u8bd5\u8bb0\u5f55/Android-Mac\u66f4\u65b0\u68c0\u67e5\u6e90\u7801\u63d0\u4ea4-20261015/Android-Mac-update-check-complete-evidence.tar.gz",
+      "archiveBytes": 347593109,
+      "archiveSha256": "b1dd02eccce25dc30e8cb8d3c2b27237e7d6e32b52bdd508339955db823a2ac6",
+      "inventory": "/Users/lilaibin/Documents/ChatGPT/\u6539\u9020app\u8ba1\u5212/\u6d4b\u8bd5\u8bb0\u5f55/Android-Mac\u66f4\u65b0\u68c0\u67e5\u6e90\u7801\u63d0\u4ea4-20261015/evidence-inventory.json",
+      "inventorySha256": "d4154e6dfdeaeafed4ece6770b970253c762bd4f1992b8d708cc541c4bf53cd0",
+      "verifiedEntries": 416,
+      "verifiedFiles": 389,
+      "sourceHashesStillMatchTestedCandidates": true,
+      "originalRecordsRetained": true,
+      "allExtractedHashesVerified": true,
+      "archiveMode": "0600",
+      "publicationPerformed": false
+    },
+    "precommitTestsDirectory": "/Users/lilaibin/Documents/ChatGPT/\u6539\u9020app\u8ba1\u5212/\u6d4b\u8bd5\u8bb0\u5f55/Android-Mac\u66f4\u65b0\u68c0\u67e5\u6e90\u7801\u63d0\u4ea4-20261015",
+    "rawLogsAndPackagesLocalOnly": true,
+    "privatePreferencesAndProductionSigningMaterialNotCommitted": true
+  },
+  "buildPolicy": {
+    "sharedPubspecUnchanged": true,
+    "packagedVersionOverriddenOnlyInIsolatedBuild": true,
+    "macOS12BuildHooksOnlyInIsolatedBuild": false,
+    "packageBytesNotRebuiltOrModifiedForSourceSubmission": true,
+    "ticketPollingIncluded": true
+  },
+  "safeguards": {
+    "preExistingCoreSubmoduleChangesExcluded": true,
+    "productionInstallersNotReplaced": true,
+    "productionConfigurationsNotModified": true,
+    "downloadUrlsAndFilenamesUnchanged": true,
+    "sourcePushOnly": true,
+    "releaseTagsNotCreated": true
+  }
+}
