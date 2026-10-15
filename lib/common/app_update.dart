@@ -1,16 +1,24 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_health.dart';
+import 'api_network_diagnostic.dart';
 import 'constant.dart';
 import 'remote_config_cipher.dart';
 
 const appUpdateManifestFormat = 'fengwo-update';
 const appUpdateManifestVersion = 1;
 const appUpdateUrlConfigKey = 'UpdateUrl';
+const appUpdateTrustedManifestUrls = [
+  'https://house.zryc.tech/fengwoupdate.json',
+  'https://zryc.oss-cn-beijing.aliyuncs.com/fengwoupdate.json',
+];
 
 typedef AppUpdateMainConfigLoader = Future<Object?> Function();
 typedef AppUpdateManifestLoader = Future<Object?> Function(Uri uri);
@@ -75,7 +83,10 @@ class AppUpdateService {
     AppUpdateManifestLoader? manifestLoader,
     AppUpdatePackageKeyResolver? packageKeyResolver,
     AppUpdatePreferenceStore? preferenceStore,
+    ApiDiagnosticRecorder? diagnosticRecorder,
     Dio? dio,
+    this.attemptTimeout = const Duration(seconds: 8),
+    this.retryDelay = const Duration(milliseconds: 300),
     this.aesKey = remoteConfigAesKey,
     this.signingPublicKey = remoteConfigSigningPublicKey,
   }) : _mainConfigLoader =
@@ -83,55 +94,75 @@ class AppUpdateService {
        _manifestLoader = manifestLoader,
        _packageKeyResolver = packageKeyResolver ?? currentAppUpdatePackageKey,
        _preferenceStore = preferenceStore ?? AppUpdatePreferenceStore(),
-       _dio =
-           dio ??
-           Dio(
-             BaseOptions(
-               headers: {'User-Agent': browserUa},
-               connectTimeout: const Duration(seconds: 6),
-               receiveTimeout: const Duration(seconds: 10),
-               responseType: ResponseType.bytes,
-             ),
-           );
+       _diagnosticRecorder = diagnosticRecorder ?? recordApiDiagnosticEvent,
+       _dio = dio ?? _createDirectUpdateDio();
 
   final AppUpdateMainConfigLoader _mainConfigLoader;
   final AppUpdateManifestLoader? _manifestLoader;
   final AppUpdatePackageKeyResolver _packageKeyResolver;
   final AppUpdatePreferenceStore _preferenceStore;
+  final ApiDiagnosticRecorder _diagnosticRecorder;
   final Dio _dio;
+  final Duration attemptTimeout;
+  final Duration retryDelay;
   final String aesKey;
   final String signingPublicKey;
+  bool _closed = false;
 
   Future<AppUpdateCheckResult> discoverUpdate({
     required String currentVersion,
   }) async {
-    final packageKey = _packageKeyResolver();
-    if (packageKey == null) throw const AppUpdateUnavailableException();
-
-    final mainConfig = await _mainConfigLoader();
-    final manifestUri = appUpdateManifestUriFromConfig(mainConfig);
-    if (manifestUri == null) {
-      throw const AppUpdateUnavailableException();
+    final checkId = newApiDiagnosticAttemptId();
+    final watch = Stopwatch()..start();
+    var stage = 'main_config';
+    _record('app.update.check.started', {
+      'check_id': checkId,
+      'transport': 'direct_http',
+      'current_version': currentVersion,
+    });
+    try {
+      if (_closed) throw StateError('Update service is closed');
+      final packageKey = _packageKeyResolver();
+      if (packageKey == null) throw const AppUpdateUnavailableException();
+      final mainConfig = await _mainConfigLoader();
+      final manifestUris = appUpdateManifestUrisFromConfig(mainConfig);
+      if (manifestUris.isEmpty) {
+        throw const AppUpdateUnavailableException();
+      }
+      _record('app.update.config.succeeded', {
+        'check_id': checkId,
+        'source_count': manifestUris.length,
+        'package_key': packageKey,
+        'elapsed_ms': watch.elapsedMilliseconds,
+      });
+      stage = 'update_manifest';
+      final release = await _loadRelease(manifestUris, packageKey, checkId);
+      final result = release == null
+          ? const AppUpdateCheckResult(status: AppUpdateCheckStatus.unavailable)
+          : compareAppUpdateVersions(release.version, currentVersion) <= 0
+          ? const AppUpdateCheckResult(status: AppUpdateCheckStatus.upToDate)
+          : AppUpdateCheckResult(
+              status: AppUpdateCheckStatus.available,
+              release: release,
+            );
+      _record('app.update.check.completed', {
+        'check_id': checkId,
+        'status': result.status.name,
+        'package_key': packageKey,
+        if (release != null) 'remote_version': release.version,
+        'elapsed_ms': watch.elapsedMilliseconds,
+      });
+      return result;
+    } catch (error) {
+      _record('app.update.check.failed', {
+        'check_id': checkId,
+        ..._updateFailureFields(error, stage: stage),
+        'elapsed_ms': watch.elapsedMilliseconds,
+      });
+      rethrow;
+    } finally {
+      watch.stop();
     }
-    final payload = await (_manifestLoader ?? _loadManifest)(manifestUri);
-    final decoded = await _decodeManifest(payload);
-    final release = parseAppUpdateRelease(
-      decoded,
-      packageKey: packageKey,
-      manifestUri: manifestUri,
-    );
-    if (release == null) {
-      return const AppUpdateCheckResult(
-        status: AppUpdateCheckStatus.unavailable,
-      );
-    }
-    if (compareAppUpdateVersions(release.version, currentVersion) <= 0) {
-      return const AppUpdateCheckResult(status: AppUpdateCheckStatus.upToDate);
-    }
-    return AppUpdateCheckResult(
-      status: AppUpdateCheckStatus.available,
-      release: release,
-    );
   }
 
   Future<AppUpdateRelease?> checkForUpdate({
@@ -149,16 +180,100 @@ class AppUpdateService {
   Future<bool> isIgnored(AppUpdateRelease release) =>
       _preferenceStore.isIgnored(release.packageKey, release.version);
 
-  void close() => _dio.close(force: true);
+  void close() {
+    _closed = true;
+    _dio.close(force: true);
+  }
 
   Future<void> ignore(AppUpdateRelease release) =>
       _preferenceStore.ignore(release.packageKey, release.version);
 
-  Future<Object?> _loadManifest(Uri uri) async {
+  void _record(String event, Map<String, Object?> fields) =>
+      emitApiDiagnosticEvent(_diagnosticRecorder, event, fields);
+
+  Future<AppUpdateRelease?> _loadRelease(
+    List<Uri> uris,
+    String packageKey,
+    String checkId,
+  ) async {
+    final retryable = uris.toSet();
+    Object? selectedError;
+    StackTrace? selectedStack;
+    for (var round = 0; round < 2 && retryable.isNotEmpty; round++) {
+      if (round > 0) {
+        _record('app.update.retry.scheduled', {
+          'check_id': checkId,
+          'round': round + 1,
+          'delay_ms': retryDelay.inMilliseconds,
+        });
+        if (retryDelay > Duration.zero) await Future<void>.delayed(retryDelay);
+      }
+      for (var index = 0; index < uris.length; index++) {
+        if (_closed) throw StateError('Update service is closed');
+        final uri = uris[index];
+        if (!retryable.contains(uri)) continue;
+        final fields = {
+          'check_id': checkId,
+          'source_index': index + 1,
+          'endpoint_ref': apiDiagnosticEndpointRef(uri),
+          'round': round + 1,
+          'transport': 'direct_http',
+        };
+        if (index > 0) _record('app.update.source.fallback', fields);
+        _record('app.update.source.attempt.started', fields);
+        final watch = Stopwatch()..start();
+        final cancelToken = CancelToken();
+        var stage = 'manifest_fetch';
+        try {
+          final release = await (() async {
+            final payload = _manifestLoader != null
+                ? await _manifestLoader(uri)
+                : await _loadManifest(uri, cancelToken);
+            stage = 'manifest_decode';
+            final decoded = await _decodeManifest(payload);
+            stage = 'manifest_parse';
+            return parseAppUpdateRelease(
+              decoded,
+              packageKey: packageKey,
+              manifestUri: uri,
+            );
+          })().timeout(attemptTimeout);
+          _record('app.update.source.attempt.succeeded', {
+            ...fields,
+            'stage': stage,
+            'elapsed_ms': watch.elapsedMilliseconds,
+          });
+          return release;
+        } catch (error, stack) {
+          _record('app.update.source.attempt.failed', {
+            ...fields,
+            ..._updateFailureFields(error, stage: stage),
+            'elapsed_ms': watch.elapsedMilliseconds,
+          });
+          if (selectedError == null ||
+              _updateFailurePriority(error) >
+                  _updateFailurePriority(selectedError)) {
+            selectedError = error;
+            selectedStack = stack;
+          }
+          if (!_isRetryableUpdateFailure(error)) retryable.remove(uri);
+        } finally {
+          cancelToken.cancel('Update source attempt finished');
+          watch.stop();
+        }
+      }
+    }
+    Error.throwWithStackTrace(selectedError!, selectedStack!);
+  }
+
+  Future<Object?> _loadManifest(Uri uri, CancelToken cancelToken) async {
     final response = await _dio.getUri<List<int>>(
       uri,
+      cancelToken: cancelToken,
       options: Options(
         responseType: ResponseType.bytes,
+        followRedirects: false,
+        headers: const {'Cache-Control': 'no-cache', 'Pragma': 'no-cache'},
         validateStatus: (status) =>
             status != null && status >= 200 && status < 300,
       ),
@@ -187,6 +302,73 @@ class AppUpdateService {
     }
     return normalized;
   }
+}
+
+Dio _createDirectUpdateDio() {
+  final dio = Dio(
+    BaseOptions(
+      headers: {'User-Agent': browserUa},
+      connectTimeout: const Duration(seconds: 4),
+      receiveTimeout: const Duration(seconds: 5),
+      responseType: ResponseType.bytes,
+    ),
+  );
+  dio.httpClientAdapter = IOHttpClientAdapter(
+    createHttpClient: () => HttpClient()..findProxy = (_) => 'DIRECT',
+  );
+  return dio;
+}
+
+Map<String, Object?> _updateFailureFields(
+  Object error, {
+  required String stage,
+}) {
+  if (error is ApiRemoteConfigException && error.diagnostic != null) {
+    return {...error.diagnostic!.toDiagnosticFields(), 'stage': stage};
+  }
+  final diagnostic = classifyApiNetworkFailure(error, stage: stage);
+  return {
+    ...diagnostic.toDiagnosticFields(),
+    if (error is RemoteConfigCipherException)
+      'reason': switch (error.failure) {
+        RemoteConfigCipherFailure.signature ||
+        RemoteConfigCipherFailure.keyMismatch => 'config_signature',
+        _ => 'config_decrypt',
+      }
+    else if (error is FormatException)
+      'reason': 'manifest_format'
+    else if (error is AppUpdateUnavailableException)
+      'reason': 'configuration_unavailable',
+  };
+}
+
+int _updateFailurePriority(Object error) => switch (error) {
+  RemoteConfigCipherException() => 3,
+  FormatException() => 2,
+  _ => 1,
+};
+
+bool _isRetryableUpdateFailure(Object error) {
+  if (error is DioException) {
+    final status = error.response?.statusCode;
+    if (status != null) return status == 408 || status == 429 || status >= 500;
+    return error.type != DioExceptionType.cancel;
+  }
+  return error is SocketException ||
+      error is TimeoutException ||
+      error is TlsException;
+}
+
+List<Uri> appUpdateManifestUrisFromConfig(Object? config) {
+  final primary = appUpdateManifestUriFromConfig(config);
+  if (primary == null) return const [];
+  return List.unmodifiable([
+    primary,
+    if (appUpdateTrustedManifestUrls.contains(primary.toString()))
+      ...appUpdateTrustedManifestUrls
+          .where((value) => value != primary.toString())
+          .map(Uri.parse),
+  ]);
 }
 
 Uri? appUpdateManifestUriFromConfig(Object? config) {
