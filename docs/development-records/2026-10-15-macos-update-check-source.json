@@ -1,0 +1,109 @@
+{
+  "recordType": "update_check_repair_source_submission",
+  "date": "2026-10-15",
+  "platform": "macos",
+  "status": "SHARED_FIX_ALREADY_COMMITTED_MAC_TESTS_AND_EVIDENCE_RETAINED_NOT_PUBLISHED",
+  "branch": "codex/desktop-upstream-0897-port",
+  "sourceParent": "b70e7462b85fdfcc1b8256e6725fe799fc3d4006",
+  "existingSharedTransportFix": "29c3d99c625ef008d0413699905ec6f2b91fe80a",
+  "candidateSourceBase": "94e01d75912c40a6a21125bbdab1755b20e0162d",
+  "candidateVersion": "1.0.11+2026106120",
+  "candidateSourceComposition": "Mac release base plus shared app_update.dart from 29c3d99c; matches the retained file SHA256. Later Windows-only changes are not claimed as part of the Mac candidate.",
+  "sourceFiles": [
+    {
+      "path": "lib/common/app_update.dart",
+      "sha256": "6de86d0791d9c127216a98eb8c0682eed421fca2508a663345a001dabb748aa3",
+      "candidateProductSourceMatches": true
+    },
+    {
+      "path": "test/common/app_update_transport_test.dart",
+      "sha256": "b8ecff59a72b8d137a65ef646c68ef3638f15a9a2feccefa40b9c65733916576",
+      "candidateProductSourceMatches": null
+    }
+  ],
+  "release": {
+    "filename": "fengwo-macos-universal.pkg",
+    "version": "1.0.11",
+    "build": "2026106120",
+    "bytes": 97212715,
+    "sha256": "94d186af321bbccd4e86516d2bfcb64e8d88115d7dba2c98cc19b11d5b26457f",
+    "architectures": [
+      "arm64",
+      "x86_64"
+    ],
+    "minimumMacOS": "12.0",
+    "applicationSignature": "ad-hoc",
+    "installerSignature": "unsigned",
+    "notarized": false,
+    "legacySigningPolicyApprovedByUser": true,
+    "actualOverwriteInstallTestedThisCandidate": false
+  },
+  "tests": {
+    "root": {
+      "passed": 3050,
+      "skipped": 4,
+      "log": "macos-root-tests.log"
+    },
+    "precommit": {
+      "arm64": {
+        "passed": 22,
+        "log": "macos-precommit-tests.log"
+      },
+      "x64": {
+        "passed": 22,
+        "log": "macos-x64-precommit-tests.log"
+      }
+    },
+    "controlled": {
+      "macos-arm64": {
+        "passed": 8,
+        "skipped": 0,
+        "log": "macos-arm64-controlled-tests.log"
+      },
+      "macos-x64": {
+        "passed": 8,
+        "skipped": 0,
+        "log": "macos-x64-controlled-tests.log"
+      }
+    },
+    "actualMacConnectedAndTunAcceptance": "deferred_by_user",
+    "scopeNote": "DIRECT HTTP bypasses the app proxy override, not a demonstrated bypass of OS-level or third-party TUN. Controlled TUN preferences are not physical runtime acceptance."
+  },
+  "evidence": {
+    "originalTestsDirectory": "/Users/lilaibin/Documents/ChatGPT/\u6539\u9020app\u8ba1\u5212/\u6d4b\u8bd5\u8bb0\u5f55/Android-Mac\u66f4\u65b0\u68c0\u67e5\u4fee\u590d-20261015",
+    "originalReleaseDirectory": "/Users/lilaibin/Documents/ChatGPT/\u6539\u9020app\u8ba1\u5212/\u53d1\u5e03/Android-Mac\u66f4\u65b0\u68c0\u67e5\u4fee\u590d-20261015",
+    "independentRetention": {
+      "localOnly": true,
+      "archive": "/Users/lilaibin/Documents/ChatGPT/\u6539\u9020app\u8ba1\u5212/\u6d4b\u8bd5\u8bb0\u5f55/Android-Mac\u66f4\u65b0\u68c0\u67e5\u6e90\u7801\u63d0\u4ea4-20261015/Android-Mac-update-check-complete-evidence.tar.gz",
+      "archiveBytes": 347593109,
+      "archiveSha256": "b1dd02eccce25dc30e8cb8d3c2b27237e7d6e32b52bdd508339955db823a2ac6",
+      "inventory": "/Users/lilaibin/Documents/ChatGPT/\u6539\u9020app\u8ba1\u5212/\u6d4b\u8bd5\u8bb0\u5f55/Android-Mac\u66f4\u65b0\u68c0\u67e5\u6e90\u7801\u63d0\u4ea4-20261015/evidence-inventory.json",
+      "inventorySha256": "d4154e6dfdeaeafed4ece6770b970253c762bd4f1992b8d708cc541c4bf53cd0",
+      "verifiedEntries": 416,
+      "verifiedFiles": 389,
+      "sourceHashesStillMatchTestedCandidates": true,
+      "originalRecordsRetained": true,
+      "allExtractedHashesVerified": true,
+      "archiveMode": "0600",
+      "publicationPerformed": false
+    },
+    "precommitTestsDirectory": "/Users/lilaibin/Documents/ChatGPT/\u6539\u9020app\u8ba1\u5212/\u6d4b\u8bd5\u8bb0\u5f55/Android-Mac\u66f4\u65b0\u68c0\u67e5\u6e90\u7801\u63d0\u4ea4-20261015",
+    "rawLogsAndPackagesLocalOnly": true,
+    "privatePreferencesAndProductionSigningMaterialNotCommitted": true
+  },
+  "buildPolicy": {
+    "sharedPubspecUnchanged": true,
+    "packagedVersionOverriddenOnlyInIsolatedBuild": true,
+    "macOS12BuildHooksOnlyInIsolatedBuild": true,
+    "packageBytesNotRebuiltOrModifiedForSourceSubmission": true,
+    "ticketPollingIncluded": true
+  },
+  "safeguards": {
+    "preExistingCoreSubmoduleChangesExcluded": true,
+    "productionInstallersNotReplaced": true,
+    "productionConfigurationsNotModified": true,
+    "downloadUrlsAndFilenamesUnchanged": true,
+    "sourcePushOnly": true,
+    "releaseTagsNotCreated": true
+  }
+}

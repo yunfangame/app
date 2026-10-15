@@ -8,6 +8,11 @@ import 'package:fl_clash/common/app_update.dart';
 import 'package:fl_clash/common/remote_config_cipher.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+const _testedPackage = String.fromEnvironment(
+  'UPDATE_TEST_PACKAGE',
+  defaultValue: 'windows-x64',
+);
+
 void main() {
   final primary = Uri.parse(appUpdateTrustedManifestUrls.first);
   final backup = Uri.parse(appUpdateTrustedManifestUrls.last);
@@ -21,7 +26,7 @@ void main() {
     final result = AppUpdateService(
       mainConfigLoader: () async => {'UpdateUrl': url ?? primary.toString()},
       manifestLoader: loader,
-      packageKeyResolver: () => 'windows-x64',
+      packageKeyResolver: () => _testedPackage,
       diagnosticRecorder: (name, fields) =>
           events.add((name: name, fields: fields)),
       attemptTimeout: timeout,
@@ -317,7 +322,7 @@ void main() {
             if (uri == primary) return tampered;
             return unsignedBackup ? _manifest() : fixture.envelope;
           },
-          packageKeyResolver: () => 'windows-x64',
+          packageKeyResolver: () => _testedPackage,
           diagnosticRecorder: (name, fields) =>
               events.add((name: name, fields: fields)),
           retryDelay: Duration.zero,
@@ -382,7 +387,7 @@ void main() {
           mainConfigLoader: () async => {
             'UpdateUrl': 'https://127.0.0.1:${server.port}/fengwoupdate.json',
           },
-          packageKeyResolver: () => 'windows-x64',
+          packageKeyResolver: () => _testedPackage,
           diagnosticRecorder: (_, _) {},
           retryDelay: Duration.zero,
           aesKey: '',
@@ -415,7 +420,15 @@ Map<String, Object?> _manifest({bool enabled = true}) => {
   'format': 'fengwo-update',
   'schemaVersion': 1,
   'packages': {
-    for (final key in ['windows-x64', 'windows-arm64'])
+    for (final key in [
+      'windows-x64',
+      'windows-arm64',
+      'android-arm64-v8a',
+      'android-armeabi-v7a',
+      'android-x86_64',
+      'macos-arm64',
+      'macos-x64',
+    ])
       key: {
         'enabled': enabled,
         'version': '1.0.11',
