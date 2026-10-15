@@ -34,19 +34,19 @@ jobs:
           - architecture: x64
             filename: fengwo-windows-amd64-setup.exe
             runner: windows-2022
-            source: 9324eada1bed1304104c4de21bb8d2158e8c5a10
+            source: 29c3d99c625ef008d0413699905ec6f2b91fe80a
             baseline_sha256: 157b8ebf8c4cb8289c58afedecd56fcc65a35c900e6813e7f71fbf255e7ceb85
-            artifact_id: 11948946331
+            artifact_id: 11952668411
             unsigned_filename: fengwo-windows-x64-coexistence-unsigned.exe
-            unsigned_sha256: e4545fb60cf137c83d1000d51f761643ceea60db610137763924172413aa7522
+            unsigned_sha256: 00c626af61b1085faa53f66a6c673e991cdaafb561bc21da254bf63c410e75f0
           - architecture: arm64
             filename: fengwo-windows-arm64-setup.exe
             runner: windows-11-arm
-            source: 3f1f54829161ea4e655bce38cff3bec618e40246
+            source: df3b8819e466d49417cb3b0dce8271481286dc75
             baseline_sha256: d9b682f45386adc6f026c64f0496ed8fbd0e86aca1360d0314c76d4283f144fb
-            artifact_id: 11948289585
+            artifact_id: 11953431633
             unsigned_filename: fengwo-windows-arm64-setup.exe
-            unsigned_sha256: df229ec456e624759c6a67946babbce5bd236c66c3080f11e6b9a2b07bfd3cf3
+            unsigned_sha256: 2f2402c75c9ab43937d8df6b67cc3e95492894f92bb41da3a876d84ff2492eb2
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     env:
