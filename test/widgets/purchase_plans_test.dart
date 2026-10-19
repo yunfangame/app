@@ -9,6 +9,51 @@ import 'package:flutter_test/flutter_test.dart';
 import '../support/api_health_fixture.dart';
 
 void main() {
+  for (final expired in [false, true]) {
+    for (final mobile in [false, true]) {
+      testWidgets(
+        'billing stays accessible for expired=$expired mobile=$mobile',
+        (tester) async {
+          tester.view.physicalSize = mobile
+              ? const Size(390, 844)
+              : const Size(1100, 850);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          addTearDown(globalState.clearXboardSession);
+          globalState
+            ..setOfflineMode(false)
+            ..xboardSession = _testSession(
+              planId: expired ? 1 : null,
+              expiredAt: expired ? 1 : null,
+            );
+          try {
+            await tester.pumpWidget(
+              _TestApp(
+                child: FengWoPurchasePlansView(
+                  authService: _testPaymentService(),
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+            final l10n = tester
+                .element(find.byType(FengWoPurchasePlansView))
+                .appLocalizations;
+            await tester.ensureVisible(find.text(l10n.buyNow).first);
+            await tester.tap(find.text(l10n.buyNow).first);
+            await tester.pumpAndSettle();
+            expect(find.byKey(const ValueKey('payment-ready')), findsOneWidget);
+            expect(find.text('支付宝'), findsOneWidget);
+            expect(globalState.xboardSession?.authData, 'Bearer plan-token');
+            expect(tester.takeException(), isNull);
+          } finally {
+            await tester.pumpWidget(const SizedBox.shrink());
+          }
+        },
+      );
+    }
+  }
+
   testWidgets('plan store filters real XBoard plans and renders HTML content', (
     tester,
   ) async {
@@ -256,7 +301,7 @@ Future<XboardLoginResponse> _testPlanServiceRequester(
   );
 }
 
-XboardLoginResult _testSession({required int planId}) {
+XboardLoginResult _testSession({required int? planId, int? expiredAt}) {
   final endpoint = Uri.parse('https://api.example.com');
   return XboardLoginResult(
     endpoint: endpoint,
@@ -268,9 +313,14 @@ XboardLoginResult _testSession({required int planId}) {
       subscribeUrl: Uri.parse('https://api.example.com/subscribe'),
       uploadBytes: 0,
       downloadBytes: 0,
-      transferEnableBytes: bytesPerGigabyte * 1000,
+      transferEnableBytes: planId == null ? 0 : bytesPerGigabyte * 1000,
       planId: planId,
-      rawData: const {},
+      expiredAtEpochSeconds: expiredAt,
+      rawData: {
+        'plan_id': planId,
+        'expired_at': expiredAt,
+        'transfer_enable': planId == null ? 0 : bytesPerGigabyte * 1000,
+      },
     ),
   );
 }
