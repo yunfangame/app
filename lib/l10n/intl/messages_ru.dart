@@ -2636,8 +2636,17 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionNormalTooltip": MessageLookupByLibrary.simpleMessage(
       "Тариф в норме. Нажмите, чтобы узнать подробности",
     ),
+    "subscriptionNotPurchased": MessageLookupByLibrary.simpleMessage(
+      "Тариф не приобретён. Для подключения приобретите тариф",
+    ),
+    "subscriptionPlanExpired": MessageLookupByLibrary.simpleMessage(
+      "Срок действия тарифа истёк. Продлите его для подключения",
+    ),
     "subscriptionPlanUnavailable": MessageLookupByLibrary.simpleMessage(
       "Не удалось найти текущий тариф. Обновите данные и повторите попытку",
+    ),
+    "subscriptionProfileUnavailable": MessageLookupByLibrary.simpleMessage(
+      "Узлы подписки недоступны. Повторите попытку позже или обратитесь в поддержку",
     ),
     "subscriptionResetContinue": MessageLookupByLibrary.simpleMessage(
       "Продолжить сброс",

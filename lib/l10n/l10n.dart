@@ -709,6 +709,36 @@ class AppLocalizations {
     );
   }
 
+  /// `No plan purchased. Purchase a plan to connect`
+  String get subscriptionNotPurchased {
+    return Intl.message(
+      'No plan purchased. Purchase a plan to connect',
+      name: 'subscriptionNotPurchased',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Your plan has expired. Renew it to connect`
+  String get subscriptionPlanExpired {
+    return Intl.message(
+      'Your plan has expired. Renew it to connect',
+      name: 'subscriptionPlanExpired',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Subscription nodes are unavailable. Try again later or contact support`
+  String get subscriptionProfileUnavailable {
+    return Intl.message(
+      'Subscription nodes are unavailable. Try again later or contact support',
+      name: 'subscriptionProfileUnavailable',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Create account`
   String get registerAccount {
     return Intl.message(
