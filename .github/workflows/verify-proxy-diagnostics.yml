@@ -1,0 +1,54 @@
+name: fengwo-proxy-diagnostics
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'codex/proxy-diagnostics-check-*'
+permissions:
+  contents: read
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            arch: x64
+          - os: windows-11-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify native Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          . ./tooling/windows/arm64/common.ps1
+          $environment = Assert-FwNativeRunner -Architecture '${{ matrix.arch }}'
+          [void][IO.Directory]::CreateDirectory('proxy-diagnostics-evidence')
+          Save-FwArmEvidence 'proxy-diagnostics-evidence/environment.json' $environment
+          ./tooling/windows/proxy_diagnostics/Test-ProxyDiagnostics.ps1 -OutputDirectory (Join-Path $PWD 'proxy-diagnostics-evidence')
+      - name: Reproduce proxy switch changes and identify the writer
+        shell: powershell
+        run: |
+          ./tooling/windows/proxy_diagnostics/Test-ProxyWriterTrace.ps1 -OutputDirectory (Join-Path $PWD 'proxy-diagnostics-evidence/writer')
+      - name: Collect read-only system report
+        shell: powershell
+        run: |
+          ./tooling/windows/proxy_diagnostics/Start-ProxyDiagnostics.ps1 -Mode Collect -SkipNetwork -OutputDirectory (Join-Path $PWD 'proxy-diagnostics-evidence/collector')
+          if ($LASTEXITCODE -ne 0) { throw 'Standalone collector failed' }
+      - name: Verify customer entrypoints and ZIP privacy
+        shell: powershell
+        run: |
+          ./tooling/windows/proxy_diagnostics/Test-ProxyToolEntrypoints.ps1 -OutputDirectory (Join-Path $PWD 'proxy-diagnostics-evidence/entrypoints')
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proxy-diagnostics-${{ matrix.arch }}
+          path: |
+            proxy-diagnostics-evidence
+            !proxy-diagnostics-evidence/**/*.dpapi
+            !proxy-diagnostics-evidence/**/private/**
+          retention-days: 30
