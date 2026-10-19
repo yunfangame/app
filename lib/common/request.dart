@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/subscription_access.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/state.dart';
@@ -64,17 +65,21 @@ class Request {
           options: Options(responseType: ResponseType.bytes),
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       commonPrint.log('getFileResponseForUrl error ${e.toString()}');
-      if (e is DioException) {
-        if (e.type == DioExceptionType.unknown) {
-          throw currentAppLocalizations.unknownNetworkError;
-        } else if (e.type == DioExceptionType.badResponse) {
-          throw currentAppLocalizations.networkException;
-        }
-        rethrow;
-      }
-      throw currentAppLocalizations.unknownNetworkError;
+      final error = preserveSubscriptionDownloadError(
+        e,
+        currentAppLocalizations,
+        Uri.tryParse(url),
+      );
+      commonPrint.event(
+        'subscription.profile.download.failed',
+        fields: {
+          'error_type': e.runtimeType.toString(),
+          ...?subscriptionProfileDiagnostic(error)?.toDiagnosticFields(),
+        },
+      );
+      Error.throwWithStackTrace(error, stackTrace);
     }
   }
 
