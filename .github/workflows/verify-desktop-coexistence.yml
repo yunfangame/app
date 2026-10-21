@@ -1,11 +1,11 @@
-name: fengwo-desktop-coexistence
-run-name: Unsigned Windows x64 coexistence · ${{ github.sha }}
+name: fengwo-private-ras-candidate
+run-name: Unsigned private RAS Windows x64 candidate · ${{ github.sha }}
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - 'codex/desktop-coexistence-check-*'
+      - 'codex/windows-ras-private-build-20261021-*'
 
 permissions:
   contents: read
@@ -22,13 +22,21 @@ jobs:
       FENGWO_PROXY_MUTATING_TEST: '1'
     defaults:
       run:
-        shell: pwsh
+        shell: pwsh -NoLogo -NoProfile -File tooling/windows/private_build/run-step.ps1 {0}
     steps:
       - name: Checkout isolated test source
         uses: actions/checkout@v4
         with:
           submodules: recursive
           persist-credentials: false
+
+      - name: Apply verified private proxy source overlay
+        env:
+          FENGWO_RAS_20261021_OVERLAY: ${{ secrets.FENGWO_RAS_20261021_OVERLAY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node tooling/windows/private_build/transport.mjs apply $PWD
+          if ($LASTEXITCODE -ne 0) { throw 'Private proxy overlay validation failed' }
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -95,7 +103,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Direct update check and failover tests failed' }
           flutter analyze --no-pub --no-fatal-infos | Tee-Object -FilePath (Join-Path $evidence 'flutter-analyze.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Desktop analysis failed' }
-          flutter test --no-pub --reporter expanded test/setup_test.dart test/windows_runtime_bundle_test.dart test/common/windows_identity_test.dart test/common/windows_integrity_test.dart test/common/protocol_test.dart test/common/windows_proxy_guard_test.dart test/common/window_recovery_test.dart test/core/transport_test.dart test/core/desktop test/core/service_test.dart test/core/protocol_contract_test.dart test/manager/core_manager_test.dart test/manager/proxy_manager_test.dart test/manager/window_manager_test.dart test/providers/system_action_test.dart plugins/proxy/test/proxy_test.dart plugins/proxy/test/proxy_result_test.dart plugins/proxy/test/macos_service_proxy_test.dart plugins/proxy/test/windows_proxy_repair_test.dart | Tee-Object -FilePath (Join-Path $evidence 'flutter-focused-tests.txt')
+          flutter test --no-pub --reporter expanded test/setup_test.dart test/windows_runtime_bundle_test.dart test/common/windows_identity_test.dart test/common/windows_integrity_test.dart test/common/protocol_test.dart test/common/windows_proxy_guard_test.dart test/common/windows_proxy_trace_log_test.dart test/common/window_recovery_test.dart test/core/transport_test.dart test/core/desktop test/core/service_test.dart test/core/protocol_contract_test.dart test/manager/core_manager_test.dart test/manager/proxy_manager_test.dart test/manager/window_manager_test.dart test/providers/system_action_test.dart plugins/proxy/test/proxy_test.dart plugins/proxy/test/proxy_result_test.dart plugins/proxy/test/macos_service_proxy_test.dart plugins/proxy/test/windows_proxy_repair_test.dart | Tee-Object -FilePath (Join-Path $evidence 'flutter-focused-tests.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Identity proxy and shutdown tests failed' }
           ./tooling/windows/test_prepare_vc_runtime.ps1 | Tee-Object -FilePath (Join-Path $evidence 'runtime-preparation-tests.txt')
           ./tooling/windows/test_vc_runtime_bundle.ps1 | Tee-Object -FilePath (Join-Path $evidence 'runtime-bundle-tests.txt')
@@ -199,7 +207,7 @@ jobs:
           ctest --test-dir build/windows/x64/plugins/proxy -C Release --output-on-failure --no-tests=error -R '^Proxy|^proxy_session_test$' --output-junit (Join-Path $evidence 'proxy-ctest.xml') | Tee-Object -FilePath (Join-Path $evidence 'proxy-ctest.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Native proxy tests failed' }
           [xml]$report = Get-Content -LiteralPath (Join-Path $evidence 'proxy-ctest.xml') -Raw
-          if ($report.SelectNodes('//testcase').Count -ne 69 -or $report.SelectNodes('//failure|//error|//skipped').Count -ne 0) { throw 'Expected all 68 native proxy tests and the standalone session test without skips' }
+          if ($report.SelectNodes('//testcase').Count -ne 80 -or $report.SelectNodes('//failure|//error|//skipped').Count -ne 0) { throw 'Expected all 79 native proxy tests and the standalone session test without skips' }
           & ./build/windows/x64/plugins/proxy/Release/proxy_session_windows_test.exe | Tee-Object -FilePath (Join-Path $evidence 'proxy-session-windows.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Actual WinINet session restoration failed' }
           $raw = Join-Path $evidence 'proxy-raw-bypass.txt'
@@ -208,22 +216,6 @@ jobs:
           & ./build/windows/x64/plugins/proxy/Release/proxy_winhttp_compatibility_test.exe $raw $normalized | Tee-Object -FilePath (Join-Path $evidence 'proxy-winhttp.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Actual WinHTTP proxy compatibility failed' }
 
-      - name: Build isolated loopback subscription acceptance copy
-        if: success() && hashFiles('.ci/subscription-acceptance/env.json') != ''
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $installer = Get-Item dist/fengwo-windows-x64-coexistence-unsigned.exe
-          $productionHash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash
-          $fixture = Get-Content .ci/subscription-acceptance/env.json -Raw | ConvertFrom-Json
-          if ($fixture.API_HEALTH_CONFIG_URL -cne 'http://127.0.0.1:18879/ConFigOss4.json') { throw 'Acceptance API must be loopback only' }
-          flutter build windows --release --build-name 1.0.11 --dart-define-from-file=.ci/subscription-acceptance/env.json
-          if ($LASTEXITCODE -ne 0) { throw 'Isolated subscription acceptance build failed' }
-          $archive = Join-Path $env:RUNNER_TEMP 'fengwo-subscription-acceptance-x64.zip'
-          Compress-Archive -Path 'build/windows/x64/runner/Release/*' -DestinationPath $archive
-          if ((Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash -cne $productionHash) { throw 'Production installer changed during acceptance preparation' }
-          $record = [ordered]@{ test_only = $true; architecture = 'x64'; version = '1.0.11'; source_sha = $env:GITHUB_SHA; loopback_only = $true; production_installer_unchanged = $true; archive_sha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() }
-          $record | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'desktop-coexistence-evidence/subscription-acceptance.json') -Encoding utf8NoBOM
-
       - name: Remove local build key files
         if: always()
         run: |
@@ -231,15 +223,35 @@ jobs:
             if (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Item -LiteralPath $path -Force }
           }
 
-      - name: Upload only verification evidence and the unsigned test installer
+      - name: Encrypt private diagnostics and unsigned candidate
+        if: always()
+        shell: pwsh
+        env:
+          FENGWO_RAS_20261021_ARTIFACT_KEY: ${{ secrets.FENGWO_RAS_20261021_ARTIFACT_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'private-artifact-staging'
+          [void][IO.Directory]::CreateDirectory($stage)
+          foreach ($entry in @(
+            @{ source = (Join-Path $env:RUNNER_TEMP 'desktop-coexistence-evidence'); name = 'evidence' },
+            @{ source = (Join-Path $env:RUNNER_TEMP 'private-build-logs'); name = 'build-logs' },
+            @{ source = (Join-Path $PWD 'dist/fengwo-windows-x64-coexistence-unsigned.exe'); name = 'fengwo-windows-x64-1.0.11-ras-test-unsigned.exe' },
+            @{ source = (Join-Path $PWD 'build/windows/x64/runner/Release'); name = 'portable-client' },
+            @{ source = (Join-Path $PWD 'build/windows/x64/plugins/proxy/Release/proxy_session_windows_test.exe'); name = 'proxy_session_windows_test.exe' }
+          )) {
+            if (Test-Path -LiteralPath $entry.source) { Copy-Item -LiteralPath $entry.source -Destination (Join-Path $stage $entry.name) -Recurse }
+          }
+          $archive = Join-Path $env:RUNNER_TEMP 'private-ras-candidate.zip'
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $archive
+          $encrypted = Join-Path $env:RUNNER_TEMP 'private-ras-candidate.enc'
+          node tooling/windows/private_build/transport.mjs seal $archive $encrypted
+          if ($LASTEXITCODE -ne 0) { throw 'Private artifact encryption failed' }
+
+      - name: Upload encrypted candidate only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fengwo-desktop-x64-coexistence-unsigned-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/desktop-coexistence-evidence
-            dist/fengwo-windows-x64-coexistence-unsigned.exe
-            build/windows/x64/plugins/proxy/Release/proxy_session_windows_test.exe
-            ${{ runner.temp }}/fengwo-subscription-acceptance-x64.zip
+          name: fengwo-private-ras-x64-${{ github.run_id }}
+          path: ${{ runner.temp }}/private-ras-candidate.enc
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
