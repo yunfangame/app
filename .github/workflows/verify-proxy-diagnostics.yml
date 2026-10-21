@@ -1,0 +1,99 @@
+name: fengwo-private-native-ras-candidate
+on:
+  push:
+    branches:
+      - 'codex/windows-ras-native-check-20261021-*'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    env:
+      FENGWO_PROXY_MUTATING_TEST: '1'
+    defaults:
+      run:
+        shell: pwsh -NoLogo -NoProfile -File tooling/windows/private_build/run-step.ps1 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Apply the verified private six-file overlay
+        env:
+          FENGWO_RAS_20261021_OVERLAY: ${{ secrets.FENGWO_RAS_20261021_OVERLAY }}
+        run: |
+          node tooling/windows/private_build/transport.mjs apply $PWD
+          if ($LASTEXITCODE -ne 0) { throw 'Overlay validation failed' }
+      - name: Setup pinned Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.44.4'
+          cache: true
+      - name: Compile the native proxy module without rebuilding Core
+        timeout-minutes: 12
+        run: |
+          $repo = $PWD.Path
+          $probe = Join-Path $env:RUNNER_TEMP 'fengwo-proxy-probe'
+          flutter create --platforms windows --project-name fw_proxy_probe --org com.fengwo.probe --no-pub $probe
+          if ($LASTEXITCODE -ne 0) { throw 'Native compilation host creation failed' }
+          $production = Get-Content -LiteralPath (Join-Path $repo 'windows/CMakeLists.txt') -Raw
+          $generated = Get-Content -LiteralPath (Join-Path $probe 'windows/CMakeLists.txt') -Raw
+          $pattern = '(?s)function\(APPLY_STANDARD_SETTINGS TARGET\).*?endfunction\(\)'
+          $originalSettings = ([regex]::Match($production,$pattern).Value -replace '\s+','').ToLowerInvariant()
+          $probeSettings = ([regex]::Match($generated,$pattern).Value -replace '\s+','').ToLowerInvariant()
+          if (-not $originalSettings -or $originalSettings -cne $probeSettings) { throw 'Native compile settings differ from production' }
+          Push-Location $probe
+          try {
+            flutter pub add proxy --path (Join-Path $repo 'plugins/proxy')
+            if ($LASTEXITCODE -ne 0) { throw 'Native plugin dependency setup failed' }
+            flutter build windows --release
+            if ($LASTEXITCODE -ne 0) { throw 'Native module compilation failed' }
+          } finally { Pop-Location }
+          $output = Join-Path $env:RUNNER_TEMP 'native-candidate'
+          [void][IO.Directory]::CreateDirectory($output)
+          Copy-Item -LiteralPath (Join-Path $probe 'build/windows/x64/runner/Release/proxy_plugin.dll') -Destination $output
+          $identity = [ordered]@{ test_only = $true; version = '1.0.11'; architecture = 'x64'; flutter = '3.44.4'; production_compile_settings_matched = $true; dll_sha256 = (Get-FileHash -LiteralPath (Join-Path $output 'proxy_plugin.dll') -Algorithm SHA256).Hash.ToLowerInvariant(); run = $env:GITHUB_RUN_ID }
+          $identity | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'module.json') -Encoding utf8NoBOM
+      - name: Verify all native proxy regression suites
+        timeout-minutes: 8
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'fengwo-proxy-probe'
+          $build = Join-Path $probe 'build/windows/x64'
+          $evidence = Join-Path $env:RUNNER_TEMP 'desktop-coexistence-evidence'
+          cmake -S (Join-Path $probe 'windows') -B $build -Dinclude_proxy_tests=ON '-DCMAKE_POLICY_VERSION_MINIMUM=3.5'
+          if ($LASTEXITCODE -ne 0) { throw 'Native test configuration failed' }
+          cmake --build $build --config Release --target proxy_test proxy_session_test proxy_session_windows_test
+          if ($LASTEXITCODE -ne 0) { throw 'Native test compilation failed' }
+          ctest --test-dir (Join-Path $build 'plugins/proxy') -C Release --output-on-failure --no-tests=error -R '^Proxy|^proxy_session_test$' --output-junit (Join-Path $evidence 'proxy-ctest.xml')
+          if ($LASTEXITCODE -ne 0) { throw 'Native regression suites failed' }
+          [xml]$report = Get-Content -LiteralPath (Join-Path $evidence 'proxy-ctest.xml') -Raw
+          if ($report.SelectNodes('//testcase').Count -ne 80 -or $report.SelectNodes('//failure|//error|//skipped').Count -ne 0) { throw 'Expected 80 native cases without skips' }
+          & (Join-Path $build 'plugins/proxy/Release/proxy_session_windows_test.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Actual WinINet restoration failed' }
+          Copy-Item -LiteralPath (Join-Path $build 'plugins/proxy/Release/proxy_session_windows_test.exe') -Destination (Join-Path $env:RUNNER_TEMP 'native-candidate')
+      - name: Encrypt candidate module and diagnostics
+        if: always()
+        shell: pwsh
+        env:
+          FENGWO_RAS_20261021_ARTIFACT_KEY: ${{ secrets.FENGWO_RAS_20261021_ARTIFACT_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'native-private-staging'
+          [void][IO.Directory]::CreateDirectory($stage)
+          foreach ($name in @('native-candidate','private-build-logs','desktop-coexistence-evidence')) {
+            $path = Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $path) { Copy-Item -LiteralPath $path -Destination $stage -Recurse }
+          }
+          $zip = Join-Path $env:RUNNER_TEMP 'private-native-candidate.zip'
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
+          node tooling/windows/private_build/transport.mjs seal $zip (Join-Path $env:RUNNER_TEMP 'private-native-candidate.enc')
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic encryption failed' }
+      - name: Upload encrypted native candidate only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fengwo-private-native-x64-${{ github.run_id }}
+          path: ${{ runner.temp }}/private-native-candidate.enc
+          retention-days: 3
+          if-no-files-found: error
