@@ -2441,8 +2441,17 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionNormalTooltip": MessageLookupByLibrary.simpleMessage(
       "Plan status is normal. Click to view details",
     ),
+    "subscriptionNotPurchased": MessageLookupByLibrary.simpleMessage(
+      "No plan purchased. Purchase a plan to connect",
+    ),
+    "subscriptionPlanExpired": MessageLookupByLibrary.simpleMessage(
+      "Your plan has expired. Renew it to connect",
+    ),
     "subscriptionPlanUnavailable": MessageLookupByLibrary.simpleMessage(
       "The current plan could not be found. Refresh and try again",
+    ),
+    "subscriptionProfileUnavailable": MessageLookupByLibrary.simpleMessage(
+      "Subscription nodes are unavailable. Try again later or contact support",
     ),
     "subscriptionResetContinue": MessageLookupByLibrary.simpleMessage(
       "Continue with reset",

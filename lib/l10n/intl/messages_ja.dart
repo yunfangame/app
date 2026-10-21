@@ -2062,8 +2062,17 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionNormalTooltip": MessageLookupByLibrary.simpleMessage(
       "プランは正常です。クリックして詳細を表示",
     ),
+    "subscriptionNotPurchased": MessageLookupByLibrary.simpleMessage(
+      "プランを購入していません。接続するにはプランを購入してください",
+    ),
+    "subscriptionPlanExpired": MessageLookupByLibrary.simpleMessage(
+      "プランの有効期限が切れています。更新してから接続してください",
+    ),
     "subscriptionPlanUnavailable": MessageLookupByLibrary.simpleMessage(
       "現在のプラン情報が見つかりません。更新してからもう一度お試しください",
+    ),
+    "subscriptionProfileUnavailable": MessageLookupByLibrary.simpleMessage(
+      "購読ノードを利用できません。後で再試行するかサポートにお問い合わせください",
     ),
     "subscriptionResetContinue": MessageLookupByLibrary.simpleMessage(
       "リセットを続ける",

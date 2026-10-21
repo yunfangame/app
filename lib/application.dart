@@ -7,6 +7,7 @@ import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/fengwo_mobile_theme.dart';
 import 'package:fl_clash/common/login_routing_coordinator.dart';
 import 'package:fl_clash/common/startup_connection_coordinator.dart';
+import 'package:fl_clash/common/subscription_access.dart';
 import 'package:fl_clash/core/core.dart';
 import 'package:fl_clash/common/saved_node_selection.dart';
 import 'package:fl_clash/common/xboard_routing_store.dart';
@@ -70,9 +71,9 @@ class ApplicationState extends ConsumerState<Application> {
   XboardLoginResult? _loginRoutingSession;
   int _postLoginSyncRevision = 0;
   final _nodeRefresh = XboardRefreshCoordinator<bool>();
-  final _profileSync = XboardRefreshCoordinator<Profile>();
+  final _profileSync = XboardRefreshCoordinator<Profile?>();
   final _dataRefresh = XboardRefreshCoordinator<bool>();
-  final _postLoginRefresh = XboardRefreshCoordinator<Profile>();
+  final _postLoginRefresh = XboardRefreshCoordinator<Profile?>();
 
   final _startupConnection = StartupConnectionCoordinator();
   StartupConnectionAttempt? _startupConnectionAttempt;
@@ -201,7 +202,10 @@ class ApplicationState extends ConsumerState<Application> {
     );
     final routingAttempt = _loginRoutingAttempt!;
     _startupConnectionAttempt = _startupConnection.begin(
-      enabled: autoConnect && ref.read(appSettingProvider).autoRun,
+      enabled:
+          autoConnect &&
+          ref.read(appSettingProvider).autoRun &&
+          !evaluateSubscriptionAccess(session.subscription).blocksProfileSync,
       isCurrent: () => _loginRouting.isCurrent(routingAttempt),
     );
     _startupAuthenticated = false;
@@ -226,6 +230,9 @@ class ApplicationState extends ConsumerState<Application> {
     Profile? expectedProfile,
     bool applyProfile = false,
   }) async {
+    if (evaluateSubscriptionAccess(session.subscription).blocksProfileSync) {
+      return;
+    }
     final attempt = _loginRoutingAttempt;
     if (attempt == null || !identical(session, _loginRoutingSession)) return;
     final sessionRevision = globalState.xboardSessionRevision;
@@ -801,12 +808,12 @@ class ApplicationState extends ConsumerState<Application> {
     XboardLoginResult session,
     int revision,
   ) async {
+    final sessionRevision = globalState.xboardSessionRevision;
+    bool isCurrent() =>
+        mounted &&
+        !_logoutInProgress &&
+        globalState.isActiveXboardSession(session, sessionRevision);
     try {
-      final sessionRevision = globalState.xboardSessionRevision;
-      bool isCurrent() =>
-          mounted &&
-          !_logoutInProgress &&
-          globalState.isActiveXboardSession(session, sessionRevision);
       if (!isCurrent()) return;
       await _postLoginRefresh.run(
         isCurrent: isCurrent,
@@ -817,8 +824,11 @@ class ApplicationState extends ConsumerState<Application> {
             session,
             ignoreOfflineMode: true,
           ).then<void>((_) {}),
-          prepareRouting: (profile) =>
-              _selectDefaultLoginNode(session, expectedProfile: profile),
+          prepareRouting: (profile) async {
+            if (profile != null) {
+              await _selectDefaultLoginNode(session, expectedProfile: profile);
+            }
+          },
         ),
       );
       if (isCurrent()) globalState.requestXboardAnnouncementAutoPrompt();
@@ -836,6 +846,9 @@ class ApplicationState extends ConsumerState<Application> {
         'post-login subscription sync failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
+      if (error is XboardAuthException && isCurrent()) {
+        _showStartupMessage(error.message, isCurrent: isCurrent);
+      }
     } finally {
       await _finishRoutingAttempt(session);
       if (mounted && revision == _postLoginSyncRevision) {
@@ -848,18 +861,30 @@ class ApplicationState extends ConsumerState<Application> {
     }
   }
 
-  Future<Profile> _syncSubscriptionProfile(XboardLoginResult session) {
+  Future<Profile?> _syncSubscriptionProfile(XboardLoginResult session) {
     final revision = globalState.xboardSessionRevision;
     bool isCurrent() =>
         mounted &&
         !_logoutInProgress &&
         globalState.isActiveXboardSession(session, revision);
     if (!isCurrent()) {
-      return Future<Profile>.error(StateError('profile_sync_superseded'));
+      return Future<Profile?>.value();
     }
     return _profileSync.run(
       isCurrent: isCurrent,
-      refresh: (_) => _performSubscriptionProfileSync(session, isCurrent),
+      refresh: (_) => syncAccessibleSubscriptionProfile<Profile>(
+        subscription: session.subscription,
+        isCurrent: isCurrent,
+        sync: () => _performSubscriptionProfileSync(session, isCurrent),
+        onBlocked: (access) => _showStartupMessage(
+          access.message(currentAppLocalizations)!,
+          isCurrent: isCurrent,
+        ),
+        onDiagnostic: (event, fields) => commonPrint.event(
+          event,
+          fields: {...fields, 'session_revision': revision},
+        ),
+      ),
     );
   }
 
@@ -973,9 +998,7 @@ class ApplicationState extends ConsumerState<Application> {
       );
       return profile;
     } catch (error, stackTrace) {
-      final failureDiagnostic = error is SubscriptionV2Exception
-          ? error.diagnostic
-          : null;
+      final failureDiagnostic = subscriptionProfileDiagnostic(error);
       commonPrint.event(
         'subscription.profile.sync.failed',
         fields: {
@@ -992,8 +1015,12 @@ class ApplicationState extends ConsumerState<Application> {
       );
       throw XboardAuthException(
         failure: XboardAuthFailure.subscriptionUnavailable,
-        message: currentAppLocalizations.subscriptionImportFailed,
+        message: subscriptionProfileFailureMessage(
+          error,
+          currentAppLocalizations,
+        ),
         endpoint: session.endpoint,
+        diagnostic: failureDiagnostic,
       );
     }
   }
@@ -1264,8 +1291,11 @@ class ApplicationState extends ConsumerState<Application> {
           session,
           ignoreOfflineMode: true,
         ).then<void>((_) {}),
-        prepareRouting: (profile) =>
-            _selectDefaultLoginNode(session, expectedProfile: profile),
+        prepareRouting: (profile) async {
+          if (profile != null) {
+            await _selectDefaultLoginNode(session, expectedProfile: profile);
+          }
+        },
       );
       if (!isCurrent()) return false;
       await _xboardSessionStorage.setOfflineMode(false);
@@ -1406,8 +1436,14 @@ class ApplicationState extends ConsumerState<Application> {
           isCurrent: attempt.isCurrent,
           syncProfile: () => _syncSubscriptionProfile(updatedSession),
           refreshMetadata: () async => startMetadata(),
-          prepareRouting: (profile) =>
-              _selectDefaultLoginNode(updatedSession, expectedProfile: profile),
+          prepareRouting: (profile) async {
+            if (profile != null) {
+              await _selectDefaultLoginNode(
+                updatedSession,
+                expectedProfile: profile,
+              );
+            }
+          },
         );
         if (!attempt.isCurrent()) return false;
         final nodes = globalState.xboardNodes;

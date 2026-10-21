@@ -1778,8 +1778,17 @@ class MessageLookup extends MessageLookupByLibrary {
     "subscriptionNormalTooltip": MessageLookupByLibrary.simpleMessage(
       "套餐状态正常，点击查看详情",
     ),
+    "subscriptionNotPurchased": MessageLookupByLibrary.simpleMessage(
+      "尚未购买套餐，请先购买套餐",
+    ),
+    "subscriptionPlanExpired": MessageLookupByLibrary.simpleMessage(
+      "套餐已过期，请续费后连接",
+    ),
     "subscriptionPlanUnavailable": MessageLookupByLibrary.simpleMessage(
       "未找到当前套餐信息，请刷新后重试",
+    ),
+    "subscriptionProfileUnavailable": MessageLookupByLibrary.simpleMessage(
+      "订阅节点暂不可用，请稍后重试或联系客服",
     ),
     "subscriptionResetContinue": MessageLookupByLibrary.simpleMessage("继续重置"),
     "subscriptionResetCountdown": m65,
