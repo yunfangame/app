@@ -15,6 +15,50 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   for (final mobile in [false, true]) {
+    for (final expired in [false, true]) {
+      testWidgets(
+        'no active plan still opens home, expired=$expired mobile=$mobile',
+        (tester) async {
+          _size(tester, mobile);
+          final persistence = _persistence(_SecretBoundary());
+          await persistence.load();
+          final session = XboardLoginResult(
+            endpoint: Uri.parse('https://api.example.com'),
+            token: 'billing-token',
+            authData: 'Bearer billing-token',
+            isAdmin: false,
+            subscription: XboardSubscriptionData(
+              endpoint: Uri.parse('https://api.example.com'),
+              subscribeUrl: null,
+              uploadBytes: 0,
+              downloadBytes: 0,
+              transferEnableBytes: expired ? 100 : 0,
+              planId: expired ? 1 : null,
+              expiredAtEpochSeconds: expired ? 1 : null,
+              rawData: {
+                'plan_id': expired ? 1 : null,
+                'expired_at': expired ? 1 : null,
+                'transfer_enable': expired ? 100 : 0,
+              },
+            ),
+          );
+          try {
+            await tester.pumpWidget(
+              _app(_LoginFlow(persistence: persistence, session: session)),
+            );
+            await tester.pumpAndSettle();
+            await _enterCredentials(tester);
+            await _tap(tester, find.byKey(const Key('login-submit-button')));
+            expect(find.byKey(const Key('flow-home')), findsOneWidget);
+            expect(find.byKey(const Key('login-submit-button')), findsNothing);
+            expect(tester.takeException(), isNull);
+          } finally {
+            await tester.pumpWidget(const SizedBox());
+          }
+        },
+      );
+    }
+
     testWidgets(
       'login logout and reconstructed login retain account, mobile=$mobile',
       (tester) async {
@@ -200,9 +244,10 @@ Future<bool> _save(XboardLoginPersistence persistence) =>
     );
 
 class _LoginFlow extends StatefulWidget {
-  const _LoginFlow({super.key, required this.persistence});
+  const _LoginFlow({super.key, required this.persistence, this.session});
 
   final XboardLoginPersistence persistence;
+  final XboardLoginResult? session;
 
   @override
   State<_LoginFlow> createState() => _LoginFlowState();
@@ -241,7 +286,7 @@ class _LoginFlowState extends State<_LoginFlow> {
       ),
       initialRememberMe: stored.rememberMe,
       initialAutoLogin: stored.autoLogin,
-      authenticate: (_, _) async => _session(),
+      authenticate: (_, _) async => widget.session ?? _session(),
       onAuthenticated: (session, email, password, remember, automatic) async {
         lastPersisted = await widget.persistence.saveAuthenticated(
           session: session,
