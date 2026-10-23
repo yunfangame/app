@@ -91,6 +91,9 @@ struct ConnectionBackend {
   std::function<bool(SessionOperationDetails&)> notify;
   std::function<bool(ConnectionDiscovery&, uint32_t&)> discover = {};
   std::function<bool(const std::wstring&, ConnectionConfiguration&, uint32_t&)> capture = {};
+  std::function<bool(const std::wstring&, const ConnectionConfiguration&,
+                     uint32_t&, bool&)> writeFallback = {};
+  std::function<bool(const std::wstring&, const ConnectionConfiguration&, uint32_t&)> canRestoreFallback = {};
 };
 
 class ProxySession {
@@ -133,6 +136,7 @@ class ProxySession {
       current.push_back({name, value});
     }
     bool wrote = false;
+    std::vector<std::wstring> retry_candidates;
     for (const auto& item : current) {
       const auto& name = item.first;
       const auto& before = item.second;
@@ -158,7 +162,10 @@ class ProxySession {
         found = entries_.emplace(name, Entry{before, std::nullopt, std::nullopt}).first;
       }
       auto& entry = found->second;
-      if (!IsOwned(entry, before)) entry.original = before;
+      if (!IsOwned(entry, before)) {
+        entry.original = before;
+        entry.preferFallback = false;
+      }
       entry.restoring = false;
       entry.transition = Transition{before, desired};
       notification_pending_ = true;
@@ -179,30 +186,19 @@ class ProxySession {
       Trace(details, name, "readback", read && AppliedConfigurationMatches(readback, desired),
             !read ? read_error : AppliedConfigurationMatches(readback, desired) ? 0 : 13,
             read ? &readback : nullptr, &desired);
-      if (!written || !read || !AppliedConfigurationMatches(readback, desired)) {
-        RecordFailure(details, !written ? (name.empty() ? "apply_default" : "apply_ras")
-                      : !read ? "readback" : "readback_mismatch",
-                      !written ? write_error : !read ? read_error : 13, name);
+      if (!written) {
+        RecordFailure(details, name.empty() ? "apply_default" : "apply_ras", write_error, name);
         if (name.empty()) break;
-      } else {
+      } else if (read && AppliedConfigurationMatches(readback, desired)) {
         entry.applied = readback;
         entry.transition.reset();
+      } else if (!name.empty() && read &&
+                 (readback == before || IsMutation(readback, before, desired))) {
+        retry_candidates.push_back(name);
       }
     }
-    if (notification_pending_) {
-      SessionOperationDetails notification;
-      notification.operation = "start";
-      if (backend.notify(notification)) {
-        notification_pending_ = false;
-        Trace(details, L"", "notify", true, 0);
-      } else {
-        Trace(details, L"", notification.stage, false, notification.errorCode);
-        if (details.stage.empty()) {
-          details.stage = notification.stage;
-          details.errorCode = notification.errorCode;
-        }
-      }
-    }
+    NotifyPending(details, backend, "notify");
+    bool retried = false;
     for (const auto& item : current) {
       ConnectionConfiguration readback;
       uint32_t error = 0;
@@ -213,28 +209,67 @@ class ProxySession {
         if (item.first.empty()) SetReadback(details, readback);
         const bool matched = AppliedConfigurationMatches(readback, desired);
         Trace(details, item.first, "verify", matched, matched ? 0 : 13, &readback, &desired);
-        if (!matched) {
+        if (matched) {
+          RememberApplied(item.first, readback);
+        } else {
+          auto entry = entries_.find(item.first);
+          const bool can_retry = details.stage.empty() && backend.discover && backend.writeFallback &&
+              !item.first.empty() && entry != entries_.end() &&
+              std::find(retry_candidates.begin(), retry_candidates.end(), item.first) != retry_candidates.end() &&
+              (readback == item.second || IsOwned(entry->second, readback));
+          if (can_retry && backend.canRestoreFallback) {
+            uint32_t restore_error = 0;
+            const bool restorable = backend.canRestoreFallback(
+                item.first, Restoration(entry->second, readback), restore_error);
+            Trace(details, item.first, "ras_retry_restore_preflight", restorable, restore_error);
+            if (!restorable) {
+              RecordFailure(details, "apply_ras", restore_error, item.first);
+              continue;
+            }
+          }
+          if (can_retry && VerifyActiveSet(details, backend, names, "ras_retry_activity")) {
+            ConnectionConfiguration confirmed;
+            uint32_t capture_error = 0;
+            const bool captured = backend.read(item.first, confirmed, capture_error);
+            const bool unchanged = captured && confirmed == readback;
+            Trace(details, item.first, "ras_retry_capture", unchanged,
+                  !captured ? capture_error : unchanged ? 0 : 13,
+                  captured ? &confirmed : nullptr, &readback);
+            if (!unchanged) {
+              RecordFailure(details, captured ? "readback_mismatch" : "readback",
+                            captured ? 13 : capture_error, item.first);
+              continue;
+            }
+            entry->second.transition = Transition{readback, desired};
+            entry->second.preferFallback = true;
+            notification_pending_ = true;
+            retried = true;
+            details.fallbackUsed = true;
+            uint32_t write_error = 0;
+            const bool written = backend.writeFallback(item.first, desired, write_error, details.fallbackUsed);
+            Trace(details, item.first, "ras_retry_write", written, write_error, nullptr, &desired);
+            if (!written) RecordFailure(details, "apply_ras", write_error, item.first);
+            continue;
+          }
           RecordFailure(details, "readback_mismatch", 13, item.first);
         }
       }
     }
-    if (backend.discover) {
-      ConnectionDiscovery latest;
-      uint32_t error = 0;
-      if (!backend.discover(latest, error)) {
-        Trace(details, L"RAS_ENUM", "verify_activity", false, error);
-        RecordFailure(details, "capture_ras", error, L"RAS_ENUM");
-      } else {
-        auto active = latest.active;
-        auto captured = names;
-        captured.erase(std::remove(captured.begin(), captured.end(), L""), captured.end());
-        std::sort(active.begin(), active.end());
-        std::sort(captured.begin(), captured.end());
-        const bool unchanged = active == captured;
-        Trace(details, L"RAS_ENUM", "verify_activity", unchanged, unchanged ? 0 : 1237);
-        if (!unchanged) RecordFailure(details, "capture_ras", 1237, L"RAS_ENUM");
+    if (retried) {
+      NotifyPending(details, backend, "ras_retry_notify");
+      for (const auto& item : current) {
+        ConnectionConfiguration readback;
+        uint32_t error = 0;
+        const bool read = backend.read(item.first, readback, error);
+        const bool matched = read && AppliedConfigurationMatches(readback, desired);
+        Trace(details, item.first, "verify_after_ras_retry", matched,
+              !read ? error : matched ? 0 : 13, read ? &readback : nullptr, &desired);
+        if (read && item.first.empty()) SetReadback(details, readback);
+        if (matched) RememberApplied(item.first, readback);
+        else RecordFailure(details, read ? "readback_mismatch" : "readback", read ? 13 : error, item.first);
       }
     }
+    if (backend.discover) VerifyActiveSet(details, backend, names, "verify_activity");
     if (details.stage.empty()) {
       details.success = true;
       details.writeSkipped = !wrote;
@@ -298,6 +333,7 @@ class ProxySession {
       }
     }
     bool wrote = false;
+    std::map<std::wstring, ConnectionConfiguration> pending_restores;
     for (auto it = entries_.begin(); it != entries_.end();) {
       const auto name = it->first;
       auto& entry = it->second;
@@ -343,7 +379,9 @@ class ProxySession {
       entry.restoring = true;
       entry.transition = Transition{current, restored};
       uint32_t write_error = 0;
-      const bool written = backend.write(name, restored, write_error, details.fallbackUsed);
+      const auto& writer = entry.preferFallback && backend.writeFallback
+          ? backend.writeFallback : backend.write;
+      const bool written = writer(name, restored, write_error, details.fallbackUsed);
       Trace(details, name, "restore_write", written, write_error, nullptr, &restored);
       ConnectionConfiguration readback;
       uint32_t read_error = 0;
@@ -357,28 +395,27 @@ class ProxySession {
       const bool matched = read && AppliedConfigurationMatches(readback, restored);
       Trace(details, name, "restore_verify", matched, !read ? read_error : matched ? 0 : 13,
             read ? &readback : nullptr, &restored);
-      if (!written || !matched) {
-        RecordFailure(details, !written ? (name.empty() ? "restore_default" : "restore_ras")
-                      : !read ? "readback" : "readback_mismatch",
-                      !written ? write_error : !read ? read_error : 13, name);
-        ++it;
+      if (!written) {
+        RecordFailure(details, name.empty() ? "restore_default" : "restore_ras", write_error, name);
       } else {
-        details.restoredCount++;
-        it = entries_.erase(it);
+        pending_restores.emplace(name, restored);
       }
+      ++it;
     }
-    if (notification_pending_) {
-      SessionOperationDetails notification;
-      notification.operation = "stop";
-      if (backend.notify(notification)) {
-        notification_pending_ = false;
-        Trace(details, L"", "restore_notify", true, 0);
+    NotifyPending(details, backend, "restore_notify");
+    for (const auto& item : pending_restores) {
+      ConnectionConfiguration readback;
+      uint32_t error = 0;
+      const bool read = backend.read(item.first, readback, error);
+      const bool matched = read && AppliedConfigurationMatches(readback, item.second);
+      Trace(details, item.first, "restore_verify_after_notify", matched,
+            !read ? error : matched ? 0 : 13, read ? &readback : nullptr, &item.second);
+      if (read && item.first.empty()) SetReadback(details, readback);
+      if (matched) {
+        details.restoredCount++;
+        entries_.erase(item.first);
       } else {
-        Trace(details, L"", notification.stage, false, notification.errorCode);
-        if (details.stage.empty()) {
-          details.stage = notification.stage;
-          details.errorCode = notification.errorCode;
-        }
+        RecordFailure(details, read ? "readback_mismatch" : "readback", read ? 13 : error, item.first);
       }
     }
     if (details.stage.empty()) {
@@ -393,6 +430,50 @@ class ProxySession {
   bool HasPendingCleanup() const { return !entries_.empty() || notification_pending_; }
 
  private:
+  void RememberApplied(const std::wstring& name, const ConnectionConfiguration& readback) {
+    const auto entry = entries_.find(name);
+    if (entry == entries_.end()) return;
+    entry->second.applied = readback;
+    entry->second.transition.reset();
+  }
+
+  void NotifyPending(SessionOperationDetails& details, const ConnectionBackend& backend,
+                     const std::string& phase) {
+    if (!notification_pending_) return;
+    SessionOperationDetails notification;
+    notification.operation = details.operation;
+    if (backend.notify(notification)) {
+      notification_pending_ = false;
+      Trace(details, L"", phase, true, 0);
+    } else {
+      Trace(details, L"", notification.stage, false, notification.errorCode);
+      if (details.stage.empty()) {
+        details.stage = notification.stage;
+        details.errorCode = notification.errorCode;
+      }
+    }
+  }
+
+  static bool VerifyActiveSet(SessionOperationDetails& details, const ConnectionBackend& backend,
+                              const std::vector<std::wstring>& names, const std::string& phase) {
+    ConnectionDiscovery latest;
+    uint32_t error = 0;
+    if (!backend.discover(latest, error)) {
+      Trace(details, L"RAS_ENUM", phase, false, error);
+      RecordFailure(details, "capture_ras", error, L"RAS_ENUM");
+      return false;
+    }
+    auto active = latest.active;
+    auto captured = names;
+    captured.erase(std::remove(captured.begin(), captured.end(), L""), captured.end());
+    std::sort(active.begin(), active.end());
+    std::sort(captured.begin(), captured.end());
+    const bool unchanged = active == captured;
+    Trace(details, L"RAS_ENUM", phase, unchanged, unchanged ? 0 : 1237);
+    if (!unchanged) RecordFailure(details, "capture_ras", 1237, L"RAS_ENUM");
+    return unchanged;
+  }
+
   static bool Discover(SessionOperationDetails& details, const ConnectionBackend& backend,
                        std::vector<std::wstring>& names) {
     if (!backend.discover) return backend.enumerate(names, details.errorCode);
@@ -457,6 +538,7 @@ class ProxySession {
     std::optional<ConnectionConfiguration> applied;
     std::optional<Transition> transition;
     bool restoring = false;
+    bool preferFallback = false;
   };
 
   static bool IsMutation(const ConnectionConfiguration& value,

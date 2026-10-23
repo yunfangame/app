@@ -79,4 +79,56 @@ void main() {
       }
     },
   );
+
+  test(
+    'successful RAS recovery retains the complete failed-to-verified trace',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'ras-recovery-log-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final log = DiagnosticLog(directoryLoader: () async => directory);
+      final phases = [
+        'write',
+        'readback',
+        'notify',
+        'verify',
+        'ras_retry_activity',
+        'ras_retry_write',
+        'ras_retry_notify',
+        'verify_after_ras_retry',
+      ];
+      final result = ProxyOperationResult.fromChannel({
+        'success': true,
+        'stage': 'verified_ansi_fallback',
+        'fallbackUsed': true,
+        'connectionTrace': phases.map((phase) {
+          final mismatch = phase == 'readback' || phase == 'verify';
+          return {
+            'connectionName': 'VPN private.example.com',
+            'phase': phase,
+            'success': !mismatch,
+            'errorCode': mismatch ? 13 : 0,
+            'differences': mismatch ? ['proxy_bypass'] : <String>[],
+          };
+        }).toList(),
+      }, operation: 'start');
+      await log.record(
+        'system_proxy.apply.completed',
+        fields: result.toDiagnosticFields(),
+      );
+      final exported = await log.readAll();
+      final fields = (jsonDecode(exported.trim()) as Map)['fields'] as Map;
+      expect(fields['success'], isTrue);
+      expect(fields['fallback_used'], isTrue);
+      expect(fields['diagnostic_code'], 'W-PROXY-OK');
+      final trace = fields['connection_trace'] as List;
+      expect(trace.map((row) => (row as Map)['phase']), phases);
+      expect(
+        trace.where((row) => (row as Map)['success'] == false),
+        hasLength(2),
+      );
+      expect(exported, isNot(contains('private.example.com')));
+    },
+  );
 }

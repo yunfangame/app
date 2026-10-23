@@ -47,20 +47,10 @@ inline bool ToAnsi(const wchar_t* value, std::string& output) {
   return true;
 }
 
-inline bool SetConnectionOptions(
-    INTERNET_PER_CONN_OPTION_LISTW& list, wchar_t* connection,
+inline bool SetConnectionOptionsAnsi(
+    const INTERNET_PER_CONN_OPTION_LISTW& list, const wchar_t* connection,
     DWORD& error, bool& fallback,
-    decltype(&InternetSetOptionW) setWide = InternetSetOptionW,
     decltype(&InternetSetOptionA) setAnsi = InternetSetOptionA) {
-  list.pszConnection = connection;
-  list.dwOptionError = 0;
-  if (setWide(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION,
-              &list, sizeof(list))) {
-    error = ERROR_SUCCESS;
-    return true;
-  }
-  error = GetLastError();
-  if (error != ERROR_INVALID_PARAMETER) return false;
   fallback = true;
   std::string connectionAnsi;
   if (!ToAnsi(connection, connectionAnsi)) {
@@ -98,6 +88,23 @@ inline bool SetConnectionOptions(
   }
   error = ERROR_SUCCESS;
   return true;
+}
+
+inline bool SetConnectionOptions(
+    INTERNET_PER_CONN_OPTION_LISTW& list, wchar_t* connection,
+    DWORD& error, bool& fallback,
+    decltype(&InternetSetOptionW) setWide = InternetSetOptionW,
+    decltype(&InternetSetOptionA) setAnsi = InternetSetOptionA) {
+  list.pszConnection = connection;
+  list.dwOptionError = 0;
+  if (setWide(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION,
+              &list, sizeof(list))) {
+    error = ERROR_SUCCESS;
+    return true;
+  }
+  error = GetLastError();
+  if (error != ERROR_INVALID_PARAMETER) return false;
+  return SetConnectionOptionsAnsi(list, connection, error, fallback, setAnsi);
 }
 
 inline bool QueryConnection(
@@ -204,7 +211,8 @@ inline bool WriteConnection(
     const std::wstring& connection, const ConnectionConfiguration& configuration,
     DWORD& error, bool& fallback,
     decltype(&InternetSetOptionW) setWide = InternetSetOptionW,
-    decltype(&InternetSetOptionA) setAnsi = InternetSetOptionA) {
+    decltype(&InternetSetOptionA) setAnsi = InternetSetOptionA,
+    bool ansiOnly = false) {
   INTERNET_PER_CONN_OPTIONW options[4] = {};
   options[0].dwOption = INTERNET_PER_CONN_FLAGS;
   options[0].Value.dwValue = configuration.flags;
@@ -218,8 +226,9 @@ inline bool WriteConnection(
   list.dwSize = sizeof(list);
   list.dwOptionCount = 4;
   list.pOptions = options;
-  return SetConnectionOptions(list, connection.empty() ? nullptr
-      : const_cast<wchar_t*>(connection.c_str()), error, fallback, setWide, setAnsi);
+  auto* name = connection.empty() ? nullptr : const_cast<wchar_t*>(connection.c_str());
+  return ansiOnly ? SetConnectionOptionsAnsi(list, name, error, fallback, setAnsi)
+                  : SetConnectionOptions(list, name, error, fallback, setWide, setAnsi);
 }
 
 inline bool QueryProxy(

@@ -105,6 +105,12 @@ int legacy_wide_reads = 0;
 int denied_wide_reads = 0;
 int invalid_wide_reads = 0;
 int invalid_ansi_reads = 0;
+int unexpected_wide_writes = 0;
+
+BOOL WINAPI UnexpectedWideWrite(HINTERNET, DWORD, LPVOID, DWORD) {
+  unexpected_wide_writes++;
+  return TRUE;
+}
 
 BOOL WINAPI RejectWideQuery(HINTERNET, DWORD, LPVOID, LPDWORD) {
   SetLastError(ERROR_INVALID_PARAMETER);
@@ -218,6 +224,11 @@ void TypedFallback() {
   Require(proxy::settings::WriteConnection(L"VPN-A", configuration, error, fallback,
           RejectWideWrite, VerifyAnsiWrite) && fallback && error == ERROR_SUCCESS &&
           ansi_writes == 1, "Complete writer fallback failed");
+  fallback = false;
+  Require(proxy::settings::WriteConnection(L"VPN-A", configuration, error, fallback,
+          UnexpectedWideWrite, VerifyAnsiWrite, true) && fallback && error == ERROR_SUCCESS &&
+          ansi_writes == 2 && unexpected_wide_writes == 0,
+          "Explicit RAS compatibility writer must use complete ANSI options without retrying Unicode");
   const int ansi_before = ansi_reads;
   Require(proxy::settings::QueryConnection(L"VPN-A", configuration, error,
           FillLegacyWideQuery, FillAnsiQuery) && configuration == FixtureConfiguration() &&

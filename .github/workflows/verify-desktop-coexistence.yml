@@ -199,7 +199,7 @@ jobs:
           ctest --test-dir build/windows/x64/plugins/proxy -C Release --output-on-failure --no-tests=error -R '^Proxy|^proxy_session_test$' --output-junit (Join-Path $evidence 'proxy-ctest.xml') | Tee-Object -FilePath (Join-Path $evidence 'proxy-ctest.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Native proxy tests failed' }
           [xml]$report = Get-Content -LiteralPath (Join-Path $evidence 'proxy-ctest.xml') -Raw
-          if ($report.SelectNodes('//testcase').Count -ne 69 -or $report.SelectNodes('//failure|//error|//skipped').Count -ne 0) { throw 'Expected all 68 native proxy tests and the standalone session test without skips' }
+          if ($report.SelectNodes('//testcase').Count -ne 80 -or $report.SelectNodes('//failure|//error|//skipped').Count -ne 0) { throw 'Expected all 79 native proxy tests and the standalone session test without skips' }
           & ./build/windows/x64/plugins/proxy/Release/proxy_session_windows_test.exe | Tee-Object -FilePath (Join-Path $evidence 'proxy-session-windows.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Actual WinINet session restoration failed' }
           $raw = Join-Path $evidence 'proxy-raw-bypass.txt'
