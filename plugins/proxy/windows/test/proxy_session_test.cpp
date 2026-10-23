@@ -450,7 +450,9 @@ void TopologyChangesRequireRetry() {
   auto backend = f.Backend();
   int discoveries = 0;
   backend.discover = [&](proxy::settings::ConnectionDiscovery& result, uint32_t& error) {
-    if (++discoveries > 1) result.active = {L"new-broadband"};error = 0;return true;
+    if (++discoveries > 1) result.active = {L"new-broadband"};
+    error = 0;
+    return true;
   };
   ProxySession session;
   const auto result = session.Start(Manual(), backend);
@@ -565,6 +567,334 @@ void MismatchedRegistryDoesNotAcquireForeignSettings() {
           "registry mismatch never grants ownership of another application's proxy");
 }
 
+void CustomerRasWriteAcknowledgedButNotApplied() {
+  const std::wstring name = L"\u5bbd\u5e26\u8fde\u63a5";
+  const auto desired = Manual(17980);
+  for (const auto& ras_before : std::vector<ConnectionConfiguration>{
+           {1, L"127.0.0.1:7890", L"old-exclusion", L""},
+           {3, desired.server, L"old-exclusion", L""},
+           {1, desired.server, L"old-exclusion", L""}}) {
+    Fixture f;
+    f.values[L""] = {1, L"127.0.0.1:7890", L"old-default-exclusion", L""};
+    f.values[name] = ras_before;
+    const auto original = f.values;
+    auto backend = f.Backend();
+    backend.discover = [&](proxy::settings::ConnectionDiscovery& discovery, uint32_t& error) {
+      discovery.active = {name};
+      error = 0;
+      return true;
+    };
+    backend.capture = backend.read;
+    const auto write = backend.write;
+    backend.write = [&, write](const std::wstring& connection,
+                               const ConnectionConfiguration& value,
+                               uint32_t& error, bool& fallback) {
+      if (connection.empty()) return write(connection, value, error, fallback);
+      f.writes++;
+      error = 0;
+      return true;
+    };
+    ProxySession session;
+    const auto result = session.Start(desired, backend);
+    Require(!result.success && result.stage == "readback_mismatch" &&
+            result.errorCode == 13 && result.connectionName == name &&
+            result.activeRasCount == 1 && f.notifications == 1,
+            "acknowledged but unapplied active RAS settings fail final verification after refresh");
+    bool default_verified = false;
+    bool ras_write_acknowledged = false;
+    bool ras_final_mismatch = false;
+    for (const auto& trace : result.connectionTrace) {
+      if (trace.name.empty() && trace.phase == "verify") default_verified = trace.success;
+      if (trace.name == name && trace.phase == "write") ras_write_acknowledged = trace.success;
+      if (trace.name == name && trace.phase == "verify") {
+        ras_final_mismatch = !trace.success && trace.errorCode == 13 &&
+            std::find(trace.differences.begin(), trace.differences.end(), "proxy_bypass") != trace.differences.end();
+      }
+    }
+    Require(default_verified && ras_write_acknowledged && ras_final_mismatch,
+            "diagnostic trace distinguishes a successful API call from effective RAS settings");
+    Require(session.Stop(std::nullopt, backend).success && f.values == original &&
+            !session.HasPendingCleanup(),
+            "failed application restores changed default settings without rewriting unchanged RAS settings");
+  }
+}
+
+void VerificationWaitsForNotification() {
+  for (const bool read_error : {false, true}) {
+    Fixture f;
+    auto backend = f.Backend();
+    const auto read = backend.read;
+    backend.read = [&, read](const std::wstring& name, ConnectionConfiguration& value,
+                             uint32_t& error) {
+      if (f.writes > 0 && f.notifications == 0) {
+        if (read_error) { error = 13; return false; }
+        value = Original();
+        error = 0;
+        return true;
+      }
+      return read(name, value, error);
+    };
+    ProxySession session;
+    const auto result = session.Start(Manual(), backend);
+    Require(result.success && f.notifications == 1 && f.writes == 1,
+            "pre-refresh stale or unreadable settings cannot override a successful final verification");
+    Require(std::any_of(result.connectionTrace.begin(), result.connectionTrace.end(), [](const auto& trace) {
+      return trace.phase == "readback" && !trace.success;
+    }), "pre-refresh failure evidence is retained after convergence");
+    Require(session.Stop(std::nullopt, backend).success && f.values[L""] == Original(),
+            "a post-refresh successful apply retains exact restoration ownership");
+  }
+}
+
+void RestorationWaitsForNotification() {
+  for (const bool read_error : {false, true}) {
+    Fixture f;
+    ProxySession session;
+    Require(session.Start(Manual(), f.Backend()).success, "restoration timing fixture starts");
+    auto backend = f.Backend();
+    const auto read = backend.read;
+    backend.read = [&, read](const std::wstring& name, ConnectionConfiguration& value,
+                             uint32_t& error) {
+      if (f.writes > 1 && f.notifications == 1) {
+        if (read_error) { error = 13; return false; }
+        value = Manual();
+        error = 0;
+        return true;
+      }
+      return read(name, value, error);
+    };
+    const auto result = session.Stop(std::nullopt, backend);
+    Require(result.success && f.notifications == 2 && f.writes == 2 &&
+            !session.HasPendingCleanup() && f.values[L""] == Original(),
+            "restore verification occurs after refresh and releases only confirmed cleanup");
+  }
+}
+
+struct RasRecoveryFixture {
+  Fixture f;
+  const std::wstring name = L"\u5bbd\u5e26\u8fde\u63a5";
+  int fallbackWrites = 0;
+  bool fallbackNoOp = false;
+  bool fallbackDenied = false;
+
+  RasRecoveryFixture() {
+    f.ras = {name};
+    f.values[name] = Original();
+  }
+
+  ConnectionBackend Backend() {
+    auto backend = f.Backend();
+    backend.capture = backend.read;
+    backend.discover = [&](proxy::settings::ConnectionDiscovery& discovery, uint32_t& error) {
+      discovery.active = f.ras;
+      error = 0;
+      return true;
+    };
+    const auto write = backend.write;
+    backend.write = [&, write](const std::wstring& connection,
+                               const ConnectionConfiguration& value,
+                               uint32_t& error, bool& fallback) {
+      if (connection.empty()) return write(connection, value, error, fallback);
+      f.writes++;
+      error = 0;
+      return true;
+    };
+    backend.writeFallback = [&, write](const std::wstring& connection,
+                                       const ConnectionConfiguration& value,
+                                       uint32_t& error, bool& fallback) {
+      Require(connection == name, "compatibility writer must not target the default connection");
+      fallbackWrites++;
+      fallback = true;
+      if (fallbackDenied) { error = 5; return false; }
+      if (fallbackNoOp) { error = 0; return true; }
+      return write(connection, value, error, fallback);
+    };
+    return backend;
+  }
+};
+
+void RasRecoveryVerifiesAndRestores() {
+  for (const bool bypass_only : {false, true}) {
+    RasRecoveryFixture fixture;
+    auto& f = fixture.f;
+    if (bypass_only) {
+      f.values[fixture.name] = Manual(17980);
+      f.values[fixture.name].bypass = L"old-exclusion";
+    }
+    const auto original = f.values;
+    auto backend = fixture.Backend();
+    ProxySession session;
+    const auto result = session.Start(Manual(17980), backend);
+    Require(result.success && result.fallbackUsed && fixture.fallbackWrites == 1 &&
+            f.notifications == 2 && f.values[fixture.name] == Manual(17980),
+            "one verified compatibility write repairs unchanged or partially applied active RAS settings");
+    const auto writes = f.writes;
+    Require(session.Start(Manual(17980), backend).success && f.writes == writes &&
+            fixture.fallbackWrites == 1, "a verified RAS recovery is not repeatedly rewritten");
+    Require(session.Stop(std::nullopt, backend).success && f.values == original &&
+            fixture.fallbackWrites == 2 && !session.HasPendingCleanup(),
+            "disconnect uses the successful compatibility writer to restore the original RAS snapshot");
+  }
+}
+
+void RasRecoveryCannotHidePersistentFailure() {
+  for (const bool denied : {false, true}) {
+    RasRecoveryFixture fixture;
+    fixture.fallbackDenied = denied;
+    fixture.fallbackNoOp = !denied;
+    const auto original = fixture.f.values;
+    ProxySession session;
+    const auto result = session.Start(Manual(17980), fixture.Backend());
+    Require(!result.success && fixture.fallbackWrites == 1 &&
+            result.errorCode == (denied ? 5u : 13u),
+            "a denied or ineffective compatibility write cannot become a successful connection");
+    Require(session.Stop(std::nullopt, fixture.Backend()).success && fixture.f.values == original,
+            "failed recovery still restores only changed settings");
+  }
+}
+
+void RasRecoveryYieldsToExternalChanges() {
+  for (const bool topology_change : {false, true}) {
+    RasRecoveryFixture fixture;
+    auto backend = fixture.Backend();
+    const auto notify = backend.notify;
+    auto foreign = Original();
+    foreign.server = L"foreign.example:9999";
+    backend.notify = [&, notify](SessionOperationDetails& details) {
+      if (topology_change) fixture.f.ras.clear();
+      else fixture.f.values[fixture.name] = foreign;
+      return notify(details);
+    };
+    ProxySession session;
+    const auto result = session.Start(Manual(17980), backend);
+    Require(!result.success && fixture.fallbackWrites == 0,
+            "recovery never rewrites a foreign RAS snapshot or a changed active topology");
+    Require(session.Stop(std::nullopt, backend).success &&
+            fixture.f.values[fixture.name] == (topology_change ? Original() : foreign),
+            "cleanup preserves foreign settings and disconnected RAS state");
+  }
+}
+
+void RasRecoveryRequiresKnownActiveAndSuccessfulWrite() {
+  for (const bool write_denied : {false, true}) {
+    RasRecoveryFixture fixture;
+    auto backend = fixture.Backend();
+    if (write_denied) {
+      const auto write = backend.write;
+      backend.write = [&, write](const std::wstring& connection,
+                                 const ConnectionConfiguration& value,
+                                 uint32_t& error, bool& fallback) {
+        if (connection.empty()) return write(connection, value, error, fallback);
+        error = 5;
+        return false;
+      };
+    } else backend.discover = {};
+    ProxySession session;
+    Require(!session.Start(Manual(17980), backend).success && fixture.fallbackWrites == 0,
+            "unknown RAS activity or a real write error cannot trigger compatibility retries");
+    Require(session.Stop(std::nullopt, backend).success, "nonrecoverable failures clean up owned settings");
+  }
+}
+
+void RasRecoveryRechecksDefaultAndNotification() {
+  for (const bool notification_failure : {false, true}) {
+    RasRecoveryFixture fixture;
+    auto backend = fixture.Backend();
+    const auto fallback = backend.writeFallback;
+    const auto notify = backend.notify;
+    auto foreign = Original();
+    foreign.server = L"external.example:8888";
+    if (notification_failure) {
+      backend.notify = [&, notify](SessionOperationDetails& details) {
+        if (fixture.f.notifications == 1) {
+          fixture.f.notifications++;
+          details.stage = "notify_refresh";
+          details.errorCode = 5;
+          return false;
+        }
+        return notify(details);
+      };
+    } else {
+      backend.writeFallback = [&, fallback](const std::wstring& connection,
+                                            const ConnectionConfiguration& value,
+                                            uint32_t& error, bool& used) {
+        const bool result = fallback(connection, value, error, used);
+        fixture.f.values[L""] = foreign;
+        return result;
+      };
+    }
+    ProxySession session;
+    const auto result = session.Start(Manual(17980), backend);
+    Require(!result.success && fixture.fallbackWrites == 1 &&
+            result.stage == (notification_failure ? "notify_refresh" : "readback_mismatch"),
+            "successful RAS retry cannot conceal a failed notification or changed default proxy");
+    Require(session.Stop(std::nullopt, backend).success &&
+            fixture.f.values[L""] == (notification_failure ? Original() : foreign) &&
+            fixture.f.values[fixture.name] == Original() && !session.HasPendingCleanup(),
+            "cleanup restores owned RAS settings without taking over a foreign default proxy");
+  }
+}
+
+void RestorationFinalReadRemainsStrict() {
+  Fixture f;
+  ProxySession session;
+  Require(session.Start(Manual(), f.Backend()).success, "restore final-read fixture starts");
+  auto backend = f.Backend();
+  const auto notify = backend.notify;
+  auto foreign = Original();
+  foreign.bypass = L"externally-changed";
+  backend.notify = [&, notify](SessionOperationDetails& details) {
+    f.values[L""] = foreign;
+    return notify(details);
+  };
+  const auto stopped = session.Stop(std::nullopt, backend);
+  Require(!stopped.success && stopped.stage == "readback_mismatch" && session.HasPendingCleanup(),
+          "a pre-refresh successful restore cannot hide a mismatched final read");
+  const auto writes = f.writes;
+  const auto retried = session.Stop(std::nullopt, f.Backend());
+  Require(retried.success && retried.restoreAbandoned && f.writes == writes &&
+          f.values[L""] == foreign && !session.HasPendingCleanup(),
+          "a later cleanup yields to foreign changes rather than force-restoring stale settings");
+}
+
+void RasRecoveryRequiresLosslessRestoration() {
+  RasRecoveryFixture fixture;
+  auto backend = fixture.Backend();
+  backend.canRestoreFallback = [&](const std::wstring& name,
+                                    const ConnectionConfiguration& configuration,
+                                    uint32_t& error) {
+    Require(name == fixture.name && configuration == Original(),
+            "recovery checks the exact original snapshot before changing the encoding path");
+    error = 1113;
+    return false;
+  };
+  ProxySession session;
+  const auto result = session.Start(Manual(17980), backend);
+  Require(!result.success && result.errorCode == 1113 && fixture.fallbackWrites == 0,
+          "an unrepresentable original snapshot cannot enter a compatibility path that cannot restore it");
+  Require(session.Stop(std::nullopt, backend).success && fixture.f.values[L""] == Original() &&
+          fixture.f.values[fixture.name] == Original(), "lossless-restoration refusal still cleans the ordinary write");
+}
+
+void RasRecoveryRechecksSnapshotAfterTopology() {
+  RasRecoveryFixture fixture;
+  auto backend = fixture.Backend();
+  const auto discover = backend.discover;
+  int discoveries = 0;
+  auto foreign = Original();
+  foreign.server = L"new-owner.example:9888";
+  backend.discover = [&, discover](proxy::settings::ConnectionDiscovery& discovery, uint32_t& error) {
+    if (++discoveries == 2) fixture.f.values[fixture.name] = foreign;
+    return discover(discovery, error);
+  };
+  ProxySession session;
+  const auto result = session.Start(Manual(17980), backend);
+  Require(!result.success && fixture.fallbackWrites == 0 && fixture.f.values[fixture.name] == foreign,
+          "a foreign change during topology checking is detected by the final prewrite read");
+  Require(session.Stop(std::nullopt, backend).success && fixture.f.values[fixture.name] == foreign &&
+          fixture.f.values[L""] == Original(), "cleanup preserves the new owner after a prewrite race");
+}
+
 }
 
 #ifdef FENGWO_PROXY_SESSION_STANDALONE
@@ -595,7 +925,18 @@ int main() {
     SnapshotDoesNotBypassAppliedVerification();
     UnreadableSnapshotDoesNotWrite();
     MismatchedRegistryDoesNotAcquireForeignSettings();
-    std::cout << "PASS: 25 proxy session suites\n";
+    CustomerRasWriteAcknowledgedButNotApplied();
+    VerificationWaitsForNotification();
+    RestorationWaitsForNotification();
+    RasRecoveryVerifiesAndRestores();
+    RasRecoveryCannotHidePersistentFailure();
+    RasRecoveryYieldsToExternalChanges();
+    RasRecoveryRequiresKnownActiveAndSuccessfulWrite();
+    RasRecoveryRechecksDefaultAndNotification();
+    RestorationFinalReadRemainsStrict();
+    RasRecoveryRequiresLosslessRestoration();
+    RasRecoveryRechecksSnapshotAfterTopology();
+    std::cout << "PASS: 36 proxy session suites\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "FAIL: " << error.what() << '\n';
@@ -630,4 +971,15 @@ TEST(ProxySession, RegistryMismatchCanBeRepairedFromSnapshot) { RegistryMismatch
 TEST(ProxySession, SnapshotDoesNotBypassAppliedVerification) { SnapshotDoesNotBypassAppliedVerification(); }
 TEST(ProxySession, UnreadableSnapshotDoesNotWrite) { UnreadableSnapshotDoesNotWrite(); }
 TEST(ProxySession, MismatchedRegistryDoesNotAcquireForeignSettings) { MismatchedRegistryDoesNotAcquireForeignSettings(); }
+TEST(ProxySession, CustomerRasWriteAcknowledgedButNotApplied) { CustomerRasWriteAcknowledgedButNotApplied(); }
+TEST(ProxySession, VerificationWaitsForNotification) { VerificationWaitsForNotification(); }
+TEST(ProxySession, RestorationWaitsForNotification) { RestorationWaitsForNotification(); }
+TEST(ProxySession, RasRecoveryVerifiesAndRestores) { RasRecoveryVerifiesAndRestores(); }
+TEST(ProxySession, RasRecoveryCannotHidePersistentFailure) { RasRecoveryCannotHidePersistentFailure(); }
+TEST(ProxySession, RasRecoveryYieldsToExternalChanges) { RasRecoveryYieldsToExternalChanges(); }
+TEST(ProxySession, RasRecoveryRequiresKnownActiveAndSuccessfulWrite) { RasRecoveryRequiresKnownActiveAndSuccessfulWrite(); }
+TEST(ProxySession, RasRecoveryRechecksDefaultAndNotification) { RasRecoveryRechecksDefaultAndNotification(); }
+TEST(ProxySession, RestorationFinalReadRemainsStrict) { RestorationFinalReadRemainsStrict(); }
+TEST(ProxySession, RasRecoveryRequiresLosslessRestoration) { RasRecoveryRequiresLosslessRestoration(); }
+TEST(ProxySession, RasRecoveryRechecksSnapshotAfterTopology) { RasRecoveryRechecksSnapshotAfterTopology(); }
 #endif

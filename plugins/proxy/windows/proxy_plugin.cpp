@@ -212,12 +212,49 @@ bool NotifySettingsChanged(ProxyOperationDetails& details)
   return true;
 }
 
+bool WriteConnectionFallback(const std::wstring& name,
+                             const proxy::settings::ConnectionConfiguration& configuration,
+                             uint32_t& error, bool& fallback)
+{
+  if (name.empty())
+  {
+    error = ERROR_INVALID_PARAMETER;
+    return false;
+  }
+  DWORD native_error = ERROR_SUCCESS;
+  const bool success = proxy::settings::WriteConnection(
+      name, configuration, native_error, fallback,
+      InternetSetOptionW, InternetSetOptionA, true);
+  error = native_error;
+  return success;
+}
+
+bool CanRestoreConnectionFallback(const std::wstring& name,
+                                  const proxy::settings::ConnectionConfiguration& original,
+                                  uint32_t& error)
+{
+  std::string encoded;
+  for (const auto* text : {name.c_str(), original.server.c_str(),
+                           original.bypass.c_str(), original.auto_config_url.c_str()})
+  {
+    if (!proxy::settings::ToAnsi(text, encoded))
+    {
+      error = ERROR_NO_UNICODE_TRANSLATION;
+      return false;
+    }
+  }
+  error = ERROR_SUCCESS;
+  return true;
+}
+
 proxy::settings::ConnectionBackend NativeBackend()
 {
   auto backend = proxy::settings::ConnectionBackend{
       EnumerateConnections, ReadConnection, WriteConnection, NotifySettingsChanged};
   backend.discover = DiscoverConnections;
   backend.capture = CaptureConnection;
+  backend.writeFallback = WriteConnectionFallback;
+  backend.canRestoreFallback = CanRestoreConnectionFallback;
   return backend;
 }
 
