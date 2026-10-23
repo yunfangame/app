@@ -61,12 +61,18 @@ class _ProxyClient extends Proxy {
   final repairPorts = <int>[];
   final events = <String>[];
   int inspections = 0;
+  int invalidations = 0;
   Future<ProxyOperationResult> Function(int port)? start;
   Future<ProxyOperationResult> Function(int? port)? stop;
   Future<ProxyOperationResult> Function(int port)? inspect;
   Future<ProxyOperationResult> Function(int port)? repair;
   Object? inspectionError;
   ProxyOperationResult inspection = _started;
+
+  @override
+  Future<void> cancelPendingMacosWrites() async {
+    invalidations++;
+  }
 
   @override
   Future<ProxyOperationResult> startProxyDetailed(
@@ -311,12 +317,17 @@ void main() {
         );
         await tester.pump();
         expect(rig.client.events, ['start:7890']);
+        final invalidationsBeforeExit = rig.client.invalidations;
         final shutdown = systemProxyCleanupSignal.shutdown(7890);
         rig.container
             .read(patchClashConfigProvider.notifier)
             .update((state) => state.copyWith(mixedPort: 7891));
         await systemProxyRefreshSignal.request();
         await tester.pump();
+        expect(
+          rig.client.invalidations,
+          invalidationsBeforeExit + (platform == 'macos' ? 1 : 0),
+        );
         expect(rig.client.stopPorts, isEmpty);
         write.complete(_started);
         await tester.pumpAndSettle();

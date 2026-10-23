@@ -13,14 +13,21 @@ typedef ProxyProcessRunner =
 
 typedef ProxyExecutableChecker = Future<bool> Function(String executable);
 
+typedef MacosProxyServiceIdentity = ({String serviceID, String networkSetID});
+
 @immutable
 class ProxyCommand {
   final String executable;
   final List<String> args;
   final bool runInShell;
+  final MacosProxyServiceIdentity? macosIdentity;
 
-  ProxyCommand(this.executable, List<String> args, {this.runInShell = false})
-    : args = List.unmodifiable(args);
+  ProxyCommand(
+    this.executable,
+    List<String> args, {
+    this.runInShell = false,
+    this.macosIdentity,
+  }) : args = List.unmodifiable(args);
 }
 
 @immutable
@@ -30,12 +37,16 @@ class ProxyCommandResult {
     this.command,
     this.processResult,
     this.exception,
+    this.diagnosticCommand,
+    this.systemError,
   });
 
   final bool success;
   final ProxyCommand? command;
   final ProcessResult? processResult;
   final ProcessException? exception;
+  final String? diagnosticCommand;
+  final int? systemError;
 }
 
 class ProxyCommandRunner {

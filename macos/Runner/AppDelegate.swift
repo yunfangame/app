@@ -17,10 +17,16 @@ class AppDelegate: FlutterAppDelegate {
         if !terminationReplyPending {
             terminationReplyPending = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                sender.reply(toApplicationShouldTerminate: true)
+                self.terminationReplyPending = false
+                sender.reply(toApplicationShouldTerminate: false)
             }
         }
         return .terminateLater
+    }
+
+    override func applicationWillTerminate(_ notification: Notification) {
+        MainFlutterWindow.proxyAuthorization.invalidate(terminating: true)
+        super.applicationWillTerminate(notification)
     }
 
     override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {

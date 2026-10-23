@@ -3,6 +3,7 @@ import 'dart:io';
 import 'proxy_platform_interface.dart';
 import 'src/linux_proxy.dart';
 import 'src/macos_proxy.dart';
+import 'src/macos_proxy_authorization.dart';
 import 'src/proxy_command.dart';
 import 'src/proxy_result.dart';
 
@@ -15,17 +16,33 @@ class Proxy {
 
   late final LinuxProxy _linuxProxy;
   late final MacosProxy _macosProxy;
+  MacosProxyAuthorization? _macosAuthorization;
 
   Proxy({
     ProxyProcessRunner? processRunner,
     ProxyExecutableChecker? executableChecker,
+    MacosProxyDiagnostic? onDiagnostic,
   }) {
     final commandRunner = ProxyCommandRunner(processRunner ?? Process.run);
     _linuxProxy = LinuxProxy(
       commandRunner: commandRunner,
       executableChecker: executableChecker,
     );
-    _macosProxy = MacosProxy(commandRunner: commandRunner);
+    if (Platform.isMacOS && processRunner == null) {
+      _macosAuthorization = MacosProxyAuthorization(onDiagnostic: onDiagnostic);
+    }
+    final authorization = _macosAuthorization;
+    _macosProxy = MacosProxy(
+      commandRunner: authorization == null
+          ? commandRunner
+          : MacosAuthorizedCommandRunner(commandRunner, authorization),
+      autoDiscoveryReader: authorization?.readAutoDiscovery,
+      serviceIdentityReader: authorization?.readServiceIdentity,
+    );
+  }
+
+  Future<void> cancelPendingMacosWrites() async {
+    await _macosAuthorization?.invalidate();
   }
 
   Future<bool> startProxy(

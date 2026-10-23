@@ -89,7 +89,9 @@ class DesktopProxyFailure {
         ? DesktopProxyFailureKind.localPortUnavailable
         : result.stage == 'access_denied' ||
               (result.platform != 'macos' && result.errorCode == 5) ||
-              (result.platform == 'macos' && result.commandSpawnErrorCode == 13)
+              (result.platform == 'macos' &&
+                  (result.commandSpawnErrorCode == 13 ||
+                      result.errorCode == 1003))
         ? DesktopProxyFailureKind.systemProxyAccessDenied
         : switch (result.stage) {
             'registry_write' ||

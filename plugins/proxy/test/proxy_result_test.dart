@@ -225,6 +225,24 @@ void main() {
       expect(tagged.diagnosticCode, 'M-PROXY-OK');
     });
 
+    test('platform tagging retains recovered Mac readback fallback', () {
+      const original = ProxyOperationResult(
+        success: true,
+        operation: 'inspect',
+        stage: 'verified',
+        platform: 'macos',
+        writeSkipped: true,
+      );
+      final tagged = original.withPlatform('macos', fallbackUsed: true);
+
+      expect(tagged.fallbackUsed, isTrue);
+      expect(tagged.writeSkipped, isTrue);
+      expect(tagged.diagnosticCode, 'M-PROXY-OK');
+      expect(tagged.toDiagnosticFields()['fallback_used'], isTrue);
+      expect(tagged.withPlatform('macos'), same(tagged));
+      expect(original.fallbackUsed, isFalse);
+    });
+
     test(
       'Mac failure retains the platform and command without Win32 labels',
       () {

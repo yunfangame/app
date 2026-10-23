@@ -4,6 +4,8 @@ import window_manager
 import LaunchAtLogin
 
 class MainFlutterWindow: NSWindow {
+    static let proxyAuthorization = FengWoProxyAuthorization()
+
     override func awakeFromNib() {
         let flutterViewController = FlutterViewController()
         let windowFrame = self.frame
@@ -39,6 +41,22 @@ class MainFlutterWindow: NSWindow {
                 result(try FengWoIdentityMigration.production().prepare().dictionary)
             } catch {
                 result(["legacyImported": false, "status": "migration_failed"])
+            }
+        }
+
+        let proxyAuthorizationChannel = FlutterMethodChannel(
+            name: "com.fengwo.accelerator/proxy_authorization",
+            binaryMessenger: flutterViewController.engine.binaryMessenger
+        )
+        Self.proxyAuthorization.onProgress = { event, fields in
+            DispatchQueue.main.async {
+                proxyAuthorizationChannel.invokeMethod("diagnostic", arguments: ["event": event, "fields": fields])
+            }
+        }
+        proxyAuthorizationChannel.setMethodCallHandler { call, result in
+            Self.proxyAuthorization.handle(method: call.method, arguments: call.arguments) { response in
+                if let response { result(response) }
+                else { result(FlutterMethodNotImplemented) }
             }
         }
 

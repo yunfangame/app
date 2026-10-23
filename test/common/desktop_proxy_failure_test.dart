@@ -275,4 +275,21 @@ void main() {
     expect(failure.code, 'M-PROXY-03');
     expect(failure.canChangePort, isFalse);
   });
+
+  test('Mac SystemConfiguration access denial has no port workaround', () {
+    final failure = DesktopProxyFailure.fromSystemProxy(
+      const ProxyOperationResult(
+        success: false,
+        operation: 'start',
+        stage: 'apply_default',
+        platform: 'macos',
+        errorCode: 1003,
+      ),
+      port: 17980,
+    );
+
+    expect(failure.kind, DesktopProxyFailureKind.systemProxyAccessDenied);
+    expect(failure.code, 'M-PROXY-03');
+    expect(failure.canChangePort, isFalse);
+  });
 }

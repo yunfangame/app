@@ -395,6 +395,7 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
   void _scheduleUpdateProxy(ProxyState proxyState) {
     if (_shutdownRequested) return;
     final revision = ++_requestedRevision;
+    if (_isMacOS) unawaited(_proxyClient?.cancelPendingMacosWrites());
     _pendingUpdate = _pendingUpdate
         .then((_) => _updateProxy(proxyState, revision))
         .catchError((Object error) {
@@ -443,6 +444,7 @@ class _ProxyManagerState extends ConsumerState<ProxyManager> {
     _shutdownRequested = true;
     _requestedRevision++;
     _stopMacOSProxyGuard();
+    if (_isMacOS) unawaited(_proxyClient?.cancelPendingMacosWrites());
     commonPrint.event(
       'system_proxy.shutdown.requested',
       fields: {'port': port, 'terminal': terminal},

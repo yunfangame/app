@@ -66,8 +66,9 @@ class ProxyOperationResult {
   final int traceDroppedCount;
   final List<Map<String, Object?>> connectionTrace;
 
-  ProxyOperationResult withPlatform(String value) {
-    if (platform == value) return this;
+  ProxyOperationResult withPlatform(String value, {bool fallbackUsed = false}) {
+    final usedFallback = this.fallbackUsed || fallbackUsed;
+    if (platform == value && usedFallback == this.fallbackUsed) return this;
     return ProxyOperationResult(
       success: success,
       operation: operation,
@@ -77,7 +78,7 @@ class ProxyOperationResult {
       enabled: enabled,
       automaticProxyEnabled: automaticProxyEnabled,
       server: server,
-      fallbackUsed: fallbackUsed,
+      fallbackUsed: usedFallback,
       rasFailureCount: rasFailureCount,
       message: message,
       command: command,
@@ -109,7 +110,7 @@ class ProxyOperationResult {
       success: success,
       operation: operation,
       stage: stage,
-      errorCode: errorCode,
+      errorCode: errorCode ?? failure.systemError,
       connectionName: connectionName,
       enabled: enabled,
       automaticProxyEnabled: automaticProxyEnabled,
@@ -117,13 +118,15 @@ class ProxyOperationResult {
       fallbackUsed: fallbackUsed,
       rasFailureCount: rasFailureCount,
       message: message,
-      command: failedCommand == null
-          ? null
-          : _bounded(
-              '${failedCommand.executable} ${failedCommand.args.firstOrNull ?? ''}'
-                  .trim(),
-              256,
-            ),
+      command:
+          failure.diagnosticCommand ??
+          (failedCommand == null
+              ? null
+              : _bounded(
+                  '${failedCommand.executable} ${failedCommand.args.firstOrNull ?? ''}'
+                      .trim(),
+                  256,
+                )),
       commandExitCode: failure.processResult?.exitCode,
       commandStdout: _bounded(failure.processResult?.stdout.toString()),
       commandStderr: _bounded(failure.processResult?.stderr.toString()),

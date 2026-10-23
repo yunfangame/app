@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'proxy_command.dart';
@@ -10,6 +11,9 @@ typedef MacosProxyListenerProbe =
 class MacosProxy {
   final ProxyCommandRunner _commandRunner;
   final MacosProxyListenerProbe _listenerProbe;
+  final Future<bool?> Function(String service)? autoDiscoveryReader;
+  final Future<MacosProxyServiceIdentity?> Function(String service)?
+  serviceIdentityReader;
   final Map<String, MacosNetworkServiceProxyState> _originalStates = {};
   final Set<String> _managedServices = {};
   final Map<String, _MacosProxyWriteState> _appliedStates = {};
@@ -23,6 +27,8 @@ class MacosProxy {
     this.verificationRetryInterval = const Duration(milliseconds: 250),
     this.listenerInspectionTimeout = const Duration(seconds: 2),
     MacosProxyListenerProbe? listenerProbe,
+    this.autoDiscoveryReader,
+    this.serviceIdentityReader,
   }) : assert(verificationAttempts > 0),
        assert(!verificationRetryInterval.isNegative),
        _commandRunner = commandRunner,
@@ -40,7 +46,7 @@ class MacosProxy {
     final result = await _startDetailed(port, bypassDomain, diagnostics);
     return result
         .withCommandFailure(diagnostics.firstFailure)
-        .withPlatform('macos');
+        .withPlatform('macos', fallbackUsed: diagnostics.fallbackUsed);
   }
 
   Future<ProxyOperationResult> _startDetailed(
@@ -79,10 +85,9 @@ class MacosProxy {
         _originalStates[service] = current;
       }
       writeSkipped = false;
-      final commands = MacosProxyCommands.buildStart(
-        service,
-        port,
-        bypassDomain,
+      final commands = _scopedCommands(
+        MacosProxyCommands.buildStart(service, port, bypassDomain),
+        current.identity,
       );
       final previousApplied = _appliedStates[service];
       previousWrites[service] = previousApplied;
@@ -173,7 +178,7 @@ class MacosProxy {
     final result = await _stopDetailed(expectedPort, diagnostics);
     return result
         .withCommandFailure(diagnostics.firstFailure)
-        .withPlatform('macos');
+        .withPlatform('macos', fallbackUsed: diagnostics.fallbackUsed);
   }
 
   Future<ProxyOperationResult> _stopDetailed(
@@ -201,7 +206,10 @@ class MacosProxy {
         continue;
       }
       writeSkipped = false;
-      final commands = MacosProxyCommands.buildRestore(entry.key, entry.value);
+      final commands = _scopedCommands(
+        MacosProxyCommands.buildRestore(entry.key, entry.value),
+        current.identity,
+      );
       final applied = await _commandRunner.runDetailed(commands);
       diagnostics.record(applied);
       final pending = _MacosProxyWriteState.afterCommands(
@@ -246,7 +254,10 @@ class MacosProxy {
         _appliedStates.remove(service);
         continue;
       }
-      final commands = MacosProxyCommands.buildStop(service, state, null);
+      final commands = _scopedCommands(
+        MacosProxyCommands.buildStop(service, state, null),
+        state.identity,
+      );
       final applied = await _commandRunner.runDetailed(commands);
       diagnostics.record(applied);
       final pending = _MacosProxyWriteState.afterCommands(
@@ -292,6 +303,17 @@ class MacosProxy {
   }
 
   Future<ProxyOperationResult> repairStaleDetailed(int expectedPort) async {
+    final diagnostics = _MacosCommandDiagnostics();
+    final result = await _repairStaleDetailed(expectedPort, diagnostics);
+    return result
+        .withCommandFailure(diagnostics.firstFailure)
+        .withPlatform('macos', fallbackUsed: diagnostics.fallbackUsed);
+  }
+
+  Future<ProxyOperationResult> _repairStaleDetailed(
+    int expectedPort,
+    _MacosCommandDiagnostics diagnostics,
+  ) async {
     if (expectedPort < 1 || expectedPort > 65535) {
       return const ProxyOperationResult(
         success: false,
@@ -300,7 +322,6 @@ class MacosProxy {
         platform: 'macos',
       );
     }
-    final diagnostics = _MacosCommandDiagnostics();
     final blocked = await _checkStaleListener(expectedPort);
     if (blocked != null) return blocked;
     final services = await _networkServices(diagnostics);
@@ -337,7 +358,10 @@ class MacosProxy {
       }
       if (!current.matchesExactly(state)) continue;
       final result = await _commandRunner.runDetailed(
-        MacosProxyCommands.buildStop(service, current, expectedPort),
+        _scopedCommands(
+          MacosProxyCommands.buildStop(service, current, expectedPort),
+          current.identity,
+        ),
       );
       diagnostics.record(result);
       wrote = true;
@@ -469,7 +493,7 @@ class MacosProxy {
     final result = await _inspectDetailed(expectedPort, diagnostics);
     return result
         .withCommandFailure(diagnostics.firstFailure)
-        .withPlatform('macos');
+        .withPlatform('macos', fallbackUsed: diagnostics.fallbackUsed);
   }
 
   Future<ProxyOperationResult> _inspectDetailed(
@@ -569,6 +593,9 @@ class MacosProxy {
     _MacosCommandDiagnostics diagnostics,
   ) async {
     try {
+      final identityReader = serviceIdentityReader;
+      final identity = await identityReader?.call(service);
+      if (identityReader != null && identity == null) return null;
       final web = await _readEndpoint('-getwebproxy', service, diagnostics);
       final secureWeb = await _readEndpoint(
         '-getsecurewebproxy',
@@ -584,10 +611,7 @@ class MacosProxy {
         '-getautoproxyurl',
         service,
       ], diagnostics);
-      final discoveryResult = await _networksetup([
-        '-getproxyautodiscovery',
-        service,
-      ], diagnostics);
+      final autoDiscovery = await _readAutoDiscovery(service, diagnostics);
       final bypassResult = await _networksetup([
         '-getproxybypassdomains',
         service,
@@ -596,20 +620,20 @@ class MacosProxy {
           secureWeb == null ||
           socks == null ||
           autoProxyResult == null ||
-          discoveryResult == null ||
+          autoDiscovery == null ||
           bypassResult == null) {
         return null;
       }
+      if (identityReader != null && await identityReader(service) != identity) {
+        return null;
+      }
       return MacosNetworkServiceProxyState(
+        identity: identity,
         web: web,
         secureWeb: secureWeb,
         socks: socks,
         autoProxy: MacosAutoProxyState.parse(autoProxyResult.stdout.toString()),
-        autoDiscovery: MacosProxyCommands.parseEnabled(
-          MacosProxyCommands.parseKeyValueOutput(
-            discoveryResult.stdout.toString(),
-          )['Auto Proxy Discovery'],
-        ),
+        autoDiscovery: autoDiscovery,
         bypassDomains: MacosProxyCommands.parseBypassDomains(
           bypassResult.stdout.toString(),
         ),
@@ -621,6 +645,22 @@ class MacosProxy {
     }
   }
 
+  static List<ProxyCommand> _scopedCommands(
+    List<ProxyCommand> commands,
+    MacosProxyServiceIdentity? identity,
+  ) {
+    if (identity == null) return commands;
+    return [
+      for (final command in commands)
+        ProxyCommand(
+          command.executable,
+          command.args,
+          runInShell: command.runInShell,
+          macosIdentity: identity,
+        ),
+    ];
+  }
+
   Future<MacosProxyEndpoint?> _readEndpoint(
     String command,
     String service,
@@ -629,6 +669,66 @@ class MacosProxy {
     final result = await _networksetup([command, service], diagnostics);
     if (result == null) return null;
     return MacosProxyEndpoint.parse(result.stdout.toString());
+  }
+
+  Future<bool?> _readAutoDiscovery(
+    String service,
+    _MacosCommandDiagnostics diagnostics,
+  ) async {
+    final result = await _commandRunner.runDetailed([
+      ProxyCommand('/usr/sbin/networksetup', [
+        '-getproxyautodiscovery',
+        service,
+      ]),
+    ]);
+    if (result.success) {
+      return MacosProxyCommands.parseEnabled(
+        MacosProxyCommands.parseKeyValueOutput(
+          result.processResult!.stdout.toString(),
+        )['Auto Proxy Discovery'],
+      );
+    }
+    if (result.processResult?.exitCode == 4 &&
+        result.processResult?.stdout.toString().trim() ==
+            '** Error: The parameters were not valid.') {
+      diagnostics.fallbackUsed = true;
+      try {
+        final reader = autoDiscoveryReader;
+        if (reader != null) {
+          final enabled = await reader(service);
+          if (enabled != null) return enabled;
+          diagnostics.record(result);
+          return null;
+        }
+        final preferences = await _commandRunner
+            .process('/usr/bin/plutil', [
+              '-extract',
+              'NetworkServices',
+              'json',
+              '-o',
+              '-',
+              '/Library/Preferences/SystemConfiguration/preferences.plist',
+            ])
+            .timeout(const Duration(seconds: 2));
+        if (preferences.exitCode == 0) {
+          return MacosProxyCommands.parseAutoDiscoveryPreferences(
+            preferences.stdout.toString(),
+            service,
+          );
+        }
+      } on ProcessException {
+        diagnostics.record(result);
+        return null;
+      } on FormatException {
+        diagnostics.record(result);
+        return null;
+      } on TimeoutException {
+        diagnostics.record(result);
+        return null;
+      }
+    }
+    diagnostics.record(result);
+    return null;
   }
 
   Future<_MacosNetworkTargets> _networkServicesInPriorityOrder(
@@ -755,6 +855,7 @@ class MacosProxy {
 
 class _MacosCommandDiagnostics {
   ProxyCommandResult? firstFailure;
+  bool fallbackUsed = false;
 
   void record(ProxyCommandResult result) {
     if (!result.success) firstFailure ??= result;
@@ -793,6 +894,7 @@ class _MacosProxyWriteState {
   }
 
   bool matches(MacosNetworkServiceProxyState current) {
+    if (before.identity != current.identity) return false;
     if (_rejected) return false;
     final confirmed = _confirmed;
     if (confirmed != null) return current.matchesExactly(confirmed);
@@ -930,6 +1032,7 @@ class MacosAutoProxyState {
 
 class MacosNetworkServiceProxyState {
   const MacosNetworkServiceProxyState({
+    this.identity,
     required this.web,
     required this.secureWeb,
     required this.socks,
@@ -944,6 +1047,7 @@ class MacosNetworkServiceProxyState {
   final MacosAutoProxyState autoProxy;
   final List<String> bypassDomains;
   final bool autoDiscovery;
+  final MacosProxyServiceIdentity? identity;
 
   bool matchesTarget(int port, List<String> bypass) {
     return [
@@ -963,7 +1067,8 @@ class MacosNetworkServiceProxyState {
           left.port == right.port;
     }
 
-    return sameEndpoint(web, other.web) &&
+    return identity == other.identity &&
+        sameEndpoint(web, other.web) &&
         sameEndpoint(secureWeb, other.secureWeb) &&
         sameEndpoint(socks, other.socks) &&
         autoProxy.enabled == other.autoProxy.enabled &&
@@ -984,7 +1089,8 @@ class MacosNetworkServiceProxyState {
                   actual.port == expected.port));
     }
 
-    return endpointMatches(web, original.web) &&
+    return identity == original.identity &&
+        endpointMatches(web, original.web) &&
         endpointMatches(secureWeb, original.secureWeb) &&
         endpointMatches(socks, original.socks) &&
         autoProxy.enabled == original.autoProxy.enabled &&
@@ -1003,6 +1109,38 @@ class MacosNetworkServiceProxyState {
 }
 
 class MacosProxyCommands {
+  static bool parseAutoDiscoveryPreferences(String output, String service) {
+    if (output.length > 2 * 1024 * 1024) {
+      throw const FormatException('Network service preferences exceed limit');
+    }
+    final services = jsonDecode(output);
+    if (services is! Map<String, dynamic>) {
+      throw const FormatException('Invalid network service preferences');
+    }
+    final matches = services.entries
+        .where(
+          (entry) =>
+              entry.value is Map && entry.value['UserDefinedName'] == service,
+        )
+        .toList();
+    if (matches.length != 1 ||
+        !RegExp(
+          r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+        ).hasMatch(matches.single.key)) {
+      throw const FormatException('Network service identity is not unique');
+    }
+    final proxies = matches.single.value['Proxies'];
+    if (proxies is! Map<String, dynamic>) {
+      throw const FormatException('Missing service proxy dictionary');
+    }
+    if (!proxies.containsKey('ProxyAutoDiscoveryEnable')) return false;
+    final enabled = proxies['ProxyAutoDiscoveryEnable'];
+    if (enabled is! int || (enabled != 0 && enabled != 1)) {
+      throw const FormatException('Invalid proxy auto discovery setting');
+    }
+    return enabled == 1;
+  }
+
   static List<ProxyCommand> buildStart(
     String service,
     int port,

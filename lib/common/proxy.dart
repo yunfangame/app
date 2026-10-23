@@ -1,7 +1,13 @@
 import 'package:fl_clash/common/system.dart';
+import 'package:fl_clash/common/print.dart';
 import 'package:proxy/proxy.dart';
 
-final proxy = system.isDesktop ? Proxy() : null;
+final proxy = system.isDesktop
+    ? Proxy(
+        onDiagnostic: (event, fields) =>
+            commonPrint.event(event, fields: fields),
+      )
+    : null;
 
 typedef SystemProxyRefreshHandler = Future<void> Function();
 

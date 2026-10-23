@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +10,402 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('MacosProxy network service verification', () {
+    group('scoped network service identity', () {
+      const originalIdentity = (
+        serviceID: _NetworkSystem.serviceAId,
+        networkSetID: 'fixture-location',
+      );
+      test(
+        'connect and restore keep the same identity on every write',
+        () async {
+          final system = _NetworkSystem();
+          final original = system.services['Service A']!.snapshot();
+          final runner = _IdentityRecordingRunner(system.run);
+          final proxy = MacosProxy(
+            commandRunner: runner,
+            listenerProbe: (_, _) async => false,
+            verificationRetryInterval: Duration.zero,
+            serviceIdentityReader: (service) async => (
+              serviceID: service == 'Service A'
+                  ? _NetworkSystem.serviceAId
+                  : _NetworkSystem.serviceBId,
+              networkSetID: originalIdentity.networkSetID,
+            ),
+          );
+          expect(
+            (await proxy.startDetailed(7890, ['localhost'])).success,
+            isTrue,
+          );
+          expect(
+            (await proxy.stopDetailed(expectedPort: 7890)).success,
+            isTrue,
+          );
+          expect(system.services['Service A']!.snapshot(), original);
+          final writes = runner.commands.where(
+            (command) => command.args.first.startsWith('-set'),
+          );
+          expect(writes, isNotEmpty);
+          expect(
+            writes.every(
+              (command) => command.macosIdentity == originalIdentity,
+            ),
+            isTrue,
+          );
+        },
+      );
+      for (final changed in [
+        (serviceID: _NetworkSystem.serviceAId, networkSetID: 'other-location'),
+        (
+          serviceID: _NetworkSystem.serviceBId,
+          networkSetID: 'fixture-location',
+        ),
+      ]) {
+        test('disconnect cannot restore another identity $changed', () async {
+          final system = _NetworkSystem();
+          var identity = originalIdentity;
+          final proxy = system.proxy(
+            serviceIdentityReader: (_) async => identity,
+          );
+          expect(
+            (await proxy.startDetailed(7890, ['localhost'])).success,
+            isTrue,
+          );
+          final connected = system.services['Service A']!.snapshot();
+          identity = changed;
+          system.writes.clear();
+          final stopped = await proxy.stopDetailed(expectedPort: 7890);
+          expect(stopped.success, isTrue);
+          expect(stopped.restoreAbandoned, isTrue);
+          expect(system.writes, isEmpty);
+          expect(system.services['Service A']!.snapshot(), connected);
+        });
+      }
+      test(
+        'unknown identity stops before reading or writing proxy settings',
+        () async {
+          final system = _NetworkSystem();
+          final result = await system
+              .proxy(serviceIdentityReader: (_) async => null)
+              .startDetailed(7890, []);
+          expect(result.success, isFalse);
+          expect(result.stage, 'readback');
+          expect(system.writes, isEmpty);
+        },
+      );
+      test(
+        'identity changes during a snapshot stop before any write',
+        () async {
+          final system = _NetworkSystem();
+          var reads = 0;
+          final proxy = system.proxy(
+            serviceIdentityReader: (_) async => ++reads == 1
+                ? originalIdentity
+                : (
+                    serviceID: _NetworkSystem.serviceAId,
+                    networkSetID: 'other-location',
+                  ),
+          );
+          expect((await proxy.startDetailed(7890, [])).success, isFalse);
+          expect(system.writes, isEmpty);
+        },
+      );
+    });
+    group('WPAD invalid-parameter compatibility', () {
+      for (final enabled in [false, true]) {
+        test('native WPAD $enabled survives unrelated non-JSON data', () async {
+          final system = _NetworkSystem();
+          system.services['Service A']!.discovery = enabled;
+          final original = system.services['Service A']!.snapshot();
+          system.preferencesOverride = const ProcessException(
+            '/usr/bin/plutil',
+            [],
+            'Cannot encode unrelated CFData as JSON',
+          );
+          system.readOverrides['-getproxyautodiscovery'] = ProcessResult(
+            1,
+            4,
+            '** Error: The parameters were not valid.',
+            '',
+          );
+          final reads = <String>[];
+          final proxy = system.proxy(
+            autoDiscoveryReader: (service) async {
+              reads.add(service);
+              return system.services[service]?.discovery;
+            },
+          );
+
+          expect(
+            (await proxy.startDetailed(7890, ['localhost'])).success,
+            isTrue,
+          );
+          expect(
+            (await proxy.stopDetailed(expectedPort: 7890)).success,
+            isTrue,
+          );
+          expect(system.services['Service A']!.snapshot(), original);
+          expect(reads, isNotEmpty);
+          expect(system.preferencesReads, 0);
+        });
+      }
+
+      test(
+        'unavailable native WPAD reader fails closed without CLI fallback',
+        () async {
+          final system = _NetworkSystem();
+          system.readOverrides['-getproxyautodiscovery'] = ProcessResult(
+            1,
+            4,
+            '** Error: The parameters were not valid.',
+            '',
+          );
+          final proxy = system.proxy(autoDiscoveryReader: (_) async => null);
+
+          final result = await proxy.startDetailed(7890, []);
+
+          expect(result.success, isFalse);
+          expect(result.stage, 'readback');
+          expect(system.writes, isEmpty);
+          expect(system.preferencesReads, 0);
+        },
+      );
+
+      for (final enabled in [false, true]) {
+        test('captures and restores WPAD $enabled using preferences', () async {
+          final system = _NetworkSystem();
+          system.services['Service A']!.discovery = enabled;
+          final original = system.services['Service A']!.snapshot();
+          system.readOverrides['-getproxyautodiscovery'] = ProcessResult(
+            1,
+            4,
+            '** Error: The parameters were not valid.\n',
+            '',
+          );
+          final proxy = system.proxy();
+
+          final started = await proxy.startDetailed(7890, ['localhost']);
+
+          expect(started.success, isTrue);
+          expect(started.fallbackUsed, isTrue);
+          expect(started.command, isNull);
+          expect(system.services['Service A']!.discovery, isFalse);
+          expect((await proxy.inspectDetailed(7890)).success, isTrue);
+          final stopped = await proxy.stopDetailed(expectedPort: 7890);
+          expect(stopped.success, isTrue);
+          expect(stopped.fallbackUsed, isTrue);
+          expect(system.services['Service A']!.snapshot(), original);
+          expect(system.preferencesReads, greaterThanOrEqualTo(4));
+        });
+      }
+
+      test(
+        'an absent WPAD key in a valid service proxy dictionary is off',
+        () async {
+          final system = _NetworkSystem();
+          system.services['Service A']!.enableOwned();
+          system.preferencesOverride = jsonEncode({
+            _NetworkSystem.serviceAId: {
+              'UserDefinedName': 'Service A',
+              'Proxies': <String, Object?>{},
+            },
+          });
+          system.readOverrides['-getproxyautodiscovery'] = ProcessResult(
+            1,
+            4,
+            '** Error: The parameters were not valid.',
+            '',
+          );
+
+          final result = await system.proxy().inspectDetailed(7890);
+
+          expect(result.success, isTrue);
+          expect(result.fallbackUsed, isTrue);
+          expect(result.automaticProxyEnabled, isFalse);
+          expect(system.writes, isEmpty);
+        },
+      );
+
+      for (final preference in <String, Object>{
+        'malformed JSON': 'invalid',
+        'non-dictionary root': '[]',
+        'no matching service': '{}',
+        'wrong service': jsonEncode({
+          _NetworkSystem.serviceBId: {
+            'UserDefinedName': 'Service B',
+            'Proxies': {'ProxyAutoDiscoveryEnable': 0},
+          },
+        }),
+        'duplicate service names': jsonEncode({
+          for (final id in [
+            _NetworkSystem.serviceAId,
+            _NetworkSystem.serviceBId,
+          ])
+            id: {
+              'UserDefinedName': 'Service A',
+              'Proxies': {'ProxyAutoDiscoveryEnable': 0},
+            },
+        }),
+        'invalid service identifier': jsonEncode({
+          'untrusted': {
+            'UserDefinedName': 'Service A',
+            'Proxies': {'ProxyAutoDiscoveryEnable': 0},
+          },
+        }),
+        'missing proxy dictionary': jsonEncode({
+          _NetworkSystem.serviceAId: {'UserDefinedName': 'Service A'},
+        }),
+        for (final value in [null, true, '0', 2, 0.0])
+          'invalid WPAD ${jsonEncode(value)}': jsonEncode({
+            _NetworkSystem.serviceAId: {
+              'UserDefinedName': 'Service A',
+              'Proxies': {'ProxyAutoDiscoveryEnable': value},
+            },
+          }),
+        'preferences command denied': ProcessResult(
+          1,
+          1,
+          'private-config',
+          'denied',
+        ),
+        'preferences command unavailable': const ProcessException(
+          '/usr/bin/plutil',
+          [],
+        ),
+        'preferences read timeout': TimeoutException(
+          'preferences read timeout',
+        ),
+        'oversized preferences': ' ' * (2 * 1024 * 1024 + 1),
+      }.entries) {
+        test('${preference.key} remains unknown and prevents writes', () async {
+          final system = _NetworkSystem();
+          system.preferencesOverride = preference.value;
+          system.readOverrides['-getproxyautodiscovery'] = ProcessResult(
+            1,
+            4,
+            '** Error: The parameters were not valid.',
+            '',
+          );
+
+          final result = await system.proxy().startDetailed(7890, []);
+
+          expect(result.success, isFalse);
+          expect(result.stage, 'readback');
+          expect(result.fallbackUsed, isTrue);
+          expect(
+            result.command,
+            '/usr/sbin/networksetup -getproxyautodiscovery',
+          );
+          expect(result.commandExitCode, 4);
+          expect(
+            jsonEncode(result.toDiagnosticFields()),
+            isNot(contains('private-config')),
+          );
+          expect(system.writes, isEmpty);
+        });
+      }
+
+      for (final failure in [
+        ProcessResult(1, 14, '', 'permission denied'),
+        ProcessResult(1, 4, 'different failure', ''),
+        ProcessResult(1, 0, '', ''),
+      ]) {
+        test(
+          'does not hide unrelated getter failure ${failure.exitCode}/${failure.stdout}',
+          () async {
+            final system = _NetworkSystem();
+            system.readOverrides['-getproxyautodiscovery'] = failure;
+
+            final result = await system.proxy().startDetailed(7890, []);
+
+            expect(result.success, isFalse);
+            expect(result.stage, 'readback');
+            expect(result.fallbackUsed, isFalse);
+            expect(system.preferencesReads, 0);
+            expect(system.writes, isEmpty);
+          },
+        );
+      }
+
+      test('successful getter does not read the preferences file', () async {
+        final system = _NetworkSystem();
+
+        expect((await system.proxy().startDetailed(7890, [])).success, isTrue);
+        expect(system.preferencesReads, 0);
+      });
+
+      test(
+        'cold cleanup uses fallback without changing a foreign service',
+        () async {
+          final system = _NetworkSystem();
+          system.services['Service A']!.enableOwned();
+          final foreign = system.services['Service B']!.snapshot();
+          system.readOverrides['-getproxyautodiscovery'] = ProcessResult(
+            1,
+            4,
+            '** Error: The parameters were not valid.',
+            '',
+          );
+
+          final result = await system.proxy().repairStaleDetailed(7890);
+
+          expect(result.success, isTrue);
+          expect(result.fallbackUsed, isTrue);
+          expect(result.stage, 'restored');
+          expect(system.services['Service B']!.snapshot(), foreign);
+          expect(system.writes, hasLength(3));
+        },
+      );
+
+      test('recovered getter cannot hide a subsequent write failure', () async {
+        final system = _NetworkSystem();
+        system.readOverrides['-getproxyautodiscovery'] = ProcessResult(
+          1,
+          4,
+          '** Error: The parameters were not valid.',
+          '',
+        );
+        system.writeOverrides['-setautoproxystate'] = ProcessResult(
+          1,
+          14,
+          '',
+          'write denied',
+        );
+
+        final result = await system.proxy().startDetailed(7890, []);
+
+        expect(result.success, isFalse);
+        expect(result.stage, 'apply_default');
+        expect(result.fallbackUsed, isTrue);
+        expect(result.command, '/usr/sbin/networksetup -setautoproxystate');
+        expect(result.commandExitCode, 14);
+      });
+
+      test(
+        'fallback still rejects enabled WPAD and a foreign HTTPS port',
+        () async {
+          final system = _NetworkSystem();
+          system.services['Service A']!.enableOwned();
+          system.readOverrides['-getproxyautodiscovery'] = ProcessResult(
+            1,
+            4,
+            '** Error: The parameters were not valid.',
+            '',
+          );
+          final proxy = system.proxy(verificationAttempts: 1);
+          system.services['Service A']!.discovery = true;
+          final automatic = await proxy.inspectDetailed(7890);
+          expect(automatic.success, isFalse);
+          expect(automatic.automaticProxyEnabled, isTrue);
+          system.services['Service A']!.discovery = false;
+          system.services['Service A']!.secureWeb.port = 7897;
+          final foreign = await proxy.inspectDetailed(7890);
+          expect(foreign.success, isFalse);
+          expect(foreign.stage, 'readback_mismatch');
+          expect(system.writes, isEmpty);
+        },
+      );
+    });
+
     for (final output in <String, ProcessResult>{
       'active IPv4 listener': ProcessResult(1, 0, 'p1234\n', ''),
       'active IPv6 listener': ProcessResult(1, 0, 'p5678\n', ''),
@@ -1429,6 +1827,18 @@ class _ServiceState {
   };
 }
 
+class _IdentityRecordingRunner extends ProxyCommandRunner {
+  _IdentityRecordingRunner(super.processRunner);
+  final commands = <ProxyCommand>[];
+
+  @override
+  Future<ProxyCommandResult> runDetailed(Iterable<ProxyCommand> batch) {
+    final values = batch.toList();
+    commands.addAll(values);
+    return super.runDetailed(values);
+  }
+}
+
 class _NetworkSystem {
   static const serviceAId = '11111111-1111-4111-8111-111111111111';
   static const serviceBId = '22222222-2222-4222-8222-222222222222';
@@ -1458,6 +1868,8 @@ class _NetworkSystem {
   final readOverrides = <String, Object>{};
   final writeOverrides = <String, Object>{};
   final ignoredWrites = <String>{};
+  Object? preferencesOverride;
+  int preferencesReads = 0;
   String? primaryId = serviceAId;
   String routeDevice = 'en0';
   String deviceB = 'en5';
@@ -1474,11 +1886,17 @@ class _NetworkSystem {
       '  ProxyAutoConfigURLString : https://pac.example.invalid/global.pac\n'
       '}\n';
 
-  MacosProxy proxy({int verificationAttempts = 3}) => MacosProxy(
+  MacosProxy proxy({
+    int verificationAttempts = 3,
+    Future<bool?> Function(String)? autoDiscoveryReader,
+    Future<MacosProxyServiceIdentity?> Function(String)? serviceIdentityReader,
+  }) => MacosProxy(
     commandRunner: ProxyCommandRunner(run),
     verificationAttempts: verificationAttempts,
     verificationRetryInterval: Duration.zero,
     listenerProbe: listenerProbe ?? (_, _) async => false,
+    autoDiscoveryReader: autoDiscoveryReader,
+    serviceIdentityReader: serviceIdentityReader,
   );
 
   Future<ProcessResult> run(
@@ -1487,6 +1905,35 @@ class _NetworkSystem {
     bool runInShell = false,
   }) async {
     expect(runInShell, isFalse);
+    if (executable == '/usr/bin/plutil') {
+      expect(arguments, [
+        '-extract',
+        'NetworkServices',
+        'json',
+        '-o',
+        '-',
+        '/Library/Preferences/SystemConfiguration/preferences.plist',
+      ]);
+      preferencesReads++;
+      final override = preferencesOverride;
+      if (override is ProcessException) throw override;
+      if (override is TimeoutException) throw override;
+      if (override is ProcessResult) return override;
+      if (override is String) return _result(override);
+      return _result(
+        jsonEncode({
+          for (final entry in serviceNames.entries)
+            entry.key: {
+              'UserDefinedName': entry.value,
+              'Proxies': {
+                'ProxyAutoDiscoveryEnable': services[entry.value]!.discovery
+                    ? 1
+                    : 0,
+              },
+            },
+        }),
+      );
+    }
     if (executable == '/usr/sbin/lsof') {
       expect(arguments, ['-nP', '-a', '-iTCP:7890', '-sTCP:LISTEN', '-Fp']);
       listenerInspections++;
