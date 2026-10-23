@@ -7,6 +7,7 @@ import 'package:fl_clash/common/application_bootstrap.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/login_routing_coordinator.dart';
 import 'package:fl_clash/common/startup_connection_coordinator.dart';
+import 'package:fl_clash/common/subscription_access.dart';
 import 'package:fl_clash/core/core.dart';
 import 'package:fl_clash/common/saved_node_selection.dart';
 import 'package:fl_clash/common/xboard_routing_store.dart';
@@ -208,7 +209,10 @@ class ApplicationState extends ConsumerState<Application> {
     );
     final routingAttempt = _loginRoutingAttempt!;
     _startupConnectionAttempt = _startupConnection.begin(
-      enabled: autoConnect && ref.read(appSettingProvider).autoRun,
+      enabled:
+          autoConnect &&
+          ref.read(appSettingProvider).autoRun &&
+          !evaluateSubscriptionAccess(session.subscription).blocksProfileSync,
       isCurrent: () => _loginRouting.isCurrent(routingAttempt),
     );
     _startupAuthenticated = false;
@@ -233,6 +237,9 @@ class ApplicationState extends ConsumerState<Application> {
     Profile? expectedProfile,
     bool applyProfile = false,
   }) async {
+    if (evaluateSubscriptionAccess(session.subscription).blocksProfileSync) {
+      return;
+    }
     final attempt = _loginRoutingAttempt;
     if (attempt == null || !identical(session, _loginRoutingSession)) return;
     final sessionRevision = globalState.xboardSessionRevision;
@@ -996,7 +1003,7 @@ class ApplicationState extends ConsumerState<Application> {
       final profile = await _syncSubscriptionProfileForLogin(
         session,
         sessionRevision,
-        showFailureMessage: false,
+        showFailureMessage: true,
       );
       if (!mounted ||
           !globalState.isActiveXboardSession(session, sessionRevision) ||
@@ -1020,7 +1027,19 @@ class ApplicationState extends ConsumerState<Application> {
     if (!isCurrent()) return Future<Profile?>.value();
     return _profileSync.run(
       isCurrent: isCurrent,
-      refresh: (_) => _performSubscriptionProfileSync(session, sessionRevision),
+      refresh: (_) => syncAccessibleSubscriptionProfile<Profile>(
+        subscription: session.subscription,
+        isCurrent: isCurrent,
+        sync: () => _performSubscriptionProfileSync(session, sessionRevision),
+        onBlocked: (access) => _showStartupMessage(
+          access.message(currentAppLocalizations)!,
+          isCurrent: isCurrent,
+        ),
+        onDiagnostic: (event, fields) => commonPrint.event(
+          event,
+          fields: {...fields, 'session_revision': sessionRevision},
+        ),
+      ),
     );
   }
 
@@ -1051,6 +1070,7 @@ class ApplicationState extends ConsumerState<Application> {
         failure: XboardAuthFailure.subscriptionUnavailable,
         message: currentAppLocalizations.subscriptionImportFailed,
         endpoint: session.endpoint,
+        diagnostic: subscriptionProfileDiagnostic(error),
       );
     }
   }
@@ -1219,6 +1239,8 @@ class ApplicationState extends ConsumerState<Application> {
           'error_type': error.runtimeType.toString(),
           'error': '$error',
           'secure_subscription': session.secureSubscription,
+          if (error is SubscriptionV2Exception) 'error_code': error.code,
+          ...?subscriptionProfileDiagnostic(error)?.toDiagnosticFields(),
         },
       );
       commonPrint.log(
@@ -1230,8 +1252,9 @@ class ApplicationState extends ConsumerState<Application> {
             : XboardAuthFailure.subscriptionUnavailable,
         message: error is CorePreparationException
             ? currentAppLocalizations.networkDiagnosticCoreNotRunning
-            : currentAppLocalizations.subscriptionImportFailed,
+            : subscriptionProfileFailureMessage(error, currentAppLocalizations),
         endpoint: session.endpoint,
+        diagnostic: subscriptionProfileDiagnostic(error),
       );
     }
   }

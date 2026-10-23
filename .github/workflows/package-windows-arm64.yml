@@ -128,6 +128,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           flutter test --no-pub --reporter expanded test/common/tray_test.dart | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/tray-copy-tests.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Tray shell-copy tests failed' }
+          flutter test --no-pub --reporter expanded test/common/subscription_access_test.dart test/pages/login_persistence_flow_test.dart test/widgets/purchase_plans_test.dart test/widgets/subscription_status_indicator_test.dart | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/subscription-access-tests.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'Subscription access and billing regressions failed' }
           flutter test --no-pub --reporter expanded test/common/app_update_test.dart test/common/app_update_transport_test.dart test/common/app_update_download_test.dart test/providers/app_update_test.dart test/providers/app_update_action_test.dart test/widgets/app_update_controls_test.dart test/common/remote_config_cipher_test.dart | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/update-check-tests.txt')
           if ($LASTEXITCODE -ne 0) { throw 'Direct update check and failover tests failed' }
           flutter analyze --no-pub --no-fatal-infos
