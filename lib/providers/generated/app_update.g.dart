@@ -129,7 +129,7 @@ final class AppUpdateProvider
   }
 }
 
-String _$appUpdateHash() => r'1ec52725c04001d28601e7cf287dc9d68a4c2c8f';
+String _$appUpdateHash() => r'da9d19f672130f97af5e2980a52a46edbd014f0e';
 
 abstract class _$AppUpdate extends $Notifier<AppUpdateState> {
   AppUpdateState build();

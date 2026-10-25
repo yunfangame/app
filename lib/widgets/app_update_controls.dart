@@ -61,14 +61,9 @@ class _AppUpdateSettingsContentState
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final update = ref.read(appUpdateProvider);
-      final checkedAt = update.checkedAt;
-      if (update.status == AppUpdateStatus.idle ||
-          (checkedAt != null &&
-              DateTime.now().difference(checkedAt) >
-                  const Duration(minutes: 10))) {
-        unawaited(ref.read(appUpdateProvider.notifier).check());
-      }
+      unawaited(
+        ref.read(appUpdateProvider.notifier).check(forceRefresh: false),
+      );
     });
   }
 
@@ -83,7 +78,7 @@ class _AppUpdateSettingsContentState
     );
     final checkButton = FilledButton.icon(
       key: const ValueKey('advanced-check-update'),
-      onPressed: update.isChecking
+      onPressed: update.isManualChecking
           ? null
           : () => ref
                 .read(commonActionProvider.notifier)
