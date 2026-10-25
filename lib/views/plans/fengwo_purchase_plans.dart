@@ -4,10 +4,13 @@ import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/offline_mode_panel.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:window_ext/window_ext.dart';
+import 'package:window_manager/window_manager.dart';
 
 enum _PlanType { all, recurring, oneTime }
 
@@ -125,7 +128,13 @@ class _FengWoPurchasePlansViewState extends State<FengWoPurchasePlansView> {
       plan: plan,
       period: period,
     );
-    if (paid == true) await _loadPlans();
+    final current = globalState.xboardSession;
+    if (paid == true &&
+        mounted &&
+        current?.endpoint == session.endpoint &&
+        current?.authData == session.authData) {
+      await _loadPlans();
+    }
   }
 
   @override
@@ -805,6 +814,13 @@ class _PlanMetric extends StatelessWidget {
 
 enum _PaymentStage { loading, ready, submitting, waiting, success, failure }
 
+bool get _isDesktopPaymentPlatform => switch (defaultTargetPlatform) {
+  TargetPlatform.windows ||
+  TargetPlatform.macOS ||
+  TargetPlatform.linux => true,
+  _ => false,
+};
+
 class _XboardPaymentDialog extends StatefulWidget {
   final XboardAuthService authService;
   final XboardLoginResult session;
@@ -822,7 +838,9 @@ class _XboardPaymentDialog extends StatefulWidget {
   State<_XboardPaymentDialog> createState() => _XboardPaymentDialogState();
 }
 
-class _XboardPaymentDialogState extends State<_XboardPaymentDialog> {
+class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
+    with WidgetsBindingObserver, WindowListener, WindowExtListener {
+  final bool _desktop = _isDesktopPaymentPlatform;
   _PaymentStage _stage = _PaymentStage.loading;
   List<XboardPaymentMethod> _methods = const [];
   int? _selectedMethodId;
@@ -830,8 +848,55 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog> {
   String? _paymentPayload;
   String? _error;
   Timer? _statusTimer;
+  Timer? _windowRetryTimer;
   bool _checking = false;
   bool _subscriptionRefreshStarted = false;
+  bool _foreground = true;
+  late bool _windowAvailable = !_desktop;
+  bool _windowKnownBackground = false;
+  bool _windowReadFailed = false;
+  bool _closed = false;
+  bool _sessionInvalidated = false;
+  int _failures = 0;
+  int _attempt = 0;
+  int _windowRevision = 0;
+  int _windowRetries = 0;
+
+  bool get _currentSession =>
+      !_sessionInvalidated &&
+      globalState.xboardSession?.endpoint == widget.session.endpoint &&
+      globalState.xboardSession?.authData == widget.session.authData;
+
+  bool get _canUseUserAction =>
+      mounted &&
+      !_closed &&
+      _currentSession &&
+      _foreground &&
+      (!_windowKnownBackground || _windowReadFailed) &&
+      !globalState.isOfflineMode;
+
+  bool get _canUseNetwork =>
+      mounted &&
+      !_closed &&
+      _currentSession &&
+      _foreground &&
+      _windowAvailable &&
+      !globalState.isOfflineMode;
+
+  bool get _canCheck => _canUseNetwork && _stage == _PaymentStage.waiting;
+
+  bool _isCurrentAttempt(int attempt) =>
+      mounted && !_closed && _currentSession && attempt == _attempt;
+
+  Duration get _checkInterval => Duration(
+    seconds: switch (_failures) {
+      0 => 3,
+      1 => 6,
+      2 => 12,
+      3 => 24,
+      _ => 30,
+    },
+  );
 
   int get _price => widget.plan.prices[widget.period] ?? 0;
 
@@ -847,16 +912,200 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog> {
   @override
   void initState() {
     super.initState();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
+    globalState.xboardSessionRevisionNotifier.addListener(_sessionChanged);
+    globalState.offlineModeNotifier.addListener(_availabilityChanged);
+    if (_desktop) {
+      windowManager.addListener(this);
+      windowExtManager.addListener(this);
+      unawaited(_readWindowAvailability());
+    }
     _loadPaymentMethods();
   }
 
   @override
   void dispose() {
-    _statusTimer?.cancel();
+    _closed = true;
+    _windowRevision++;
+    _cancelStatusTimer();
+    _windowRetryTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    globalState.xboardSessionRevisionNotifier.removeListener(_sessionChanged);
+    globalState.offlineModeNotifier.removeListener(_availabilityChanged);
+    if (_desktop) {
+      windowManager.removeListener(this);
+      windowExtManager.removeListener(this);
+    }
     super.dispose();
   }
 
+  void _cancelStatusTimer() {
+    _statusTimer?.cancel();
+    _statusTimer = null;
+  }
+
+  void _scheduleStatusCheck({bool immediately = false}) {
+    _cancelStatusTimer();
+    if (!_canCheck || _checking) return;
+    _statusTimer = Timer(immediately ? Duration.zero : _checkInterval, () {
+      _statusTimer = null;
+      unawaited(_checkOrderStatus());
+    });
+  }
+
+  void _availabilityChanged() {
+    if (globalState.isOfflineMode) _windowRetryTimer?.cancel();
+    if (_desktop && !globalState.isOfflineMode) {
+      _resumeWindowPolling();
+      return;
+    }
+    _maybeRefreshSubscription();
+    _scheduleStatusCheck(immediately: true);
+  }
+
+  void _sessionChanged() {
+    if (_currentSession) return;
+    _sessionInvalidated = true;
+    _cancelStatusTimer();
+    _windowRetryTimer?.cancel();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _closed || ModalRoute.of(context)?.isCurrent != true) {
+        return;
+      }
+      Navigator.of(context).pop(false);
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void _pauseWindowPolling() {
+    _windowRevision++;
+    _windowAvailable = false;
+    _windowKnownBackground = true;
+    _windowReadFailed = false;
+    _cancelStatusTimer();
+    _windowRetryTimer?.cancel();
+  }
+
+  void _resumeWindowPolling({bool knownForeground = false}) {
+    if (knownForeground) _windowKnownBackground = false;
+    _windowRetryTimer?.cancel();
+    _windowRetries = 0;
+    unawaited(_readWindowAvailability(immediately: true));
+  }
+
+  void _scheduleWindowReadRetry() {
+    _windowRetryTimer?.cancel();
+    if (!mounted ||
+        _closed ||
+        !_currentSession ||
+        !_foreground ||
+        globalState.isOfflineMode ||
+        (_stage == _PaymentStage.success && _subscriptionRefreshStarted) ||
+        _stage == _PaymentStage.failure ||
+        _windowRetries >= 4) {
+      return;
+    }
+    final seconds = const [1, 3, 6, 12][_windowRetries++];
+    _windowRetryTimer = Timer(Duration(seconds: seconds), () {
+      _windowRetryTimer = null;
+      if (mounted &&
+          !_closed &&
+          _currentSession &&
+          _foreground &&
+          !globalState.isOfflineMode) {
+        unawaited(_readWindowAvailability(immediately: true));
+      }
+    });
+  }
+
+  Future<void> _readWindowAvailability({bool immediately = false}) async {
+    if (!mounted || _closed || !_currentSession) return;
+    final revision = ++_windowRevision;
+    _windowAvailable = false;
+    _cancelStatusTimer();
+    try {
+      final state = await Future.wait([
+        windowManager.isVisible(),
+        windowManager.isMinimized(),
+        windowManager.isFocused(),
+      ]).timeout(const Duration(seconds: 2));
+      if (!mounted ||
+          _closed ||
+          !_currentSession ||
+          revision != _windowRevision) {
+        return;
+      }
+      _windowAvailable = state[0] && !state[1] && state[2];
+      _windowKnownBackground = !_windowAvailable;
+      _windowReadFailed = false;
+      _windowRetries = 0;
+      _windowRetryTimer?.cancel();
+      _maybeRefreshSubscription();
+      _scheduleStatusCheck(immediately: immediately);
+    } catch (error) {
+      if (!mounted ||
+          _closed ||
+          !_currentSession ||
+          revision != _windowRevision) {
+        return;
+      }
+      _windowAvailable = false;
+      _windowReadFailed = true;
+      _cancelStatusTimer();
+      _scheduleWindowReadRetry();
+      commonPrint.log(
+        'read payment window state failed: $error',
+        logLevel: LogLevel.warning,
+      );
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final foreground = state == AppLifecycleState.resumed;
+    if (_foreground == foreground) return;
+    _foreground = foreground;
+    if (!foreground) {
+      _cancelStatusTimer();
+      _windowRetryTimer?.cancel();
+    } else if (_desktop) {
+      _resumeWindowPolling();
+    } else {
+      _availabilityChanged();
+    }
+  }
+
+  @override
+  void onWindowEvent(String eventName) {
+    if (eventName == 'hide') _pauseWindowPolling();
+    if (eventName == 'show') {
+      _resumeWindowPolling(knownForeground: true);
+    }
+  }
+
+  @override
+  void onWindowBlur() => _pauseWindowPolling();
+
+  @override
+  void onWindowMinimize() => _pauseWindowPolling();
+
+  @override
+  void onWindowClose() => _pauseWindowPolling();
+
+  @override
+  void onWindowFocus() => _resumeWindowPolling(knownForeground: true);
+
+  @override
+  void onWindowRestore() => _resumeWindowPolling(knownForeground: true);
+
+  @override
+  void onShouldTerminate() => _pauseWindowPolling();
+
   Future<void> _loadPaymentMethods() async {
+    if (!mounted || _closed || !_currentSession) return;
+    final attempt = ++_attempt;
     if (mounted) {
       setState(() {
         _stage = _PaymentStage.loading;
@@ -868,7 +1117,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog> {
         endpoint: widget.session.endpoint,
         authData: widget.session.authData,
       );
-      if (!mounted) return;
+      if (!_isCurrentAttempt(attempt)) return;
       setState(() {
         _methods = methods;
         _selectedMethodId = methods.isEmpty ? null : methods.first.id;
@@ -880,12 +1129,20 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog> {
         }
       });
     } catch (error) {
-      _showFailure(_messageFor(error));
+      if (_isCurrentAttempt(attempt)) _showFailure(_messageFor(error));
     }
   }
 
   Future<void> _createAndCheckout() async {
-    if (!_isFree && _selectedMethod == null) return;
+    if (!_canUseUserAction ||
+        _stage == _PaymentStage.submitting ||
+        (!_isFree && _selectedMethod == null)) {
+      return;
+    }
+    final attempt = ++_attempt;
+    if (_desktop && !_windowAvailable) _resumeWindowPolling();
+    _cancelStatusTimer();
+    _failures = 0;
     setState(() {
       _stage = _PaymentStage.submitting;
       _error = null;
@@ -899,6 +1156,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog> {
             planId: widget.plan.id,
             period: widget.period,
           );
+      if (!_isCurrentAttempt(attempt)) return;
       _tradeNo = tradeNo;
       final checkout = await widget.authService.checkoutOrder(
         endpoint: widget.session.endpoint,
@@ -906,7 +1164,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog> {
         tradeNo: tradeNo,
         methodId: _selectedMethodId ?? 0,
       );
-      if (!mounted) return;
+      if (!_isCurrentAttempt(attempt)) return;
       if (checkout.isFree) {
         _showSuccess();
         return;
@@ -915,58 +1173,89 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog> {
         _paymentPayload = checkout.paymentPayload;
         _stage = _PaymentStage.waiting;
       });
-      _statusTimer?.cancel();
-      _statusTimer = Timer.periodic(
-        const Duration(seconds: 3),
-        (_) => _checkOrderStatus(),
-      );
+      _scheduleStatusCheck();
     } catch (error) {
-      _showFailure(_messageFor(error));
+      if (_isCurrentAttempt(attempt)) _showFailure(_messageFor(error));
     }
   }
 
-  Future<void> _checkOrderStatus() async {
+  Future<void> _checkOrderStatus({bool userInitiated = false}) async {
     final tradeNo = _tradeNo;
-    if (tradeNo == null || _checking || !mounted) return;
-    _checking = true;
+    final allowed = userInitiated
+        ? _canUseUserAction && _stage == _PaymentStage.waiting
+        : _canCheck;
+    if (tradeNo == null || _checking || !allowed) return;
+    if (userInitiated && _desktop && !_windowAvailable) {
+      _resumeWindowPolling();
+    }
+    final attempt = _attempt;
+    _cancelStatusTimer();
+    setState(() => _checking = true);
     try {
       final status = await widget.authService.checkOrder(
         endpoint: widget.session.endpoint,
         authData: widget.session.authData,
         tradeNo: tradeNo,
       );
-      if (!mounted) return;
+      if (!mounted || !_isCurrentAttempt(attempt) || _tradeNo != tradeNo) {
+        return;
+      }
+      _failures = 0;
       if (status == 1 || status == 3) {
         _showSuccess();
       } else if (status == 2) {
         _showFailure(context.appLocalizations.orderCancelled);
       }
     } catch (error, stackTrace) {
+      if (!_isCurrentAttempt(attempt)) return;
+      if (_failures < 4) _failures++;
       commonPrint.log(
         'check XBoard payment status failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
     } finally {
-      _checking = false;
+      if (mounted && !_closed) {
+        setState(() => _checking = false);
+        _scheduleStatusCheck();
+      }
     }
   }
 
   void _showSuccess() {
-    _statusTimer?.cancel();
-    if (!mounted) return;
+    _cancelStatusTimer();
+    _windowRetryTimer?.cancel();
+    if (!mounted || _closed || !_currentSession) return;
     setState(() {
       _stage = _PaymentStage.success;
       _error = null;
     });
-    if (!_subscriptionRefreshStarted) {
+    _maybeRefreshSubscription();
+    if (_windowReadFailed && !_subscriptionRefreshStarted) {
+      _scheduleWindowReadRetry();
+    }
+  }
+
+  void _maybeRefreshSubscription({bool userInitiated = false}) {
+    final allowed = userInitiated ? _canUseUserAction : _canUseNetwork;
+    if (_stage == _PaymentStage.success &&
+        allowed &&
+        !_subscriptionRefreshStarted) {
       _subscriptionRefreshStarted = true;
       unawaited(_refreshSubscription());
     }
   }
 
   Future<void> _refreshSubscription() async {
-    final refreshed = await globalState.refreshXboardSubscription?.call();
-    if (refreshed != true) {
+    try {
+      final refreshed = await globalState.refreshXboardSubscription?.call();
+      if (refreshed == true) return;
+    } catch (error) {
+      commonPrint.log(
+        'refresh XBoard subscription after payment failed: $error',
+        logLevel: LogLevel.warning,
+      );
+    }
+    if (mounted && !_closed) {
       commonPrint.log(
         'XBoard payment succeeded but subscription refresh is pending',
         logLevel: LogLevel.warning,
@@ -975,8 +1264,9 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog> {
   }
 
   void _showFailure(String message) {
-    _statusTimer?.cancel();
-    if (!mounted) return;
+    _cancelStatusTimer();
+    _windowRetryTimer?.cancel();
+    if (!mounted || _closed || !_currentSession) return;
     setState(() {
       _stage = _PaymentStage.failure;
       _error = message;
@@ -994,72 +1284,85 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog> {
   Widget build(BuildContext context) {
     final colors = _PlanColors.of(context);
     final l10n = context.appLocalizations;
-    return Dialog(
-      insetPadding: const EdgeInsets.all(20),
-      clipBehavior: Clip.antiAlias,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 700),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(22, 18, 14, 14),
-              child: Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: colors.primarySoft,
-                      borderRadius: BorderRadius.circular(14),
+    return PopScope<bool>(
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) return;
+        _maybeRefreshSubscription(userInitiated: true);
+        _closed = true;
+        _windowRevision++;
+        _cancelStatusTimer();
+        _windowRetryTimer?.cancel();
+      },
+      child: Dialog(
+        insetPadding: const EdgeInsets.all(20),
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520, maxHeight: 700),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 18, 14, 14),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: colors.primarySoft,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(
+                        Icons.qr_code_2_rounded,
+                        color: colors.primary,
+                      ),
                     ),
-                    child: Icon(Icons.qr_code_2_rounded, color: colors.primary),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          l10n.inAppPayment,
-                          style: TextStyle(
-                            color: colors.text,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            l10n.inAppPayment,
+                            style: TextStyle(
+                              color: colors.text,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
-                        ),
-                        Text(
-                          l10n.paymentStaysInApp,
-                          style: TextStyle(color: colors.muted, fontSize: 12),
-                        ),
-                      ],
+                          Text(
+                            l10n.paymentStaysInApp,
+                            style: TextStyle(color: colors.muted, fontSize: 12),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(false),
-                    tooltip: MaterialLocalizations.of(
-                      context,
-                    ).closeButtonTooltip,
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                ],
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      tooltip: MaterialLocalizations.of(
+                        context,
+                      ).closeButtonTooltip,
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            Divider(height: 1, color: colors.outline),
-            Flexible(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
-                child: switch (_stage) {
-                  _PaymentStage.loading => _paymentLoading(colors),
-                  _PaymentStage.ready => _paymentReady(colors),
-                  _PaymentStage.submitting => _paymentSubmitting(colors),
-                  _PaymentStage.waiting => _paymentQr(colors),
-                  _PaymentStage.success => _paymentSuccess(colors),
-                  _PaymentStage.failure => _paymentFailure(colors),
-                },
+              Divider(height: 1, color: colors.outline),
+              Flexible(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  child: switch (_stage) {
+                    _PaymentStage.loading => _paymentLoading(colors),
+                    _PaymentStage.ready => _paymentReady(colors),
+                    _PaymentStage.submitting => _paymentSubmitting(colors),
+                    _PaymentStage.waiting => _paymentQr(colors),
+                    _PaymentStage.success => _paymentSuccess(colors),
+                    _PaymentStage.failure => _paymentFailure(colors),
+                  },
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1221,11 +1524,13 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog> {
                   ),
                 ),
                 const SizedBox(width: 9),
-                Text(
-                  l10n.waitingForPayment,
-                  style: TextStyle(
-                    color: colors.primary,
-                    fontWeight: FontWeight.w700,
+                Flexible(
+                  child: Text(
+                    l10n.waitingForPayment,
+                    style: TextStyle(
+                      color: colors.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ],
@@ -1233,7 +1538,9 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog> {
           ),
           const SizedBox(height: 14),
           OutlinedButton.icon(
-            onPressed: _checking ? null : _checkOrderStatus,
+            onPressed: _checking
+                ? null
+                : () => _checkOrderStatus(userInitiated: true),
             icon: const Icon(Icons.refresh_rounded),
             label: Text(l10n.iHavePaid),
           ),
