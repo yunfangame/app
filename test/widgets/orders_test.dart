@@ -433,6 +433,91 @@ void main() {
     },
   );
 
+  _ordersTest('recent orders survive repeated page and window restores', (
+    tester,
+  ) async {
+    var now = DateTime.utc(2026, 10, 25);
+    var requests = 0;
+    final activity = await _mountOrders(
+      tester,
+      _testService(onRequested: () => requests++),
+      now: () => now,
+    );
+    expect(requests, 1);
+    for (var i = 0; i < 3; i++) {
+      activity.value = false;
+      await tester.pump();
+      activity.value = true;
+      await tester.pumpAndSettle();
+      await _windowEvent(tester, 'blur');
+      await _windowEvent(tester, 'focus');
+      await tester.pumpAndSettle();
+    }
+    expect(requests, 1);
+    now = now.add(const Duration(seconds: 30));
+    await _windowEvent(tester, 'blur');
+    await _windowEvent(tester, 'focus');
+    await tester.pumpAndSettle();
+    expect(requests, 2);
+    await tester.pump(const Duration(minutes: 10));
+    expect(requests, 2);
+  });
+
+  _ordersTest('order changes and explicit refresh bypass recent results', (
+    tester,
+  ) async {
+    final now = DateTime.utc(2026, 10, 25);
+    var requests = 0;
+    await _mountOrders(
+      tester,
+      _testService(onRequested: () => requests++),
+      now: () => now,
+    );
+    await tester.tap(find.byKey(const ValueKey('refresh-orders')));
+    await tester.pumpAndSettle();
+    expect(requests, 2);
+    invalidateXboardOrders(_testSession());
+    invalidateXboardOrders(_testSession());
+    await tester.pumpAndSettle();
+    expect(requests, 3);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(requests, 3);
+  });
+
+  _ordersTest(
+    'empty successful orders are reusable and clock rollback expires them',
+    (tester) async {
+      var now = DateTime.utc(2026, 10, 25);
+      var requests = 0;
+      final activity = await _mountOrders(
+        tester,
+        _testService(
+          orders: (_, _) async {
+            requests++;
+            return const XboardLoginResponse(
+              statusCode: 200,
+              data: {'data': []},
+            );
+          },
+        ),
+        now: () => now,
+      );
+      activity.value = false;
+      await tester.pump();
+      activity.value = true;
+      await tester.pumpAndSettle();
+      expect(requests, 1);
+      now = now.subtract(const Duration(seconds: 1));
+      activity.value = false;
+      await tester.pump();
+      activity.value = true;
+      await tester.pumpAndSettle();
+      expect(requests, 2);
+    },
+  );
+
   _ordersTest('orders page paginates, shows details, and cancels an order', (
     tester,
   ) async {
@@ -529,6 +614,7 @@ Future<ValueNotifier<bool>> _mountOrders(
   WidgetTester tester,
   XboardAuthService service, {
   bool active = true,
+  DateTime Function()? now,
 }) async {
   tester.view.physicalSize = const Size(1440, 1000);
   tester.view.devicePixelRatio = 1;
@@ -544,7 +630,7 @@ Future<ValueNotifier<bool>> _mountOrders(
     _TestApp(
       child: ValueListenableBuilder<bool>(
         valueListenable: activity,
-        child: FengWoOrdersView(authService: service),
+        child: FengWoOrdersView(authService: service, now: now),
         builder: (_, active, child) =>
             PageActivityScope(isActive: active, child: child!),
       ),
