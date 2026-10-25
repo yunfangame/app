@@ -4,6 +4,7 @@ import 'package:fl_clash/common/api_health.dart';
 import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/widgets/api_health_indicator.dart';
+import 'package:fl_clash/widgets/inherited.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,6 +29,34 @@ void main() {
     await tester.tap(find.byKey(const Key('api-health-refresh-config-button')));
     await tester.pumpAndSettle();
     expect(service.refreshModes, [false, true]);
+  });
+
+  testWidgets('hidden page and paused application defer until available', (
+    tester,
+  ) async {
+    final activity = ApiRemoteConfigActivity()..setAppForeground(false);
+    final service = _ControlledApiHealthService(activity: activity);
+    await tester.pumpWidget(_testApp(service, pageActive: false));
+    await tester.pumpAndSettle();
+    expect(service.refreshModes, isEmpty);
+    activity.setAppForeground(true);
+    await tester.pumpAndSettle();
+    expect(service.refreshModes, isEmpty);
+    await tester.pumpWidget(_testApp(service));
+    await tester.pumpAndSettle();
+    expect(service.refreshModes, [false]);
+    activity.setOffline(true);
+    await tester.pumpAndSettle();
+    expect(service.refreshModes, [false]);
+    activity.setOffline(false);
+    await tester.pumpAndSettle();
+    expect(service.refreshModes, [false, false]);
+    await tester.pumpWidget(const SizedBox());
+    activity.setAppForeground(false);
+    activity.setAppForeground(true);
+    await tester.pumpAndSettle();
+    expect(service.refreshModes, [false, false]);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('typed endpoint failure and export fit a narrow viewport', (
@@ -265,6 +294,7 @@ Widget _testApp(
   ThemeMode themeMode = ThemeMode.light,
   Locale locale = const Locale('zh', 'CN'),
   Future<bool> Function()? onExportLogs,
+  bool pageActive = true,
 }) {
   return MaterialApp(
     themeMode: themeMode,
@@ -284,7 +314,10 @@ Widget _testApp(
     home: Scaffold(
       backgroundColor: const Color(0xFF12103D),
       body: Center(
-        child: ApiHealthControl(service: service, onExportLogs: onExportLogs),
+        child: PageActivityScope(
+          isActive: pageActive,
+          child: ApiHealthControl(service: service, onExportLogs: onExportLogs),
+        ),
       ),
     ),
   );
@@ -314,8 +347,12 @@ ApiHealthSnapshot _snapshot() {
 }
 
 class _ControlledApiHealthService extends ApiHealthService {
-  _ControlledApiHealthService({this.snapshot, this.onProbe, this.onCheck})
-    : super(configUrl: '');
+  _ControlledApiHealthService({
+    this.snapshot,
+    this.onProbe,
+    this.onCheck,
+    super.activity,
+  }) : super(configUrl: '');
 
   final ApiHealthSnapshot? snapshot;
   final Future<ApiEndpointHealth> Function(Uri)? onProbe;

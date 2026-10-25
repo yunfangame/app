@@ -21,7 +21,7 @@ class WindowManager extends ConsumerStatefulWidget {
 }
 
 class _WindowContainerState extends ConsumerState<WindowManager>
-    with WindowListener, WindowExtListener {
+    with WindowListener, WindowExtListener, WidgetsBindingObserver {
   int _marqueeWindowRevision = 0;
   Timer? _windowReadRetryTimer;
   int _windowReadRetries = 0;
@@ -44,6 +44,7 @@ class _WindowContainerState extends ConsumerState<WindowManager>
     _marqueeWindowRevision++;
     _knownWindowBackground = !foreground;
     _cancelWindowReadRetry();
+    ApiHealthService.setWindowForeground(foreground);
     _marquee.setWindowForeground(foreground);
   }
 
@@ -76,6 +77,8 @@ class _WindowContainerState extends ConsumerState<WindowManager>
     if (resetBudget) _cancelWindowReadRetry();
     if (recoveryEvent) _knownWindowBackground = false;
     final revision = ++_marqueeWindowRevision;
+    ApiHealthService.setWindowForeground(false);
+    _marquee.setWindowForeground(false);
     try {
       final state = await Future.wait([
         windowManager.isVisible(),
@@ -86,6 +89,7 @@ class _WindowContainerState extends ConsumerState<WindowManager>
       final foreground = state[0] && !state[1] && state[2];
       _knownWindowBackground = !foreground;
       _cancelWindowReadRetry();
+      ApiHealthService.setWindowForeground(foreground);
       _marquee.setWindowForeground(foreground);
     } catch (_) {
       _scheduleWindowReadRetry(revision);
@@ -100,6 +104,8 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    ApiHealthService.setWindowForeground(false);
     ref.listenManual(appSettingProvider.select((state) => state.autoLaunch), (
       prev,
       next,
@@ -114,6 +120,15 @@ class _WindowContainerState extends ConsumerState<WindowManager>
     windowManager.addListener(this);
     _marquee.setWindowForeground(false);
     unawaited(_refreshMarqueeWindowActivity());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      _setMarqueeWindowForeground(false);
+    } else {
+      unawaited(_refreshMarqueeWindowActivity(recoveryEvent: true));
+    }
   }
 
   @override
@@ -195,6 +210,8 @@ class _WindowContainerState extends ConsumerState<WindowManager>
 
   @override
   Future<void> dispose() async {
+    WidgetsBinding.instance.removeObserver(this);
+    ApiHealthService.setWindowForeground(false);
     _marqueeWindowRevision++;
     _knownWindowBackground = true;
     _cancelWindowReadRetry();

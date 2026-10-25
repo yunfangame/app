@@ -1,5 +1,6 @@
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/widgets/api_network_diagnostic_text.dart';
+import 'package:fl_clash/widgets/inherited.dart';
 import 'package:flutter/material.dart';
 
 Future<void> showApiHealthDiagnostics(
@@ -46,34 +47,94 @@ class _ApiHealthControlState extends State<ApiHealthControl> {
   late final ApiHealthService _service;
   ApiHealthSnapshot? _snapshot;
   bool _checking = false;
+  bool _active = true;
+  bool _needsCheck = false;
+  bool _queued = false;
+  bool _detailsOpen = false;
+  int _revision = 0;
 
   @override
   void initState() {
     super.initState();
     _service = widget.service ?? ApiHealthService();
-    if (widget.autoCheck) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
+    _service.addAvailabilityListener(_availabilityChanged);
+    _needsCheck = widget.autoCheck;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final active = PageActivityScope.isActiveOf(context);
+    if (_active != active) {
+      _active = active;
+      _revision++;
+      _needsCheck = widget.autoCheck;
     }
+    _queueCheck();
+  }
+
+  @override
+  void dispose() {
+    _service.removeAvailabilityListener(_availabilityChanged);
+    super.dispose();
+  }
+
+  void _availabilityChanged() {
+    _revision++;
+    _needsCheck = widget.autoCheck;
+    _queueCheck();
+  }
+
+  void _queueCheck() {
+    if (!mounted ||
+        _queued ||
+        !_needsCheck ||
+        !_active ||
+        !_service.canAutomaticallyCheck ||
+        _checking ||
+        _detailsOpen) {
+      return;
+    }
+    _queued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _queued = false;
+      if (mounted) _refresh();
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   Future<void> _refresh() async {
-    if (!mounted || _checking) return;
+    if (!mounted ||
+        _checking ||
+        !_needsCheck ||
+        !_active ||
+        !_service.canAutomaticallyCheck ||
+        _detailsOpen) {
+      return;
+    }
+    _needsCheck = false;
+    final revision = _revision;
     setState(() => _checking = true);
     try {
       final snapshot = await _service.check(forceRefresh: false);
-      if (mounted) setState(() => _snapshot = snapshot);
+      if (mounted && revision == _revision && !snapshot.isDeferred) {
+        setState(() => _snapshot = snapshot);
+      }
     } catch (error) {
       commonPrint.event(
         'api.health.ui.failed',
         fields: {'error_type': error.runtimeType.toString()},
       );
-      if (mounted) {
+      if (mounted && revision == _revision) {
         setState(
           () => _snapshot = ApiHealthSnapshot.unavailable('check_failed'),
         );
       }
     } finally {
-      if (mounted) setState(() => _checking = false);
+      if (mounted) {
+        setState(() => _checking = false);
+        _queueCheck();
+      }
     }
   }
 
@@ -97,6 +158,9 @@ class _ApiHealthControlState extends State<ApiHealthControl> {
   }
 
   Future<void> _showDetails() async {
+    _revision++;
+    _detailsOpen = true;
+    _needsCheck = false;
     final result = await showDialog<_ApiHealthDialogResult>(
       context: context,
       builder: (_) => _ApiHealthDialog(
@@ -105,8 +169,10 @@ class _ApiHealthControlState extends State<ApiHealthControl> {
         onExportLogs: widget.onExportLogs,
       ),
     );
-    if (!mounted || result == null) return;
-    setState(() => _snapshot = result.snapshot);
+    if (!mounted) return;
+    _detailsOpen = false;
+    _needsCheck = false;
+    if (result != null) setState(() => _snapshot = result.snapshot);
   }
 
   @override
@@ -156,6 +222,7 @@ class _ApiHealthDialog extends StatefulWidget {
 class _ApiHealthDialogState extends State<_ApiHealthDialog> {
   ApiHealthSnapshot? _snapshot;
   bool _checkingAll = false;
+  int _revision = 0;
   final _testingIndexes = <int>{};
 
   @override
@@ -169,6 +236,7 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
 
   Future<void> _refreshAll() async {
     if (!mounted || _checkingAll) return;
+    _revision++;
     setState(() => _checkingAll = true);
     try {
       final snapshot = await widget.service.check();
@@ -194,12 +262,13 @@ class _ApiHealthDialogState extends State<_ApiHealthDialog> {
     if (snapshot == null || _checkingAll || _testingIndexes.contains(index)) {
       return;
     }
+    final revision = _revision;
     setState(() => _testingIndexes.add(index));
     try {
       final result = await widget.service.probeEndpoint(
         snapshot.endpoints[index].endpoint,
       );
-      if (!mounted) return;
+      if (!mounted || revision != _revision) return;
       final current = _snapshot;
       if (current == null ||
           index >= current.endpoints.length ||

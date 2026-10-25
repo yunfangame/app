@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/xboard_auth.dart';
+import 'package:fl_clash/common/api_health.dart';
 import 'package:fl_clash/common/xboard_marquee.dart';
 import 'package:fl_clash/manager/window_manager.dart';
 import 'package:fl_clash/providers/providers.dart';
@@ -191,11 +192,51 @@ void main() {
     } finally {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     }
-    await rig.emit('show');
     await tester.pump(Duration.zero);
     expect(rig.stateReads, 2);
     expect(rig.controller.isForeground, isTrue);
   });
+
+  testWidgets(
+    'automatic queries wait for fresh window verification on resume',
+    (tester) async {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final initial = Completer<bool>();
+      final rig = _Rig()..readFocus = () => initial.future;
+      await rig.mount(tester);
+      expect(ApiHealthService.automaticRequestsAvailable, isFalse);
+      initial.complete(true);
+      await tester.pump();
+      expect(ApiHealthService.automaticRequestsAvailable, isTrue);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      expect(ApiHealthService.automaticRequestsAvailable, isFalse);
+      final pending = Completer<bool>();
+      rig.readFocus = () => pending.future;
+      rig.visible = false;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(ApiHealthService.automaticRequestsAvailable, isFalse);
+      var requests = 0;
+      final service = ApiHealthService(
+        configUrl: 'https://config.example/resume-gate',
+        configLoader: (_) async {
+          requests++;
+          return {
+            'Authentication': 'FengWo',
+            'hosts': ['https://api.example.com'],
+          };
+        },
+        endpointProbe: (_) async => true,
+      );
+      expect((await service.check(forceRefresh: false)).isDeferred, isTrue);
+      pending.complete(false);
+      await tester.pump();
+      expect((await service.check(forceRefresh: false)).isDeferred, isTrue);
+      expect(requests, 0);
+      await tester.pumpWidget(const SizedBox());
+      expect(ApiHealthService.automaticRequestsAvailable, isFalse);
+    },
+  );
 
   testWidgets('disposing cancels native state retry', (tester) async {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);

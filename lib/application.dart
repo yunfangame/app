@@ -44,6 +44,7 @@ class Application extends ConsumerStatefulWidget {
 class ApplicationState extends ConsumerState<Application> {
   Timer? _autoUpdateProfilesTaskTimer;
   bool _preHasVpn = false;
+  String? _apiHealthConnectivity;
   bool _isOpeningRegister = false;
   bool _isOpeningForgotPassword = false;
   LoginFormPrefill? _loginPrefill;
@@ -1841,6 +1842,17 @@ class ApplicationState extends ConsumerState<Application> {
             ref.read(systemActionProvider.notifier).updateLocalIp();
             final hasVpn = results.contains(ConnectivityResult.vpn);
             final hasPhysicalNetwork = hasPhysicalConnectivity(results);
+            final transports = results.map((item) => item.name).toList()
+              ..sort();
+            final signature = transports.join(',');
+            if (_apiHealthConnectivity != signature) {
+              _apiHealthConnectivity = signature;
+              ApiHealthService.networkChanged(
+                available: results.any(
+                  (item) => item != ConnectivityResult.none,
+                ),
+              );
+            }
             commonPrint.event(
               'network.connectivity.changed',
               fields: {

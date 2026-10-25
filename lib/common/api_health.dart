@@ -10,6 +10,8 @@ import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/api_remote_config_cache.dart';
 import 'package:fl_clash/common/remote_config_cipher.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
+import 'api_health_snapshot_cache.dart';
 
 const apiHealthConfigUrl = String.fromEnvironment(
   'API_HEALTH_CONFIG_URL',
@@ -119,6 +121,8 @@ class ApiHealthSnapshot {
   final String? error;
   final ApiNetworkDiagnostic? diagnostic;
 
+  bool get isDeferred => error == 'check_deferred';
+
   int get total => endpoints.length;
 
   int get reachableCount =>
@@ -147,27 +151,50 @@ class ApiRemoteConfigMemoryCache {
       '${DateTime.now().microsecondsSinceEpoch}-${_sequence++}';
 }
 
-class ApiRemoteConfigActivity {
+class ApiRemoteConfigActivity extends ChangeNotifier {
   bool _appForeground = true;
   bool _windowForeground = true;
+  bool _offline = false;
+  bool _networkAvailable = true;
+  int _networkRevision = 0;
   final Map<Object, void Function()> _pending = {};
 
   bool get isForeground => _appForeground && _windowForeground;
+  bool get isAvailable => isForeground && !_offline && _networkAvailable;
+  int get networkRevision => _networkRevision;
 
   void setAppForeground(bool value) {
+    final before = isAvailable;
     _appForeground = value;
     _resume();
+    if (before != isAvailable) notifyListeners();
   }
 
   void setWindowForeground(bool value) {
+    final before = isAvailable;
     _windowForeground = value;
     _resume();
+    if (before != isAvailable) notifyListeners();
+  }
+
+  void setOffline(bool value) {
+    final before = isAvailable;
+    _offline = value;
+    _resume();
+    if (before != isAvailable) notifyListeners();
+  }
+
+  void networkChanged({bool available = true}) {
+    _networkAvailable = available;
+    _networkRevision++;
+    _resume();
+    notifyListeners();
   }
 
   void _defer(Object key, void Function() refresh) => _pending[key] = refresh;
 
   void _resume() {
-    if (!isForeground || _pending.isEmpty) return;
+    if (!isAvailable || _pending.isEmpty) return;
     final pending = _pending.values.toList();
     _pending.clear();
     for (final refresh in pending) {
@@ -221,6 +248,7 @@ class ApiHealthService {
     ApiEndpointPreferenceStore? preferenceStore,
     ApiDiagnosticRecorder? diagnosticRecorder,
     ApiRemoteConfigMemoryCache? memoryCache,
+    ApiHealthSnapshotCache? healthCache,
     ApiRemoteConfigActivity? activity,
     DateTime Function()? now,
     String aesKey = remoteConfigAesKey,
@@ -255,6 +283,12 @@ class ApiHealthService {
         (usesDefaultSources
             ? _sharedMemoryCache
             : ApiRemoteConfigMemoryCache());
+    _healthCache =
+        healthCache ??
+        (usesDefaultSources && endpointProbe == null
+            ? _sharedHealthCache
+            : ApiHealthSnapshotCache(now: _now));
+    _healthScope = '$domain.${probeTimeout.inMicroseconds}';
     _cacheState = pool._domains.putIfAbsent(
       domain,
       _RemoteConfigCacheState.new,
@@ -291,6 +325,9 @@ class ApiHealthService {
   final DateTime Function() _now;
   final ApiRemoteConfigActivity _activity;
   late final _RemoteConfigCacheState _cacheState;
+  late final ApiHealthSnapshotCache _healthCache;
+  late final String _healthScope;
+  static final _sharedHealthCache = ApiHealthSnapshotCache();
   static final _sharedMemoryCache = ApiRemoteConfigMemoryCache();
   static final _sharedActivity = ApiRemoteConfigActivity();
   static int _configRefreshSequence = 0;
@@ -300,6 +337,21 @@ class ApiHealthService {
 
   static void setWindowForeground(bool foreground) =>
       _sharedActivity.setWindowForeground(foreground);
+
+  static bool get automaticRequestsAvailable => _sharedActivity.isAvailable;
+
+  static void setOffline(bool offline) => _sharedActivity.setOffline(offline);
+
+  static void networkChanged({bool available = true}) =>
+      _sharedActivity.networkChanged(available: available);
+
+  bool get canAutomaticallyCheck => _activity.isAvailable;
+
+  void addAvailabilityListener(VoidCallback listener) =>
+      _activity.addListener(listener);
+
+  void removeAvailabilityListener(VoidCallback listener) =>
+      _activity.removeListener(listener);
 
   static String _configTrustDomain(
     List<Uri> sources,
@@ -346,7 +398,27 @@ class ApiHealthService {
     return uri;
   }
 
-  Future<ApiHealthSnapshot> check({bool forceRefresh = true}) async {
+  Future<ApiHealthSnapshot> check({bool forceRefresh = true}) {
+    final revision = _activity.networkRevision;
+    final scope = '$_healthScope.$revision';
+    if (!forceRefresh && !canAutomaticallyCheck) {
+      return Future.value(
+        _healthCache.peek(scope) ??
+            ApiHealthSnapshot.unavailable('check_deferred'),
+      );
+    }
+    return _healthCache.load(
+      scope: scope,
+      forceRefresh: forceRefresh,
+      loader: () =>
+          _performCheck(forceRefresh: forceRefresh, revision: revision),
+    );
+  }
+
+  Future<ApiHealthSnapshot> _performCheck({
+    required bool forceRefresh,
+    required int revision,
+  }) async {
     if (_configUris.isEmpty) {
       return ApiHealthSnapshot.unavailable(
         'config_not_configured',
@@ -363,14 +435,33 @@ class ApiHealthService {
         forceRefresh: forceRefresh,
       );
 
+      if (!forceRefresh &&
+          (!canAutomaticallyCheck || revision != _activity.networkRevision)) {
+        return ApiHealthSnapshot.unavailable('check_deferred');
+      }
       final results = await Future.wait(verified.endpoints.map(probeEndpoint));
-      return ApiHealthSnapshot(endpoints: results, checkedAt: DateTime.now());
+      if (!forceRefresh &&
+          (!canAutomaticallyCheck || revision != _activity.networkRevision)) {
+        return ApiHealthSnapshot.unavailable('check_deferred');
+      }
+      return ApiHealthSnapshot(
+        endpoints: List.unmodifiable(results),
+        checkedAt: _now(),
+      );
     } on ApiRemoteConfigException catch (error) {
+      if (!forceRefresh &&
+          (!canAutomaticallyCheck || revision != _activity.networkRevision)) {
+        return ApiHealthSnapshot.unavailable('check_deferred');
+      }
       return ApiHealthSnapshot.unavailable(
         error.code,
         diagnostic: error.diagnostic,
       );
     } catch (error) {
+      if (!forceRefresh &&
+          (!canAutomaticallyCheck || revision != _activity.networkRevision)) {
+        return ApiHealthSnapshot.unavailable('check_deferred');
+      }
       return ApiHealthSnapshot.unavailable(
         'config_http_failed',
         diagnostic: classifyApiNetworkFailure(error, stage: 'remote_config'),
@@ -546,7 +637,7 @@ class ApiHealthService {
       final fresh = _freshConfig(requireEndpoints: requireEndpoints);
       if (fresh != null) return Future.value(fresh);
       final verified = _cacheState.verified;
-      if (!_activity.isForeground &&
+      if (!_activity.isAvailable &&
           verified != null &&
           (!requireEndpoints || verified.endpoints.isNotEmpty)) {
         _deferConfigRefresh(requireEndpoints: requireEndpoints);
@@ -690,7 +781,7 @@ class ApiHealthService {
       if (delay > Duration.zero) await Future<void>.delayed(delay);
       final verified = _cacheState.verified;
       if (!forceRefresh &&
-          !_activity.isForeground &&
+          !_activity.isAvailable &&
           verified != null &&
           (!requireEndpoints || verified.endpoints.isNotEmpty)) {
         _deferConfigRefresh(requireEndpoints: requireEndpoints);
@@ -913,7 +1004,7 @@ class ApiHealthService {
   }
 
   void _refreshRemoteConfigInBackground({bool requireEndpoints = true}) {
-    if (!_activity.isForeground) {
+    if (!_activity.isAvailable) {
       _deferConfigRefresh(requireEndpoints: requireEndpoints);
       return;
     }

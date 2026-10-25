@@ -42,6 +42,7 @@ class AppStateManager extends ConsumerStatefulWidget {
 class _AppStateManagerState extends ConsumerState<AppStateManager>
     with WidgetsBindingObserver {
   void _syncTickets() {
+    ApiHealthService.setOffline(globalState.isOfflineMode);
     final controller = globalState.xboardTicketController;
     controller.updateSession(
       globalState.xboardSession,
