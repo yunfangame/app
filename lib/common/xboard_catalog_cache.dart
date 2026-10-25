@@ -6,6 +6,8 @@ import 'xboard_auth.dart';
 
 final _catalogScope = _CatalogScope();
 final xboardPlanCatalog = XboardCatalogCache<List<XboardAvailablePlan>>();
+final xboardPaymentMethodCatalog =
+    XboardCatalogCache<List<XboardPaymentMethod>>();
 
 class XboardCatalogCache<T> {
   XboardCatalogCache({
@@ -246,3 +248,16 @@ void _ensureCatalogEpoch(XboardLoginResult session, int epoch) {
     throw StateError('Catalog session changed');
   }
 }
+
+Future<List<XboardPaymentMethod>> loadXboardPaymentMethodCatalog({
+  required XboardAuthService authService,
+  required XboardLoginResult session,
+  bool forceRefresh = false,
+}) => xboardPaymentMethodCatalog.load(
+  session,
+  () => authService.fetchPaymentMethods(
+    endpoint: session.endpoint,
+    authData: session.authData,
+  ),
+  forceRefresh: forceRefresh,
+);
