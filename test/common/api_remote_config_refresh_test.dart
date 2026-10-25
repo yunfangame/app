@@ -257,7 +257,7 @@ void main() {
       await service.check();
       await service.check(forceRefresh: false);
       expect(requests, 3);
-      expect(probes, 3);
+      expect(probes, 2);
     },
   );
 

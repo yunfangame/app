@@ -32,7 +32,7 @@ class WindowManager extends ConsumerStatefulWidget {
 }
 
 class _WindowContainerState extends ConsumerState<WindowManager>
-    with WindowListener, WindowExtListener {
+    with WindowListener, WindowExtListener, WidgetsBindingObserver {
   Timer? _boundsSyncTimer;
   int _boundsSyncRevision = 0;
   int _configWindowRevision = 0;
@@ -93,6 +93,8 @@ class _WindowContainerState extends ConsumerState<WindowManager>
     if (resetBudget) _cancelWindowReadRetry();
     if (recoveryEvent) _knownWindowBackground = false;
     final revision = ++_configWindowRevision;
+    ApiHealthService.setWindowForeground(false);
+    _marquee.setWindowForeground(false);
     try {
       final state = await Future.wait([
         windowManager.isVisible(),
@@ -172,6 +174,8 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    ApiHealthService.setWindowForeground(false);
     windowExtManager.addListener(this);
     if (system.isMacOS) {
       unawaited(windowExtManager.setTerminateHandlerReady(true));
@@ -179,6 +183,15 @@ class _WindowContainerState extends ConsumerState<WindowManager>
     windowManager.addListener(this);
     _marquee.setWindowForeground(false);
     unawaited(_refreshConfigWindowActivity());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      _setConfigWindowForeground(false);
+    } else {
+      unawaited(_refreshConfigWindowActivity(recoveryEvent: true));
+    }
   }
 
   @override
@@ -296,6 +309,8 @@ class _WindowContainerState extends ConsumerState<WindowManager>
 
   @override
   Future<void> dispose() async {
+    WidgetsBinding.instance.removeObserver(this);
+    ApiHealthService.setWindowForeground(false);
     _configWindowRevision++;
     _knownWindowBackground = true;
     _cancelWindowReadRetry();
