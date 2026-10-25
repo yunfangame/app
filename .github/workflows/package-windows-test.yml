@@ -32,13 +32,15 @@ jobs:
           $versionLine = Select-String -Path pubspec.yaml -Pattern '^version:\s*(\S+)\s*$'
           if (@($versionLine).Count -ne 1) { throw 'Expected one pubspec version' }
           $sourceVersion = $versionLine.Matches[0].Groups[1].Value
-          $packagedVersion = "$($sourceVersion.Split('+')[0])+$env:TEST_BUILD_NUMBER"
+          $displayVersion = $sourceVersion.Split('+')[0]
+          $packagedVersion = "$displayVersion+$env:TEST_BUILD_NUMBER"
           $pubspecPath = Join-Path $PWD 'pubspec.yaml'
           $pubspec = [System.IO.File]::ReadAllText($pubspecPath)
           $testPubspec = [regex]::Replace($pubspec, '(?m)^version:[^\r\n]*', "version: $packagedVersion")
           [System.IO.File]::WriteAllText($pubspecPath, $testPubspec, [System.Text.UTF8Encoding]::new($false))
           $buildId = "$($env:GITHUB_SHA.Substring(0, 12))-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           "source_version=$sourceVersion" >> $env:GITHUB_OUTPUT
+          "display_version=$displayVersion" >> $env:GITHUB_OUTPUT
           "packaged_version=$packagedVersion" >> $env:GITHUB_OUTPUT
           "build_id=$buildId" >> $env:GITHUB_OUTPUT
           "artifact_name=fengwo-windows-amd64-test-$buildId" >> $env:GITHUB_OUTPUT
@@ -400,6 +402,7 @@ jobs:
           )
 
       - name: Package Windows test installer and archive
+        id: package_build
         run: dart setup.dart windows --env stable --targets exe,zip
 
       - name: Test Windows runtime prerequisites
@@ -422,8 +425,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Proxy tests failed' }
 
       - name: Verify Windows archive and runtime window
+        id: archive_acceptance
         env:
           PACKAGED_VERSION: ${{ steps.identity.outputs.packaged_version }}
+          DISPLAY_VERSION: ${{ steps.identity.outputs.display_version }}
         run: |
           $archives = @(Get-ChildItem dist -Filter '*windows*.zip' -File)
           $installers = @(Get-ChildItem dist -Filter '*windows*.exe' -File)
@@ -443,8 +448,8 @@ jobs:
             if ([BitConverter]::ToUInt16($bytes, $peOffset + 4) -ne 0x8664) { throw "Expected amd64 binary: $($binary.Name)" }
           }
           if ($app.VersionInfo.ProductName -ne '蜂窝加速器') { throw "Unexpected product name: $($app.VersionInfo.ProductName)" }
-          if ($app.VersionInfo.ProductVersion -ne $env:PACKAGED_VERSION) { throw "Unexpected product version: $($app.VersionInfo.ProductVersion)" }
-          if ($app.VersionInfo.FileVersion -ne $env:PACKAGED_VERSION) { throw "Unexpected file version: $($app.VersionInfo.FileVersion)" }
+          if ($app.VersionInfo.ProductVersion -cne $env:DISPLAY_VERSION) { throw "Unexpected product version: $($app.VersionInfo.ProductVersion)" }
+          if ($app.VersionInfo.FileVersion -cne $env:DISPLAY_VERSION) { throw "Unexpected file version: $($app.VersionInfo.FileVersion)" }
           $manifestPath = Join-Path $app.DirectoryName 'manifest.json'
           $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
           $coreHash = (Get-FileHash -LiteralPath $core.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -471,8 +476,10 @@ jobs:
           }
 
       - name: Verify installed shortcut can reopen hidden window
+        id: shortcut_acceptance
         env:
           PACKAGED_VERSION: ${{ steps.identity.outputs.packaged_version }}
+          DISPLAY_VERSION: ${{ steps.identity.outputs.display_version }}
         run: |
           $installer = Get-ChildItem dist -Filter '*windows*.exe' -File | Select-Object -First 1
           if ($null -eq $installer) { throw 'Windows installer not found' }
@@ -495,7 +502,7 @@ jobs:
           $expectedTarget = Join-Path $installDir 'FengWo.exe'
           if (-not (Test-Path -LiteralPath $expectedTarget -PathType Leaf)) { throw 'Installed executable not found' }
           $installedVersion = (Get-Item -LiteralPath $expectedTarget).VersionInfo.ProductVersion
-          if ($installedVersion -ne $env:PACKAGED_VERSION) { throw "Unexpected installed version: $installedVersion" }
+          if ($installedVersion -cne $env:DISPLAY_VERSION) { throw "Unexpected installed version: $installedVersion" }
           $shortcutPath = $shortcutCandidates |
             Select-Object -Unique |
             Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
@@ -545,11 +552,16 @@ jobs:
           }
 
       - name: Label test packages and generate checksums
+        id: label_packages
         env:
           TEST_BUILD_ID: ${{ steps.identity.outputs.build_id }}
           SOURCE_VERSION: ${{ steps.identity.outputs.source_version }}
           PACKAGED_VERSION: ${{ steps.identity.outputs.packaged_version }}
+          DISPLAY_VERSION: ${{ steps.identity.outputs.display_version }}
         run: |
+          $versionLine = Select-String -Path pubspec.yaml -Pattern '^version:\s*(\S+)\s*$'
+          if (@($versionLine).Count -ne 1 -or $versionLine.Matches[0].Groups[1].Value -cne $env:PACKAGED_VERSION) { throw 'Packaged pubspec version differs from build metadata' }
+          if ($env:DISPLAY_VERSION -cne $env:PACKAGED_VERSION.Split('+')[0]) { throw 'Display version differs from packaged build metadata' }
           $packages = @(Get-ChildItem dist -File | Where-Object { $_.Extension -in @('.exe', '.zip') })
           if ($packages.Count -ne 2) { throw 'Expected exactly two test packages' }
           foreach ($package in $packages) {
@@ -560,6 +572,8 @@ jobs:
             build_id = $env:TEST_BUILD_ID
             source_version = $env:SOURCE_VERSION
             packaged_version = $env:PACKAGED_VERSION
+            display_version = $env:DISPLAY_VERSION
+            build_number = $env:TEST_BUILD_NUMBER
             source_sha = $env:GITHUB_SHA
             source_ref = $env:GITHUB_REF
             run_id = $env:GITHUB_RUN_ID
@@ -576,14 +590,123 @@ jobs:
           }
           $hashes | Set-Content -LiteralPath dist/SHA256SUMS -Encoding utf8NoBOM
 
+      - name: Prepare Windows test artifact evidence
+        id: artifact_evidence
+        if: always()
+        env:
+          EXPECTED_ARTIFACT_NAME: ${{ steps.identity.outputs.artifact_name }}
+          TEST_BUILD_ID: ${{ steps.identity.outputs.build_id }}
+          SOURCE_VERSION: ${{ steps.identity.outputs.source_version }}
+          PACKAGED_VERSION: ${{ steps.identity.outputs.packaged_version }}
+          DISPLAY_VERSION: ${{ steps.identity.outputs.display_version }}
+          ARTIFACT_JOB_STATUS: ${{ job.status }}
+          PACKAGE_BUILD_OUTCOME: ${{ steps.package_build.outcome }}
+          ARCHIVE_ACCEPTANCE_OUTCOME: ${{ steps.archive_acceptance.outcome }}
+          SHORTCUT_ACCEPTANCE_OUTCOME: ${{ steps.shortcut_acceptance.outcome }}
+          LABEL_OUTCOME: ${{ steps.label_packages.outcome }}
+        run: |
+          if (-not (Test-Path -LiteralPath dist -PathType Container)) {
+            'has_packages=false' >> $env:GITHUB_OUTPUT
+            return
+          }
+          $installers = @(Get-ChildItem dist -Filter '*windows*.exe' -File)
+          $archives = @(Get-ChildItem dist -Filter '*windows*.zip' -File)
+          if ($installers.Count -eq 0 -or $archives.Count -eq 0) {
+            'has_packages=false' >> $env:GITHUB_OUTPUT
+            return
+          }
+          $packages = @($installers) + @($archives)
+          $metadataValid = $false
+          $metadataPath = 'dist/test-build.json'
+          if (Test-Path -LiteralPath $metadataPath -PathType Leaf) {
+            try {
+              $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
+              $metadataValid = $metadata.test_only -eq $true -and
+                $metadata.build_id -ceq $env:TEST_BUILD_ID -and
+                $metadata.source_version -ceq $env:SOURCE_VERSION -and
+                $metadata.packaged_version -ceq $env:PACKAGED_VERSION -and
+                $metadata.display_version -ceq $env:DISPLAY_VERSION -and
+                $metadata.build_number -ceq $env:TEST_BUILD_NUMBER -and
+                $metadata.source_sha -ceq $env:GITHUB_SHA -and
+                $metadata.source_ref -ceq $env:GITHUB_REF -and
+                [string]$metadata.run_id -ceq $env:GITHUB_RUN_ID -and
+                [string]$metadata.run_attempt -ceq $env:GITHUB_RUN_ATTEMPT -and
+                $metadata.architecture -ceq 'amd64' -and
+                $metadata.app_environment -ceq 'stable'
+            } catch {
+              $metadataValid = $false
+            }
+          }
+          $acceptancePassed = $env:ARTIFACT_JOB_STATUS -ceq 'success' -and
+            $env:PACKAGE_BUILD_OUTCOME -ceq 'success' -and
+            $env:ARCHIVE_ACCEPTANCE_OUTCOME -ceq 'success' -and
+            $env:SHORTCUT_ACCEPTANCE_OUTCOME -ceq 'success' -and
+            $env:LABEL_OUTCOME -ceq 'success' -and $metadataValid
+          $artifactName = $env:EXPECTED_ARTIFACT_NAME
+          if ([string]::IsNullOrWhiteSpace($artifactName)) {
+            $artifactName = "fengwo-windows-amd64-test-$($env:GITHUB_SHA.Substring(0, 12))-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          }
+          if (-not $acceptancePassed) { $artifactName = "quarantine-$artifactName" }
+          $packageRecords = @($packages | Sort-Object Name | ForEach-Object {
+            [ordered]@{
+              name = $_.Name
+              bytes = $_.Length
+              sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+          })
+          $evidence = [ordered]@{
+            schema = 'fengwo-windows-test-artifact-v1'
+            test_only = $true
+            acceptance_passed = [bool]$acceptancePassed
+            quarantined = -not $acceptancePassed
+            diagnostic_only = -not $acceptancePassed
+            workflow_status_before_upload = $env:ARTIFACT_JOB_STATUS
+            package_build_outcome = $env:PACKAGE_BUILD_OUTCOME
+            archive_acceptance_outcome = $env:ARCHIVE_ACCEPTANCE_OUTCOME
+            shortcut_acceptance_outcome = $env:SHORTCUT_ACCEPTANCE_OUTCOME
+            label_outcome = $env:LABEL_OUTCOME
+            test_build_metadata_valid = [bool]$metadataValid
+            artifact_name = $artifactName
+            build_id = $env:TEST_BUILD_ID
+            source_version = $env:SOURCE_VERSION
+            packaged_version = $env:PACKAGED_VERSION
+            display_version = $env:DISPLAY_VERSION
+            build_number = $env:TEST_BUILD_NUMBER
+            source_sha = $env:GITHUB_SHA
+            source_ref = $env:GITHUB_REF
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            architecture = 'amd64'
+            app_environment = 'stable'
+            packages = $packageRecords
+            created_at_utc = [DateTime]::UtcNow.ToString('o')
+          }
+          $evidence | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath dist/artifact-evidence.json -Encoding utf8NoBOM
+          $hashes = Get-ChildItem dist -File | Where-Object {
+            $_.Name -like '*windows*.exe' -or $_.Name -like '*windows*.zip' -or
+              $_.Name -in @('test-build.json', 'artifact-evidence.json')
+          } | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          $hashes | Set-Content -LiteralPath dist/SHA256SUMS -Encoding utf8NoBOM
+          'has_packages=true' >> $env:GITHUB_OUTPUT
+          "artifact_name=$artifactName" >> $env:GITHUB_OUTPUT
+          "acceptance_passed=$($acceptancePassed.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          if ($env:ARTIFACT_JOB_STATUS -ceq 'success' -and -not $acceptancePassed) {
+            throw 'Windows test artifact acceptance or provenance is incomplete'
+          }
+
       - name: Upload Windows test package
+        if: ${{ always() && steps.artifact_evidence.outputs.has_packages == 'true' }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.identity.outputs.artifact_name }}
+          name: ${{ steps.artifact_evidence.outputs.artifact_name }}
           path: |
-            dist/*-test-*.exe
-            dist/*-test-*.zip
+            dist/*windows*.exe
+            dist/*windows*.zip
             dist/test-build.json
+            dist/artifact-evidence.json
             dist/SHA256SUMS
           if-no-files-found: error
           retention-days: 14
