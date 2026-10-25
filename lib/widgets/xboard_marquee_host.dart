@@ -5,8 +5,10 @@ import 'package:fl_clash/state.dart';
 import 'package:flutter/widgets.dart';
 
 class XboardMarqueeHost extends StatefulWidget {
-  const XboardMarqueeHost({super.key, required this.child});
+  const XboardMarqueeHost({super.key, this.controller, required this.child});
 
+  @visibleForTesting
+  final XboardMarqueeController? controller;
   final Widget child;
 
   @override
@@ -15,18 +17,18 @@ class XboardMarqueeHost extends StatefulWidget {
 
 class _XboardMarqueeHostState extends State<XboardMarqueeHost>
     with WidgetsBindingObserver {
-  Timer? _timer;
-  var _foreground = true;
-
-  XboardMarqueeController get _controller =>
-      globalState.xboardMarqueeController;
+  late final XboardMarqueeController _controller;
 
   @override
   void initState() {
     super.initState();
+    _controller = widget.controller ?? globalState.xboardMarqueeController;
     WidgetsBinding.instance.addObserver(this);
     final lifecycle = WidgetsBinding.instance.lifecycleState;
-    _foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    _controller.startPolling(
+      foreground: lifecycle == null || lifecycle == AppLifecycleState.resumed,
+      offline: globalState.isOfflineMode,
+    );
     globalState.xboardSessionRevisionNotifier.addListener(_sessionChanged);
     globalState.offlineModeNotifier.addListener(_offlineModeChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -41,43 +43,21 @@ class _XboardMarqueeHostState extends State<XboardMarqueeHost>
         offline: globalState.isOfflineMode,
       ),
     );
-    _restartTimer();
   }
 
   void _offlineModeChanged() {
-    if (!globalState.isOfflineMode && _foreground) {
-      unawaited(_controller.refresh(force: true));
-    }
-    _restartTimer();
-  }
-
-  void _restartTimer() {
-    _timer?.cancel();
-    _timer = null;
-    if (!_foreground ||
-        globalState.isOfflineMode ||
-        globalState.xboardSession == null) {
-      return;
-    }
-    _timer = Timer.periodic(xboardMarqueeRefreshInterval, (_) {
-      unawaited(_controller.refresh());
-    });
+    _controller.setOffline(globalState.isOfflineMode);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final foreground = state == AppLifecycleState.resumed;
-    if (_foreground == foreground) return;
-    _foreground = foreground;
-    if (foreground && !globalState.isOfflineMode) {
-      unawaited(_controller.refresh());
-    }
-    _restartTimer();
+    _controller.setForeground(state == AppLifecycleState.resumed);
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _controller.setForeground(false);
+    _controller.stopPolling();
     globalState.xboardSessionRevisionNotifier.removeListener(_sessionChanged);
     globalState.offlineModeNotifier.removeListener(_offlineModeChanged);
     WidgetsBinding.instance.removeObserver(this);

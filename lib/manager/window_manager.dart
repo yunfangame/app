@@ -11,8 +11,10 @@ import 'package:window_manager/window_manager.dart';
 
 class WindowManager extends ConsumerStatefulWidget {
   final Widget child;
+  @visibleForTesting
+  final XboardMarqueeController? marqueeController;
 
-  const WindowManager({super.key, required this.child});
+  const WindowManager({super.key, this.marqueeController, required this.child});
 
   @override
   ConsumerState<WindowManager> createState() => _WindowContainerState();
@@ -20,6 +22,76 @@ class WindowManager extends ConsumerStatefulWidget {
 
 class _WindowContainerState extends ConsumerState<WindowManager>
     with WindowListener, WindowExtListener {
+  int _marqueeWindowRevision = 0;
+  Timer? _windowReadRetryTimer;
+  int _windowReadRetries = 0;
+  bool _knownWindowBackground = false;
+
+  XboardMarqueeController get _marquee =>
+      widget.marqueeController ?? globalState.xboardMarqueeController;
+
+  bool get _canReadWindow =>
+      WidgetsBinding.instance.lifecycleState == null ||
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+
+  void _cancelWindowReadRetry() {
+    _windowReadRetryTimer?.cancel();
+    _windowReadRetryTimer = null;
+    _windowReadRetries = 0;
+  }
+
+  void _setMarqueeWindowForeground(bool foreground) {
+    _marqueeWindowRevision++;
+    _knownWindowBackground = !foreground;
+    _cancelWindowReadRetry();
+    _marquee.setWindowForeground(foreground);
+  }
+
+  void _scheduleWindowReadRetry(int revision) {
+    if (!mounted ||
+        revision != _marqueeWindowRevision ||
+        _knownWindowBackground ||
+        !_canReadWindow ||
+        _windowReadRetries >= 4) {
+      return;
+    }
+    final seconds = const [1, 3, 6, 12][_windowReadRetries++];
+    _windowReadRetryTimer = Timer(Duration(seconds: seconds), () {
+      _windowReadRetryTimer = null;
+      if (!mounted ||
+          revision != _marqueeWindowRevision ||
+          _knownWindowBackground ||
+          !_canReadWindow) {
+        return;
+      }
+      unawaited(_refreshMarqueeWindowActivity(resetBudget: false));
+    });
+  }
+
+  Future<void> _refreshMarqueeWindowActivity({
+    bool resetBudget = true,
+    bool recoveryEvent = false,
+  }) async {
+    if (!mounted || !_canReadWindow) return;
+    if (resetBudget) _cancelWindowReadRetry();
+    if (recoveryEvent) _knownWindowBackground = false;
+    final revision = ++_marqueeWindowRevision;
+    try {
+      final state = await Future.wait([
+        windowManager.isVisible(),
+        windowManager.isMinimized(),
+        windowManager.isFocused(),
+      ]).timeout(const Duration(seconds: 2));
+      if (!mounted || revision != _marqueeWindowRevision) return;
+      final foreground = state[0] && !state[1] && state[2];
+      _knownWindowBackground = !foreground;
+      _cancelWindowReadRetry();
+      _marquee.setWindowForeground(foreground);
+    } catch (_) {
+      _scheduleWindowReadRetry(revision);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return widget.child;
@@ -40,24 +112,46 @@ class _WindowContainerState extends ConsumerState<WindowManager>
     });
     windowExtManager.addListener(this);
     windowManager.addListener(this);
+    _marquee.setWindowForeground(false);
+    unawaited(_refreshMarqueeWindowActivity());
   }
 
   @override
   void onWindowClose() async {
+    _setMarqueeWindowForeground(false);
     await ref.read(systemActionProvider.notifier).handleClose();
+    if (mounted) unawaited(_refreshMarqueeWindowActivity());
     super.onWindowClose();
+  }
+
+  @override
+  void onWindowEvent(String eventName) {
+    super.onWindowEvent(eventName);
+    if (eventName == 'hide') _setMarqueeWindowForeground(false);
+    if (eventName == 'show') {
+      unawaited(_refreshMarqueeWindowActivity(recoveryEvent: true));
+    }
   }
 
   @override
   void onWindowFocus() {
     super.onWindowFocus();
     commonPrint.log('focus');
+    _setMarqueeWindowForeground(true);
     render?.resume();
   }
 
   @override
+  void onWindowBlur() {
+    _setMarqueeWindowForeground(false);
+    super.onWindowBlur();
+  }
+
+  @override
   Future<void> onShouldTerminate() async {
+    _setMarqueeWindowForeground(false);
     await ref.read(systemActionProvider.notifier).handleExit();
+    if (mounted) unawaited(_refreshMarqueeWindowActivity());
     super.onShouldTerminate();
   }
 
@@ -84,6 +178,7 @@ class _WindowContainerState extends ConsumerState<WindowManager>
 
   @override
   void onWindowMinimize() async {
+    _setMarqueeWindowForeground(false);
     ref.read(storeActionProvider.notifier).savePreferencesDebounce();
     commonPrint.log('minimize');
     render?.pause();
@@ -93,12 +188,17 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   @override
   void onWindowRestore() {
     commonPrint.log('restore');
+    unawaited(_refreshMarqueeWindowActivity(recoveryEvent: true));
     render?.resume();
     super.onWindowRestore();
   }
 
   @override
   Future<void> dispose() async {
+    _marqueeWindowRevision++;
+    _knownWindowBackground = true;
+    _cancelWindowReadRetry();
+    _marquee.setWindowForeground(false);
     windowManager.removeListener(this);
     windowExtManager.removeListener(this);
     super.dispose();

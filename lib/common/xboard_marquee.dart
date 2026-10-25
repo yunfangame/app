@@ -15,7 +15,6 @@ const xboardMarqueeUnreadPath = '/api/v1/app/site-message/unread';
 const xboardMarqueeReadPath = '/api/v1/app/site-message/read';
 const xboardMarqueeLimit = 10;
 const xboardMarqueeRefreshInterval = Duration(minutes: 5);
-const xboardMarqueeMinimumRequestGap = Duration(seconds: 30);
 
 typedef XboardMarqueeUnreadRequester =
     Future<Object?> Function(Uri endpoint, String token, int limit);
@@ -287,89 +286,204 @@ class XboardMarqueeController extends ChangeNotifier {
   final XboardMarqueeQueueStore _store;
   final DateTime Function() _now;
   final Set<int> _markingReadIds = {};
+  Future<void> _persistence = Future.value();
 
   XboardLoginResult? _session;
   String? _accountKey;
+  String? _identityKey;
   List<XboardMarqueeMessage> _messages = const [];
   Future<void>? _refreshOperation;
-  DateTime? _lastRequestAt;
+  Completer<void>? _cacheReady;
+  Timer? _timer;
+  DateTime? _nextRefreshAt;
+  final Set<int> _readIds = {};
   int _generation = 0;
+  int _failures = 0;
   bool _loading = false;
+  bool _polling = false;
+  bool _appForeground = true;
+  bool _windowForeground = true;
+  bool _offline = false;
+  bool _disposed = false;
 
   List<XboardMarqueeMessage> get messages => _messages;
   bool get isLoading => _loading;
+  bool get isForeground => _appForeground && _windowForeground;
+  bool get _canRefresh =>
+      !_disposed && isForeground && !_offline && _session != null;
+
+  void startPolling({required bool foreground, required bool offline}) {
+    if (_disposed) return;
+    _polling = true;
+    _appForeground = foreground;
+    _offline = offline;
+    _scheduleRefresh();
+  }
+
+  void stopPolling() {
+    _polling = false;
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  void setForeground(bool foreground) {
+    _appForeground = foreground;
+    _scheduleRefresh();
+  }
+
+  void setWindowForeground(bool foreground) {
+    _windowForeground = foreground;
+    _scheduleRefresh();
+  }
+
+  void setOffline(bool offline) {
+    _offline = offline;
+    _scheduleRefresh();
+  }
+
+  void _scheduleRefresh() {
+    _timer?.cancel();
+    _timer = null;
+    if (!_polling ||
+        !_canRefresh ||
+        _cacheReady != null ||
+        _refreshOperation != null) {
+      return;
+    }
+    final remaining = _nextRefreshAt?.difference(_now()) ?? Duration.zero;
+    _timer = Timer(remaining.isNegative ? Duration.zero : remaining, () {
+      _timer = null;
+      unawaited(refresh());
+    });
+  }
 
   Future<void> updateSession(
     XboardLoginResult? session, {
     required bool offline,
   }) async {
+    if (_disposed) return;
+    _offline = offline;
     final nextAccountKey = session == null
         ? null
         : '${session.endpoint.origin}|${session.token}';
-    if (nextAccountKey == _accountKey) {
-      if (!offline) await refresh();
+    final nextIdentityKey = session == null
+        ? null
+        : '${session.endpoint.origin}|${session.authData.isEmpty ? session.token : session.authData}';
+    if (nextIdentityKey == _identityKey) {
+      final previousAccountKey = _accountKey;
+      _session = session;
+      _accountKey = nextAccountKey;
+      if (nextAccountKey != null &&
+          previousAccountKey != nextAccountKey &&
+          _cacheReady == null) {
+        await _saveQueue(nextAccountKey, _messages);
+      }
+      _scheduleRefresh();
       return;
     }
     final generation = ++_generation;
+    _timer?.cancel();
     _session = session;
     _accountKey = nextAccountKey;
-    _lastRequestAt = null;
+    _identityKey = nextIdentityKey;
+    _nextRefreshAt = null;
+    _failures = 0;
+    _loading = false;
     _refreshOperation = null;
     _markingReadIds.clear();
-    if (nextAccountKey == null) {
-      _replaceMessages(const []);
+    _readIds.clear();
+    final ready = nextAccountKey == null ? null : Completer<void>();
+    _cacheReady = ready;
+    _replaceMessages(const []);
+    if (nextAccountKey == null || ready == null) {
       return;
     }
-    final cached = await _store.load(nextAccountKey);
-    if (generation != _generation) return;
-    _replaceMessages(cached);
-    if (!offline) await refresh(force: true);
+    try {
+      final cached = await _store.load(nextAccountKey);
+      if (_disposed || generation != _generation) return;
+      _replaceMessages(cached);
+      if (_accountKey != nextAccountKey) {
+        await _saveQueue(_accountKey!, cached);
+      }
+    } catch (error) {
+      debugPrint('[APP] load marquee messages failed: $error');
+    } finally {
+      if (identical(_cacheReady, ready)) _cacheReady = null;
+      ready.complete();
+    }
+    if (_disposed || generation != _generation) return;
+    await refresh();
   }
 
   Future<void> refresh({bool force = false}) {
+    if (!_canRefresh) return Future.value();
+    final ready = _cacheReady;
+    if (ready != null) {
+      final generation = _generation;
+      return ready.future.then<void>((_) async {
+        if (_disposed || generation != _generation) return;
+        await refresh(force: force);
+      });
+    }
     final operation = _refreshOperation;
     if (operation != null) return operation;
     final session = _session;
     final accountKey = _accountKey;
     if (session == null || accountKey == null) return Future.value();
-    final lastRequestAt = _lastRequestAt;
-    if (!force &&
-        lastRequestAt != null &&
-        _now().difference(lastRequestAt) < xboardMarqueeMinimumRequestGap) {
+    final nextRefreshAt = _nextRefreshAt;
+    if (!force && nextRefreshAt != null && _now().isBefore(nextRefreshAt)) {
+      _scheduleRefresh();
       return Future.value();
     }
     final generation = _generation;
-    _lastRequestAt = _now();
+    _timer?.cancel();
+    _timer = null;
     _loading = true;
+    final completer = Completer<void>();
+    _refreshOperation = completer.future;
     notifyListeners();
-    final future = _refresh(
-      session: session,
-      accountKey: accountKey,
-      generation: generation,
+    unawaited(
+      _refresh(session: session, generation: generation).then(
+        (_) => completer.complete(),
+        onError: (Object error, StackTrace stackTrace) =>
+            completer.completeError(error, stackTrace),
+      ),
     );
-    _refreshOperation = future;
-    return future;
+    return completer.future;
   }
 
   Future<void> _refresh({
     required XboardLoginResult session,
-    required String accountKey,
     required int generation,
   }) async {
     try {
+      if (!_canRefresh || generation != _generation) return;
       final unread = await _api.fetchUnread(
         endpoint: session.endpoint,
         token: session.token,
       );
-      if (generation != _generation || accountKey != _accountKey) return;
-      _replaceMessages(unread);
-      await _store.save(accountKey, unread);
+      if (_disposed || generation != _generation) return;
+      _failures = 0;
+      _nextRefreshAt = _now().add(xboardMarqueeRefreshInterval);
+      final remaining = unread
+          .where((message) => !_readIds.contains(message.id))
+          .toList(growable: false);
+      final unreadIds = unread.map((message) => message.id).toSet();
+      _readIds.removeWhere((id) => !unreadIds.contains(id));
+      _replaceMessages(remaining);
+      await _saveQueue(_accountKey!, remaining);
     } catch (error, stackTrace) {
+      if (_disposed || generation != _generation) return;
+      _failures = (_failures + 1).clamp(1, 4);
+      _nextRefreshAt = _now().add(
+        Duration(minutes: const [5, 10, 20, 30][_failures - 1]),
+      );
       debugPrint('[APP] refresh marquee messages failed: $error, $stackTrace');
     } finally {
-      if (generation == _generation) {
+      if (!_disposed && generation == _generation) {
         _loading = false;
         _refreshOperation = null;
+        _scheduleRefresh();
         notifyListeners();
       }
     }
@@ -378,7 +492,8 @@ class XboardMarqueeController extends ChangeNotifier {
   Future<bool> markRead(XboardMarqueeMessage message) async {
     final session = _session;
     final accountKey = _accountKey;
-    if (session == null ||
+    if (_disposed ||
+        session == null ||
         accountKey == null ||
         !_messages.any((item) => item.id == message.id) ||
         !_markingReadIds.add(message.id)) {
@@ -391,18 +506,38 @@ class XboardMarqueeController extends ChangeNotifier {
         token: session.token,
         message: message,
       );
-      if (generation != _generation || accountKey != _accountKey) return false;
+      if (_disposed || generation != _generation) return false;
+      _readIds.add(message.id);
       final remaining = _messages
           .where((item) => item.id != message.id)
           .toList(growable: false);
       _replaceMessages(remaining);
-      await _store.save(accountKey, remaining);
+      await _saveQueue(_accountKey!, remaining);
       return true;
     } catch (_) {
       return false;
     } finally {
-      _markingReadIds.remove(message.id);
+      if (generation == _generation) _markingReadIds.remove(message.id);
     }
+  }
+
+  Future<void> _saveQueue(
+    String accountKey,
+    List<XboardMarqueeMessage> messages,
+  ) async {
+    final pending = _persistence.then((_) => _store.save(accountKey, messages));
+    _persistence = pending.catchError((Object error) {
+      debugPrint('[APP] persist marquee messages failed: $error');
+    });
+    await _persistence;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _generation++;
+    stopPolling();
+    super.dispose();
   }
 
   void _replaceMessages(List<XboardMarqueeMessage> value) {
