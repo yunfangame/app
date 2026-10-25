@@ -56,7 +56,9 @@ class GlobalState {
   final xboardSessionRevisionNotifier = ValueNotifier<int>(0);
   final xboardNodesRevisionNotifier = ValueNotifier<int>(0);
   final xboardMarqueeController = XboardMarqueeController();
-  final xboardTicketController = XboardTicketController();
+  final xboardTicketController = XboardTicketController(
+    summaryPollingEnabled: !system.isDesktop,
+  );
 
   final xboardSubscriptionNotifier = ValueNotifier<XboardSubscriptionData?>(
     null,

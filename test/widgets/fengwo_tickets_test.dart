@@ -14,6 +14,7 @@ Widget app(
   XboardTicketController controller, {
   double width = 620,
   double scale = 1,
+  bool pollingEnabled = true,
 }) => MaterialApp(
   locale: const Locale('en'),
   localizationsDelegates: const [
@@ -32,13 +33,92 @@ Widget app(
       child: SizedBox(
         width: width,
         height: 430,
-        child: FengWoTicketPanel(controller: controller),
+        child: FengWoTicketPanel(
+          controller: controller,
+          pollingEnabled: pollingEnabled,
+        ),
       ),
     ),
   ),
 );
 
 void main() {
+  testWidgets('ticket panels can turn list polling on and off', (tester) async {
+    final fixture = TicketFixture();
+    var fetchCalls = 0;
+    var summaryCalls = 0;
+    final controller = XboardTicketController(
+      summaryPollingEnabled: false,
+      pollJitterSeconds: () => 0,
+      api: XboardTicketApi(
+        requester: (uri, auth, body) {
+          if (uri.path.endsWith('/fetch')) fetchCalls++;
+          if (uri.path.endsWith('/summary')) summaryCalls++;
+          return fixture.request(uri, auth, body);
+        },
+      ),
+    )..updateSession(ticketSession(), offline: false);
+    addTearDown(controller.dispose);
+    try {
+      await controller.refresh();
+      controller.startPolling(foreground: true);
+      await tester.pumpWidget(app(controller, pollingEnabled: false));
+      await tester.pump(const Duration(minutes: 10));
+      expect(fetchCalls, 1);
+      await tester.pumpWidget(app(controller));
+      await tester.pump(const Duration(seconds: 30));
+      expect(fetchCalls, 2);
+      await tester.pumpWidget(app(controller, pollingEnabled: false));
+      await tester.pump(const Duration(minutes: 10));
+      expect(fetchCalls, 2);
+      expect(summaryCalls, 0);
+    } finally {
+      await tester.pumpWidget(const SizedBox());
+    }
+  });
+
+  testWidgets('manual lists keep only open ticket conversations polling', (
+    tester,
+  ) async {
+    final fixture = TicketFixture();
+    var fetchCalls = 0;
+    var detailCalls = 0;
+    var summaryCalls = 0;
+    final controller = XboardTicketController(
+      summaryPollingEnabled: false,
+      pollJitterSeconds: () => 0,
+      api: XboardTicketApi(
+        requester: (uri, auth, body) {
+          if (uri.path.endsWith('/fetch')) fetchCalls++;
+          if (uri.path.endsWith('/detail')) detailCalls++;
+          if (uri.path.endsWith('/summary')) summaryCalls++;
+          return fixture.request(uri, auth, body);
+        },
+      ),
+    )..updateSession(ticketSession(), offline: false);
+    addTearDown(controller.dispose);
+    try {
+      await controller.refresh();
+      controller.startPolling(foreground: true);
+      await tester.pumpWidget(app(controller, pollingEnabled: false));
+      await tester.tap(find.byKey(const ValueKey('ticket-1')));
+      await tester.pumpAndSettle();
+      expect(detailCalls, 1);
+      await tester.pump(const Duration(seconds: 30));
+      expect(detailCalls, 2);
+      expect(summaryCalls, 0);
+      await tester.tap(find.byKey(const ValueKey('ticket-detail-dismiss')));
+      await tester.pumpAndSettle();
+      final previousFetches = fetchCalls;
+      await tester.pump(const Duration(hours: 1));
+      expect(detailCalls, 2);
+      expect(fetchCalls, previousFetches);
+      expect(summaryCalls, 0);
+    } finally {
+      await tester.pumpWidget(const SizedBox());
+    }
+  });
+
   testWidgets('offstage ticket panels use the ordinary foreground interval', (
     tester,
   ) async {

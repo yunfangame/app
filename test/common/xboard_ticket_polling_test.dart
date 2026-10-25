@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/xboard_tickets.dart';
+import 'package:fl_clash/state.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/ticket_fixtures.dart';
@@ -21,9 +22,10 @@ void _pollingTest(String description, WidgetTesterCallback callback) {
 }
 
 class _Rig {
-  _Rig() {
+  _Rig({this.summaryPollingEnabled = true}) {
     _controllers.add(controller);
   }
+  final bool summaryPollingEnabled;
   final fixture = TicketFixture();
   final summaryAccounts = <String>[];
   int fetchCalls = 0;
@@ -31,6 +33,7 @@ class _Rig {
   Future<Object?> Function(String auth)? summary;
   Future<Object?> Function(int call)? fetch;
   late final controller = XboardTicketController(
+    summaryPollingEnabled: summaryPollingEnabled,
     pollJitterSeconds: () => 0,
     api: XboardTicketApi(
       requester: (uri, auth, body) {
@@ -50,6 +53,83 @@ class _Rig {
 }
 
 void main() {
+  _pollingTest('desktop summaries stay idle across login and focus changes', (
+    tester,
+  ) async {
+    final rig = _Rig(
+      summaryPollingEnabled:
+          globalState.xboardTicketController.summaryPollingEnabled,
+    );
+    addTearDown(rig.controller.dispose);
+    rig.controller.startPolling(foreground: true);
+    await tester.pump(Duration.zero);
+    await tester.pump(const Duration(hours: 1));
+    rig.controller.setForeground(false);
+    rig.controller.setWindowForeground(false);
+    rig.controller.updateSession(ticketSession('two'), offline: false);
+    rig.controller.setForeground(true);
+    rig.controller.setWindowForeground(true);
+    rig.controller.refreshNow();
+    await tester.pump(Duration.zero);
+    await tester.pump(const Duration(hours: 1));
+    expect(rig.summaryAccounts, isEmpty);
+    expect(rig.fetchCalls, 0);
+  });
+
+  _pollingTest('visible tickets still refresh without summary polling', (
+    tester,
+  ) async {
+    final rig = _Rig(summaryPollingEnabled: false);
+    addTearDown(rig.controller.dispose);
+    rig.controller.startPolling(foreground: true);
+    final list = Object();
+    rig.controller.setViewActive(list, true);
+    await rig.controller.refresh();
+    expect(rig.fetchCalls, 1);
+    expect(rig.controller.unreadCount, 1);
+    expect(rig.controller.openCount, 1);
+    await tester.pump(const Duration(seconds: 30));
+    expect(rig.fetchCalls, 2);
+    final chat = Object();
+    var detailCalls = 0;
+    rig.controller.setViewActive(
+      chat,
+      true,
+      refresh: () async {
+        detailCalls++;
+        return true;
+      },
+    );
+    await tester.pump(const Duration(seconds: 30));
+    expect(detailCalls, 1);
+    expect(rig.fetchCalls, 2);
+    rig.controller.setViewActive(chat, false);
+    rig.controller.setViewActive(list, false);
+    await tester.pump(const Duration(hours: 1));
+    expect(rig.summaryAccounts, isEmpty);
+    expect(rig.fetchCalls, 2);
+    expect(detailCalls, 1);
+  });
+
+  _pollingTest(
+    'manual ticket actions do not restart disabled summary polling',
+    (tester) async {
+      final rig = _Rig(summaryPollingEnabled: false);
+      addTearDown(rig.controller.dispose);
+      rig.controller.startPolling(foreground: true);
+      await rig.controller.refresh();
+      await rig.controller.markRead(await rig.controller.detail(1));
+      expect(rig.controller.unreadCount, 0);
+      await rig.controller.mutate('reply', {'id': 1, 'message': 'hello'});
+      expect(rig.fixture.readCalls, 1);
+      expect(rig.fixture.replyCalls, 1);
+      expect(rig.fetchCalls, 3);
+      await tester.pump(const Duration(hours: 1));
+      expect(rig.summaryAccounts, isEmpty);
+      expect(rig.fetchCalls, 3);
+    },
+  );
+
   _pollingTest('foreground unread counts poll every 120 seconds', (
     tester,
   ) async {
