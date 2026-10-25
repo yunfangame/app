@@ -55,6 +55,80 @@ class _Rig {
 }
 
 void main() {
+  _pollingTest(
+    'automatic recovery preserves summary failure deadline while manual refresh can bypass it',
+    (tester) async {
+      final rig = _Rig()..failSummary = true;
+      addTearDown(rig.controller.dispose);
+      rig.controller.startPolling(foreground: true);
+      await tester.pump(Duration.zero);
+      expect(rig.summaryAccounts, hasLength(1));
+      for (var repeat = 0; repeat < 5; repeat++) {
+        await tester.pump(const Duration(seconds: 20));
+        rig.controller.setForeground(false);
+        rig.controller.setForeground(true);
+        rig.controller.refreshAutomatically();
+        await tester.pump(Duration.zero);
+        expect(rig.summaryAccounts, hasLength(1));
+      }
+      await tester.pump(const Duration(seconds: 139));
+      expect(rig.summaryAccounts, hasLength(1));
+      await tester.pump(const Duration(seconds: 1));
+      expect(rig.summaryAccounts, hasLength(2));
+      rig.controller.refreshNow();
+      await tester.pump(Duration.zero);
+      expect(rig.summaryAccounts, hasLength(3));
+    },
+  );
+
+  _pollingTest(
+    'an automatic list invalidated by pause and resume defers without failure and then refreshes once',
+    (tester) async {
+      final rig = _Rig(summaryPollingEnabled: false);
+      addTearDown(rig.controller.dispose);
+      final pending = Completer<Object?>();
+      rig.fetch = (call) async => call == 1
+          ? await pending.future
+          : {
+              'data': {
+                ...rig.fixture.summary,
+                'page': 1,
+                'has_more': false,
+                'items': [
+                  {'id': 1},
+                ],
+              },
+            };
+      rig.controller.setViewActive(Object(), true);
+      rig.controller.startPolling(foreground: true);
+      await tester.pump(Duration.zero);
+      expect(rig.fetchCalls, 1);
+      rig.controller.setForeground(false);
+      rig.controller.setForeground(true);
+      rig.controller.refreshAutomatically();
+      await tester.pump(Duration.zero);
+      expect(rig.fetchCalls, 1);
+      pending.complete({
+        'data': {
+          ...rig.fixture.summary,
+          'page': 1,
+          'has_more': false,
+          'items': [
+            {'id': 9},
+          ],
+        },
+      });
+      await tester.pump(Duration.zero);
+      await tester.pump(Duration.zero);
+      expect(rig.fetchCalls, 2);
+      expect(rig.controller.tickets.single.id, 1);
+      expect(rig.controller.failed, isFalse);
+      await tester.pump(const Duration(seconds: 30));
+      expect(rig.fetchCalls, 3);
+      expect(rig.summaryAccounts, isEmpty);
+    },
+  );
+
   _pollingTest('repeated focus changes preserve the closed detail deadline', (
     tester,
   ) async {

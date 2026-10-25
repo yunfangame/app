@@ -1,11 +1,58 @@
 import 'dart:async';
 
+import 'package:fl_clash/common/xboard_api_request.dart';
+import 'package:fl_clash/common/xboard_auth.dart';
 import 'package:fl_clash/common/xboard_tickets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/ticket_fixtures.dart';
 
+class _BeforeReturnTicketApi extends XboardTicketApi {
+  _BeforeReturnTicketApi(this.beforeReturn);
+
+  final void Function() beforeReturn;
+
+  @override
+  Future<Object?> request(
+    XboardLoginResult session,
+    String path, {
+    Map<String, Object?>? query,
+    Map<String, Object?>? body,
+    bool Function()? canRequest,
+  }) async {
+    beforeReturn();
+    return path.endsWith('detail')
+        ? {'id': 1, 'messages': <Object?>[]}
+        : {
+            'items': [
+              {'id': 1},
+            ],
+          };
+  }
+}
+
 void main() {
+  test('guarded list and detail recheck activity before returning', () async {
+    var active = true;
+    final controller = XboardTicketController(
+      summaryPollingEnabled: false,
+      api: _BeforeReturnTicketApi(() => active = false),
+    )..updateSession(ticketSession(), offline: false);
+    addTearDown(controller.dispose);
+    controller.startPolling(foreground: true);
+    await expectLater(
+      controller.refresh(canRequest: () => active),
+      throwsA(isA<XboardApiRequestDeferred>()),
+    );
+    expect(controller.tickets, isEmpty);
+    expect(controller.failed, isFalse);
+    active = true;
+    await expectLater(
+      controller.detail(1, canRequest: () => active),
+      throwsA(isA<XboardApiRequestDeferred>()),
+    );
+  });
+
   test(
     'server read is shared by devices and failed read preserves unread',
     () async {
