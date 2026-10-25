@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_catalog_cache.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
@@ -142,33 +143,12 @@ Future<XboardAvailablePlan?> _loadSubscriptionPlan({
 }) async {
   final session = globalState.xboardSession;
   if (session == null || globalState.isOfflineMode) return null;
-  final planId = subscription?.planId;
-  if (planId != null) {
-    try {
-      final planById = await authService.fetchPlans(
-        endpoint: session.endpoint,
-        authData: session.authData,
-        planId: planId,
-      );
-      for (final plan in planById) {
-        if (plan.id == planId) return plan;
-      }
-    } on XboardAuthException catch (error) {
-      if (error.failure == XboardAuthFailure.authenticationRejected) rethrow;
-    }
-  }
-  final plans = await authService.fetchPlans(
-    endpoint: session.endpoint,
-    authData: session.authData,
+  return findXboardCatalogPlan(
+    authService: authService,
+    session: session,
+    planId: subscription?.planId,
+    planName: subscription?.plan?.name,
   );
-  for (final plan in plans) {
-    if (planId != null && plan.id == planId) return plan;
-  }
-  final planName = subscription?.plan?.name?.trim();
-  for (final plan in plans) {
-    if (planName != null && plan.name.trim() == planName) return plan;
-  }
-  return null;
 }
 
 Future<void> _executeSubscriptionPlanAction({
