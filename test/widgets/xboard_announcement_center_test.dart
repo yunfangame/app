@@ -145,6 +145,7 @@ void main() {
         container: container,
         child: _TestApp(
           child: XboardAnnouncementCenterHost(
+            observeDesktopWindow: false,
             authService: service,
             preferenceStore: XboardNoticePreferenceStore(),
             now: () => now,
