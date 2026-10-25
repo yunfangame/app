@@ -28,6 +28,92 @@ void main() {
   setUp(() {
     platform = _WebViewPlatform();
     WebViewPlatform.instance = platform;
+    globalState.clearXboardSession();
+    globalState.setOfflineMode(false);
+  });
+
+  tearDown(() {
+    globalState.clearXboardSession();
+    globalState.refreshXboardSubscription = null;
+    globalState.refreshXboardSubscriptionView = null;
+  });
+
+  testWidgets(
+    'support refreshes the shared snapshot without a full profile sync',
+    (tester) async {
+      final login = _supportLogin();
+      globalState.activateXboardSession(login);
+      final gate = Completer<void>();
+      var views = 0;
+      var fullRefreshes = 0;
+      globalState.refreshXboardSubscription = () async {
+        fullRefreshes++;
+        return true;
+      };
+      globalState.refreshXboardSubscriptionView =
+          ({bool forceRefresh = false}) async {
+            expect(forceRefresh, isFalse);
+            views++;
+            await gate.future;
+            globalState.updateXboardSubscriptionSnapshot(
+              login,
+              _supportLogin(usedBytes: 42).subscription,
+            );
+            return true;
+          };
+      try {
+        await tester.pumpWidget(_supportSheetApp());
+        await tester.tap(find.text('Open support'));
+        await tester.pump();
+        await tester.pump();
+        final controller = platform.controllers.single;
+        controller.channel!.onMessageReceived(
+          const JavaScriptMessage(message: 'ready'),
+        );
+        await tester.pump();
+        gate.complete();
+        await tester.pumpAndSettle();
+        expect(views, 1);
+        expect(fullRefreshes, 0);
+        expect(globalState.xboardSession, same(login));
+        expect(controller.scripts.last, contains('"traffic_used_bytes":42'));
+      } finally {
+        if (!gate.isCompleted) gate.complete();
+        globalState.clearXboardSession();
+        await tester.pumpAndSettle();
+        await tester.pumpWidget(const SizedBox());
+      }
+    },
+  );
+
+  testWidgets('a double account notification closes only the support route', (
+    tester,
+  ) async {
+    globalState.activateXboardSession(_supportLogin());
+    globalState.refreshXboardSubscriptionView =
+        ({bool forceRefresh = false}) async => true;
+    try {
+      await tester.pumpWidget(_supportSheetApp());
+      await tester.tap(find.text('Open support'));
+      await tester.pump();
+      await tester.pump();
+      platform.controllers.single.channel!.onMessageReceived(
+        const JavaScriptMessage(message: 'ready'),
+      );
+      await tester.pumpAndSettle();
+      globalState.activateXboardSession(
+        _supportLogin(account: 'other'),
+        subscriptionFresh: true,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Open support'), findsOneWidget);
+      expect(find.byKey(const Key('customer-service-sheet')), findsNothing);
+      expect(tester.takeException(), isNull);
+    } finally {
+      globalState.clearXboardSession();
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox());
+    }
   });
 
   testWidgets('support uses the running Android package version', (
@@ -401,6 +487,44 @@ Uri _expectedUri(String token) => Uri.https('go.crisp.chat', '/chat/embed/', {
   'session_merge': 'false',
   'token_id': token,
 });
+
+XboardLoginResult _supportLogin({
+  String account = 'support-user',
+  int usedBytes = 0,
+}) => XboardLoginResult(
+  endpoint: Uri.https('support-account.example'),
+  authData: 'auth-$account',
+  token: 'token-$account',
+  isAdmin: false,
+  subscription: XboardSubscriptionData(
+    endpoint: Uri.https('support-account.example'),
+    subscribeUrl: null,
+    uploadBytes: usedBytes,
+    downloadBytes: 0,
+    transferEnableBytes: 100,
+    email: '$account@example.com',
+    rawData: const {},
+  ),
+);
+
+Widget _supportSheetApp() => MaterialApp(
+  locale: const Locale('zh', 'CN'),
+  localizationsDelegates: const [
+    AppLocalizations.delegate,
+    GlobalMaterialLocalizations.delegate,
+    GlobalWidgetsLocalizations.delegate,
+    GlobalCupertinoLocalizations.delegate,
+  ],
+  supportedLocales: AppLocalizations.delegate.supportedLocales,
+  home: Scaffold(
+    body: Builder(
+      builder: (context) => FilledButton(
+        onPressed: () => CustomerServiceSheet.show(context),
+        child: const Text('Open support'),
+      ),
+    ),
+  ),
+);
 
 Future<void> _show(WidgetTester tester, CustomerServiceSession? session) async {
   await tester.pumpWidget(

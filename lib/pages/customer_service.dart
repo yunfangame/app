@@ -106,15 +106,35 @@ class CustomerServiceSheet {
   }
 }
 
-CrispSupportUser _currentSupportUser() => CrispSupportUser.fromSession(
-  globalState.xboardSession,
-  appVersion: globalState.packageInfo.version,
-  offline: globalState.isOfflineMode,
-);
+CrispSupportUser _currentSupportUser() {
+  final session = globalState.xboardSession;
+  final snapshot = globalState.xboardSubscription;
+  final displaySession = session == null || snapshot == null
+      ? session
+      : XboardLoginResult(
+          endpoint: session.endpoint,
+          token: session.token,
+          authData: session.authData,
+          isAdmin: session.isAdmin,
+          subscription: snapshot,
+          secureSubscription: session.secureSubscription,
+          rawData: session.rawData,
+        );
+  return CrispSupportUser.fromSession(
+    displaySession,
+    appVersion: globalState.packageInfo.version,
+    offline: globalState.isOfflineMode,
+  );
+}
 
 Future<void> _refreshSubscription() async {
   try {
-    await globalState.refreshXboardSubscription?.call();
+    final refreshView = globalState.refreshXboardSubscriptionView;
+    if (refreshView != null) {
+      await refreshView();
+    } else {
+      await globalState.refreshXboardSubscription?.call();
+    }
   } catch (_) {}
 }
 
@@ -165,16 +185,20 @@ class _CustomerServiceViewState extends State<CustomerServiceView> {
       _session!.addListener(_update);
       if (widget.syncCurrentAccount) {
         globalState.xboardSessionRevisionNotifier.addListener(_syncAccount);
+        globalState.xboardSubscriptionNotifier.addListener(_syncAccount);
       }
     }
   }
 
   void _syncAccount() {
+    if (!mounted || _accountChanged) return;
     final user = _currentSupportUser();
     if (user.accountKey != _accountKey) {
       setState(() => _accountChanged = true);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) Navigator.of(context).pop();
+        if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+          Navigator.of(context).pop();
+        }
       });
     } else {
       unawaited(_session?.updateUser(user));
@@ -188,6 +212,7 @@ class _CustomerServiceViewState extends State<CustomerServiceView> {
   @override
   void dispose() {
     globalState.xboardSessionRevisionNotifier.removeListener(_syncAccount);
+    globalState.xboardSubscriptionNotifier.removeListener(_syncAccount);
     final session = _session;
     if (session != null) {
       session.removeListener(_update);

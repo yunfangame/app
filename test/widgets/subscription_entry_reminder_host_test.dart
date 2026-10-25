@@ -71,6 +71,60 @@ void main() {
     await _finish(tester, service);
   });
 
+  testWidgets(
+    'fresh verified login and force refresh share the entry snapshot',
+    (tester) async {
+      final session = _activate();
+      globalState.activateXboardSession(session, subscriptionFresh: true);
+      final service = _FakeAuthService(defaultResponse: () => _subscription());
+      await _pumpHost(tester, service);
+      await tester.pumpAndSettle();
+      expect(service.calls, 0);
+      expect(find.byKey(_reminderKey), findsNothing);
+      await globalState.loadXboardSubscriptionSnapshot(
+        service,
+        session,
+        forceRefresh: true,
+      );
+      final lifecycle = _lifecycle(tester);
+      lifecycle.didChangeAppLifecycleState(AppLifecycleState.paused);
+      lifecycle.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(service.calls, 1);
+      expect(find.byKey(_reminderKey), findsOneWidget);
+      await _finish(tester, service);
+    },
+  );
+
+  testWidgets(
+    'automatic entry failures back off while explicit refresh retries',
+    (tester) async {
+      final session = _activate();
+      final service = _FakeAuthService(
+        defaultResponse: () => throw StateError('controlled failure'),
+      );
+      await _pumpHost(tester, service);
+      await tester.pumpAndSettle();
+      final lifecycle = _lifecycle(tester);
+      lifecycle.didChangeAppLifecycleState(AppLifecycleState.paused);
+      lifecycle.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(service.calls, 1);
+      service.defaultResponse = () => _subscription();
+      await globalState.loadXboardSubscriptionSnapshot(
+        service,
+        session,
+        forceRefresh: true,
+      );
+      lifecycle.didChangeAppLifecycleState(AppLifecycleState.paused);
+      lifecycle.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(service.calls, 2);
+      expect(find.byKey(_reminderKey), findsOneWidget);
+      await _finish(tester, service);
+    },
+  );
+
   testWidgets('ordinary dismissal waits for a new background entry', (
     tester,
   ) async {
@@ -90,7 +144,7 @@ void main() {
     lifecycle.didChangeAppLifecycleState(AppLifecycleState.paused);
     lifecycle.didChangeAppLifecycleState(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
-    expect(service.calls, 2);
+    expect(service.calls, 1);
     expect(find.byKey(_reminderKey), findsOneWidget);
     await _finish(tester, service);
   });
@@ -112,12 +166,12 @@ void main() {
     (listener as WindowExtListener).onReopen();
     _lifecycle(tester).didChangeAppLifecycleState(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
-    expect(service.calls, 2);
+    expect(service.calls, 1);
     expect(find.byKey(_reminderKey), findsOneWidget);
     window.onWindowRestore();
     window.onWindowEvent('show');
     await tester.pumpAndSettle();
-    expect(service.calls, 2);
+    expect(service.calls, 1);
     expect(find.byKey(_reminderKey), findsOneWidget);
     await _finish(tester, service);
   });
@@ -234,24 +288,21 @@ void main() {
     await _finish(tester, service);
   });
 
-  testWidgets('the newer app entry owns the response and popup', (
+  testWidgets('the newer app entry reuses the in-flight summary request', (
     tester,
   ) async {
     _activate();
     final service = _FakeAuthService();
     final firstResponse = service.enqueue();
-    final secondResponse = service.enqueue();
     await _pumpHost(tester, service);
     final lifecycle = _lifecycle(tester);
     lifecycle.didChangeAppLifecycleState(AppLifecycleState.paused);
     lifecycle.didChangeAppLifecycleState(AppLifecycleState.resumed);
     await tester.pump();
     await tester.pump();
-    expect(service.calls, 2);
+    expect(service.calls, 1);
     final newer = _subscription(remainingGb: 27);
-    secondResponse.complete(newer);
-    await tester.pumpAndSettle();
-    firstResponse.complete(_subscription());
+    firstResponse.complete(newer);
     await tester.pumpAndSettle();
     expect(globalState.xboardSubscription, same(newer));
     expect(find.byKey(_reminderKey), findsNothing);
@@ -299,7 +350,7 @@ void main() {
     await _finish(tester, service);
   });
 
-  testWidgets('background removes its dialog and resumes with one new query', (
+  testWidgets('background removes its dialog and resume reuses the snapshot', (
     tester,
   ) async {
     _activate();
@@ -313,7 +364,7 @@ void main() {
     expect(find.byKey(_reminderKey), findsNothing);
     lifecycle.didChangeAppLifecycleState(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
-    expect(service.calls, 2);
+    expect(service.calls, 1);
     expect(find.byKey(_reminderKey), findsOneWidget);
     globalState.setOfflineMode(true);
     await tester.pumpAndSettle();
