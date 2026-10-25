@@ -10,8 +10,250 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/api_health_fixture.dart';
+import '../support/account_view_test_scope.dart';
 
 void main() {
+  accountViewReadTest(
+    'background invite writes keep a full refresh after late generation',
+    (tester) async {
+      globalState.activateXboardSession(_testSession());
+      final generated = Completer<XboardLoginResponse>();
+      final transferred = Completer<XboardLoginResponse>();
+      var summaries = 0;
+      var details = 0;
+      await mountAccountView(
+        tester,
+        FengWoInvitePromotionView(
+          authService: _testService(
+            onSummaryRequested: () => summaries++,
+            onDetailsRequested: () => details++,
+            generateResponse: () => generated.future,
+            transferResponse: () => transferred.future,
+          ),
+        ),
+        (child) => _TestApp(child: child),
+      );
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('generate-invite-code-button')),
+          )
+          .onPressed!();
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('invite-transfer-button')),
+          )
+          .onPressed!();
+      await tester.pump(const Duration(milliseconds: 250));
+      final l10n = tester
+          .element(find.byType(FengWoInvitePromotionView))
+          .appLocalizations;
+      await tester.tap(find.widgetWithText(FilledButton, l10n.confirm));
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      transferred.complete(
+        const XboardLoginResponse(statusCode: 200, data: {'data': true}),
+      );
+      await flushAccountReads(tester);
+      generated.complete(
+        const XboardLoginResponse(statusCode: 200, data: {'data': true}),
+      );
+      await flushAccountReads(tester);
+      expect(summaries, 1);
+      expect(details, 1);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(summaries, 2);
+      expect(details, 2);
+      expect(accountViewWindowCalls, 0);
+    },
+  );
+
+  accountViewReadTest(
+    'invite initial reads wait for active foreground and online',
+    (tester) async {
+      globalState.activateXboardSession(_testSession());
+      var summaries = 0;
+      var details = 0;
+      final activity = await mountAccountView(
+        tester,
+        FengWoInvitePromotionView(
+          authService: _testService(
+            onSummaryRequested: () => summaries++,
+            onDetailsRequested: () => details++,
+          ),
+        ),
+        (child) => _TestApp(child: child),
+        active: false,
+        size: const Size(390, 844),
+      );
+      expect(summaries, 0);
+      expect(details, 0);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      activity.value = true;
+      await tester.pump(const Duration(hours: 1));
+      expect(summaries, 0);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(summaries, 1);
+      expect(details, 1);
+      globalState.setOfflineMode(true);
+      await tester.pump(const Duration(minutes: 10));
+      expect(summaries, 1);
+      globalState.setOfflineMode(false);
+      await tester.pumpAndSettle();
+      expect(summaries, 2);
+      expect(details, 2);
+      expect(accountViewWindowCalls, 0);
+    },
+  );
+
+  accountViewReadTest('repeated invite entry shares each in-flight read', (
+    tester,
+  ) async {
+    globalState.activateXboardSession(_testSession());
+    final summary = Completer<XboardLoginResponse>();
+    final detail = Completer<XboardLoginResponse>();
+    late XboardLoginResponse summaryValue;
+    late XboardLoginResponse detailValue;
+    var summaries = 0;
+    var details = 0;
+    final activity = await mountAccountView(
+      tester,
+      FengWoInvitePromotionView(
+        authService: _testService(
+          onSummaryRequested: () => summaries++,
+          onDetailsRequested: () => details++,
+          summaryResponse: (_, value) {
+            summaryValue = value;
+            return summary.future;
+          },
+          detailsResponse: (_, value) {
+            detailValue = value;
+            return detail.future;
+          },
+        ),
+      ),
+      (child) => _TestApp(child: child),
+    );
+    activity.value = false;
+    await tester.pump();
+    activity.value = true;
+    await flushAccountReads(tester);
+    expect(summaries, 1);
+    expect(details, 1);
+    summary.complete(summaryValue);
+    detail.complete(detailValue);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('copy-invite-SIQU5wev')), findsOneWidget);
+  });
+
+  for (final transfer in [false, true]) {
+    accountViewReadTest(
+      'invite mutation bypasses old reads, transfer=$transfer',
+      (tester) async {
+        globalState.activateXboardSession(_testSession());
+        final summary = Completer<XboardLoginResponse>();
+        final detail = Completer<XboardLoginResponse>();
+        late XboardLoginResponse oldSummary;
+        late XboardLoginResponse oldDetail;
+        var summaries = 0;
+        var details = 0;
+        await mountAccountView(
+          tester,
+          FengWoInvitePromotionView(
+            authService: _testService(
+              onSummaryRequested: () => summaries++,
+              onDetailsRequested: () => details++,
+              summaryResponse: (call, value) {
+                if (call == 2) {
+                  oldSummary = value;
+                  return summary.future;
+                }
+                return Future.value(
+                  call == 3 ? _inviteSummaryResponse('UPDATED') : value,
+                );
+              },
+              detailsResponse: (call, value) {
+                if (call == 2) {
+                  oldDetail = value;
+                  return detail.future;
+                }
+                return Future.value(value);
+              },
+            ),
+          ),
+          (child) => _TestApp(child: child),
+        );
+        final refresh = tester
+            .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+            .onRefresh();
+        await flushAccountReads(tester);
+        expect(summaries, 2);
+        expect(details, 2);
+        final key = transfer
+            ? 'invite-transfer-button'
+            : 'generate-invite-code-button';
+        tester.widget<FilledButton>(find.byKey(ValueKey(key))).onPressed!();
+        if (transfer) {
+          await tester.pump(const Duration(milliseconds: 250));
+          final l10n = tester
+              .element(find.byType(FengWoInvitePromotionView))
+              .appLocalizations;
+          await tester.tap(find.widgetWithText(FilledButton, l10n.confirm));
+        }
+        await flushAccountReads(tester);
+        expect(summaries, 3);
+        expect(details, transfer ? 3 : 2);
+        summary.complete(oldSummary);
+        detail.complete(oldDetail);
+        await refresh;
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('copy-invite-UPDATED')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('copy-invite-SIQU5wev')),
+          findsNothing,
+        );
+      },
+    );
+  }
+
+  accountViewReadTest(
+    'a previous account invite reply cannot replace the new account',
+    (tester) async {
+      globalState.activateXboardSession(_testSession());
+      final old = Completer<XboardLoginResponse>();
+      late XboardLoginResponse value;
+      var summaries = 0;
+      await mountAccountView(
+        tester,
+        FengWoInvitePromotionView(
+          authService: _testService(
+            onSummaryRequested: () => summaries++,
+            summaryResponse: (call, response) {
+              if (call == 1) {
+                value = response;
+                return old.future;
+              }
+              return Future.value(_inviteSummaryResponse('CURRENT'));
+            },
+          ),
+        ),
+        (child) => _TestApp(child: child),
+      );
+      globalState.clearXboardSession();
+      globalState.activateXboardSession(_testSession());
+      await flushAccountReads(tester);
+      expect(summaries, 2);
+      old.complete(value);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('copy-invite-CURRENT')), findsOneWidget);
+      expect(find.byKey(const ValueKey('copy-invite-SIQU5wev')), findsNothing);
+    },
+  );
+
   testWidgets('copies the configured invite link and reloads it on each tap', (
     tester,
   ) async {
@@ -323,14 +565,38 @@ void _recordClipboard(
   );
 }
 
+XboardLoginResponse _inviteSummaryResponse(String code) => XboardLoginResponse(
+  statusCode: 200,
+  data: {
+    'data': {
+      'codes': [
+        {'code': code, 'pv': 0, 'status': 0, 'created_at': 1787126400},
+      ],
+      'stat': [3, 12500, 2300, 10, 8000],
+    },
+  },
+);
+
 XboardAuthService _testService({
   void Function(String subject, String message)? onTicketSubmitted,
   int commissionRecordCount = 1,
+  VoidCallback? onSummaryRequested,
+  VoidCallback? onDetailsRequested,
+  Future<XboardLoginResponse> Function(int, XboardLoginResponse)?
+  summaryResponse,
+  Future<XboardLoginResponse> Function(int, XboardLoginResponse)?
+  detailsResponse,
+  Future<XboardLoginResponse> Function()? generateResponse,
+  Future<XboardLoginResponse> Function()? transferResponse,
 }) {
+  var summaries = 0;
+  var details = 0;
   return XboardAuthService(
     apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
     inviteFetchRequester: (endpoint, authData) async {
-      return const XboardLoginResponse(
+      summaries++;
+      onSummaryRequested?.call();
+      const response = XboardLoginResponse(
         statusCode: 200,
         data: {
           'data': {
@@ -346,9 +612,12 @@ XboardAuthService _testService({
           },
         },
       );
+      return summaryResponse?.call(summaries, response) ?? response;
     },
     inviteDetailsRequester: (endpoint, authData) async {
-      return XboardLoginResponse(
+      details++;
+      onDetailsRequested?.call();
+      final response = XboardLoginResponse(
         statusCode: 200,
         data: {
           'data': List.generate(
@@ -364,11 +633,14 @@ XboardAuthService _testService({
           'total': commissionRecordCount,
         },
       );
+      return detailsResponse?.call(details, response) ?? response;
     },
     inviteSaveRequester: (endpoint, authData) async {
+      if (generateResponse != null) return generateResponse();
       return const XboardLoginResponse(statusCode: 200, data: {'data': true});
     },
     commissionTransferRequester: (endpoint, authData, amount) async {
+      if (transferResponse != null) return transferResponse();
       return const XboardLoginResponse(statusCode: 200, data: {'data': true});
     },
     ticketSaveRequester: (endpoint, authData, subject, level, message) async {
@@ -378,12 +650,12 @@ XboardAuthService _testService({
   );
 }
 
-XboardLoginResult _testSession() {
+XboardLoginResult _testSession({String authData = 'Bearer account-token'}) {
   final endpoint = Uri.parse('https://api.example.com');
   return XboardLoginResult(
     endpoint: endpoint,
     token: 'subscription-token',
-    authData: 'Bearer account-token',
+    authData: authData,
     isAdmin: false,
     subscription: XboardSubscriptionData(
       endpoint: endpoint,

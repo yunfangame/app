@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_account_view_reads.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
@@ -30,7 +31,8 @@ class FengWoPersonalCenterView extends ConsumerStatefulWidget {
 }
 
 class _FengWoPersonalCenterViewState
-    extends ConsumerState<FengWoPersonalCenterView> {
+    extends ConsumerState<FengWoPersonalCenterView>
+    with XboardAccountViewActivity<FengWoPersonalCenterView> {
   static const _wideLayoutBreakpoint = 1040.0;
   static const _loginIpWideRowBreakpoint = 700.0;
   static const _loginIpWideVisibleRecordLimit = 4;
@@ -45,23 +47,30 @@ class _FengWoPersonalCenterViewState
   final _loginIpScrollController = ScrollController();
   late final XboardAuthService _authService;
   late final XboardTicketController _tickets;
+  final _userRead = XboardAccountViewRead<XboardUserInfo>();
+  final _ipRead = XboardAccountViewRead<XboardLoginIpList>();
   bool _ticketRefreshQueued = false;
+  bool _ticketEntryPending = true;
 
   void _queueTicketRefresh() {
+    _ticketEntryPending = true;
     if (_ticketRefreshQueued) return;
     _ticketRefreshQueued = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _ticketRefreshQueued = false;
-      unawaited(_loadTickets());
+      if (canReadAccountView) unawaited(_loadTickets());
     });
   }
 
   Future<void> _loadTickets() async {
     if (!mounted ||
         !PageActivityScope.isActiveOf(context) ||
+        !accountViewIsForeground ||
+        globalState.isOfflineMode ||
         !_tickets.isForeground) {
       return;
     }
+    _ticketEntryPending = false;
     _tickets.updateSession(
       globalState.xboardSession,
       offline: globalState.isOfflineMode,
@@ -71,7 +80,7 @@ class _FengWoPersonalCenterViewState
 
   XboardUserInfo? _userInfo;
   XboardLoginIpList? _loginIpList;
-  bool _loading = true;
+  bool _loading = false;
   bool _failed = false;
   bool _loadingLoginIps = false;
   bool _loginIpListFailed = false;
@@ -81,17 +90,12 @@ class _FengWoPersonalCenterViewState
   bool _obscureNewPassword = true;
   bool _obscureConfirmPassword = true;
   bool? _wasPageActive;
-  int _userInfoRequestRevision = 0;
 
   @override
   void initState() {
     super.initState();
     _authService = widget.authService ?? XboardAuthService();
     _tickets = widget.ticketController ?? globalState.xboardTicketController;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadUserInfo();
-      _loadLoginIps();
-    });
     _queueTicketRefresh();
   }
 
@@ -102,11 +106,6 @@ class _FengWoPersonalCenterViewState
     final becameActive = _wasPageActive == false && isPageActive;
     _wasPageActive = isPageActive;
     if (!becameActive) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        unawaited(_loadUserInfo());
-      }
-    });
     _queueTicketRefresh();
   }
 
@@ -119,93 +118,93 @@ class _FengWoPersonalCenterViewState
     super.dispose();
   }
 
-  Future<void> _loadUserInfo() async {
-    final requestRevision = ++_userInfoRequestRevision;
-    if (globalState.isOfflineMode) {
-      if (mounted) setState(() => _loading = false);
-      return;
-    }
-    final session = globalState.xboardSession;
-    if (session == null) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _failed = true;
-        });
-      }
-      return;
-    }
+  @override
+  void onAccountViewReady() {
+    unawaited(_loadUserInfo(forceRefresh: false));
+    unawaited(_loadLoginIps(forceRefresh: false));
+    if (_ticketEntryPending) unawaited(_loadTickets());
+  }
+
+  @override
+  void onAccountViewReset() {
+    _userRead.invalidate();
+    _ipRead.invalidate();
+    setState(() {
+      _userInfo = null;
+      _loginIpList = null;
+      _loading = false;
+      _failed = false;
+      _loadingLoginIps = false;
+      _loginIpListFailed = false;
+      _changingPassword = false;
+      _updatingLoginIps.clear();
+    });
+    _oldPasswordController.clear();
+    _newPasswordController.clear();
+    _confirmPasswordController.clear();
+  }
+
+  Future<void> _loadUserInfo({bool forceRefresh = true}) async {
+    if (!(forceRefresh ? canUseAccountViewActions : canReadAccountView)) return;
+    final session = accountViewSession!;
+    final epoch = accountViewEpoch;
+    final request = _userRead.load(
+      () => _authService.fetchUserInfo(
+        endpoint: session.endpoint,
+        authData: session.authData,
+      ),
+      forceRefresh: forceRefresh,
+    );
+    final revision = _userRead.revision;
+    bool current() =>
+        isCurrentAccountView(session, epoch) && revision == _userRead.revision;
     setState(() {
       _loading = _userInfo == null;
       _failed = false;
     });
     try {
-      final userInfo = await _authService.fetchUserInfo(
-        endpoint: session.endpoint,
-        authData: session.authData,
-      );
-      if (!_isCurrentUserInfoRequest(requestRevision, session)) return;
-      setState(() => _userInfo = userInfo);
+      final userInfo = await request;
+      if (current()) setState(() => _userInfo = userInfo);
     } catch (error, stackTrace) {
       commonPrint.log(
         'load XBoard user info failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
-      if (_isCurrentUserInfoRequest(requestRevision, session)) {
-        setState(() => _failed = true);
-      }
+      if (current()) setState(() => _failed = true);
     } finally {
-      if (_isCurrentUserInfoRequest(requestRevision, session)) {
-        setState(() => _loading = false);
-      }
+      if (current()) setState(() => _loading = false);
     }
   }
 
-  bool _isCurrentUserInfoRequest(
-    int requestRevision,
-    XboardLoginResult session,
-  ) {
-    final activeSession = globalState.xboardSession;
-    return mounted &&
-        requestRevision == _userInfoRequestRevision &&
-        activeSession?.endpoint == session.endpoint &&
-        activeSession?.authData == session.authData;
-  }
-
-  Future<void> _loadLoginIps() async {
-    final session = globalState.xboardSession;
-    if (session == null) {
-      if (mounted) {
-        setState(() {
-          _loginIpList = null;
-          _loadingLoginIps = false;
-          _loginIpListFailed = false;
-        });
-      }
-      return;
-    }
+  Future<void> _loadLoginIps({bool forceRefresh = true}) async {
+    if (!(forceRefresh ? canUseAccountViewActions : canReadAccountView)) return;
+    final session = accountViewSession!;
+    final epoch = accountViewEpoch;
+    final request = _ipRead.load(
+      () => _authService.fetchLoginIps(
+        endpoint: session.endpoint,
+        authData: session.authData,
+      ),
+      forceRefresh: forceRefresh,
+    );
+    final revision = _ipRead.revision;
+    bool current() =>
+        isCurrentAccountView(session, epoch) && revision == _ipRead.revision;
     setState(() {
       _loadingLoginIps = true;
       _loginIpListFailed = false;
     });
     try {
-      final loginIps = await _authService.fetchLoginIps(
-        endpoint: session.endpoint,
-        authData: session.authData,
-      );
-      if (!mounted || globalState.xboardSession?.authData != session.authData) {
-        return;
-      }
-      setState(() => _loginIpList = loginIps);
+      final loginIps = await request;
+      if (current()) setState(() => _loginIpList = loginIps);
     } catch (error, stackTrace) {
       commonPrint.log(
         'load login IP records failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
-      if (!mounted) return;
-      setState(() => _loginIpListFailed = true);
+      if (current()) setState(() => _loginIpListFailed = true);
     } finally {
-      if (mounted) setState(() => _loadingLoginIps = false);
+      if (current()) setState(() => _loadingLoginIps = false);
     }
   }
 
@@ -214,7 +213,13 @@ class _FengWoPersonalCenterViewState
   }
 
   Future<void> _blockLoginIp(XboardLoginIpRecord record) async {
-    if (record.isBlocked || _updatingLoginIps.contains(record.ip)) return;
+    if (record.isBlocked ||
+        _updatingLoginIps.contains(record.ip) ||
+        !canUseAccountViewActions) {
+      return;
+    }
+    final session = accountViewSession!;
+    final epoch = accountViewEpoch;
     var reason = '';
     final confirmed = await showDialog<bool>(
       context: context,
@@ -278,9 +283,12 @@ class _FengWoPersonalCenterViewState
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
-    final session = globalState.xboardSession;
-    if (session == null) return;
+    if (confirmed != true ||
+        !mounted ||
+        !isCurrentAccountView(session, epoch) ||
+        !canUseAccountViewActions) {
+      return;
+    }
     setState(() => _updatingLoginIps.add(record.ip));
     try {
       await _authService.blockLoginIp(
@@ -289,18 +297,30 @@ class _FengWoPersonalCenterViewState
         ip: record.ip,
         reason: reason.trim().isEmpty ? null : reason.trim(),
       );
-      if (!mounted) return;
+      if (!mounted || !isCurrentAccountView(session, epoch)) return;
+      _ipRead.invalidate();
       _showMessage(context.appLocalizations.loginIpBlocked);
+      if (!canUseAccountViewActions) requestAccountViewRead();
       await _loadLoginIps();
     } catch (error) {
-      if (mounted) _showMessage(_errorMessage(error), isError: true);
+      if (mounted && isCurrentAccountView(session, epoch)) {
+        _showMessage(_errorMessage(error), isError: true);
+      }
     } finally {
-      if (mounted) setState(() => _updatingLoginIps.remove(record.ip));
+      if (isCurrentAccountView(session, epoch)) {
+        setState(() => _updatingLoginIps.remove(record.ip));
+      }
     }
   }
 
   Future<void> _unblockLoginIp(XboardLoginIpRecord record) async {
-    if (!record.isBlocked || _updatingLoginIps.contains(record.ip)) return;
+    if (!record.isBlocked ||
+        _updatingLoginIps.contains(record.ip) ||
+        !canUseAccountViewActions) {
+      return;
+    }
+    final session = accountViewSession!;
+    final epoch = accountViewEpoch;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -322,9 +342,12 @@ class _FengWoPersonalCenterViewState
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
-    final session = globalState.xboardSession;
-    if (session == null) return;
+    if (confirmed != true ||
+        !mounted ||
+        !isCurrentAccountView(session, epoch) ||
+        !canUseAccountViewActions) {
+      return;
+    }
     setState(() => _updatingLoginIps.add(record.ip));
     try {
       await _authService.unblockLoginIp(
@@ -332,23 +355,30 @@ class _FengWoPersonalCenterViewState
         authData: session.authData,
         ip: record.ip,
       );
-      if (!mounted) return;
+      if (!mounted || !isCurrentAccountView(session, epoch)) return;
+      _ipRead.invalidate();
       _showMessage(context.appLocalizations.loginIpUnblocked);
+      if (!canUseAccountViewActions) requestAccountViewRead();
       await _loadLoginIps();
     } catch (error) {
-      if (mounted) _showMessage(_errorMessage(error), isError: true);
+      if (mounted && isCurrentAccountView(session, epoch)) {
+        _showMessage(_errorMessage(error), isError: true);
+      }
     } finally {
-      if (mounted) setState(() => _updatingLoginIps.remove(record.ip));
+      if (isCurrentAccountView(session, epoch)) {
+        setState(() => _updatingLoginIps.remove(record.ip));
+      }
     }
   }
 
   Future<void> _changePassword() async {
-    if (_changingPassword ||
+    if (!canUseAccountViewActions ||
+        _changingPassword ||
         _passwordFormKey.currentState?.validate() != true) {
       return;
     }
-    final session = globalState.xboardSession;
-    if (session == null) return;
+    final session = accountViewSession!;
+    final epoch = accountViewEpoch;
     FocusScope.of(context).unfocus();
     setState(() => _changingPassword = true);
     try {
@@ -358,16 +388,24 @@ class _FengWoPersonalCenterViewState
         oldPassword: _oldPasswordController.text,
         newPassword: _newPasswordController.text,
       );
-      if (!mounted) return;
+      if (!mounted || !isCurrentAccountView(session, epoch)) return;
+      _userRead.invalidate();
+      _ipRead.invalidate();
       _oldPasswordController.clear();
       _newPasswordController.clear();
       _confirmPasswordController.clear();
       _passwordFormKey.currentState?.reset();
       _showMessage(context.appLocalizations.passwordChanged);
+      if (!canUseAccountViewActions) requestAccountViewRead();
+      await Future.wait([_loadUserInfo(), _loadLoginIps()]);
     } catch (error) {
-      if (mounted) _showMessage(_errorMessage(error), isError: true);
+      if (mounted && isCurrentAccountView(session, epoch)) {
+        _showMessage(_errorMessage(error), isError: true);
+      }
     } finally {
-      if (mounted) setState(() => _changingPassword = false);
+      if (isCurrentAccountView(session, epoch)) {
+        setState(() => _changingPassword = false);
+      }
     }
   }
 
