@@ -5,16 +5,32 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiRemoteConfigCacheStore {
   ApiRemoteConfigCacheStore({
     Future<SharedPreferences> Function()? preferencesLoader,
-  }) : _preferencesLoader = preferencesLoader ?? SharedPreferences.getInstance;
+    String? namespace,
+    bool allowLegacyFallback = false,
+    bool clearInvalidOnLoad = true,
+  }) : _preferencesLoader = preferencesLoader ?? SharedPreferences.getInstance,
+       _namespace = namespace,
+       _allowLegacyFallback = allowLegacyFallback,
+       _clearInvalidOnLoad = clearInvalidOnLoad;
 
   static const _cacheKey = 'xboard.remote_config.encrypted.v1';
   static const _cacheVersion = 1;
 
   final Future<SharedPreferences> Function() _preferencesLoader;
+  final String? _namespace;
+  final bool _allowLegacyFallback;
+  final bool _clearInvalidOnLoad;
+
+  String get _key => _namespace == null ? _cacheKey : '$_cacheKey.$_namespace';
 
   Future<Object?> load() async {
     final preferences = await _preferencesLoader();
-    final raw = preferences.getString(_cacheKey);
+    var key = _key;
+    var raw = preferences.getString(key);
+    if (raw == null && _allowLegacyFallback) {
+      key = _cacheKey;
+      raw = preferences.getString(key);
+    }
     if (raw == null || raw.isEmpty) return null;
     try {
       final decoded = jsonDecode(raw);
@@ -28,7 +44,7 @@ class ApiRemoteConfigCacheStore {
       }
       return decoded['encryptedConfig'];
     } catch (_) {
-      await preferences.remove(_cacheKey);
+      if (_clearInvalidOnLoad) await preferences.remove(key);
       return null;
     }
   }
@@ -47,7 +63,7 @@ class ApiRemoteConfigCacheStore {
     }
     final preferences = await _preferencesLoader();
     final saved = await preferences.setString(
-      _cacheKey,
+      _key,
       jsonEncode({
         'version': _cacheVersion,
         'verifiedAt': DateTime.now().toUtc().toIso8601String(),
@@ -62,6 +78,6 @@ class ApiRemoteConfigCacheStore {
 
   Future<void> clear() async {
     final preferences = await _preferencesLoader();
-    await preferences.remove(_cacheKey);
+    await preferences.remove(_key);
   }
 }

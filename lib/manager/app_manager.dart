@@ -55,6 +55,10 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    ApiHealthService.setAppForeground(
+      WidgetsBinding.instance.lifecycleState == null ||
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed,
+    );
     globalState.xboardSessionRevisionNotifier.addListener(_syncTickets);
     globalState.offlineModeNotifier.addListener(_syncTickets);
     _syncTickets();
@@ -111,6 +115,7 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
 
   @override
   void dispose() {
+    ApiHealthService.setAppForeground(false);
     globalState.xboardTicketController.stopPolling();
     globalState.xboardSessionRevisionNotifier.removeListener(_syncTickets);
     globalState.offlineModeNotifier.removeListener(_syncTickets);
@@ -121,6 +126,7 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
   @override
   Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
     commonPrint.log('$state');
+    ApiHealthService.setAppForeground(state == AppLifecycleState.resumed);
     globalState.xboardTicketController.setForeground(
       state == AppLifecycleState.resumed,
     );

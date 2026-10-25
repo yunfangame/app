@@ -90,7 +90,8 @@ class AppUpdateService {
     this.aesKey = remoteConfigAesKey,
     this.signingPublicKey = remoteConfigSigningPublicKey,
   }) : _mainConfigLoader =
-           mainConfigLoader ?? (() => ApiHealthService().loadConfig()),
+           mainConfigLoader ??
+           (() => ApiHealthService().loadConfig(forceRefresh: true)),
        _manifestLoader = manifestLoader,
        _packageKeyResolver = packageKeyResolver ?? currentAppUpdatePackageKey,
        _preferenceStore = preferenceStore ?? AppUpdatePreferenceStore(),
