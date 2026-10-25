@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/subscription_access.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/state.dart';
@@ -16,6 +17,12 @@ class Request {
   late final Dio _clashDio;
   late final Dio _directDio;
   String? userAgent;
+
+  Request.forTesting({required Dio directDio, required Dio clashDio}) {
+    dio = Dio();
+    _directDio = directDio;
+    _clashDio = clashDio;
+  }
 
   Request() {
     dio = Dio(BaseOptions(headers: {'User-Agent': browserUa}));
@@ -46,20 +53,32 @@ class Request {
     );
   }
 
-  Future<Response<Uint8List>> getFileResponseForUrl(String url) async {
+  Future<Response<Uint8List>> getFileResponseForUrl(
+    String url, {
+    bool Function()? canRequest,
+  }) async {
     try {
+      ensureXboardApiRequestAllowed(canRequest);
       try {
-        return await _directDio.get<Uint8List>(
+        final response = await _directDio.get<Uint8List>(
           url,
           options: Options(responseType: ResponseType.bytes),
         );
-      } catch (_) {
-        return await _clashDio.get<Uint8List>(
+        ensureXboardApiRequestAllowed(canRequest);
+        return response;
+      } catch (error) {
+        ensureXboardApiRequestAllowed(canRequest);
+        if (!canRetrySubscriptionDownload(error)) rethrow;
+        final response = await _clashDio.get<Uint8List>(
           url,
           options: Options(responseType: ResponseType.bytes),
         );
+        ensureXboardApiRequestAllowed(canRequest);
+        return response;
       }
     } catch (e, stackTrace) {
+      if (e is XboardApiRequestDeferred) rethrow;
+      ensureXboardApiRequestAllowed(canRequest);
       commonPrint.log('getFileResponseForUrl error ${e.toString()}');
       final error = preserveSubscriptionDownloadError(
         e,
@@ -181,6 +200,32 @@ class Request {
     token.cancel();
     return res;
   }
+}
+
+bool canRetrySubscriptionDownload(Object error) {
+  if (error is DioException) {
+    if (error.type == DioExceptionType.cancel ||
+        error.type == DioExceptionType.badCertificate ||
+        error.error is TlsException ||
+        error.error is FormatException ||
+        error.error is ArgumentError) {
+      return false;
+    }
+    final status = error.response?.statusCode;
+    if (status != null) return status >= 500 && status < 600;
+    return switch (error.type) {
+      DioExceptionType.connectionTimeout ||
+      DioExceptionType.sendTimeout ||
+      DioExceptionType.receiveTimeout ||
+      DioExceptionType.connectionError => true,
+      DioExceptionType.unknown =>
+        error.error != null &&
+            !identical(error.error, error) &&
+            canRetrySubscriptionDownload(error.error!),
+      _ => false,
+    };
+  }
+  return error is SocketException || error is TimeoutException;
 }
 
 final request = Request();

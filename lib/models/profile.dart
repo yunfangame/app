@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
@@ -172,8 +173,16 @@ extension ProfileExtension on Profile {
     return _getFile();
   }
 
-  Future<Profile> update({bool Function()? isCurrent}) async {
-    final response = await request.getFileResponseForUrl(url);
+  Future<Profile> update({
+    bool Function()? isCurrent,
+    bool Function()? canRequest,
+  }) async {
+    bool canLoad() => isCurrent?.call() != false && canRequest?.call() != false;
+    final response = await request.getFileResponseForUrl(
+      url,
+      canRequest: canLoad,
+    );
+    ensureXboardApiRequestAllowed(canLoad);
     final disposition = response.headers.value('content-disposition');
     final userinfo = response.headers.value('subscription-userinfo');
     return copyWith(
