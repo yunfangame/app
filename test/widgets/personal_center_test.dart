@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/xboard_tickets.dart';
 import 'package:fl_clash/l10n/l10n.dart';
@@ -8,17 +10,258 @@ import 'package:fl_clash/widgets/fengwo_account_avatar.dart';
 import 'package:fl_clash/widgets/inherited.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/api_health_fixture.dart';
+import '../support/account_view_test_scope.dart';
 import '../support/ticket_fixtures.dart';
 
 void main() {
+  accountViewReadTest('account reads wait for active foreground and online', (
+    tester,
+  ) async {
+    globalState.activateXboardSession(_testSession());
+    var users = 0;
+    final ips = _LoginIpTestState();
+    final activity = await mountAccountView(
+      tester,
+      _readPersonal(
+        _testService(onUserInfoFetched: () => users++, loginIpState: ips),
+      ),
+      (child) => _TestApp(mobileLayout: true, child: child),
+      active: false,
+      size: const Size(390, 844),
+    );
+    expect(users, 0);
+    expect(ips.fetchCalls, 0);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    activity.value = true;
+    await tester.pump(const Duration(minutes: 5));
+    expect(users, 0);
+    expect(ips.fetchCalls, 0);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(users, 1);
+    expect(ips.fetchCalls, 1);
+    final refresh = tester
+        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+        .onRefresh;
+    globalState.setOfflineMode(true);
+    await refresh();
+    await tester.pump(const Duration(minutes: 5));
+    expect(users, 1);
+    expect(ips.fetchCalls, 1);
+    globalState.setOfflineMode(false);
+    await tester.pumpAndSettle();
+    expect(users, 2);
+    expect(ips.fetchCalls, 2);
+    expect(accountViewWindowCalls, 0);
+  });
+
+  accountViewReadTest('repeated entry shares in-flight account reads', (
+    tester,
+  ) async {
+    globalState.activateXboardSession(_testSession());
+    final user = Completer<XboardLoginResponse>();
+    final ip = Completer<XboardLoginResponse>();
+    late XboardLoginResponse userValue;
+    late XboardLoginResponse ipValue;
+    var users = 0;
+    final ips = _LoginIpTestState();
+    final activity = await mountAccountView(
+      tester,
+      _readPersonal(
+        _testService(
+          onUserInfoFetched: () => users++,
+          loginIpState: ips,
+          userResponse: (_, value) {
+            userValue = value;
+            return user.future;
+          },
+          ipResponse: (_, value) {
+            ipValue = value;
+            return ip.future;
+          },
+        ),
+      ),
+      (child) => _TestApp(child: child),
+    );
+    activity.value = false;
+    await tester.pump();
+    activity.value = true;
+    await flushAccountReads(tester);
+    expect(users, 1);
+    expect(ips.fetchCalls, 1);
+    user.complete(userValue);
+    ip.complete(ipValue);
+    await tester.pumpAndSettle();
+    expect(find.text('12.50'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final relogin in [false, true]) {
+    accountViewReadTest(
+      'account replies cannot replace a fresh read, relogin=$relogin',
+      (tester) async {
+        globalState.activateXboardSession(_testSession());
+        final pending = Completer<XboardLoginResponse>();
+        late XboardLoginResponse old;
+        var users = 0;
+        await mountAccountView(
+          tester,
+          _readPersonal(
+            _testService(
+              onUserInfoFetched: () => users++,
+              userBalance: () => users == 0 ? 1250 : 8800,
+              userResponse: (call, value) {
+                if (call == 1) {
+                  old = value;
+                  return pending.future;
+                }
+                return Future.value(value);
+              },
+            ),
+          ),
+          (child) => _TestApp(child: child),
+        );
+        if (relogin) {
+          globalState.clearXboardSession();
+          globalState.activateXboardSession(_testSession());
+          await flushAccountReads(tester);
+        } else {
+          await tester
+              .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+              .onRefresh();
+        }
+        expect(users, 2);
+        pending.complete(old);
+        await tester.pumpAndSettle();
+        expect(find.text('88.00'), findsOneWidget);
+        expect(find.text('12.50'), findsNothing);
+      },
+    );
+  }
+
+  accountViewReadTest('blocking an IP bypasses its pre-mutation refresh', (
+    tester,
+  ) async {
+    globalState.activateXboardSession(_testSession());
+    final pending = Completer<XboardLoginResponse>();
+    late XboardLoginResponse old;
+    final ips = _LoginIpTestState();
+    await mountAccountView(
+      tester,
+      _readPersonal(
+        _testService(
+          loginIpState: ips,
+          ipResponse: (call, value) {
+            if (call == 2) {
+              old = value;
+              return pending.future;
+            }
+            return Future.value(value);
+          },
+        ),
+      ),
+      (child) => _TestApp(child: child),
+    );
+    final refresh = tester
+        .widget<IconButton>(
+          find.byKey(const ValueKey('refresh-login-ip-button')),
+        )
+        .onPressed!;
+    refresh();
+    await flushAccountReads(tester);
+    final block = find.byKey(const ValueKey('block-login-ip-17-178.94.14.100'));
+    await tester.ensureVisible(block);
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.tap(block);
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.tap(
+      find.byKey(const ValueKey('confirm-block-login-ip-button')),
+    );
+    await flushAccountReads(tester);
+    expect(ips.fetchCalls, 3);
+    pending.complete(old);
+    await tester.pumpAndSettle();
+    expect(ips.firstIpBlocked, isTrue);
+    expect(block, findsNothing);
+    expect(
+      find.byKey(const ValueKey('unblock-login-ip-17-178.94.14.100')),
+      findsOneWidget,
+    );
+  });
+
+  accountViewReadTest(
+    'desktop hidden account reads await a verified return',
+    (tester) async {
+      accountViewWindowVisible = false;
+      globalState.activateXboardSession(_testSession());
+      var users = 0;
+      final ips = _LoginIpTestState();
+      var ticketFetches = 0;
+      final fixture = TicketFixture();
+      final tickets = XboardTicketController(
+        api: XboardTicketApi(
+          requester: (uri, auth, body) {
+            if (uri.path.endsWith('/fetch')) ticketFetches++;
+            return fixture.request(uri, auth, body);
+          },
+        ),
+      );
+      addTearDown(tickets.dispose);
+      await mountAccountView(
+        tester,
+        FengWoPersonalCenterView(
+          authService: _testService(
+            onUserInfoFetched: () => users++,
+            loginIpState: ips,
+          ),
+          ticketController: tickets,
+        ),
+        (child) => _TestApp(child: child),
+      );
+      expect(users, 0);
+      expect(ticketFetches, 0);
+      accountViewWindowVisible = true;
+      accountViewWindowFocused = false;
+      await accountViewWindowEvent(tester, 'show');
+      await flushAccountReads(tester);
+      expect(users, 0);
+      accountViewWindowFocused = true;
+      await accountViewWindowEvent(tester, 'focus');
+      await tester.pumpAndSettle();
+      expect(users, 1);
+      await accountViewWindowEvent(tester, 'blur');
+      await accountViewWindowEvent(tester, 'focus');
+      await tester.pumpAndSettle();
+      expect(users, 1);
+      expect(ips.fetchCalls, 1);
+      expect(ticketFetches, 1);
+    },
+    platform: TargetPlatform.macOS,
+  );
+
   testWidgets(
     'desktop and Android tickets are fetched only on personal center entry',
     (tester) async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('window_manager'),
+        (call) async => switch (call.method) {
+          'isVisible' || 'isFocused' => true,
+          'isMinimized' => false,
+          _ => null,
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('window_manager'),
+          null,
+        ),
+      );
       tester.view.physicalSize = defaultTargetPlatform == TargetPlatform.android
           ? const Size(390, 844)
           : const Size(1280, 1000);
@@ -110,6 +353,7 @@ void main() {
       addTearDown(globalState.clearXboardSession);
       globalState.xboardSession = _testSession();
       var passwordChanged = false;
+      var userInfoRequests = 0;
       final loginIpState = _LoginIpTestState();
 
       await tester.pumpWidget(
@@ -118,6 +362,7 @@ void main() {
             ticketController: _ticketController(),
             authService: _testService(
               onPasswordChanged: () => passwordChanged = true,
+              onUserInfoFetched: () => userInfoRequests++,
               loginIpState: loginIpState,
             ),
           ),
@@ -258,6 +503,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(passwordChanged, isTrue);
+      expect(userInfoRequests, 2);
+      expect(loginIpState.fetchCalls, 3);
       expect(tester.takeException(), isNull);
     },
   );
@@ -540,19 +787,31 @@ void main() {
   }
 }
 
+FengWoPersonalCenterView _readPersonal(XboardAuthService service) {
+  final tickets = _ticketController();
+  return FengWoPersonalCenterView(
+    authService: service,
+    ticketController: tickets,
+  );
+}
+
 XboardAuthService _testService({
   VoidCallback? onPasswordChanged,
   _LoginIpTestState? loginIpState,
   int Function()? userBalance,
   VoidCallback? onUserInfoFetched,
+  Future<XboardLoginResponse> Function(int, XboardLoginResponse)? userResponse,
+  Future<XboardLoginResponse> Function(int, XboardLoginResponse)? ipResponse,
 }) {
   final state = loginIpState ?? _LoginIpTestState();
+  var userRequests = 0;
   return XboardAuthService(
     apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
     userInfoRequester: (endpoint, authData) async {
+      userRequests++;
       final balance = userBalance?.call() ?? 1250;
       onUserInfoFetched?.call();
-      return XboardLoginResponse(
+      final response = XboardLoginResponse(
         statusCode: 200,
         data: {
           'data': {
@@ -567,8 +826,10 @@ XboardAuthService _testService({
           },
         },
       );
+      return userResponse?.call(userRequests, response) ?? response;
     },
     loginIpFetchRequester: (endpoint, authData) async {
+      state.fetchCalls++;
       if (state.failFetch) {
         return const XboardLoginResponse(
           statusCode: 503,
@@ -622,7 +883,7 @@ XboardAuthService _testService({
             'denied_count': 0,
           },
       ];
-      return XboardLoginResponse(
+      final response = XboardLoginResponse(
         statusCode: 200,
         data: {
           'data': {
@@ -641,6 +902,7 @@ XboardAuthService _testService({
           },
         },
       );
+      return ipResponse?.call(state.fetchCalls, response) ?? response;
     },
     loginIpBlockRequester: (endpoint, authData, ip, reason) async {
       state.blockedIp = ip;
@@ -667,6 +929,7 @@ XboardAuthService _testService({
 }
 
 class _LoginIpTestState {
+  int fetchCalls = 0;
   bool firstIpBlocked = false;
   bool secondIpBlocked = true;
   bool failFetch = false;
@@ -677,12 +940,15 @@ class _LoginIpTestState {
   String? unblockedIp;
 }
 
-XboardLoginResult _testSession({bool secureSubscription = false}) {
+XboardLoginResult _testSession({
+  bool secureSubscription = false,
+  String authData = 'Bearer account-token',
+}) {
   final endpoint = Uri.parse('https://api.example.com');
   return XboardLoginResult(
     endpoint: endpoint,
     token: 'subscription-token',
-    authData: 'Bearer account-token',
+    authData: authData,
     isAdmin: false,
     secureSubscription: secureSubscription,
     subscription: XboardSubscriptionData(
