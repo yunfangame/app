@@ -856,7 +856,11 @@ class ApplicationState extends ConsumerState<Application> {
     }
   }
 
-  Future<Profile?> _syncSubscriptionProfile(XboardLoginResult session) {
+  Future<Profile?> _syncSubscriptionProfile(
+    XboardLoginResult session, {
+    bool forceRefresh = false,
+    bool ignoreOfflineMode = false,
+  }) {
     final revision = globalState.xboardSessionRevision;
     bool isCurrent() =>
         mounted &&
@@ -865,12 +869,36 @@ class ApplicationState extends ConsumerState<Application> {
     if (!isCurrent()) {
       return Future<Profile?>.value();
     }
+    if (forceRefresh) _profileSync.cancel();
     return _profileSync.run(
       isCurrent: isCurrent,
       refresh: (_) => syncAccessibleSubscriptionProfile<Profile>(
         subscription: session.subscription,
         isCurrent: isCurrent,
-        sync: () => _performSubscriptionProfileSync(session, isCurrent),
+        sync: () {
+          if (ignoreOfflineMode) {
+            return _performSubscriptionProfileSync(
+              session,
+              isCurrent,
+              forceRefresh: forceRefresh,
+            );
+          }
+          return ref
+              .read(profilesActionProvider.notifier)
+              .runAuthenticatedSubscriptionSync(
+                session,
+                allowTokenRegistration: !session.secureSubscription,
+                forceRefresh: forceRefresh,
+                isCurrent: isCurrent,
+                onReuse: (profile, guard) =>
+                    _restoreLocalAccountRules(session, profile, guard),
+                sync: (guardedIsCurrent) => _performSubscriptionProfileSync(
+                  session,
+                  guardedIsCurrent,
+                  forceRefresh: forceRefresh,
+                ),
+              );
+        },
         onBlocked: (access) => _showStartupMessage(
           access.message(currentAppLocalizations)!,
           isCurrent: isCurrent,
@@ -885,8 +913,9 @@ class ApplicationState extends ConsumerState<Application> {
 
   Future<Profile> _performSubscriptionProfileSync(
     XboardLoginResult session,
-    bool Function() isCurrent,
-  ) async {
+    bool Function() isCurrent, {
+    bool forceRefresh = false,
+  }) async {
     void ensureCurrent() {
       if (!isCurrent()) throw StateError('profile_sync_superseded');
     }
@@ -909,6 +938,8 @@ class ApplicationState extends ConsumerState<Application> {
         userToken: session.token,
         appVersion: globalState.packageInfo.version,
         allowTokenRegistration: !session.secureSubscription,
+        forceRefresh: forceRefresh,
+        requestScope: isCurrent,
       );
       ensureCurrent();
       if (secureProfile != null) {
@@ -923,6 +954,7 @@ class ApplicationState extends ConsumerState<Application> {
               .syncSubscriptionProfileBytes(
                 secureProfile.bytes,
                 sourceId: secureProfile.sourceId,
+                usedTokenRegistration: secureProfile.usedTokenRegistration,
                 label: label,
                 replacingUrl: previousUrl,
                 removeLegacyXboardProfiles: true,
@@ -1281,10 +1313,15 @@ class ApplicationState extends ConsumerState<Application> {
           globalState.isActiveXboardSession(session, revision);
       await syncXboardProfileFirst(
         isCurrent: isCurrent,
-        syncProfile: () => _syncSubscriptionProfile(session),
+        syncProfile: () => _syncSubscriptionProfile(
+          session,
+          forceRefresh: true,
+          ignoreOfflineMode: true,
+        ),
         refreshMetadata: () => _loadXboardNodes(
           session,
           ignoreOfflineMode: true,
+          forceRefresh: true,
         ).then<void>((_) {}),
         prepareRouting: (profile) async {
           if (profile != null) {
@@ -1457,7 +1494,8 @@ class ApplicationState extends ConsumerState<Application> {
         attempt.onMetadataRequested = startMetadata;
         await syncXboardProfileFirst(
           isCurrent: attempt.isCurrent,
-          syncProfile: () => _syncSubscriptionProfile(updatedSession),
+          syncProfile: () =>
+              _syncSubscriptionProfile(updatedSession, forceRefresh: true),
           refreshMetadata: () async => startMetadata(),
           prepareRouting: (profile) async {
             if (profile != null) {
