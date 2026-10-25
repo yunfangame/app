@@ -388,6 +388,23 @@ void main() {
     },
   );
 
+  test(
+    'manual V2 updates use fresh scoped exchanges after automatic failure',
+    () async {
+      final session = _session('one');
+      globalState.activateXboardSession(session);
+      final profile = _profile(100).copyWith(url: 'fengwo-v2://key/account');
+      await XboardSessionStorage().setManagedProfileUrl(profile.url);
+      final h = _Harness(profiles: [profile]);
+      h.action.v2Loader = (_) async => throw StateError('controlled outage');
+      await h.action.autoUpdateProfiles();
+      await expectLater(h.action.updateProfile(profile), throwsStateError);
+      expect(h.action.v2ForceModes, [false, true]);
+      expect(h.action.v2Scopes, everyElement(isNotNull));
+      expect(identical(h.action.v2Scopes[0], h.action.v2Scopes[1]), isFalse);
+    },
+  );
+
   for (final change in ['logout', 'source', 'deleted']) {
     test('late V2 bytes are rejected before saving ($change)', () async {
       globalState.activateXboardSession(_session('one'));
@@ -465,6 +482,8 @@ class _Action extends ProfilesAction {
   final _Clock clock;
   int jitter = 0;
   final loaded = <Profile>[];
+  final v2ForceModes = <bool>[];
+  final v2Scopes = <Object?>[];
   Future<Profile> Function(Profile, bool Function()?)? loader;
   Future<SubscriptionV2Profile?> Function(XboardLoginResult)? v2Loader;
   @override
@@ -484,8 +503,14 @@ class _Action extends ProfilesAction {
 
   @override
   Future<SubscriptionV2Profile?> loadSubscriptionV2Profile(
-    XboardLoginResult session,
-  ) => v2Loader!(session);
+    XboardLoginResult session, {
+    bool forceRefresh = false,
+    Object? requestScope,
+  }) {
+    v2ForceModes.add(forceRefresh);
+    v2Scopes.add(requestScope);
+    return v2Loader!(session);
+  }
 }
 
 class _Profiles extends Profiles {

@@ -212,6 +212,9 @@ void main() {
     expect(utf8.decode(second!.bytes), server.profile);
     expect(utf8.decode(third!.bytes), server.profile);
     expect(first.sourceId, startsWith('fengwo-v2://test-key/'));
+    expect(first.usedTokenRegistration, isTrue);
+    expect(second.usedTokenRegistration, isFalse);
+    expect(third.usedTokenRegistration, isTrue);
     expect(server.operations, [
       'register_device',
       'issue_ticket',
@@ -871,6 +874,146 @@ void main() {
     },
   );
 
+  test('initial normal and forced scopes share one device seed', () async {
+    final server = await _FakeSubscriptionV2Server.create()
+      ..hosts = _trustedHosts;
+    final store = _DelayedSeedWriteStore();
+    final client = _fixtureClient(server, store);
+    final normal = client.fetchProfile(
+      endpoint: _primaryEndpoint,
+      userToken: _token,
+      appVersion: '1.9.0',
+      requestScope: Object(),
+    );
+    await store.entered.future;
+    final forced = client.fetchProfile(
+      endpoint: _primaryEndpoint,
+      userToken: 'second-account',
+      appVersion: '1.9.0',
+      forceRefresh: true,
+      requestScope: Object(),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(store.seedReads, 1);
+    store.release.complete();
+    final profiles = await Future.wait([normal, forced]);
+    expect(profiles.every((profile) => profile != null), isTrue);
+    expect(store.seedWrites, 1);
+    final publicKeys = server.payloads
+        .where((payload) => payload['op'] == 'register_device')
+        .map((payload) => payload['device_public_key'])
+        .toSet();
+    expect(publicKeys, hasLength(1));
+    final key = await Ed25519().newKeyPairFromSeed(
+      _decode(store.values['subscription_v2.device_seed']!),
+    );
+    expect(_encode((await key.extractPublicKey()).bytes), publicKeys.single);
+  });
+
+  test(
+    'late strict rejection cannot remove a newer registered credential',
+    () async {
+      final server = await _FakeSubscriptionV2Server.create()
+        ..hosts = _trustedHosts
+        ..operationRejections['issue_ticket'] = 'device_not_registered';
+      final store = _MemorySubscriptionV2ValueStore();
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      final client = _fixtureClient(
+        server,
+        store,
+        requester: (endpoint, envelope) async {
+          final response = await server.request(endpoint, envelope);
+          final operation = server.operations.last;
+          if (operation == 'issue_ticket' && !entered.isCompleted) {
+            entered.complete();
+            await release.future;
+          }
+          if (operation == 'register_device') {
+            server.operationRejections.remove('issue_ticket');
+          }
+          return response;
+        },
+      );
+      await _fixtureLogin(client);
+      final old = _fixtureProfile(client, requestScope: Object());
+      await entered.future;
+      final newer = await client.fetchProfile(
+        endpoint: _primaryEndpoint,
+        userToken: _token,
+        appVersion: '1.9.0',
+        forceRefresh: true,
+        requestScope: Object(),
+      );
+      expect(newer, isNotNull);
+      final saved = Map<String, String>.of(store.values);
+      final oldFailure = expectLater(
+        old,
+        throwsA(_subscriptionError('device_not_registered')),
+      );
+      release.complete();
+      await oldFailure;
+      expect(store.values, saved);
+      expect(await _fixtureProfile(client, requestScope: Object()), isNotNull);
+      expect(
+        server.operations.where((op) => op == 'register_device'),
+        hasLength(1),
+      );
+    },
+  );
+
+  test(
+    'late registration cannot overwrite a newer registration response',
+    () async {
+      final server = await _FakeSubscriptionV2Server.create()
+        ..hosts = _trustedHosts;
+      final store = _MemorySubscriptionV2ValueStore();
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      final client = _fixtureClient(
+        server,
+        store,
+        requester: (endpoint, envelope) async {
+          final response = await server.request(endpoint, envelope);
+          if (server.operations.last == 'register_device' &&
+              !entered.isCompleted) {
+            entered.complete();
+            await release.future;
+          }
+          return response;
+        },
+      );
+      final old = client.fetchProfile(
+        endpoint: _primaryEndpoint,
+        userToken: _token,
+        appVersion: '1.9.0',
+        requestScope: Object(),
+      );
+      await entered.future;
+      final newer = await client.fetchProfile(
+        endpoint: _primaryEndpoint,
+        userToken: _token,
+        appVersion: '1.9.0',
+        forceRefresh: true,
+        requestScope: Object(),
+      );
+      expect(newer, isNotNull);
+      final saved = Map<String, String>.of(store.values);
+      final oldFailure = expectLater(
+        old,
+        throwsA(_subscriptionError('credential_superseded')),
+      );
+      release.complete();
+      await oldFailure;
+      expect(store.values, saved);
+      expect(await _fixtureProfile(client, requestScope: Object()), isNotNull);
+      expect(
+        server.operations.where((op) => op == 'register_device'),
+        hasLength(2),
+      );
+    },
+  );
+
   test(
     'legacy device repair never switches gateways after rejection',
     () async {
@@ -1167,6 +1310,94 @@ void main() {
       expect(server.ticketSequence, 1);
       expect(await _fixtureProfile(client), isNotNull);
       expect(server.ticketSequence, 2);
+    },
+  );
+
+  test(
+    'forced exchanges ignore older automatic work and coalesce together',
+    () async {
+      final server = await _FakeSubscriptionV2Server.create()
+        ..hosts = _trustedHosts;
+      final normalEntered = Completer<void>();
+      final forceEntered = Completer<void>();
+      final normalRelease = Completer<void>();
+      final forceRelease = Completer<void>();
+      final client = _fixtureClient(
+        server,
+        _MemorySubscriptionV2ValueStore(),
+        requester: (endpoint, envelope) async {
+          final response = await server.request(endpoint, envelope);
+          if (server.operations.last == 'issue_ticket') {
+            if (!normalEntered.isCompleted) {
+              normalEntered.complete();
+              await normalRelease.future;
+            } else if (!forceEntered.isCompleted) {
+              forceEntered.complete();
+              await forceRelease.future;
+            }
+          }
+          return response;
+        },
+      );
+      await _fixtureLogin(client);
+      final normal = _fixtureProfile(client);
+      await normalEntered.future;
+      final first = _fixtureProfile(client, forceRefresh: true);
+      await forceEntered.future;
+      final second = _fixtureProfile(client, forceRefresh: true);
+      await Future<void>.delayed(Duration.zero);
+      expect(server.ticketSequence, 2);
+      forceRelease.complete();
+      final forced = await Future.wait([first, second]);
+      expect(forced.every((profile) => profile != null), isTrue);
+      expect(
+        forced.every((profile) => !profile!.usedTokenRegistration),
+        isTrue,
+      );
+      normalRelease.complete();
+      expect(await normal, isNotNull);
+      await _fixtureProfile(client, forceRefresh: true);
+      expect(server.ticketSequence, 3);
+    },
+  );
+
+  test(
+    'new transaction scopes never inherit an older forced exchange',
+    () async {
+      final server = await _FakeSubscriptionV2Server.create()
+        ..hosts = _trustedHosts;
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      final client = _fixtureClient(
+        server,
+        _MemorySubscriptionV2ValueStore(),
+        requester: (endpoint, envelope) async {
+          final response = await server.request(endpoint, envelope);
+          if (server.operations.last == 'issue_ticket' &&
+              !entered.isCompleted) {
+            entered.complete();
+            await release.future;
+          }
+          return response;
+        },
+      );
+      await _fixtureLogin(client);
+      final old = _fixtureProfile(
+        client,
+        forceRefresh: true,
+        requestScope: Object(),
+      );
+      await entered.future;
+      final scope = Object();
+      final newer = await _fixtureProfile(
+        client,
+        forceRefresh: true,
+        requestScope: scope,
+      );
+      expect(newer, isNotNull);
+      expect(server.ticketSequence, 2);
+      release.complete();
+      expect(await old, isNotNull);
     },
   );
 
@@ -2149,12 +2380,16 @@ Future<SubscriptionV2Login?> _fixtureLogin(SubscriptionV2Client client) =>
 Future<SubscriptionV2Profile?> _fixtureProfile(
   SubscriptionV2Client client, {
   Uri? endpoint,
+  bool forceRefresh = false,
+  Object? requestScope,
 }) => client.fetchProfile(
   endpoint: endpoint ?? _primaryEndpoint,
   userToken: _token,
   appVersion: '1.9.0',
   platform: 'android',
   allowTokenRegistration: false,
+  forceRefresh: forceRefresh,
+  requestScope: requestScope,
 );
 
 SubscriptionV2Client _sharedRouterClient(
@@ -2211,6 +2446,28 @@ class _MemorySubscriptionV2ValueStore implements SubscriptionV2ValueStore {
   @override
   Future<void> write(String key, String value) async {
     values[key] = value;
+  }
+}
+
+class _DelayedSeedWriteStore extends _MemorySubscriptionV2ValueStore {
+  final entered = Completer<void>();
+  final release = Completer<void>();
+  int seedReads = 0;
+  int seedWrites = 0;
+  @override
+  Future<String?> read(String key) {
+    if (key == 'subscription_v2.device_seed') seedReads++;
+    return super.read(key);
+  }
+
+  @override
+  Future<void> write(String key, String value) async {
+    if (key == 'subscription_v2.device_seed') {
+      if (!entered.isCompleted) entered.complete();
+      await release.future;
+      seedWrites++;
+    }
+    await super.write(key, value);
   }
 }
 

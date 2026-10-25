@@ -1018,19 +1018,27 @@ class ApplicationState extends ConsumerState<Application> {
 
   Future<Profile?> _syncSubscriptionProfile(
     XboardLoginResult session,
-    int sessionRevision,
-  ) {
+    int sessionRevision, {
+    bool forceRefresh = false,
+    bool ignoreOfflineMode = false,
+  }) {
     bool isCurrent() =>
         mounted &&
         !_logoutInProgress &&
         globalState.isActiveXboardSession(session, sessionRevision);
     if (!isCurrent()) return Future<Profile?>.value();
+    if (forceRefresh) _profileSync.cancel();
     return _profileSync.run(
       isCurrent: isCurrent,
       refresh: (_) => syncAccessibleSubscriptionProfile<Profile>(
         subscription: session.subscription,
         isCurrent: isCurrent,
-        sync: () => _performSubscriptionProfileSync(session, sessionRevision),
+        sync: () => _performSubscriptionProfileSync(
+          session,
+          sessionRevision,
+          forceRefresh: forceRefresh,
+          ignoreOfflineMode: ignoreOfflineMode,
+        ),
         onBlocked: (access) => _showStartupMessage(
           access.message(currentAppLocalizations)!,
           isCurrent: isCurrent,
@@ -1045,8 +1053,10 @@ class ApplicationState extends ConsumerState<Application> {
 
   Future<Profile?> _performSubscriptionProfileSync(
     XboardLoginResult session,
-    int sessionRevision,
-  ) async {
+    int sessionRevision, {
+    bool forceRefresh = false,
+    bool ignoreOfflineMode = false,
+  }) async {
     bool isCurrent() =>
         mounted &&
         !_logoutInProgress &&
@@ -1055,8 +1065,30 @@ class ApplicationState extends ConsumerState<Application> {
       return await runBoundedXboardProfileSync(
         timeout: _profileSyncTimeout,
         isCurrent: isCurrent,
-        sync: (isCurrent) =>
-            _runSubscriptionProfileSync(session, sessionRevision, isCurrent),
+        sync: (isCurrent) {
+          if (ignoreOfflineMode) {
+            return _runSubscriptionProfileSync(
+              session,
+              sessionRevision,
+              isCurrent,
+              forceRefresh: forceRefresh,
+            );
+          }
+          return ref
+              .read(profilesActionProvider.notifier)
+              .runAuthenticatedSubscriptionSync(
+                session,
+                allowTokenRegistration: !session.secureSubscription,
+                forceRefresh: forceRefresh,
+                isCurrent: isCurrent,
+                sync: (guardedIsCurrent) => _runSubscriptionProfileSync(
+                  session,
+                  sessionRevision,
+                  guardedIsCurrent,
+                  forceRefresh: forceRefresh,
+                ),
+              );
+        },
       );
     } on TimeoutException catch (error) {
       commonPrint.event(
@@ -1108,8 +1140,9 @@ class ApplicationState extends ConsumerState<Application> {
   Future<Profile?> _runSubscriptionProfileSync(
     XboardLoginResult session,
     int sessionRevision,
-    bool Function() isCurrent,
-  ) async {
+    bool Function() isCurrent, {
+    bool forceRefresh = false,
+  }) async {
     final ruleAccountKey =
         globalState.isActiveXboardSession(session, sessionRevision)
         ? globalState.xboardRuleAccountKey
@@ -1155,6 +1188,8 @@ class ApplicationState extends ConsumerState<Application> {
         userToken: session.token,
         appVersion: globalState.packageInfo.version,
         allowTokenRegistration: !session.secureSubscription,
+        forceRefresh: forceRefresh,
+        requestScope: isCurrent,
       );
       if (!isCurrent()) return null;
       if (secureProfile != null) {
@@ -1164,6 +1199,7 @@ class ApplicationState extends ConsumerState<Application> {
             .syncSubscriptionProfileBytes(
               secureProfile.bytes,
               sourceId: secureProfile.sourceId,
+              usedTokenRegistration: secureProfile.usedTokenRegistration,
               label: label,
               ruleAccountKey: ruleAccountKey,
               replacingUrl: previousUrl,
@@ -1510,10 +1546,16 @@ class ApplicationState extends ConsumerState<Application> {
           globalState.isActiveXboardSession(session, sessionRevision);
       await syncXboardProfileFirst(
         isCurrent: isCurrent,
-        syncProfile: () => _syncSubscriptionProfile(session, sessionRevision),
+        syncProfile: () => _syncSubscriptionProfile(
+          session,
+          sessionRevision,
+          forceRefresh: true,
+          ignoreOfflineMode: true,
+        ),
         refreshMetadata: () => _loadXboardNodes(
           session,
           ignoreOfflineMode: true,
+          forceRefresh: true,
         ).then<void>((_) {}),
         prepareRouting: (profile) async {
           if (profile != null) {
@@ -1688,8 +1730,11 @@ class ApplicationState extends ConsumerState<Application> {
         attempt.onMetadataRequested = startMetadata;
         await syncXboardProfileFirst(
           isCurrent: attempt.isCurrent,
-          syncProfile: () =>
-              _syncSubscriptionProfile(updatedSession, updatedRevision),
+          syncProfile: () => _syncSubscriptionProfile(
+            updatedSession,
+            updatedRevision,
+            forceRefresh: true,
+          ),
           refreshMetadata: () async => startMetadata(),
           prepareRouting: (profile) async {
             if (profile != null) {
