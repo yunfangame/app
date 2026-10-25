@@ -1,15 +1,20 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:crypto/crypto.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_announcement_query.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/widgets/inherited.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:window_manager/window_manager.dart';
 
 class XboardAnnouncementCenterHost extends ConsumerStatefulWidget {
   const XboardAnnouncementCenterHost({
@@ -18,12 +23,16 @@ class XboardAnnouncementCenterHost extends ConsumerStatefulWidget {
     this.authService,
     this.preferenceStore,
     this.now,
+    this.queryCache,
+    this.observeDesktopWindow,
   });
 
   final Widget child;
   final XboardAuthService? authService;
   final XboardNoticePreferenceStore? preferenceStore;
   final DateTime Function()? now;
+  final XboardAnnouncementQueryCache? queryCache;
+  final bool? observeDesktopWindow;
 
   @override
   ConsumerState<XboardAnnouncementCenterHost> createState() =>
@@ -31,21 +40,88 @@ class XboardAnnouncementCenterHost extends ConsumerStatefulWidget {
 }
 
 class _XboardAnnouncementCenterHostState
-    extends ConsumerState<XboardAnnouncementCenterHost> {
+    extends ConsumerState<XboardAnnouncementCenterHost>
+    with WidgetsBindingObserver, WindowListener {
   late final XboardAuthService _authService;
   late final XboardNoticePreferenceStore _preferenceStore;
+  late final XboardAnnouncementQueryCache _queries;
   late final XboardAnnouncementRequest _requestHandler;
-  final _automaticallyShownDays = <String>{};
-  bool _showing = false;
+  late final bool _observeDesktopWindow;
+  final _shown = <String>{};
+  final _presentation = ValueNotifier<_AnnouncementPresentation?>(null);
+  DialogRoute<void>? _dialog;
+  Future<void>? _dialogClosed;
+  Timer? _windowRetry;
+  String? _identity;
+  String? _shownDate;
+  int _requestRevision = 0;
+  int _windowRevision = 0;
+  int _windowRetries = 0;
+  bool _foreground = true;
+  bool _windowForeground = true;
+  bool _windowKnownBackground = false;
+  bool _pageActive = true;
+  bool _automaticPending = false;
+  bool _automaticScheduled = false;
+  bool _automaticLoading = false;
+  bool _manualLoading = false;
+
+  DateTime get _now => widget.now?.call() ?? DateTime.now();
+  String? get _currentIdentity {
+    final session = globalState.xboardSession;
+    return session == null
+        ? null
+        : XboardAnnouncementQueryCache.accountKey(session);
+  }
+
+  bool get _available =>
+      mounted &&
+      _foreground &&
+      _windowForeground &&
+      _pageActive &&
+      !globalState.isOfflineMode;
+
+  bool get _automaticAvailable =>
+      _available &&
+      _dialog == null &&
+      !_manualLoading &&
+      (ModalRoute.isCurrentOf(context) ?? true);
+
+  bool get _manualAvailable =>
+      mounted &&
+      _foreground &&
+      _pageActive &&
+      !_windowKnownBackground &&
+      !globalState.isOfflineMode;
 
   @override
   void initState() {
     super.initState();
     _authService = widget.authService ?? XboardAuthService();
     _preferenceStore = widget.preferenceStore ?? XboardNoticePreferenceStore();
+    _queries =
+        widget.queryCache ?? XboardAnnouncementQueryCache(now: widget.now);
+    _identity = _currentIdentity;
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    _observeDesktopWindow = widget.observeDesktopWindow ?? system.isDesktop;
+    WidgetsBinding.instance.addObserver(this);
+    globalState.xboardSessionRevisionNotifier.addListener(_sessionChanged);
+    globalState.offlineModeNotifier.addListener(_offlineChanged);
+    if (_observeDesktopWindow) {
+      _windowForeground = false;
+      windowManager.addListener(this);
+      unawaited(_readWindow());
+    }
     _requestHandler = ({required automatic}) {
-      if (automatic) globalState.consumeXboardAnnouncementAutoPrompt();
-      if (mounted) unawaited(_showAnnouncements(automatic: automatic));
+      if (automatic) {
+        globalState.consumeXboardAnnouncementAutoPrompt();
+        _automaticPending = true;
+        _scheduleAutomatic();
+      } else if (mounted) {
+        _automaticPending = false;
+        unawaited(_showAnnouncements(automatic: false));
+      }
     };
     globalState.showXboardAnnouncements = _requestHandler;
     ref.listenManual(isStartProvider, (previous, next) {
@@ -57,17 +133,62 @@ class _XboardAnnouncementCenterHostState
       if (!mounted || !globalState.consumeXboardAnnouncementAutoPrompt()) {
         return;
       }
-      unawaited(_showAnnouncements(automatic: true));
+      _automaticPending = true;
+      _scheduleAutomatic();
     });
   }
 
   @override
-  void dispose() {
-    if (identical(globalState.showXboardAnnouncements, _requestHandler)) {
-      globalState.showXboardAnnouncements = null;
-    }
-    super.dispose();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _pageActive = PageActivityScope.isActiveOf(context);
+    _scheduleAutomatic();
   }
+
+  void _scheduleAutomatic() {
+    if (!_automaticPending ||
+        _automaticScheduled ||
+        _automaticLoading ||
+        !_automaticAvailable) {
+      return;
+    }
+    _automaticScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _automaticScheduled = false;
+      if (_automaticPending && _automaticAvailable && !_automaticLoading) {
+        unawaited(_showAnnouncements(automatic: true));
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void _sessionChanged() {
+    final identity = _currentIdentity;
+    if (identity == _identity) return;
+    _identity = identity;
+    _requestRevision++;
+    _automaticLoading = false;
+    _manualLoading = false;
+    _queries.clear();
+    _closeDialog();
+    _automaticPending = identity != null;
+    _scheduleAutomatic();
+  }
+
+  void _offlineChanged() {
+    _requestRevision++;
+    _automaticLoading = false;
+    _manualLoading = false;
+    _queries.clear();
+    _closeDialog();
+    _automaticPending = _identity != null;
+    _scheduleAutomatic();
+  }
+
+  bool _current(XboardLoginResult session, int revision) =>
+      mounted &&
+      revision == _requestRevision &&
+      _currentIdentity == XboardAnnouncementQueryCache.accountKey(session);
 
   String _accountId(XboardLoginResult session) {
     final account = session.subscription.email?.trim().toLowerCase();
@@ -75,86 +196,332 @@ class _XboardAnnouncementCenterHostState
     return '${session.endpoint.origin}|${account ?? uuid ?? session.authData}';
   }
 
-  DateTime get _now => widget.now?.call() ?? DateTime.now();
-
-  String _automaticShowKey(int revision) {
+  String _showKey(XboardLoginResult session, XboardNoticeData notice) {
     final date = _now.toLocal();
-    return '$revision|${date.year}-${date.month}-${date.day}';
+    final day = '${date.year}-${date.month}-${date.day}';
+    if (day != _shownDate) {
+      _shownDate = day;
+      _shown.clear();
+    }
+    final version = sha256.convert(
+      utf8.encode(
+        jsonEncode([
+          notice.id,
+          notice.updatedAtEpochSeconds,
+          notice.rawData['version'],
+          notice.rawData['revision'],
+          notice.title,
+          notice.content,
+          notice.tags,
+          notice.imageUrl?.toString(),
+        ]),
+      ),
+    );
+    return '${XboardAnnouncementQueryCache.accountKey(session)}|$day|$version';
   }
 
   Future<void> _showAnnouncements({required bool automatic}) async {
-    if (_showing || !mounted) return;
+    if (!mounted) return;
     final session = globalState.xboardSession;
     if (session == null ||
         session.authData.isEmpty ||
         globalState.isOfflineMode) {
-      if (!automatic && mounted) {
+      if (!automatic) {
         context.showNotifier(
           context.appLocalizations.announcementUnavailableOffline,
         );
       }
+      if (automatic) _automaticPending = false;
       return;
     }
-    final revision = globalState.xboardSessionRevision;
-    final accountId = _accountId(session);
-    final automaticShowKey = _automaticShowKey(revision);
-    if (automatic && _automaticallyShownDays.contains(automaticShowKey)) {
-      return;
+    if (!(automatic ? _automaticAvailable : _manualAvailable)) return;
+    final revision = ++_requestRevision;
+    if (automatic) {
+      _automaticLoading = true;
+    } else {
+      _automaticLoading = false;
+      _manualLoading = true;
     }
-    _showing = true;
     try {
+      final accountId = _accountId(session);
       final suppressed = await _preferenceStore.isSuppressedToday(
         accountId,
         now: _now,
       );
-      if (automatic && suppressed) return;
-      final allNotices = await _authService.fetchNotices(
-        endpoint: session.endpoint,
-        authData: session.authData,
-      );
-      if (!mounted || !globalState.isActiveXboardSession(session, revision)) {
+      if (!mounted ||
+          !_current(session, revision) ||
+          !(automatic ? _available : _manualAvailable)) {
         return;
       }
-      final notices = automatic
-          ? allNotices.where((notice) => notice.isPopup).toList(growable: false)
-          : allNotices;
+      if (automatic && suppressed) {
+        _automaticPending = false;
+        return;
+      }
+      final allNotices = await _queries.load(
+        session: session,
+        forceRefresh: !automatic,
+        loader: () {
+          if (!_current(session, revision) ||
+              !(automatic ? _available : _manualAvailable)) {
+            throw StateError('announcement_query_superseded');
+          }
+          return _authService.fetchNotices(
+            endpoint: session.endpoint,
+            authData: session.authData,
+          );
+        },
+      );
+      if (!mounted ||
+          !_current(session, revision) ||
+          !(automatic ? _available : _manualAvailable)) {
+        return;
+      }
+      if (automatic && !_automaticAvailable) return;
+      final notices = allNotices
+          .where(
+            (notice) =>
+                !automatic ||
+                (notice.isPopup && !_shown.contains(_showKey(session, notice))),
+          )
+          .toList(growable: false);
       if (notices.isEmpty) {
+        if (automatic) _automaticPending = false;
         if (!automatic) {
           context.showNotifier(context.appLocalizations.noAnnouncements);
         }
         return;
       }
-      if (automatic) _automaticallyShownDays.add(automaticShowKey);
-      await showDialog<void>(
-        context: context,
-        useRootNavigator: true,
-        barrierColor: context.colorScheme.scrim.withValues(alpha: 0.48),
-        builder: (dialogContext) => XboardAnnouncementDialog(
-          notices: notices,
-          baseEndpoint: session.endpoint,
-          initiallySuppressedToday: suppressed,
-          onSuppressedTodayChanged: (value) =>
-              _preferenceStore.setSuppressedToday(accountId, value, now: _now),
+      final presented = await _present(
+        _AnnouncementPresentation(
+          notices,
+          session.endpoint,
+          suppressed,
+          accountId,
+          revision,
         ),
+        session,
+        revision,
+        automatic,
       );
+      if (!mounted || !_current(session, revision)) return;
+      if (!presented) return;
+      if (automatic) _automaticPending = false;
+      for (final notice in notices.where((notice) => notice.isPopup)) {
+        _shown.add(_showKey(session, notice));
+      }
     } catch (error, stackTrace) {
+      if (!mounted || !_current(session, revision)) return;
+      if (automatic) _automaticPending = false;
       commonPrint.log(
         'load XBoard announcements failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
-      if (!automatic && mounted) {
-        final message = error is XboardAuthException
-            ? error.message
-            : context.appLocalizations.requestFailed;
-        context.showNotifier(message);
+      if (!automatic && _manualAvailable) {
+        context.showNotifier(
+          error is XboardAuthException
+              ? error.message
+              : context.appLocalizations.requestFailed,
+        );
       }
     } finally {
-      _showing = false;
+      if (_current(session, revision)) {
+        if (automatic) {
+          _automaticLoading = false;
+        } else {
+          _manualLoading = false;
+        }
+        _scheduleAutomatic();
+      }
+    }
+  }
+
+  Future<bool> _present(
+    _AnnouncementPresentation value,
+    XboardLoginResult session,
+    int revision,
+    bool automatic,
+  ) async {
+    final previous = _dialog;
+    if (previous != null && previous.isActive) {
+      _presentation.value = value;
+      return true;
+    }
+    await _dialogClosed;
+    if (!mounted ||
+        !_current(session, revision) ||
+        !(automatic ? _automaticAvailable : _manualAvailable)) {
+      return false;
+    }
+    _presentation.value = value;
+    final route = DialogRoute<void>(
+      context: context,
+      barrierColor: context.colorScheme.scrim.withValues(alpha: 0.48),
+      builder: (_) => ValueListenableBuilder<_AnnouncementPresentation?>(
+        valueListenable: _presentation,
+        builder: (_, presentation, _) => XboardAnnouncementDialog(
+          key: ValueKey(presentation!.revision),
+          notices: presentation.notices,
+          baseEndpoint: presentation.endpoint,
+          initiallySuppressedToday: presentation.suppressed,
+          onSuppressedTodayChanged: (suppressed) =>
+              _currentIdentity ==
+                  XboardAnnouncementQueryCache.accountKey(session)
+              ? _preferenceStore.setSuppressedToday(
+                  presentation.accountId,
+                  suppressed,
+                  now: _now,
+                )
+              : Future.value(),
+        ),
+      ),
+    );
+    _dialog = route;
+    unawaited(Navigator.of(context, rootNavigator: true).push(route));
+    _dialogClosed = route.completed.then<void>((_) {
+      if (identical(_dialog, route)) _dialog = null;
+      if (mounted) _scheduleAutomatic();
+    });
+    return true;
+  }
+
+  void _closeDialog() {
+    final route = _dialog;
+    _dialog = null;
+    if (route == null) return;
+    scheduleMicrotask(() {
+      final navigator = route.navigator;
+      if (route.isActive && navigator?.mounted == true) {
+        navigator!.removeRoute(route);
+      }
+    });
+  }
+
+  void _pauseWindow() {
+    _windowRevision++;
+    _windowForeground = false;
+    _windowKnownBackground = true;
+    _windowRetry?.cancel();
+  }
+
+  void _focusWindow() {
+    _windowRevision++;
+    _windowForeground = true;
+    _windowKnownBackground = false;
+    _windowRetries = 0;
+    _windowRetry?.cancel();
+    _scheduleAutomatic();
+  }
+
+  Future<void> _readWindow({bool reset = true}) async {
+    if (!mounted || !_foreground || !_pageActive) return;
+    if (reset) {
+      _windowRetries = 0;
+      _windowRetry?.cancel();
+    }
+    final revision = ++_windowRevision;
+    _windowForeground = false;
+    try {
+      final state = await Future.wait([
+        windowManager.isVisible(),
+        windowManager.isMinimized(),
+        windowManager.isFocused(),
+      ]).timeout(const Duration(seconds: 2));
+      if (!mounted || revision != _windowRevision) return;
+      _windowForeground = state[0] && !state[1] && state[2];
+      _windowKnownBackground = !_windowForeground;
+      _windowRetries = 0;
+      _scheduleAutomatic();
+    } catch (_) {
+      if (!mounted ||
+          revision != _windowRevision ||
+          _windowKnownBackground ||
+          !_foreground ||
+          !_pageActive ||
+          _windowRetries >= 4) {
+        return;
+      }
+      final seconds = const [1, 3, 6, 12][_windowRetries++];
+      _windowRetry = Timer(Duration(seconds: seconds), () {
+        if (mounted &&
+            revision == _windowRevision &&
+            !_windowKnownBackground &&
+            _foreground &&
+            _pageActive) {
+          unawaited(_readWindow(reset: false));
+        }
+      });
     }
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    if (!_foreground) _windowRetry?.cancel();
+    if (_foreground && _observeDesktopWindow) unawaited(_readWindow());
+    _scheduleAutomatic();
+  }
+
+  @override
+  void onWindowEvent(String eventName) {
+    if (eventName == 'hide') _pauseWindow();
+    if (eventName == 'show') {
+      _windowKnownBackground = false;
+      unawaited(_readWindow());
+    }
+  }
+
+  @override
+  void onWindowFocus() => _focusWindow();
+  @override
+  void onWindowBlur() => _pauseWindow();
+  @override
+  void onWindowMinimize() => _pauseWindow();
+  @override
+  void onWindowRestore() {
+    _windowKnownBackground = false;
+    unawaited(_readWindow());
+  }
+
+  @override
+  void dispose() {
+    _requestRevision++;
+    _windowRevision++;
+    _windowRetry?.cancel();
+    _queries.clear();
+    WidgetsBinding.instance.removeObserver(this);
+    globalState.xboardSessionRevisionNotifier.removeListener(_sessionChanged);
+    globalState.offlineModeNotifier.removeListener(_offlineChanged);
+    if (_observeDesktopWindow) windowManager.removeListener(this);
+    if (identical(globalState.showXboardAnnouncements, _requestHandler)) {
+      globalState.showXboardAnnouncements = null;
+    }
+    final closed = _dialogClosed;
+    _closeDialog();
+    if (closed == null) {
+      _presentation.dispose();
+    } else {
+      unawaited(closed.whenComplete(_presentation.dispose));
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => widget.child;
+}
+
+class _AnnouncementPresentation {
+  const _AnnouncementPresentation(
+    this.notices,
+    this.endpoint,
+    this.suppressed,
+    this.accountId,
+    this.revision,
+  );
+  final List<XboardNoticeData> notices;
+  final Uri endpoint;
+  final bool suppressed;
+  final String accountId;
+  final int revision;
 }
 
 class XboardAnnouncementDialog extends StatefulWidget {
