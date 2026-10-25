@@ -16,11 +16,14 @@ class WindowManager extends ConsumerStatefulWidget {
   final bool? isWindows;
   @visibleForTesting
   final XboardTicketController? ticketController;
+  @visibleForTesting
+  final XboardMarqueeController? marqueeController;
 
   const WindowManager({
     super.key,
     this.isWindows,
     this.ticketController,
+    this.marqueeController,
     required this.child,
   });
 
@@ -33,17 +36,62 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   Timer? _boundsSyncTimer;
   int _boundsSyncRevision = 0;
   int _configWindowRevision = 0;
+  Timer? _windowReadRetryTimer;
+  int _windowReadRetries = 0;
+  bool _knownWindowBackground = false;
 
   bool get _isWindows => widget.isWindows ?? system.isWindows;
   XboardTicketController get _tickets =>
       widget.ticketController ?? globalState.xboardTicketController;
+  XboardMarqueeController get _marquee =>
+      widget.marqueeController ?? globalState.xboardMarqueeController;
+
+  bool get _canReadWindow =>
+      WidgetsBinding.instance.lifecycleState == null ||
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+
+  void _cancelWindowReadRetry() {
+    _windowReadRetryTimer?.cancel();
+    _windowReadRetryTimer = null;
+    _windowReadRetries = 0;
+  }
 
   void _setConfigWindowForeground(bool foreground) {
     _configWindowRevision++;
+    _knownWindowBackground = !foreground;
+    _cancelWindowReadRetry();
     ApiHealthService.setWindowForeground(foreground);
+    _marquee.setWindowForeground(foreground);
   }
 
-  Future<void> _refreshConfigWindowActivity() async {
+  void _scheduleWindowReadRetry(int revision) {
+    if (!mounted ||
+        revision != _configWindowRevision ||
+        _knownWindowBackground ||
+        !_canReadWindow ||
+        _windowReadRetries >= 4) {
+      return;
+    }
+    final seconds = const [1, 3, 6, 12][_windowReadRetries++];
+    _windowReadRetryTimer = Timer(Duration(seconds: seconds), () {
+      _windowReadRetryTimer = null;
+      if (!mounted ||
+          revision != _configWindowRevision ||
+          _knownWindowBackground ||
+          !_canReadWindow) {
+        return;
+      }
+      unawaited(_refreshConfigWindowActivity(resetBudget: false));
+    });
+  }
+
+  Future<void> _refreshConfigWindowActivity({
+    bool resetBudget = true,
+    bool recoveryEvent = false,
+  }) async {
+    if (!mounted || !_canReadWindow) return;
+    if (resetBudget) _cancelWindowReadRetry();
+    if (recoveryEvent) _knownWindowBackground = false;
     final revision = ++_configWindowRevision;
     try {
       final state = await Future.wait([
@@ -52,8 +100,14 @@ class _WindowContainerState extends ConsumerState<WindowManager>
         windowManager.isFocused(),
       ]).timeout(const Duration(seconds: 2));
       if (!mounted || revision != _configWindowRevision) return;
-      ApiHealthService.setWindowForeground(state[0] && !state[1] && state[2]);
-    } catch (_) {}
+      final foreground = state[0] && !state[1] && state[2];
+      _knownWindowBackground = !foreground;
+      _cancelWindowReadRetry();
+      ApiHealthService.setWindowForeground(foreground);
+      _marquee.setWindowForeground(foreground);
+    } catch (_) {
+      _scheduleWindowReadRetry(revision);
+    }
   }
 
   void _cancelWindowBoundsSync() {
@@ -123,15 +177,19 @@ class _WindowContainerState extends ConsumerState<WindowManager>
       unawaited(windowExtManager.setTerminateHandlerReady(true));
     }
     windowManager.addListener(this);
+    _marquee.setWindowForeground(false);
+    unawaited(_refreshConfigWindowActivity());
   }
 
   @override
   void onWindowClose() async {
+    _setConfigWindowForeground(false);
     if (_isWindows) {
       commonPrint.event('window.close.requested');
       await commonPrint.flushDiagnosticEvents();
     }
     await ref.read(systemActionProvider.notifier).handleClose();
+    if (mounted) unawaited(_refreshConfigWindowActivity());
     super.onWindowClose();
   }
 
@@ -142,7 +200,7 @@ class _WindowContainerState extends ConsumerState<WindowManager>
       _setConfigWindowForeground(false);
       _tickets.setWindowForeground(false);
     } else if (eventName == 'show') {
-      unawaited(_refreshConfigWindowActivity());
+      unawaited(_refreshConfigWindowActivity(recoveryEvent: true));
     }
     if (_isWindows && eventName == 'show') {
       render?.resume();
@@ -183,7 +241,9 @@ class _WindowContainerState extends ConsumerState<WindowManager>
 
   @override
   Future<void> onShouldTerminate() async {
+    _setConfigWindowForeground(false);
     await ref.read(systemActionProvider.notifier).handleExit();
+    if (mounted) unawaited(_refreshConfigWindowActivity());
     super.onShouldTerminate();
   }
 
@@ -228,7 +288,7 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   @override
   void onWindowRestore() {
     commonPrint.log('restore');
-    unawaited(_refreshConfigWindowActivity());
+    unawaited(_refreshConfigWindowActivity(recoveryEvent: true));
     _tickets.setWindowForeground(true);
     render?.resume();
     super.onWindowRestore();
@@ -237,6 +297,9 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   @override
   Future<void> dispose() async {
     _configWindowRevision++;
+    _knownWindowBackground = true;
+    _cancelWindowReadRetry();
+    _marquee.setWindowForeground(false);
     _cancelWindowBoundsSync();
     windowManager.removeListener(this);
     windowExtManager.removeListener(this);
