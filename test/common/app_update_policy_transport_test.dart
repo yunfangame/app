@@ -14,7 +14,7 @@ void main() {
   });
 
   test(
-    'automatic config reads reuse verified TTL and manual refresh bypasses both sources',
+    'automatic config reads reuse verified TTL and manual refresh fetches a fresh preferred source',
     () async {
       final configRequests = <Uri>[];
       final manifestRequests = <Uri>[];
@@ -44,7 +44,7 @@ void main() {
       await service.discoverUpdate(currentVersion: '1.0.4');
       configRevision = 2;
       await service.discoverUpdate(currentVersion: '1.0.4');
-      expect(configRequests, hasLength(2));
+      expect(configRequests, hasLength(1));
       expect(manifestRequests.map((uri) => uri.path), [
         '/manifest-1.json',
         '/manifest-1.json',
@@ -57,10 +57,10 @@ void main() {
       );
       await service.discoverUpdate(currentVersion: '1.0.4', forceRefresh: true);
       await service.discoverUpdate(currentVersion: '1.0.4', forceRefresh: true);
-      expect(configRequests, hasLength(6));
+      expect(configRequests, hasLength(3));
       expect(
         configRequests
-            .skip(2)
+            .skip(1)
             .map((uri) => uri.queryParameters['_fengwo_refresh']),
         everyElement(isNotEmpty),
       );

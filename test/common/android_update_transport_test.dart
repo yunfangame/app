@@ -159,7 +159,7 @@ void main() {
         .map((call) => call.arguments as Map)
         .where((args) => args['kind'] == 'main_config')
         .length;
-    expect(automaticConfigCalls, 2);
+    expect(automaticConfigCalls, 1);
     for (var attempt = 0; attempt < 2; attempt++) {
       expect(
         (await service.discoverUpdate(
@@ -179,10 +179,10 @@ void main() {
           ).queryParameters['_fengwo_refresh'],
         )
         .toList();
-    expect(refreshNonces.take(2), everyElement(isNull));
-    expect(refreshNonces.skip(2), hasLength(4));
-    expect(refreshNonces.skip(2), everyElement(isNotEmpty));
-    expect(refreshNonces.skip(2).toSet(), hasLength(2));
+    expect(refreshNonces.take(1), everyElement(isNull));
+    expect(refreshNonces.skip(1), hasLength(2));
+    expect(refreshNonces.skip(1), everyElement(isNotEmpty));
+    expect(refreshNonces.skip(1).toSet(), hasLength(2));
     final manifestNonces = calls
         .where((call) => call.method == 'fetchUpdateConfig')
         .map((call) => call.arguments as Map)
