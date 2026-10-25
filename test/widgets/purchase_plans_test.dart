@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_order_changes.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/plans/fengwo_purchase_plans.dart';
@@ -88,6 +89,31 @@ void main() {
       null,
     );
   });
+
+  for (final free in [false, true]) {
+    _paymentTestWidgets(
+      'a successful payment invalidates orders once, free=$free',
+      (tester) async {
+        final changes = <XboardOrderChange>[];
+        void changed() {
+          final change = xboardOrderChanges.value;
+          if (change != null) changes.add(change);
+        }
+
+        xboardOrderChanges.addListener(changed);
+        addTearDown(() => xboardOrderChanges.removeListener(changed));
+        final rig = _PaymentRig(check: (_) async => 1, freeCheckout: free);
+        await rig.open(tester);
+        if (!free) await tester.pump(const Duration(seconds: 3));
+        await _flushPaymentEvents(tester);
+        expect(find.byKey(const ValueKey('payment-success')), findsOneWidget);
+        expect(changes, hasLength(1));
+        expect(changes.single.matches(globalState.xboardSession), isTrue);
+        await tester.pump(const Duration(minutes: 10));
+        expect(changes, hasLength(1));
+      },
+    );
+  }
 
   for (final state in [
     AppLifecycleState.inactive,
