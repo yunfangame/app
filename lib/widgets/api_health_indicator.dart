@@ -60,7 +60,7 @@ class _ApiHealthControlState extends State<ApiHealthControl> {
     if (!mounted || _checking) return;
     setState(() => _checking = true);
     try {
-      final snapshot = await _service.check();
+      final snapshot = await _service.check(forceRefresh: false);
       if (mounted) setState(() => _snapshot = snapshot);
     } catch (error) {
       commonPrint.event(

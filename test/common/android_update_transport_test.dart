@@ -150,6 +150,23 @@ void main() {
       (await service.discoverUpdate(currentVersion: '1.0.10')).status,
       AppUpdateCheckStatus.upToDate,
     );
+    expect(
+      (await service.discoverUpdate(currentVersion: '1.0.10')).status,
+      AppUpdateCheckStatus.upToDate,
+    );
+    final refreshNonces = calls
+        .where((call) => call.method == 'fetchUpdateConfig')
+        .map((call) => call.arguments as Map)
+        .where((args) => args['kind'] == 'main_config')
+        .map(
+          (args) => Uri.parse(
+            args['url'] as String,
+          ).queryParameters['_fengwo_refresh'],
+        )
+        .toList();
+    expect(refreshNonces, isNotEmpty);
+    expect(refreshNonces, everyElement(isNotEmpty));
+    expect(refreshNonces.toSet(), hasLength(2));
     final kinds = calls
         .where((call) => call.method == 'fetchUpdateConfig')
         .map((call) => (call.arguments as Map)['kind']);

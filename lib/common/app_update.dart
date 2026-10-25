@@ -198,7 +198,7 @@ class AppUpdateService {
         ? null
         : (uri) => _androidTransport.load(uri, kind: 'main_config'),
     diagnosticRecorder: _diagnosticRecorder,
-  ).loadConfig();
+  ).loadConfig(forceRefresh: true);
 
   Future<void> ignore(AppUpdateRelease release) =>
       _preferenceStore.ignore(release.packageKey, release.version);

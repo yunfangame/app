@@ -16,6 +16,20 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
+  testWidgets('automatic checks reuse config and manual refresh forces it', (
+    tester,
+  ) async {
+    final service = _ControlledApiHealthService();
+    await tester.pumpWidget(_testApp(service));
+    await tester.pumpAndSettle();
+    expect(service.refreshModes, [false]);
+    await tester.tap(find.byKey(const Key('api-health-status-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('api-health-refresh-config-button')));
+    await tester.pumpAndSettle();
+    expect(service.refreshModes, [false, true]);
+  });
+
   testWidgets('typed endpoint failure and export fit a narrow viewport', (
     tester,
   ) async {
@@ -306,9 +320,11 @@ class _ControlledApiHealthService extends ApiHealthService {
   final ApiHealthSnapshot? snapshot;
   final Future<ApiEndpointHealth> Function(Uri)? onProbe;
   final Future<ApiHealthSnapshot> Function()? onCheck;
+  final refreshModes = <bool>[];
 
   @override
-  Future<ApiHealthSnapshot> check() async {
+  Future<ApiHealthSnapshot> check({bool forceRefresh = true}) async {
+    refreshModes.add(forceRefresh);
     return onCheck != null ? onCheck!() : snapshot ?? _snapshot();
   }
 
