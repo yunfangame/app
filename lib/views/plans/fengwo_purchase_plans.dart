@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_order_changes.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/offline_mode_panel.dart';
@@ -1219,10 +1220,12 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
     _cancelStatusTimer();
     _windowRetryTimer?.cancel();
     if (!mounted || _closed || !_currentSession) return;
+    final newlyPaid = _stage != _PaymentStage.success;
     setState(() {
       _stage = _PaymentStage.success;
       _error = null;
     });
+    if (newlyPaid) invalidateXboardOrders(widget.session);
     _maybeRefreshSubscription();
     if (_windowReadFailed && !_subscriptionRefreshStarted) {
       _scheduleWindowReadRetry();

@@ -1,9 +1,16 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_order_changes.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/plans/fengwo_purchase_plans.dart';
+import 'package:fl_clash/widgets/inherited.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:window_ext/window_ext.dart';
+import 'package:window_manager/window_manager.dart';
 
 class FengWoOrdersView extends StatefulWidget {
   final XboardAuthService? authService;
@@ -15,8 +22,28 @@ class FengWoOrdersView extends StatefulWidget {
   State<FengWoOrdersView> createState() => _FengWoOrdersViewState();
 }
 
-class _FengWoOrdersViewState extends State<FengWoOrdersView> {
+class _FengWoOrdersViewState extends State<FengWoOrdersView>
+    with WidgetsBindingObserver, WindowListener, WindowExtListener {
   late final XboardAuthService _authService;
+  final bool _desktop = switch (defaultTargetPlatform) {
+    TargetPlatform.windows ||
+    TargetPlatform.macOS ||
+    TargetPlatform.linux => true,
+    _ => false,
+  };
+  XboardLoginResult? _accountSession;
+  Completer<void>? _ordersRequest;
+  Timer? _windowRetryTimer;
+  bool _pageActive = true;
+  bool _foreground = true;
+  late bool _windowAvailable = !_desktop;
+  bool _windowKnownBackground = false;
+  bool _dirty = true;
+  bool _refreshQueued = false;
+  int _generation = 0;
+  int _dataRevision = 0;
+  int _windowRevision = 0;
+  int _windowRetries = 0;
   List<XboardOrderData> _orders = const [];
   bool _loading = true;
   bool _refreshing = false;
@@ -30,10 +57,40 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView> {
   void initState() {
     super.initState();
     _authService = widget.authService ?? XboardAuthService();
+    _accountSession = globalState.xboardSession;
+    _offline = globalState.isOfflineMode;
+    _loading = !_offline && _accountSession != null;
+    _failed = !_offline && _accountSession == null;
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    WidgetsBinding.instance.addObserver(this);
     globalState.xboardSessionRevisionNotifier.addListener(
       _handleSessionChanged,
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadOrders());
+    globalState.offlineModeNotifier.addListener(_offlineChanged);
+    xboardOrderChanges.addListener(_ordersChanged);
+    if (_desktop) {
+      windowManager.addListener(this);
+      windowExtManager.addListener(this);
+      unawaited(_readWindowAvailability());
+    }
+    _queueRefresh();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final active = PageActivityScope.isActiveOf(context);
+    if (_pageActive == active) return;
+    _pageActive = active;
+    if (!active) {
+      _markDirty();
+      _windowRetryTimer?.cancel();
+    } else if (_desktop && !_windowAvailable) {
+      _resumeWindow();
+    } else {
+      _queueRefresh();
+    }
   }
 
   @override
@@ -41,19 +98,194 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView> {
     globalState.xboardSessionRevisionNotifier.removeListener(
       _handleSessionChanged,
     );
+    globalState.offlineModeNotifier.removeListener(_offlineChanged);
+    xboardOrderChanges.removeListener(_ordersChanged);
+    WidgetsBinding.instance.removeObserver(this);
+    _windowRevision++;
+    _windowRetryTimer?.cancel();
+    if (_desktop) {
+      windowManager.removeListener(this);
+      windowExtManager.removeListener(this);
+    }
     super.dispose();
   }
 
+  bool _sameAccount(XboardLoginResult? left, XboardLoginResult? right) =>
+      left?.endpoint == right?.endpoint && left?.authData == right?.authData;
+
   void _handleSessionChanged() {
     if (!mounted) return;
+    final session = globalState.xboardSession;
+    if (_sameAccount(_accountSession, session)) {
+      _accountSession = session;
+      return;
+    }
+    _accountSession = session;
+    _generation++;
+    _ordersRequest = null;
+    _markDirty();
     setState(() {
       _orders = const [];
       _page = 0;
-      _loading = true;
-      _failed = false;
+      _offline = globalState.isOfflineMode;
+      _loading = !_offline && session != null;
+      _refreshing = false;
+      _failed = !_offline && session == null;
+      _loadingDetailTradeNo = null;
+      _cancellingTradeNo = null;
     });
-    _loadOrders();
+    _queueRefresh();
   }
+
+  bool get _canUsePage =>
+      mounted &&
+      _pageActive &&
+      _foreground &&
+      !globalState.isOfflineMode &&
+      _accountSession != null &&
+      _sameAccount(_accountSession, globalState.xboardSession);
+
+  bool get _canUseUserAction =>
+      _canUsePage && (!_desktop || !_windowKnownBackground);
+
+  bool _isCurrent(XboardLoginResult session, int generation) =>
+      mounted &&
+      generation == _generation &&
+      _sameAccount(session, _accountSession) &&
+      _sameAccount(session, globalState.xboardSession);
+
+  void _markDirty() {
+    _dirty = true;
+    _dataRevision++;
+  }
+
+  void _ordersChanged() {
+    if (xboardOrderChanges.value?.matches(_accountSession) != true) return;
+    _markDirty();
+    _queueRefresh();
+  }
+
+  void _offlineChanged() {
+    if (!mounted) return;
+    _markDirty();
+    setState(() {
+      _offline = globalState.isOfflineMode;
+      if (_offline) {
+        _loading = false;
+        _refreshing = false;
+      }
+    });
+    if (_offline) {
+      _windowRetryTimer?.cancel();
+    } else if (_desktop) {
+      _resumeWindow();
+    } else {
+      _queueRefresh();
+    }
+  }
+
+  void _queueRefresh() {
+    if (!mounted || _refreshQueued) return;
+    _refreshQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshQueued = false;
+      if (mounted) unawaited(_requestOrders());
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void _pauseWindow() {
+    _windowRevision++;
+    _windowAvailable = false;
+    _windowKnownBackground = true;
+    _windowRetryTimer?.cancel();
+    _markDirty();
+  }
+
+  void _resumeWindow({bool knownForeground = false}) {
+    if (knownForeground) _windowKnownBackground = false;
+    _windowRetryTimer?.cancel();
+    _windowRetries = 0;
+    unawaited(_readWindowAvailability());
+  }
+
+  Future<void> _readWindowAvailability() async {
+    if (!_desktop ||
+        !mounted ||
+        !_pageActive ||
+        !_foreground ||
+        globalState.isOfflineMode) {
+      return;
+    }
+    final revision = ++_windowRevision;
+    _windowAvailable = false;
+    try {
+      final state = await Future.wait([
+        windowManager.isVisible(),
+        windowManager.isMinimized(),
+        windowManager.isFocused(),
+      ]).timeout(const Duration(seconds: 2));
+      if (!mounted || revision != _windowRevision) return;
+      _windowAvailable = state[0] && !state[1] && state[2];
+      _windowKnownBackground = !_windowAvailable;
+      _windowRetries = 0;
+      _queueRefresh();
+    } catch (_) {
+      if (!mounted || revision != _windowRevision) return;
+      if (_pageActive &&
+          _foreground &&
+          !globalState.isOfflineMode &&
+          _windowRetries < 3) {
+        final seconds = const [1, 3, 6][_windowRetries++];
+        _windowRetryTimer = Timer(Duration(seconds: seconds), () {
+          unawaited(_readWindowAvailability());
+        });
+      }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final foreground = state == AppLifecycleState.resumed;
+    if (_foreground == foreground) return;
+    _foreground = foreground;
+    if (!foreground) {
+      _windowRevision++;
+      _windowRetryTimer?.cancel();
+      _markDirty();
+    } else if (_desktop) {
+      _resumeWindow();
+    } else {
+      _queueRefresh();
+    }
+  }
+
+  @override
+  void onWindowEvent(String eventName) {
+    if (eventName == 'hide') _pauseWindow();
+    if (eventName == 'show') _resumeWindow(knownForeground: true);
+  }
+
+  @override
+  void onWindowBlur() => _pauseWindow();
+
+  @override
+  void onWindowMinimize() => _pauseWindow();
+
+  @override
+  void onWindowClose() => _pauseWindow();
+
+  @override
+  void onWindowFocus() => _resumeWindow(knownForeground: true);
+
+  @override
+  void onWindowRestore() => _resumeWindow(knownForeground: true);
+
+  @override
+  void onReopen() => _resumeWindow();
+
+  @override
+  void onShouldTerminate() => _pauseWindow();
 
   int get _pageCount {
     if (_orders.isEmpty) return 1;
@@ -67,41 +299,51 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView> {
     return _orders.sublist(start, end);
   }
 
-  Future<void> _loadOrders({bool refresh = false}) async {
-    if (globalState.isOfflineMode) {
-      if (!mounted) return;
-      setState(() {
-        _orders = const [];
-        _loading = false;
-        _refreshing = false;
-        _failed = false;
-        _offline = true;
-      });
-      return;
-    }
-    final session = globalState.xboardSession;
-    if (session == null) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _refreshing = false;
-        _failed = true;
-        _offline = false;
-      });
-      return;
-    }
+  Future<void> _loadOrders({bool refresh = false}) {
+    final pending = _ordersRequest;
+    if (pending != null) return pending.future;
+    _dirty = true;
+    return _requestOrders(refresh: refresh, userInitiated: true);
+  }
+
+  Future<void> _requestOrders({
+    bool refresh = false,
+    bool userInitiated = false,
+  }) {
+    final allowed = userInitiated
+        ? _canUseUserAction
+        : _canUsePage && _windowAvailable;
+    if (!_dirty || !allowed) return Future.value();
+    final pending = _ordersRequest;
+    if (pending != null) return pending.future;
+    final session = _accountSession!;
+    final request = Completer<void>();
+    _ordersRequest = request;
+    _dirty = false;
     setState(() {
       _loading = _orders.isEmpty;
       _refreshing = refresh;
       _failed = false;
       _offline = false;
     });
+    unawaited(
+      _performOrdersRequest(session, _generation, _dataRevision, request),
+    );
+    return request.future;
+  }
+
+  Future<void> _performOrdersRequest(
+    XboardLoginResult session,
+    int generation,
+    int dataRevision,
+    Completer<void> request,
+  ) async {
     try {
       final orders = await _authService.fetchOrders(
         endpoint: session.endpoint,
         authData: session.authData,
       );
-      if (!mounted || globalState.xboardSession?.authData != session.authData) {
+      if (!_isCurrent(session, generation) || dataRevision != _dataRevision) {
         return;
       }
       setState(() {
@@ -113,21 +355,29 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView> {
         'load XBoard orders failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
-      if (mounted) setState(() => _failed = true);
+      if (_isCurrent(session, generation) && dataRevision == _dataRevision) {
+        setState(() => _failed = true);
+      }
     } finally {
-      if (mounted) {
+      if (identical(_ordersRequest, request)) {
+        _ordersRequest = null;
+      }
+      if (_isCurrent(session, generation)) {
         setState(() {
           _loading = false;
           _refreshing = false;
         });
+        if (_dirty) _queueRefresh();
       }
+      request.complete();
     }
   }
 
   Future<void> _showOrderDetails(XboardOrderData order) async {
-    if (_loadingDetailTradeNo != null || globalState.isOfflineMode) return;
-    final session = globalState.xboardSession;
+    if (_loadingDetailTradeNo != null || !_canUseUserAction) return;
+    final session = _accountSession;
     if (session == null) return;
+    final generation = _generation;
     setState(() => _loadingDetailTradeNo = order.tradeNo);
     try {
       final detail = await _authService.fetchOrderDetail(
@@ -135,7 +385,7 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView> {
         authData: session.authData,
         tradeNo: order.tradeNo,
       );
-      if (!mounted || globalState.xboardSession?.authData != session.authData) {
+      if (!mounted || !_isCurrent(session, generation)) {
         return;
       }
       setState(() => _loadingDetailTradeNo = null);
@@ -148,7 +398,7 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView> {
         'load XBoard order detail failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
-      if (mounted) {
+      if (mounted && _isCurrent(session, generation)) {
         context.showNotifier(
           error is XboardAuthException
               ? error.message
@@ -156,12 +406,19 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView> {
         );
       }
     } finally {
-      if (mounted) setState(() => _loadingDetailTradeNo = null);
+      if (_isCurrent(session, generation)) {
+        setState(() => _loadingDetailTradeNo = null);
+      }
     }
   }
 
   Future<void> _cancelOrder(XboardOrderData order) async {
-    if (!order.canCancel || _cancellingTradeNo != null) return;
+    if (!order.canCancel || _cancellingTradeNo != null || !_canUseUserAction) {
+      return;
+    }
+    final session = _accountSession;
+    if (session == null) return;
+    final generation = _generation;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -180,9 +437,11 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
-    final session = globalState.xboardSession;
-    if (session == null || globalState.isOfflineMode) return;
+    if (confirmed != true ||
+        !_isCurrent(session, generation) ||
+        !_canUseUserAction) {
+      return;
+    }
     setState(() => _cancellingTradeNo = order.tradeNo);
     try {
       await _authService.cancelOrder(
@@ -190,17 +449,21 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView> {
         authData: session.authData,
         tradeNo: order.tradeNo,
       );
-      if (!mounted || globalState.xboardSession?.authData != session.authData) {
+      invalidateXboardOrders(session);
+      if (!mounted || !_isCurrent(session, generation)) {
         return;
       }
       context.showNotifier(context.appLocalizations.orderCancelledSuccess);
-      await _loadOrders(refresh: true);
+      await _requestOrders(refresh: true);
+      if (_isCurrent(session, generation) && _dirty) {
+        await _requestOrders(refresh: true);
+      }
     } catch (error, stackTrace) {
       commonPrint.log(
         'cancel XBoard order failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
-      if (mounted) {
+      if (mounted && _isCurrent(session, generation)) {
         context.showNotifier(
           error is XboardAuthException
               ? error.message
@@ -208,7 +471,9 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView> {
         );
       }
     } finally {
-      if (mounted) setState(() => _cancellingTradeNo = null);
+      if (_isCurrent(session, generation)) {
+        setState(() => _cancellingTradeNo = null);
+      }
     }
   }
 
