@@ -82,6 +82,7 @@ class GlobalState {
     XboardLoginResult session, {
     bool forceRefresh = false,
     bool ignoreOfflineMode = false,
+    bool Function()? canRequest,
   }) {
     final revision = xboardSessionRevision;
     bool isCurrent() =>
@@ -90,11 +91,12 @@ class GlobalState {
     if (!isCurrent()) {
       return Future.error(StateError('nodes_snapshot_superseded'));
     }
-    return _nodesSnapshots.load(
+    return _nodesSnapshots.loadGuarded(
       session: session,
       epoch: revision,
       forceRefresh: forceRefresh,
-      loader: () async {
+      canRequest: canRequest == null ? null : () => isCurrent() && canRequest(),
+      loader: (requestAllowed) async {
         if (!isCurrent()) throw StateError('nodes_snapshot_superseded');
         final requestRevision = beginXboardNodesRefresh(session, revision);
         if (requestRevision == null) {
@@ -106,7 +108,9 @@ class GlobalState {
             authData: session.authData,
             userToken: session.token,
             secureSubscription: session.secureSubscription,
+            canRequest: () => isCurrent() && requestAllowed(),
           );
+          ensureXboardApiRequestAllowed(requestAllowed);
           if (!isCurrent() ||
               !setXboardNodesForSession(
                 session,
@@ -117,8 +121,10 @@ class GlobalState {
             throw StateError('nodes_snapshot_superseded');
           }
           return nodes;
+        } on XboardApiRequestDeferred {
+          rethrow;
         } catch (_) {
-          if (isCurrent()) {
+          if (isCurrent() && requestAllowed()) {
             markXboardNodesStaleForSession(
               session,
               revision,

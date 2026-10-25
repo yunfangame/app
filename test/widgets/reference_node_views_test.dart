@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/common/theme.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
@@ -653,7 +654,9 @@ class _CapturingNodesService extends XboardAuthService {
     required String authData,
     String? userToken,
     bool secureSubscription = false,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     this.endpoint = endpoint;
     this.authData = authData;
     this.userToken = userToken;

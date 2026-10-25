@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/api_health.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/common/theme.dart';
 import 'package:fl_clash/common/xboard_auth.dart';
 import 'package:fl_clash/common/xboard_nodes_snapshot.dart';
@@ -18,6 +19,99 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets(
+    'leaving the node page discards its automatic response and returning reads once',
+    (tester) async {
+      final session = _session('account');
+      globalState.activateXboardSession(session);
+      globalState.xboardNodes = [_node('existing')];
+      final old = Completer<List<XboardNodeData>>();
+      final service = _NodesService()
+        ..loader = (call) async => call == 1 ? old.future : [_node('returned')];
+      final activity = await _mount(tester, service);
+      expect(service.calls, 1);
+      activity.value = false;
+      await _flush(tester);
+      old.complete([_node('departed')]);
+      await _flush(tester);
+      expect(globalState.xboardNodes.single.name, 'existing');
+      expect(globalState.xboardNodesStatusFresh, isTrue);
+      activity.value = true;
+      await _flush(tester);
+      expect(service.calls, 2);
+      expect(globalState.xboardNodes.single.name, 'returned');
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('pause and resume cannot revive an old automatic node read', (
+    tester,
+  ) async {
+    globalState.activateXboardSession(_session('account'));
+    final old = Completer<List<XboardNodeData>>();
+    final service = _NodesService()
+      ..loader = (call) async => call == 1 ? old.future : [_node('resumed')];
+    await _mount(tester, service);
+    ApiHealthService.setAppForeground(false);
+    ApiHealthService.setAppForeground(true);
+    ApiHealthService.setWindowForeground(false);
+    ApiHealthService.setWindowForeground(true);
+    await _flush(tester);
+    expect(service.calls, 2);
+    old.complete([_node('old activity')]);
+    await _flush(tester);
+    expect(service.calls, 2);
+    expect(globalState.xboardNodes.single.name, 'resumed');
+    expect(globalState.xboardNodesStatusFresh, isTrue);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'login node fetch survives a page leaving and returning uses its shared cache',
+    (tester) async {
+      final session = _session('account');
+      globalState.activateXboardSession(session);
+      final response = Completer<List<XboardNodeData>>();
+      final loginService = _NodesService()..loader = (_) => response.future;
+      final pageService = _NodesService();
+      final login = globalState.loadXboardNodesSnapshot(loginService, session);
+      final activity = await _mount(tester, pageService);
+      activity.value = false;
+      await _flush(tester);
+      response.complete([_node('login')]);
+      await login;
+      await _flush(tester);
+      expect(globalState.xboardNodes.single.name, 'login');
+      activity.value = true;
+      await _flush(tester);
+      expect(loginService.calls, 1);
+      expect(pageService.calls, 0);
+      expect(globalState.xboardNodesStatusFresh, isTrue);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'repeated node delay tests do not add metadata HTTP while the snapshot is fresh',
+    (tester) async {
+      final session = _session('account');
+      globalState.activateXboardSession(session);
+      final service = _NodesService()
+        ..loader = (_) async => [_node('Node A', online: false)];
+      await globalState.loadXboardNodesSnapshot(service, session);
+      await _mount(tester, service);
+      for (var test = 0; test < 2; test++) {
+        await tester.tap(
+          find.byKey(const ValueKey('fengwo-node-status-delay-test')),
+        );
+        await _flush(tester);
+        expect(service.calls, 1);
+      }
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   setUp(() {
     globalState.clearXboardSession();
     globalState.setOfflineMode(false);
@@ -379,9 +473,14 @@ class _NodesService extends XboardAuthService {
     required String authData,
     String? userToken,
     bool secureSubscription = false,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     calls++;
-    return loader?.call(calls) ?? [_node('Node A')];
+    final nodes =
+        await (loader?.call(calls) ?? Future.value([_node('Node A')]));
+    ensureXboardApiRequestAllowed(canRequest);
+    return nodes;
   }
 }
 
@@ -403,11 +502,11 @@ XboardLoginResult _session(String token) {
   );
 }
 
-XboardNodeData _node(String name) => XboardNodeData(
+XboardNodeData _node(String name, {bool online = true}) => XboardNodeData(
   name: name,
   type: 'ss',
   rate: 1,
   tags: const ['HK'],
-  isOnline: true,
+  isOnline: online,
   rawData: const {'is_online': true},
 );

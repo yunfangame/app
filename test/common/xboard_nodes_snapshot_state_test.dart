@@ -1,10 +1,108 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/xboard_auth.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/state.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'an abandoned automatic node response cannot publish or mark existing metadata stale',
+    () async {
+      final session = _session();
+      globalState.activateXboardSession(session);
+      globalState.xboardNodes = [_node('existing')];
+      final response = Completer<List<XboardNodeData>>();
+      final service = _NodesService(
+        (call) async => call == 1 ? response.future : [_node('fresh')],
+      );
+      var active = true;
+      final automatic = globalState.loadXboardNodesSnapshot(
+        service,
+        session,
+        canRequest: () => active,
+      );
+      final deferred = expectLater(
+        automatic,
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      active = false;
+      response.complete([_node('departed')]);
+      await deferred;
+      expect(globalState.xboardNodes.single.name, 'existing');
+      expect(globalState.xboardNodesStatusFresh, isTrue);
+      await globalState.loadXboardNodesSnapshot(service, session);
+      expect(service.calls, 2);
+      expect(globalState.xboardNodes.single.name, 'fresh');
+    },
+  );
+
+  test(
+    'another valid node reader can publish when the first page leaves',
+    () async {
+      final session = _session();
+      globalState.activateXboardSession(session);
+      final response = Completer<List<XboardNodeData>>();
+      final service = _NodesService((_) => response.future);
+      var firstActive = true;
+      final first = globalState.loadXboardNodesSnapshot(
+        service,
+        session,
+        canRequest: () => firstActive,
+      );
+      final other = globalState.loadXboardNodesSnapshot(
+        service,
+        session,
+        canRequest: () => true,
+      );
+      final deferred = expectLater(
+        first,
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      firstActive = false;
+      response.complete([_node('other reader')]);
+      expect((await other).single.name, 'other reader');
+      await deferred;
+      expect(service.calls, 1);
+      expect(globalState.xboardNodes.single.name, 'other reader');
+      expect(globalState.xboardNodesStatusFresh, isTrue);
+    },
+  );
+
+  test(
+    'a stale automatic node failure does not poison manual success',
+    () async {
+      final session = _session();
+      globalState.activateXboardSession(session);
+      final response = Completer<List<XboardNodeData>>();
+      final service = _NodesService(
+        (call) async => call == 1 ? response.future : [_node('manual')],
+      );
+      var active = true;
+      final first = globalState.loadXboardNodesSnapshot(
+        service,
+        session,
+        canRequest: () => active,
+      );
+      final deferred = expectLater(
+        first,
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      final manual = globalState.loadXboardNodesSnapshot(
+        service,
+        session,
+        forceRefresh: true,
+      );
+      active = false;
+      await manual;
+      await deferred;
+      response.completeError(StateError('old failure'));
+      await Future<void>.delayed(Duration.zero);
+      expect(globalState.xboardNodes.single.name, 'manual');
+      expect(globalState.xboardNodesStatusFresh, isTrue);
+    },
+  );
+
   setUp(() {
     globalState.clearXboardSession();
     globalState.setOfflineMode(false);
@@ -166,7 +264,13 @@ class _NodesService extends XboardAuthService {
     required String authData,
     String? userToken,
     bool secureSubscription = false,
-  }) => loader(++calls);
+    bool Function()? canRequest,
+  }) async {
+    ensureXboardApiRequestAllowed(canRequest);
+    final nodes = await loader(++calls);
+    ensureXboardApiRequestAllowed(canRequest);
+    return nodes;
+  }
 }
 
 XboardLoginResult _session() => XboardLoginResult(
