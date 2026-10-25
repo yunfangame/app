@@ -258,7 +258,7 @@ void main() {
   );
 
   _hostTest(
-    'an in-flight automatic result waits for the covered page to return',
+    'an interrupted automatic result replays once after the covered page returns',
     (tester, rig) async {
       final pending = Completer<List<XboardNoticeData>>();
       rig.service.loader = (_) => pending.future;
@@ -278,7 +278,7 @@ void main() {
       expect(find.byType(XboardAnnouncementDialog), findsNothing);
       navigator.pop();
       await tester.pumpAndSettle();
-      expect(rig.service.calls, 1);
+      expect(rig.service.calls, 2);
       expect(find.text('Notice 1'), findsOneWidget);
     },
   );
@@ -363,6 +363,110 @@ void main() {
     expect(rig.service.calls, 2);
     expect(find.byType(XboardAnnouncementDialog), findsNothing);
   });
+
+  for (final pause in ['page', 'lifecycle', 'window', 'offline', 'modal']) {
+    _hostTest('automatic pagination defers under $pause and replays once', (
+      tester,
+      rig,
+    ) async {
+      final first = Completer<XboardLoginResponse>();
+      final pages = <String?>[];
+      rig.overrideService = XboardAuthService(
+        apiHealthService: ApiHealthFixture(
+          Uri.parse('https://api.example.com'),
+        ),
+        noticesRequester: (uri, _) async {
+          final page = uri.queryParameters['current'];
+          pages.add(page);
+          if (pages.length == 1) return first.future;
+          return _page(int.parse(page!));
+        },
+      );
+      if (pause == 'window') {
+        rig.observeWindow = true;
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('window_manager'),
+          (call) async => call.method == 'isMinimized' ? false : true,
+        );
+      }
+      await rig.mount(tester);
+      await rig.automatic(tester);
+      expect(pages, ['1']);
+      final context = tester.element(find.byKey(const ValueKey('open-other')));
+      switch (pause) {
+        case 'page':
+          rig.active.value = false;
+        case 'lifecycle':
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.paused,
+          );
+        case 'window':
+          await _windowEvent(tester, 'blur');
+        case 'offline':
+          globalState.setOfflineMode(true);
+        case 'modal':
+          unawaited(
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const Scaffold(body: Text('covered')),
+              ),
+            ),
+          );
+      }
+      await tester.pumpAndSettle();
+      first.complete(_page(1));
+      await tester.pumpAndSettle();
+      expect(pages, ['1']);
+      expect(find.byType(XboardAnnouncementDialog), findsNothing);
+      switch (pause) {
+        case 'page':
+          rig.active.value = true;
+        case 'lifecycle':
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
+        case 'window':
+          await _windowEvent(tester, 'focus');
+        case 'offline':
+          globalState.setOfflineMode(false);
+        case 'modal':
+          Navigator.of(context).pop();
+      }
+      await tester.pumpAndSettle();
+      expect(pages, ['1', '1', '2']);
+      expect(find.byType(XboardAnnouncementDialog), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(pages, hasLength(3));
+    });
+  }
+
+  _hostTest(
+    'pause and resume before old page completes does not continue that query',
+    (tester, rig) async {
+      final first = Completer<XboardLoginResponse>();
+      final pages = <String?>[];
+      rig.overrideService = XboardAuthService(
+        apiHealthService: ApiHealthFixture(
+          Uri.parse('https://api.example.com'),
+        ),
+        noticesRequester: (uri, _) async {
+          final page = uri.queryParameters['current'];
+          pages.add(page);
+          return pages.length == 1 ? first.future : _page(int.parse(page!));
+        },
+      );
+      await rig.mount(tester);
+      await rig.automatic(tester);
+      rig.active.value = false;
+      await tester.pumpAndSettle();
+      rig.active.value = true;
+      await tester.pumpAndSettle();
+      first.complete(_page(1));
+      await tester.pumpAndSettle();
+      expect(pages, ['1', '1', '2']);
+      expect(find.byType(XboardAnnouncementDialog), findsOneWidget);
+    },
+  );
 
   _hostTest('announcement query preserves all server pagination', (
     tester,
@@ -452,6 +556,21 @@ void main() {
   );
 }
 
+XboardLoginResponse _page(int id) => XboardLoginResponse(
+  statusCode: 200,
+  data: {
+    'data': [
+      {
+        'id': id,
+        'title': 'Page $id',
+        'content': '<p>$id</p>',
+        'tags': ['弹窗'],
+      },
+    ],
+    'total': 2,
+  },
+);
+
 class _Rig {
   final container = ProviderContainer();
   final active = ValueNotifier(true);
@@ -512,6 +631,7 @@ class _NoticeService extends XboardAuthService {
   Future<List<XboardNoticeData>> fetchNotices({
     required Uri endpoint,
     required String authData,
+    bool Function()? canRequest,
   }) {
     calls++;
     return loader?.call(calls) ?? Future.value([_notice(1)]);

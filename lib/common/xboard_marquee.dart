@@ -133,11 +133,13 @@ class XboardMarqueeApi {
     required Uri endpoint,
     required String token,
     int limit = xboardMarqueeLimit,
+    bool Function()? canRequest,
   }) async {
     final requestEndpoint = endpoint.resolve(xboardMarqueeUnreadPath);
     return _executor.run(
       endpoint: requestEndpoint,
       allowRetry: true,
+      canRequest: canRequest,
       request: (target, cancelToken) async {
         final unreadRequester = _unreadRequester;
         final payload = unreadRequester != null
@@ -293,11 +295,14 @@ class XboardMarqueeController extends ChangeNotifier {
   String? _identityKey;
   List<XboardMarqueeMessage> _messages = const [];
   Future<void>? _refreshOperation;
+  Future<void>? _queuedForcedRefresh;
+  int? _refreshActivityRevision;
   Completer<void>? _cacheReady;
   Timer? _timer;
   DateTime? _nextRefreshAt;
   final Set<int> _readIds = {};
   int _generation = 0;
+  int _activityRevision = 0;
   int _failures = 0;
   bool _loading = false;
   bool _polling = false;
@@ -315,28 +320,33 @@ class XboardMarqueeController extends ChangeNotifier {
   void startPolling({required bool foreground, required bool offline}) {
     if (_disposed) return;
     _polling = true;
+    if (!foreground || offline) _activityRevision++;
     _appForeground = foreground;
     _offline = offline;
     _scheduleRefresh();
   }
 
   void stopPolling() {
+    if (_polling) _activityRevision++;
     _polling = false;
     _timer?.cancel();
     _timer = null;
   }
 
   void setForeground(bool foreground) {
+    if (_appForeground && !foreground) _activityRevision++;
     _appForeground = foreground;
     _scheduleRefresh();
   }
 
   void setWindowForeground(bool foreground) {
+    if (_windowForeground && !foreground) _activityRevision++;
     _windowForeground = foreground;
     _scheduleRefresh();
   }
 
   void setOffline(bool offline) {
+    if (!_offline && offline) _activityRevision++;
     _offline = offline;
     _scheduleRefresh();
   }
@@ -362,6 +372,7 @@ class XboardMarqueeController extends ChangeNotifier {
     required bool offline,
   }) async {
     if (_disposed) return;
+    if (!_offline && offline) _activityRevision++;
     _offline = offline;
     final nextAccountKey = session == null
         ? null
@@ -426,7 +437,27 @@ class XboardMarqueeController extends ChangeNotifier {
       });
     }
     final operation = _refreshOperation;
-    if (operation != null) return operation;
+    if (operation != null) {
+      if (!force || _refreshActivityRevision == _activityRevision) {
+        return operation;
+      }
+      final queued = _queuedForcedRefresh;
+      if (queued != null) return queued;
+      final generation = _generation;
+      late final Future<void> pending;
+      pending = operation
+          .then((_) async {
+            if (_disposed || generation != _generation || !_canRefresh) return;
+            await refresh(force: true);
+          })
+          .whenComplete(() {
+            if (identical(_queuedForcedRefresh, pending)) {
+              _queuedForcedRefresh = null;
+            }
+          });
+      _queuedForcedRefresh = pending;
+      return pending;
+    }
     final session = _session;
     final accountKey = _accountKey;
     if (session == null || accountKey == null) return Future.value();
@@ -441,6 +472,7 @@ class XboardMarqueeController extends ChangeNotifier {
     _loading = true;
     final completer = Completer<void>();
     _refreshOperation = completer.future;
+    _refreshActivityRevision = _activityRevision;
     notifyListeners();
     unawaited(
       _refresh(session: session, generation: generation).then(
@@ -456,13 +488,20 @@ class XboardMarqueeController extends ChangeNotifier {
     required XboardLoginResult session,
     required int generation,
   }) async {
+    final activityRevision = _activityRevision;
+    bool canRequest() =>
+        _canRefresh &&
+        generation == _generation &&
+        activityRevision == _activityRevision;
     try {
-      if (!_canRefresh || generation != _generation) return;
+      if (!canRequest()) return;
       final unread = await _api.fetchUnread(
         endpoint: session.endpoint,
         token: session.token,
+        canRequest: canRequest,
       );
       if (_disposed || generation != _generation) return;
+      ensureXboardApiRequestAllowed(canRequest);
       _failures = 0;
       _nextRefreshAt = _now().add(xboardMarqueeRefreshInterval);
       final remaining = unread
@@ -474,6 +513,7 @@ class XboardMarqueeController extends ChangeNotifier {
       await _saveQueue(_accountKey!, remaining);
     } catch (error, stackTrace) {
       if (_disposed || generation != _generation) return;
+      if (error is XboardApiRequestDeferred || !canRequest()) return;
       _failures = (_failures + 1).clamp(1, 4);
       _nextRefreshAt = _now().add(
         Duration(minutes: const [5, 10, 20, 30][_failures - 1]),

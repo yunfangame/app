@@ -16,6 +16,95 @@ void main() {
   final backup = Uri.parse('https://backup.example');
   final candidates = [primary, backup];
 
+  test('closed admission never loads candidates or issues HTTP', () async {
+    final health = _VerifiedHealth(candidates);
+    var calls = 0;
+    final executor = XboardApiRequestExecutor(apiHealthService: health);
+    await expectLater(
+      executor.run<void>(
+        endpoint: primary,
+        allowRetry: true,
+        canRequest: () => false,
+        request: (_, _) async => calls++,
+      ),
+      throwsA(isA<XboardApiRequestDeferred>()),
+    );
+    expect(health.verifiedLoads, 0);
+    expect(calls, 0);
+  });
+
+  test(
+    'pause before a network failure defers without backup or host cooldown',
+    () async {
+      var available = true;
+      var calls = 0;
+      final router = ApiRequestRouter();
+      final executor = XboardApiRequestExecutor(
+        apiHealthService: _VerifiedHealth(candidates),
+        router: router,
+      );
+      await expectLater(
+        executor.run<void>(
+          endpoint: primary,
+          allowRetry: true,
+          canRequest: () => available,
+          request: (_, _) async {
+            calls++;
+            available = false;
+            throw const SocketException('controlled');
+          },
+        ),
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      expect(calls, 1);
+      expect(router.orderCandidates(candidates).first, primary);
+    },
+  );
+
+  for (final timeout in [false, true]) {
+    test(
+      'deferred or timed out requests release only their probe lease ($timeout)',
+      () async {
+        var now = DateTime(2026, 10, 25);
+        var available = true;
+        final router = ApiRequestRouter(now: () => now);
+        router.recordFailure(
+          primary,
+          candidates: [primary],
+          error: const SocketException('controlled'),
+          probeToken: null,
+        );
+        now = now.add(const Duration(seconds: 16));
+        Object? probe;
+        final executor = XboardApiRequestExecutor(
+          apiHealthService: _VerifiedHealth([primary]),
+          router: router,
+          operationTimeout: const Duration(milliseconds: 30),
+        );
+        final request = executor.run<void>(
+          endpoint: primary,
+          allowRetry: true,
+          canRequest: () => available,
+          request: (_, _) async {
+            probe = router.recoveryProbeToken(primary, candidates: [primary]);
+            available = false;
+            if (timeout) await Completer<void>().future;
+            throw const SocketException('controlled');
+          },
+        );
+        await expectLater(request, throwsA(isA<XboardApiRequestDeferred>()));
+        expect(probe, isNotNull);
+        expect(
+          router.recoveryProbeToken(primary, candidates: [primary]),
+          isNull,
+        );
+        expect(router.orderCandidates([primary], reserveRecoveryProbe: true), [
+          primary,
+        ]);
+      },
+    );
+  }
+
   test('replaces only the trusted origin and retains path and query', () async {
     final calls = <Uri>[];
     final executor = XboardApiRequestExecutor(

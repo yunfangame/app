@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import 'xboard_auth.dart';
+import 'xboard_api_request.dart';
 
 class XboardAnnouncementQueryCache {
   XboardAnnouncementQueryCache({DateTime Function()? now})
@@ -23,6 +24,7 @@ class XboardAnnouncementQueryCache {
     required XboardLoginResult session,
     required Future<List<XboardNoticeData>> Function() loader,
     bool forceRefresh = false,
+    bool Function()? canRequest,
   }) {
     final key = accountKey(session);
     final entry = _entries.putIfAbsent(key, _AnnouncementEntry.new);
@@ -50,7 +52,7 @@ class XboardAnnouncementQueryCache {
     }
     final request = _AnnouncementRequest(++entry.revision, forceRefresh);
     entry.request = request;
-    unawaited(_complete(key, entry, request, _epoch, loader));
+    unawaited(_complete(key, entry, request, _epoch, loader, canRequest));
     return request.future;
   }
 
@@ -65,8 +67,10 @@ class XboardAnnouncementQueryCache {
     _AnnouncementRequest request,
     int epoch,
     Future<List<XboardNoticeData>> Function() loader,
+    bool Function()? canRequest,
   ) async {
     try {
+      ensureXboardApiRequestAllowed(canRequest);
       final value = List<XboardNoticeData>.unmodifiable(await loader());
       if (epoch != _epoch || !identical(_entries[key], entry)) {
         throw StateError('announcement_query_superseded');
@@ -75,6 +79,7 @@ class XboardAnnouncementQueryCache {
         request.completer.complete(await _latest(key, entry, epoch));
         return;
       }
+      ensureXboardApiRequestAllowed(canRequest);
       entry.value = value;
       entry.at = _now();
       entry.error = null;
@@ -91,6 +96,15 @@ class XboardAnnouncementQueryCache {
           } catch (latestError, latestStack) {
             request.completer.completeError(latestError, latestStack);
           }
+          return;
+        }
+        if (error is XboardApiRequestDeferred || canRequest?.call() == false) {
+          request.completer.completeError(
+            error is XboardApiRequestDeferred
+                ? error
+                : const XboardApiRequestDeferred(),
+            stackTrace,
+          );
           return;
         }
         const delays = [30, 60, 120, 300];
