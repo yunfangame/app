@@ -16,6 +16,84 @@ import '../support/ticket_fixtures.dart';
 
 void main() {
   testWidgets(
+    'desktop tickets are fetched only when entering personal center',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(globalState.clearXboardSession);
+      globalState.xboardSession = _testSession();
+      final active = ValueNotifier(false);
+      addTearDown(active.dispose);
+      final fixture = TicketFixture();
+      var fetchCalls = 0;
+      var summaryCalls = 0;
+      final tickets = XboardTicketController(
+        summaryPollingEnabled:
+            globalState.xboardTicketController.summaryPollingEnabled,
+        pollJitterSeconds: () => 0,
+        api: XboardTicketApi(
+          requester: (uri, auth, body) {
+            if (uri.path.endsWith('/fetch')) fetchCalls++;
+            if (uri.path.endsWith('/summary')) summaryCalls++;
+            return fixture.request(uri, auth, body);
+          },
+        ),
+      )..updateSession(globalState.xboardSession, offline: false);
+      addTearDown(tickets.dispose);
+      tickets.startPolling(foreground: true);
+      try {
+        await tester.pumpWidget(
+          _TestApp(
+            child: ValueListenableBuilder<bool>(
+              valueListenable: active,
+              child: FengWoPersonalCenterView(
+                ticketController: tickets,
+                authService: _testService(),
+              ),
+              builder: (_, isActive, child) =>
+                  PageActivityScope(isActive: isActive, child: child!),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(minutes: 10));
+        expect(fetchCalls, 0);
+        expect(summaryCalls, 0);
+        active.value = true;
+        await tester.pumpAndSettle();
+        expect(fetchCalls, 1);
+        await tester.pump(const Duration(minutes: 10));
+        expect(fetchCalls, 1);
+        active.value = false;
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(minutes: 10));
+        expect(fetchCalls, 1);
+        active.value = true;
+        await tester.pumpAndSettle();
+        expect(fetchCalls, 2);
+        active.value = false;
+        active.value = true;
+        await tester.pumpAndSettle();
+        expect(fetchCalls, 2);
+        tickets.setForeground(false);
+        tickets.setWindowForeground(false);
+        await tester.pump(const Duration(minutes: 10));
+        tickets.setForeground(true);
+        tickets.setWindowForeground(true);
+        await tester.pump(Duration.zero);
+        await tester.pump(const Duration(minutes: 10));
+        expect(fetchCalls, 2);
+        expect(summaryCalls, 0);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox());
+      }
+    },
+  );
+
+  testWidgets(
     'personal center renders account data and updates real controls',
     (tester) async {
       tester.view.physicalSize = const Size(1280, 1000);

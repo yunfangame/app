@@ -34,8 +34,13 @@ class TicketUnreadBadge extends StatelessWidget {
 }
 
 class FengWoTicketPanel extends StatefulWidget {
-  const FengWoTicketPanel({super.key, required this.controller});
+  const FengWoTicketPanel({
+    super.key,
+    required this.controller,
+    this.pollingEnabled = true,
+  });
   final XboardTicketController controller;
+  final bool pollingEnabled;
 
   @override
   State<FengWoTicketPanel> createState() => _FengWoTicketPanelState();
@@ -49,15 +54,20 @@ class _FengWoTicketPanelState extends State<FengWoTicketPanel> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _active = PageActivityScope.isActiveOf(context);
-    widget.controller.setViewActive(this, _active);
+    widget.controller.setViewActive(this, _active && widget.pollingEnabled);
   }
 
   @override
   void didUpdateWidget(covariant FengWoTicketPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller == widget.controller) return;
-    oldWidget.controller.setViewActive(this, false);
-    widget.controller.setViewActive(this, _active);
+    if (oldWidget.controller == widget.controller &&
+        oldWidget.pollingEnabled == widget.pollingEnabled) {
+      return;
+    }
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.setViewActive(this, false);
+    }
+    widget.controller.setViewActive(this, _active && widget.pollingEnabled);
   }
 
   @override

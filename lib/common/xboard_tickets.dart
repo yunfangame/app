@@ -163,11 +163,13 @@ class XboardTicketController extends ChangeNotifier {
   XboardTicketController({
     XboardTicketApi? api,
     int Function()? pollJitterSeconds,
+    this.summaryPollingEnabled = true,
   }) : api = api ?? XboardTicketApi(),
        _pollJitterSeconds =
            pollJitterSeconds ?? (() => Random().nextInt(31) - 15);
 
   final XboardTicketApi api;
+  final bool summaryPollingEnabled;
   final int Function() _pollJitterSeconds;
   final _activeViews = <Object, XboardTicketViewRefresh?>{};
   Timer? _pollTimer;
@@ -203,7 +205,12 @@ class XboardTicketController extends ChangeNotifier {
   XboardLoginResult? get session => _session;
   bool get isForeground => _foreground;
   bool get _canPoll =>
-      _polling && _foreground && !_disposed && !_offline && _session != null;
+      _polling &&
+      _foreground &&
+      !_disposed &&
+      !_offline &&
+      _session != null &&
+      (summaryPollingEnabled || _activeViews.isNotEmpty);
 
   void startPolling({required bool foreground}) {
     if (_disposed) return;
@@ -303,6 +310,7 @@ class XboardTicketController extends ChangeNotifier {
         final success = await refresh();
         if (!_canPoll || generation != _generation) return null;
         if (success == false) return false;
+        if (!summaryPollingEnabled) return success;
         return _refreshSummary();
       } catch (_) {
         return false;
