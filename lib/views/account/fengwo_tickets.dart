@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/common/xboard_tickets.dart';
 import 'package:fl_clash/widgets/inherited.dart';
 import 'package:flutter/material.dart';
@@ -459,16 +460,36 @@ class _TicketDetailDialogState extends State<_TicketDetailDialog> {
   bool _busy = false;
   int _revision = 0;
   int _acknowledgedReplyId = 0;
+  bool _closed = false;
 
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_sessionChanged);
     unawaited(_load());
-    widget.controller.setViewActive(this, true, refresh: _poll);
+    _registerPolling();
   }
 
-  Future<bool?> _poll() => _busy ? Future.value() : _load();
+  void _registerPolling() {
+    if (!_current) return;
+    widget.controller.setViewActive(
+      this,
+      true,
+      refresh: _poll,
+      detailInterval: _detail?.closed == true
+          ? const Duration(minutes: 5)
+          : const Duration(seconds: 30),
+    );
+  }
+
+  Future<bool?> _poll() => _busy ? Future.value() : _load(polling: true);
+
+  void _dismissed() {
+    if (_closed) return;
+    _closed = true;
+    _revision++;
+    widget.controller.setViewActive(this, false);
+  }
 
   void _sessionChanged() {
     if (_current) return;
@@ -483,18 +504,21 @@ class _TicketDetailDialogState extends State<_TicketDetailDialog> {
   }
 
   bool get _current =>
-      mounted && _session != null && widget.controller.isCurrent(_session);
+      mounted &&
+      !_closed &&
+      _session != null &&
+      widget.controller.isCurrent(_session);
 
   @override
   void dispose() {
-    widget.controller.setViewActive(this, false);
+    _dismissed();
     widget.controller.removeListener(_sessionChanged);
     _reply.dispose();
     _scroll.dispose();
     super.dispose();
   }
 
-  Future<bool?> _load() async {
+  Future<bool?> _load({bool polling = false}) async {
     if (!_current || _loading || !widget.controller.isForeground) return null;
     final revision = ++_revision;
     setState(() {
@@ -502,15 +526,24 @@ class _TicketDetailDialogState extends State<_TicketDetailDialog> {
       _failed = false;
     });
     try {
-      final detail = await widget.controller.detail(widget.id);
+      final detail = await widget.controller.detail(
+        widget.id,
+        canRequest: polling ? () => _current && revision == _revision : null,
+      );
       if (!_current || revision != _revision) return null;
       setState(() => _detail = detail);
+      _registerPolling();
+      if (!polling) widget.controller.recordViewRefresh(this, true);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_current && revision == _revision) unawaited(_markRead(detail));
       });
       return true;
+    } on XboardApiRequestDeferred {
+      return null;
     } catch (_) {
-      if (_current && revision == _revision) setState(() => _failed = true);
+      if (!_current || revision != _revision) return null;
+      setState(() => _failed = true);
+      if (!polling) widget.controller.recordViewRefresh(this, false);
       return false;
     } finally {
       if (mounted && revision == _revision) setState(() => _loading = false);
@@ -592,6 +625,9 @@ class _TicketDetailDialogState extends State<_TicketDetailDialog> {
         viewport.height - MediaQuery.viewInsetsOf(context).bottom < 400;
     return PopScope(
       canPop: !_busy,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) _dismissed();
+      },
       child: Dialog(
         insetPadding: compact
             ? EdgeInsets.zero
