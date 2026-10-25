@@ -65,6 +65,50 @@ void main() {
     },
   );
 
+  testWidgets('manual refresh does not wait for an older automatic manifest', (
+    tester,
+  ) async {
+    final old = Completer<Object?>();
+    final fresh = Completer<Object?>();
+    var calls = 0;
+    final container = _container(
+      _service(
+        manifestLoader: (_) {
+          calls++;
+          return calls == 1 ? old.future : fresh.future;
+        },
+      ),
+    );
+    await _mount(tester);
+    try {
+      final action = container.read(commonActionProvider.notifier);
+      final automatic = action.checkAppUpdate();
+      await tester.pump();
+      expect(calls, 1);
+      final manual = action.checkAppUpdate(isUser: true);
+      await tester.pump();
+      expect(calls, 2);
+      final manifest = _manifest();
+      ((manifest['packages'] as Map)['android-arm64-v8a'] as Map)['version'] =
+          '1.0.6';
+      fresh.complete(manifest);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('app-update-dialog')), findsOneWidget);
+      expect(container.read(appUpdateProvider).release?.version, '1.0.6');
+      await tester.tap(find.byKey(const ValueKey('app-update-close')));
+      await tester.pumpAndSettle();
+      await Future.wait([automatic, manual]);
+      old.complete(_manifest());
+      await tester.pumpAndSettle();
+      expect(container.read(appUpdateProvider).release?.version, '1.0.6');
+      expect(find.byKey(const ValueKey('app-update-dialog')), findsNothing);
+    } finally {
+      if (!old.isCompleted) old.complete(_manifest());
+      await tester.pumpWidget(const SizedBox());
+      container.dispose();
+    }
+  });
+
   testWidgets(
     'manual request can promote a check waiting on ignored preferences',
     (tester) async {

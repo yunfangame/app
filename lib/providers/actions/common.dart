@@ -3,7 +3,9 @@ part of '../action.dart';
 @Riverpod(keepAlive: true)
 class CommonAction extends _$CommonAction {
   Future<void>? _appUpdatePrompt;
+  Future<AppUpdateState>? _appUpdateCheck;
   bool _manualAppUpdateRequested = false;
+  bool _appUpdateDialogVisible = false;
 
   @override
   void build() {}
@@ -75,26 +77,43 @@ class CommonAction extends _$CommonAction {
 
   Future<void> checkAppUpdate({bool isUser = false, bool showPrompt = true}) {
     if (!showPrompt && !isUser) {
-      return ref.read(appUpdateProvider.notifier).check().then((_) {});
+      return ref
+          .read(appUpdateProvider.notifier)
+          .check(forceRefresh: false)
+          .then((_) {});
     }
     final running = _appUpdatePrompt;
     if (running != null) {
-      _manualAppUpdateRequested |= isUser;
+      if (isUser && !_manualAppUpdateRequested) {
+        _manualAppUpdateRequested = true;
+        if (!_appUpdateDialogVisible) {
+          _appUpdateCheck = ref
+              .read(appUpdateProvider.notifier)
+              .check(forceRefresh: true);
+        }
+      }
       return running;
     }
     final completer = Completer<void>();
     _appUpdatePrompt = completer.future;
     _manualAppUpdateRequested = isUser;
+    _appUpdateCheck = ref
+        .read(appUpdateProvider.notifier)
+        .check(forceRefresh: isUser);
     unawaited(
       _checkAndPromptAppUpdate().then(
         (_) {
           _appUpdatePrompt = null;
           _manualAppUpdateRequested = false;
+          _appUpdateCheck = null;
+          _appUpdateDialogVisible = false;
           completer.complete();
         },
         onError: (Object error, StackTrace stackTrace) {
           _appUpdatePrompt = null;
           _manualAppUpdateRequested = false;
+          _appUpdateCheck = null;
+          _appUpdateDialogVisible = false;
           completer.completeError(error, stackTrace);
         },
       ),
@@ -104,8 +123,13 @@ class CommonAction extends _$CommonAction {
 
   Future<void> _checkAndPromptAppUpdate() async {
     try {
-      final result = await ref.read(appUpdateProvider.notifier).check();
-      if (!ref.mounted) return;
+      var checking = _appUpdateCheck;
+      var result = await _latestAppUpdateResult();
+      while (ref.mounted && !identical(checking, _appUpdateCheck)) {
+        checking = _appUpdateCheck;
+        result = await _latestAppUpdateResult();
+      }
+      if (!ref.mounted || result == null) return;
       if (result.status != AppUpdateStatus.available) {
         if (_manualAppUpdateRequested) {
           await _showAppUpdateMessage(switch (result.status) {
@@ -120,18 +144,20 @@ class CommonAction extends _$CommonAction {
       }
       final release = result.release!;
       final service = ref.read(appUpdateServiceProvider);
-      if (!_manualAppUpdateRequested) {
-        final ignored = await service.isIgnored(release);
-        if (!ref.mounted || (ignored && !_manualAppUpdateRequested)) return;
+      if (!_manualAppUpdateRequested &&
+          (!ApiHealthService.automaticRequestsAvailable ||
+              globalState.isOfflineMode)) {
+        return;
       }
       final context = globalState.navigatorKey.currentContext;
       if (context == null || !context.mounted) return;
       final currentVersion = ref.read(appUpdateCurrentVersionProvider) ?? '';
+      _appUpdateDialogVisible = true;
       final decision = await showAppUpdateDialog(
         context: context,
         release: release,
         currentVersion: currentVersion.split('+').first,
-      );
+      ).whenComplete(() => _appUpdateDialogVisible = false);
       if (!ref.mounted || !context.mounted) return;
       switch (decision) {
         case AppUpdateDecision.update:
@@ -170,6 +196,32 @@ class CommonAction extends _$CommonAction {
         await _showAppUpdateMessage(currentAppLocalizations.appUpdateFailed);
       }
     }
+  }
+
+  Future<AppUpdateState?> _latestAppUpdateResult() async {
+    while (ref.mounted) {
+      final check = _appUpdateCheck!;
+      final result = await check;
+      if (!ref.mounted) return null;
+      if (!identical(check, _appUpdateCheck)) continue;
+      if (!_manualAppUpdateRequested &&
+          result.status == AppUpdateStatus.available) {
+        bool ignored;
+        try {
+          ignored = await ref
+              .read(appUpdateServiceProvider)
+              .isIgnored(result.release!);
+        } catch (_) {
+          if (!identical(check, _appUpdateCheck)) continue;
+          rethrow;
+        }
+        if (!ref.mounted) return null;
+        if (!identical(check, _appUpdateCheck)) continue;
+        if (ignored && !_manualAppUpdateRequested) return null;
+      }
+      return result;
+    }
+    return null;
   }
 
   Future<void> _showAppUpdateMessage(String message) async {

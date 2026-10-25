@@ -154,6 +154,21 @@ void main() {
       (await service.discoverUpdate(currentVersion: '1.0.10')).status,
       AppUpdateCheckStatus.upToDate,
     );
+    final automaticConfigCalls = calls
+        .where((call) => call.method == 'fetchUpdateConfig')
+        .map((call) => call.arguments as Map)
+        .where((args) => args['kind'] == 'main_config')
+        .length;
+    expect(automaticConfigCalls, 2);
+    for (var attempt = 0; attempt < 2; attempt++) {
+      expect(
+        (await service.discoverUpdate(
+          currentVersion: '1.0.10',
+          forceRefresh: true,
+        )).status,
+        AppUpdateCheckStatus.upToDate,
+      );
+    }
     final refreshNonces = calls
         .where((call) => call.method == 'fetchUpdateConfig')
         .map((call) => call.arguments as Map)
@@ -164,9 +179,23 @@ void main() {
           ).queryParameters['_fengwo_refresh'],
         )
         .toList();
-    expect(refreshNonces, isNotEmpty);
-    expect(refreshNonces, everyElement(isNotEmpty));
-    expect(refreshNonces.toSet(), hasLength(2));
+    expect(refreshNonces.take(2), everyElement(isNull));
+    expect(refreshNonces.skip(2), hasLength(4));
+    expect(refreshNonces.skip(2), everyElement(isNotEmpty));
+    expect(refreshNonces.skip(2).toSet(), hasLength(2));
+    final manifestNonces = calls
+        .where((call) => call.method == 'fetchUpdateConfig')
+        .map((call) => call.arguments as Map)
+        .where((args) => args['kind'] == 'update_manifest')
+        .map(
+          (args) => Uri.parse(
+            args['url'] as String,
+          ).queryParameters['_fengwo_update_refresh'],
+        )
+        .toList();
+    expect(manifestNonces.take(2), everyElement(isNull));
+    expect(manifestNonces.skip(2), everyElement(isNotEmpty));
+    expect(manifestNonces.skip(2).toSet(), hasLength(2));
     final kinds = calls
         .where((call) => call.method == 'fetchUpdateConfig')
         .map((call) => (call.arguments as Map)['kind']);
