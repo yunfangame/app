@@ -6,6 +6,7 @@ import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/account/fengwo_personal_center.dart';
 import 'package:fl_clash/widgets/fengwo_account_avatar.dart';
 import 'package:fl_clash/widgets/inherited.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +16,90 @@ import '../support/api_health_fixture.dart';
 import '../support/ticket_fixtures.dart';
 
 void main() {
+  testWidgets(
+    'desktop and Android tickets are fetched only on personal center entry',
+    (tester) async {
+      tester.view.physicalSize = defaultTargetPlatform == TargetPlatform.android
+          ? const Size(390, 844)
+          : const Size(1280, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(globalState.clearXboardSession);
+      globalState.xboardSession = _testSession();
+      final active = ValueNotifier(false);
+      addTearDown(active.dispose);
+      final fixture = TicketFixture();
+      var fetchCalls = 0;
+      var summaryCalls = 0;
+      final tickets = XboardTicketController(
+        summaryPollingEnabled:
+            globalState.xboardTicketController.summaryPollingEnabled,
+        pollJitterSeconds: () => 0,
+        api: XboardTicketApi(
+          requester: (uri, auth, body) {
+            if (uri.path.endsWith('/fetch')) fetchCalls++;
+            if (uri.path.endsWith('/summary')) summaryCalls++;
+            return fixture.request(uri, auth, body);
+          },
+        ),
+      )..updateSession(globalState.xboardSession, offline: false);
+      addTearDown(tickets.dispose);
+      tickets.startPolling(foreground: true);
+      try {
+        await tester.pumpWidget(
+          _TestApp(
+            child: ValueListenableBuilder<bool>(
+              valueListenable: active,
+              child: FengWoPersonalCenterView(
+                ticketController: tickets,
+                authService: _testService(),
+              ),
+              builder: (_, isActive, child) =>
+                  PageActivityScope(isActive: isActive, child: child!),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(minutes: 10));
+        expect(fetchCalls, 0);
+        expect(summaryCalls, 0);
+        active.value = true;
+        await tester.pumpAndSettle();
+        expect(fetchCalls, 1);
+        await tester.pump(const Duration(minutes: 10));
+        expect(fetchCalls, 1);
+        active.value = false;
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(minutes: 10));
+        expect(fetchCalls, 1);
+        active.value = true;
+        await tester.pumpAndSettle();
+        expect(fetchCalls, 2);
+        active.value = false;
+        active.value = true;
+        await tester.pumpAndSettle();
+        expect(fetchCalls, 2);
+        tickets.setForeground(false);
+        tickets.setWindowForeground(false);
+        await tester.pump(const Duration(minutes: 10));
+        tickets.setForeground(true);
+        tickets.setWindowForeground(true);
+        await tester.pump(Duration.zero);
+        await tester.pump(const Duration(minutes: 10));
+        expect(fetchCalls, 2);
+        expect(summaryCalls, 0);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox());
+      }
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.android,
+    }),
+  );
+
   testWidgets(
     'personal center renders account data and updates real controls',
     (tester) async {

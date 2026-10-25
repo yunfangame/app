@@ -45,6 +45,16 @@ class _FengWoPersonalCenterViewState
   final _loginIpScrollController = ScrollController();
   late final XboardAuthService _authService;
   late final XboardTicketController _tickets;
+  bool _ticketRefreshQueued = false;
+
+  void _queueTicketRefresh() {
+    if (_ticketRefreshQueued) return;
+    _ticketRefreshQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ticketRefreshQueued = false;
+      unawaited(_loadTickets());
+    });
+  }
 
   Future<void> _loadTickets() async {
     if (!mounted ||
@@ -81,8 +91,8 @@ class _FengWoPersonalCenterViewState
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadUserInfo();
       _loadLoginIps();
-      unawaited(_loadTickets());
     });
+    _queueTicketRefresh();
   }
 
   @override
@@ -95,9 +105,9 @@ class _FengWoPersonalCenterViewState
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         unawaited(_loadUserInfo());
-        unawaited(_loadTickets());
       }
     });
+    _queueTicketRefresh();
   }
 
   @override
@@ -973,7 +983,10 @@ class _FengWoPersonalCenterViewState
     colors: colors,
     child: Material(
       color: Colors.transparent,
-      child: FengWoTicketPanel(controller: _tickets),
+      child: FengWoTicketPanel(
+        controller: _tickets,
+        pollingEnabled: !(system.isDesktop || system.isAndroid),
+      ),
     ),
   );
 
