@@ -18,6 +18,18 @@ typedef XboardTicketRequester =
 
 typedef XboardTicketViewRefresh = Future<bool?> Function();
 
+class _XboardTicketDetailPoll {
+  _XboardTicketDetailPoll(this.refresh, this.interval);
+
+  XboardTicketViewRefresh refresh;
+  Duration interval;
+  Timer? timer;
+  Future<bool?>? operation;
+  int failures = 0;
+  bool refreshRequested = false;
+  DateTime? nextAt;
+}
+
 int _number(Object? value) => int.tryParse('$value') ?? 0;
 
 class XboardTicket {
@@ -108,6 +120,7 @@ class XboardTicketApi {
     String path, {
     Map<String, Object?>? query,
     Map<String, Object?>? body,
+    bool Function()? canRequest,
   }) async {
     final endpoint = session.endpoint
         .resolve('/api/v1/user/$path')
@@ -116,6 +129,7 @@ class XboardTicketApi {
         );
     return _executor.run(
       endpoint: endpoint,
+      canRequest: canRequest,
       allowRetry:
           body == null &&
           const {
@@ -163,15 +177,19 @@ class XboardTicketController extends ChangeNotifier {
   XboardTicketController({
     XboardTicketApi? api,
     int Function()? pollJitterSeconds,
+    DateTime Function()? now,
     this.summaryPollingEnabled = true,
   }) : api = api ?? XboardTicketApi(),
+       _now = now ?? DateTime.now,
        _pollJitterSeconds =
            pollJitterSeconds ?? (() => Random().nextInt(31) - 15);
 
   final XboardTicketApi api;
   final bool summaryPollingEnabled;
   final int Function() _pollJitterSeconds;
+  final DateTime Function() _now;
   final _activeViews = <Object, XboardTicketViewRefresh?>{};
+  final _detailPolls = <Object, _XboardTicketDetailPoll>{};
   Timer? _pollTimer;
   bool _pollImmediate = false;
   Future<bool?>? _pollOperation;
@@ -191,6 +209,7 @@ class XboardTicketController extends ChangeNotifier {
   int _summaryRevision = 0;
   bool _offline = false;
   bool _disposed = false;
+  int _activityRevision = 0;
   bool loading = false;
   bool failed = false;
   bool hasMore = false;
@@ -204,24 +223,29 @@ class XboardTicketController extends ChangeNotifier {
 
   XboardLoginResult? get session => _session;
   bool get isForeground => _foreground;
+  bool get _canPollDetails =>
+      _polling && _foreground && !_disposed && !_offline && _session != null;
   bool get _canPoll =>
-      _polling &&
-      _foreground &&
-      !_disposed &&
-      !_offline &&
-      _session != null &&
+      _canPollDetails &&
+      _detailPolls.isEmpty &&
       (summaryPollingEnabled || _activeViews.isNotEmpty);
 
   void startPolling({required bool foreground}) {
     if (_disposed) return;
+    final previous = _foreground;
     _polling = true;
     _appForeground = foreground;
-    _requestPoll();
+    if (previous != _foreground) _activityRevision++;
+    _requestPoll(preserveClosedDeadline: true);
   }
 
   void stopPolling() {
+    if (_polling) _activityRevision++;
     _polling = false;
     _pollTimer?.cancel();
+    for (final poll in _detailPolls.values) {
+      poll.timer?.cancel();
+    }
   }
 
   void refreshNow() => _requestPoll();
@@ -242,29 +266,58 @@ class XboardTicketController extends ChangeNotifier {
 
   void _foregroundChanged(bool previous) {
     if (previous == _foreground) return;
+    _activityRevision++;
     _pollTimer?.cancel();
-    if (_foreground) _requestPoll();
+    for (final poll in _detailPolls.values) {
+      poll.timer?.cancel();
+      poll.refreshRequested = false;
+    }
+    if (_foreground) _requestPoll(preserveClosedDeadline: true);
   }
 
   void setViewActive(
     Object owner,
     bool active, {
     XboardTicketViewRefresh? refresh,
+    Duration? detailInterval,
   }) {
     if (_disposed) return;
     if (active) {
-      if (_activeViews.containsKey(owner) && _activeViews[owner] == refresh) {
+      final detail = _detailPolls[owner];
+      if (_activeViews.containsKey(owner) &&
+          _activeViews[owner] == refresh &&
+          detail?.interval == detailInterval) {
         return;
       }
       _activeViews[owner] = refresh;
+      if (detailInterval != null && refresh != null) {
+        final poll = detail ?? _XboardTicketDetailPoll(refresh, detailInterval);
+        poll.refresh = refresh;
+        poll.interval = detailInterval;
+        _detailPolls[owner] = poll;
+        _scheduleDetailPoll(owner, poll);
+      } else {
+        _detailPolls.remove(owner)?.timer?.cancel();
+      }
     } else {
       if (!_activeViews.containsKey(owner)) return;
       _activeViews.remove(owner);
+      _detailPolls.remove(owner)?.timer?.cancel();
     }
     _schedulePoll();
   }
 
-  void _requestPoll() {
+  void _requestPoll({bool preserveClosedDeadline = false}) {
+    for (final entry in _detailPolls.entries) {
+      _scheduleDetailPoll(
+        entry.key,
+        entry.value,
+        immediately: true,
+        preserveDeadline:
+            preserveClosedDeadline &&
+            entry.value.interval >= const Duration(minutes: 5),
+      );
+    }
     _pollTimer?.cancel();
     _pollImmediate = false;
     if (!_canPoll || _pollOperation != null) return;
@@ -273,6 +326,71 @@ class XboardTicketController extends ChangeNotifier {
       _pollImmediate = false;
       unawaited(_poll());
     });
+  }
+
+  void recordViewRefresh(Object owner, bool? success) {
+    final poll = _detailPolls[owner];
+    if (poll == null || success == null) return;
+    poll.failures = success ? 0 : min(poll.failures + 1, 2);
+    _scheduleDetailPoll(owner, poll);
+  }
+
+  bool _isCurrentDetailPoll(Object owner, _XboardTicketDetailPoll poll) =>
+      _canPollDetails && identical(_detailPolls[owner], poll);
+
+  void _scheduleDetailPoll(
+    Object owner,
+    _XboardTicketDetailPoll poll, {
+    bool immediately = false,
+    bool preserveDeadline = false,
+  }) {
+    poll.timer?.cancel();
+    if (!_isCurrentDetailPoll(owner, poll)) return;
+    final current = _now();
+    final remaining = preserveDeadline && poll.nextAt != null
+        ? poll.nextAt!.difference(current)
+        : null;
+    if (poll.operation != null) {
+      poll.refreshRequested |=
+          immediately && (remaining == null || remaining <= Duration.zero);
+      return;
+    }
+    poll.refreshRequested = false;
+    final seconds = max(poll.interval.inSeconds, switch (poll.failures) {
+      0 => 0,
+      1 => 240,
+      _ => 480,
+    });
+    final jitter = _pollJitterSeconds().clamp(-15, 15);
+    final delay = remaining != null
+        ? (remaining.isNegative ? Duration.zero : remaining)
+        : immediately
+        ? Duration.zero
+        : Duration(seconds: seconds + jitter);
+    poll.nextAt = current.add(delay);
+    poll.timer = Timer(delay, () => unawaited(_pollDetail(owner, poll)));
+  }
+
+  Future<void> _pollDetail(Object owner, _XboardTicketDetailPoll poll) async {
+    if (!_isCurrentDetailPoll(owner, poll) || poll.operation != null) return;
+    final generation = _generation;
+    final operation = Future<bool?>.sync(poll.refresh);
+    poll.operation = operation;
+    bool? success;
+    try {
+      success = await operation;
+    } on XboardApiRequestDeferred {
+      success = null;
+    } catch (_) {
+      success = false;
+    }
+    if (!identical(poll.operation, operation)) return;
+    poll.operation = null;
+    if (generation != _generation || !_isCurrentDetailPoll(owner, poll)) return;
+    if (success != null) {
+      poll.failures = success ? 0 : min(poll.failures + 1, 2);
+    }
+    _scheduleDetailPoll(owner, poll, immediately: poll.refreshRequested);
   }
 
   void _schedulePoll() {
@@ -350,6 +468,13 @@ class XboardTicketController extends ChangeNotifier {
     _pollOperation = null;
     _pollFailures = 0;
     _pollTimer?.cancel();
+    for (final poll in _detailPolls.values) {
+      poll.timer?.cancel();
+      poll.operation = null;
+      poll.failures = 0;
+      poll.refreshRequested = false;
+      poll.nextAt = null;
+    }
     loading = false;
     failed = false;
     hasMore = false;
@@ -500,16 +625,28 @@ class XboardTicketController extends ChangeNotifier {
     });
   }
 
-  Future<XboardTicketDetail> detail(int id) async {
+  Future<XboardTicketDetail> detail(
+    int id, {
+    bool Function()? canRequest,
+  }) async {
     final session = _session;
     if (session == null || !isCurrent(session)) {
       throw StateError('No active session');
     }
     final generation = _generation;
+    final activity = _activityRevision;
     final data = await api.request(
       session,
       'ticket-sync/detail',
       query: {'id': id},
+      canRequest: canRequest == null
+          ? null
+          : () =>
+                generation == _generation &&
+                activity == _activityRevision &&
+                isCurrent(session) &&
+                _canPollDetails &&
+                canRequest(),
     );
     if (generation != _generation || !isCurrent(session)) {
       throw StateError('Session changed');
@@ -562,6 +699,7 @@ class XboardTicketController extends ChangeNotifier {
     _disposed = true;
     stopPolling();
     _activeViews.clear();
+    _detailPolls.clear();
     _generation++;
     super.dispose();
   }

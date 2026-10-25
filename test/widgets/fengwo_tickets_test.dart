@@ -1,7 +1,8 @@
 import 'dart:async';
 
-import 'package:fl_clash/l10n/l10n.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/common/xboard_tickets.dart';
+import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/views/account/fengwo_tickets.dart';
 import 'package:fl_clash/widgets/inherited.dart';
 import 'package:flutter/material.dart';
@@ -42,7 +43,194 @@ Widget app(
   ),
 );
 
+class _DetailPollingRig {
+  final fixture = TicketFixture();
+  int detailCalls = 0;
+  int fetchCalls = 0;
+  int summaryCalls = 0;
+  Future<Object?> Function()? readDetail;
+  late final controller = XboardTicketController(
+    summaryPollingEnabled: false,
+    pollJitterSeconds: () => 0,
+    now: TestWidgetsFlutterBinding.instance.clock.now,
+    api: XboardTicketApi(
+      requester: (uri, auth, body) {
+        if (uri.path.endsWith('/detail')) {
+          detailCalls++;
+          if (readDetail != null) return readDetail!();
+        }
+        if (uri.path.endsWith('/fetch')) fetchCalls++;
+        if (uri.path.endsWith('/summary')) summaryCalls++;
+        return fixture.request(uri, auth, body);
+      },
+    ),
+  )..updateSession(ticketSession(), offline: false);
+
+  Future<void> open(WidgetTester tester) async {
+    addTearDown(controller.dispose);
+    if (fixture.closed) {
+      await controller.refresh(filter: 1);
+    } else {
+      await controller.refresh();
+    }
+    controller.startPolling(foreground: true);
+    await tester.pumpWidget(app(controller, pollingEnabled: false));
+    await tester.tap(find.byKey(const ValueKey('ticket-1')));
+    await tester.pumpAndSettle();
+  }
+}
+
 void main() {
+  testWidgets(
+    'deferred automatic details keep the existing conversation without showing an error',
+    (tester) async {
+      final rig = _DetailPollingRig();
+      await rig.open(tester);
+      rig.readDetail = () async => throw const XboardApiRequestDeferred();
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+      expect(rig.detailCalls, 2);
+      expect(find.text('Please try another node'), findsOneWidget);
+      expect(find.text('Unable to load tickets. Please retry.'), findsNothing);
+      rig.readDetail = null;
+      await tester.pump(const Duration(seconds: 30));
+      expect(rig.detailCalls, 3);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'pause and resume invalidate an older automatic response and refresh once after it settles',
+    (tester) async {
+      final rig = _DetailPollingRig();
+      await rig.open(tester);
+      final pending = Completer<Object?>();
+      rig.readDetail = () => pending.future;
+      await tester.pump(const Duration(seconds: 30));
+      expect(rig.detailCalls, 2);
+      rig.controller.setForeground(false);
+      rig.controller.setForeground(true);
+      await tester.pump(Duration.zero);
+      expect(rig.detailCalls, 2);
+      rig.readDetail = null;
+      pending.complete({
+        'data': {
+          'id': 1,
+          'subject': 'Stale conversation',
+          'status': 1,
+          'latest_reply_id': 99,
+          'messages': [],
+        },
+      });
+      await tester.pumpAndSettle();
+      expect(rig.detailCalls, 3);
+      expect(find.text('Stale conversation'), findsNothing);
+      expect(find.byKey(const ValueKey('ticket-reply-input')), findsOneWidget);
+      expect(rig.fixture.readCalls, 1);
+      await tester.pump(const Duration(seconds: 30));
+      expect(rig.detailCalls, 4);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'closed details check for reopening every five minutes and then restore the active interval',
+    (tester) async {
+      final rig = _DetailPollingRig()..fixture.closed = true;
+      await rig.open(tester);
+      expect(rig.detailCalls, 1);
+      await tester.pump(const Duration(seconds: 299));
+      expect(rig.detailCalls, 1);
+      rig.fixture.closed = false;
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(rig.detailCalls, 2);
+      expect(find.byKey(const ValueKey('ticket-reply-input')), findsOneWidget);
+      await tester.pump(const Duration(seconds: 29));
+      expect(rig.detailCalls, 2);
+      await tester.pump(const Duration(seconds: 1));
+      expect(rig.detailCalls, 3);
+      expect(rig.summaryCalls, 0);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'closed detail manual refresh is immediate and dismissal stops its timer before the exit animation',
+    (tester) async {
+      final rig = _DetailPollingRig()..fixture.closed = true;
+      await rig.open(tester);
+      final refresh = find.descendant(
+        of: find.byType(Dialog),
+        matching: find.byIcon(Icons.refresh),
+      );
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(rig.detailCalls, 2);
+      await tester.pump(const Duration(seconds: 299));
+      expect(rig.detailCalls, 2);
+      await tester.tap(find.byKey(const ValueKey('ticket-detail-dismiss')));
+      await tester.pump(const Duration(seconds: 1));
+      expect(rig.detailCalls, 2);
+      final fetches = rig.fetchCalls;
+      await tester.pump(const Duration(hours: 1));
+      expect(rig.detailCalls, 2);
+      expect(rig.fetchCalls, fetches);
+      expect(rig.summaryCalls, 0);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'reply and close confirm immediately and switch only the detail to the closed interval',
+    (tester) async {
+      final rig = _DetailPollingRig();
+      await rig.open(tester);
+      await tester.enterText(
+        find.byKey(const ValueKey('ticket-reply-input')),
+        'Resolved',
+      );
+      await tester.tap(find.byKey(const ValueKey('ticket-reply-send')));
+      await tester.pumpAndSettle();
+      expect(rig.detailCalls, 2);
+      await tester.tap(find.text('Close ticket'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Close ticket'));
+      await tester.pumpAndSettle();
+      expect(rig.fixture.closeCalls, 1);
+      expect(rig.detailCalls, 3);
+      await tester.pump(const Duration(seconds: 299));
+      expect(rig.detailCalls, 3);
+      await tester.pump(const Duration(seconds: 1));
+      expect(rig.detailCalls, 4);
+      expect(rig.summaryCalls, 0);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'closed detail refresh pauses in the background and resumes once',
+    (tester) async {
+      final rig = _DetailPollingRig()..fixture.closed = true;
+      await rig.open(tester);
+      rig.controller.setForeground(false);
+      rig.controller.setWindowForeground(false);
+      await tester.pump(const Duration(hours: 1));
+      expect(rig.detailCalls, 1);
+      rig.controller.setForeground(true);
+      await tester.pump(Duration.zero);
+      expect(rig.detailCalls, 1);
+      rig.controller.setWindowForeground(true);
+      await tester.pumpAndSettle();
+      expect(rig.detailCalls, 2);
+      await tester.pump(const Duration(seconds: 299));
+      expect(rig.detailCalls, 2);
+      await tester.pump(const Duration(seconds: 1));
+      expect(rig.detailCalls, 3);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets('ticket panels can turn list polling on and off', (tester) async {
     final fixture = TicketFixture();
     var fetchCalls = 0;

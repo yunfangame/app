@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/common/xboard_tickets.dart';
 import 'package:fl_clash/state.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,6 +36,7 @@ class _Rig {
   late final controller = XboardTicketController(
     summaryPollingEnabled: summaryPollingEnabled,
     pollJitterSeconds: () => 0,
+    now: TestWidgetsFlutterBinding.instance.clock.now,
     api: XboardTicketApi(
       requester: (uri, auth, body) {
         if (uri.path.endsWith('/summary')) {
@@ -53,6 +55,184 @@ class _Rig {
 }
 
 void main() {
+  _pollingTest('repeated focus changes preserve the closed detail deadline', (
+    tester,
+  ) async {
+    final rig = _Rig(summaryPollingEnabled: false);
+    addTearDown(rig.controller.dispose);
+    rig.controller.startPolling(foreground: true);
+    var calls = 0;
+    rig.controller.setViewActive(
+      Object(),
+      true,
+      detailInterval: const Duration(minutes: 5),
+      refresh: () async {
+        calls++;
+        return true;
+      },
+    );
+    for (var count = 0; count < 10; count++) {
+      await tester.pump(const Duration(seconds: 20));
+      rig.controller.setWindowForeground(false);
+      rig.controller.setWindowForeground(true);
+      await tester.pump(Duration.zero);
+      expect(calls, 0);
+    }
+    await tester.pump(const Duration(seconds: 99));
+    expect(calls, 0);
+    await tester.pump(const Duration(seconds: 1));
+    expect(calls, 1);
+  });
+
+  _pollingTest(
+    'a deferred detail request preserves the active interval without failure backoff',
+    (tester) async {
+      final rig = _Rig(summaryPollingEnabled: false);
+      addTearDown(rig.controller.dispose);
+      rig.controller.startPolling(foreground: true);
+      var calls = 0;
+      rig.controller.setViewActive(
+        Object(),
+        true,
+        detailInterval: const Duration(seconds: 30),
+        refresh: () async {
+          calls++;
+          if (calls == 1) throw const XboardApiRequestDeferred();
+          return true;
+        },
+      );
+      await tester.pump(const Duration(seconds: 30));
+      expect(calls, 1);
+      await tester.pump(const Duration(seconds: 29));
+      expect(calls, 1);
+      await tester.pump(const Duration(seconds: 1));
+      expect(calls, 2);
+    },
+  );
+
+  _pollingTest(
+    'independent active and closed details suppress the covered list without sharing cadence',
+    (tester) async {
+      final rig = _Rig(summaryPollingEnabled: false);
+      addTearDown(rig.controller.dispose);
+      rig.controller.startPolling(foreground: true);
+      rig.controller.setViewActive(Object(), true);
+      var activeCalls = 0;
+      var closedCalls = 0;
+      rig.controller.setViewActive(
+        Object(),
+        true,
+        detailInterval: const Duration(seconds: 30),
+        refresh: () async {
+          activeCalls++;
+          return true;
+        },
+      );
+      rig.controller.setViewActive(
+        Object(),
+        true,
+        detailInterval: const Duration(minutes: 5),
+        refresh: () async {
+          closedCalls++;
+          return false;
+        },
+      );
+      for (var tick = 1; tick <= 20; tick++) {
+        await tester.pump(const Duration(seconds: 30));
+        expect(activeCalls, tick);
+        expect(closedCalls, tick ~/ 10);
+      }
+      expect(rig.fetchCalls, 0);
+      expect(rig.summaryAccounts, isEmpty);
+      await tester.pump(const Duration(seconds: 30));
+      expect(activeCalls, 21);
+      expect(closedCalls, 2);
+    },
+  );
+
+  _pollingTest(
+    'detail failures retain 240 and 480 second backoff and manual success restores its interval',
+    (tester) async {
+      final rig = _Rig(summaryPollingEnabled: false);
+      addTearDown(rig.controller.dispose);
+      rig.controller.startPolling(foreground: true);
+      final owner = Object();
+      var calls = 0;
+      rig.controller.setViewActive(
+        owner,
+        true,
+        detailInterval: const Duration(seconds: 30),
+        refresh: () async {
+          calls++;
+          return calls > 2;
+        },
+      );
+      await tester.pump(const Duration(seconds: 30));
+      expect(calls, 1);
+      await tester.pump(const Duration(seconds: 239));
+      expect(calls, 1);
+      await tester.pump(const Duration(seconds: 1));
+      expect(calls, 2);
+      await tester.pump(const Duration(seconds: 479));
+      expect(calls, 2);
+      rig.controller.recordViewRefresh(owner, true);
+      await tester.pump(const Duration(seconds: 29));
+      expect(calls, 2);
+      await tester.pump(const Duration(seconds: 1));
+      expect(calls, 3);
+      await tester.pump(const Duration(seconds: 30));
+      expect(calls, 4);
+    },
+  );
+
+  _pollingTest(
+    'per-view details pause together and resume once without duplicate timers',
+    (tester) async {
+      final rig = _Rig(summaryPollingEnabled: false);
+      addTearDown(rig.controller.dispose);
+      rig.controller.startPolling(foreground: true);
+      var calls = 0;
+      final owner = Object();
+      Future<bool?> refresh() async {
+        calls++;
+        return true;
+      }
+
+      rig.controller.setViewActive(
+        owner,
+        true,
+        refresh: refresh,
+        detailInterval: const Duration(minutes: 5),
+      );
+      rig.controller.setViewActive(
+        owner,
+        true,
+        refresh: refresh,
+        detailInterval: const Duration(minutes: 5),
+      );
+      rig.controller.setWindowForeground(false);
+      rig.controller.setForeground(false);
+      await tester.pump(const Duration(hours: 1));
+      expect(calls, 0);
+      rig.controller.setForeground(true);
+      await tester.pump(Duration.zero);
+      expect(calls, 0);
+      rig.controller.setWindowForeground(true);
+      rig.controller.refreshNow();
+      await tester.pump(Duration.zero);
+      expect(calls, 1);
+      await tester.pump(const Duration(seconds: 299));
+      expect(calls, 1);
+      await tester.pump(const Duration(seconds: 1));
+      expect(calls, 2);
+      rig.controller.setViewActive(owner, false);
+      await tester.pump(const Duration(hours: 1));
+      expect(calls, 2);
+      expect(rig.fetchCalls, 0);
+      expect(rig.summaryAccounts, isEmpty);
+    },
+  );
+
   _pollingTest('desktop summaries stay idle across login and focus changes', (
     tester,
   ) async {
