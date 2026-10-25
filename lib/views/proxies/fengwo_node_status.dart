@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/fengwo_node_country.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -6,14 +8,24 @@ import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/dashboard/fengwo_desktop_dashboard.dart';
 import 'package:fl_clash/views/proxies/common.dart';
+import 'package:fl_clash/widgets/inherited.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 class FengWoNodeStatusView extends ConsumerStatefulWidget {
   final XboardAuthService? authService;
+  final Future<List<XboardNodeData>> Function(
+    XboardAuthService service,
+    XboardLoginResult session,
+  )?
+  nodesLoader;
 
-  const FengWoNodeStatusView({super.key, @visibleForTesting this.authService});
+  const FengWoNodeStatusView({
+    super.key,
+    @visibleForTesting this.authService,
+    @visibleForTesting this.nodesLoader,
+  });
 
   @override
   ConsumerState<FengWoNodeStatusView> createState() =>
@@ -26,6 +38,25 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
   List<XboardNodeData> get _xboardNodes => globalState.xboardNodes;
   final Set<String> _testingNodes = {};
   bool _loadingXboardNodes = false;
+  bool _updatingNodes = false;
+  bool _pageActive = true;
+  bool _automaticReadPending = true;
+  bool _automaticReadQueued = false;
+  int _requestRevision = 0;
+  late final ApiHealthService _availability;
+
+  bool get _canAutomaticallyRead =>
+      mounted &&
+      _pageActive &&
+      _availability.canAutomaticallyCheck &&
+      !globalState.isOfflineMode;
+
+  bool get _canManuallyRead =>
+      mounted &&
+      _pageActive &&
+      !globalState.isOfflineMode &&
+      (WidgetsBinding.instance.lifecycleState == null ||
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed);
   bool get _xboardStatusFresh => globalState.xboardNodesStatusFresh;
   bool _testingAll = false;
 
@@ -33,15 +64,63 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
   void initState() {
     super.initState();
     _xboardAuthService = widget.authService ?? XboardAuthService();
+    _availability = ApiHealthService();
+    _availability.addAvailabilityListener(_availabilityChanged);
     globalState.xboardNodesRevisionNotifier.addListener(_metadataChanged);
-    globalState.offlineModeNotifier.addListener(_metadataChanged);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadXboardNodes());
+    globalState.xboardSessionRevisionNotifier.addListener(_sessionChanged);
+    globalState.offlineModeNotifier.addListener(_sessionChanged);
+    _queueAutomaticRead();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final active = PageActivityScope.isActiveOf(context);
+    _pageActive = active;
+    _queueAutomaticRead();
+  }
+
+  void _availabilityChanged() {
+    _queueAutomaticRead();
+    if (mounted) setState(() {});
+  }
+
+  void _sessionChanged() {
+    _requestRevision++;
+    _automaticReadPending = true;
+    if (mounted) {
+      setState(() {
+        _loadingXboardNodes = false;
+        _updatingNodes = false;
+      });
+    }
+    _queueAutomaticRead();
+  }
+
+  void _queueAutomaticRead() {
+    if (!mounted || _automaticReadQueued || !_automaticReadPending) return;
+    _automaticReadQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _automaticReadQueued = false;
+      if (!_canAutomaticallyRead ||
+          !_automaticReadPending ||
+          _loadingXboardNodes ||
+          _updatingNodes) {
+        return;
+      }
+      _automaticReadPending = false;
+      unawaited(_loadXboardNodes());
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   @override
   void dispose() {
+    _requestRevision++;
+    _availability.removeAvailabilityListener(_availabilityChanged);
     globalState.xboardNodesRevisionNotifier.removeListener(_metadataChanged);
-    globalState.offlineModeNotifier.removeListener(_metadataChanged);
+    globalState.xboardSessionRevisionNotifier.removeListener(_sessionChanged);
+    globalState.offlineModeNotifier.removeListener(_sessionChanged);
     _nodesScrollController.dispose();
     super.dispose();
   }
@@ -65,46 +144,31 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
         .takeFirstValid([group.realNow, group.name]);
   }
 
-  Future<void> _loadXboardNodes([XboardLoginResult? activeSession]) async {
-    if (globalState.isOfflineMode) return;
-    final session = activeSession ?? globalState.xboardSession;
-    if (session == null || _loadingXboardNodes) return;
+  Future<void> _loadXboardNodes() async {
+    if (!_canAutomaticallyRead || _loadingXboardNodes || _updatingNodes) return;
+    final session = globalState.xboardSession;
+    if (session == null) return;
     final sessionRevision = globalState.xboardSessionRevision;
-    final requestRevision = globalState.beginXboardNodesRefresh(
-      session,
-      sessionRevision,
-    );
-    if (requestRevision == null) return;
-    if (mounted) setState(() => _loadingXboardNodes = true);
+    final requestRevision = ++_requestRevision;
+    bool current() =>
+        mounted &&
+        requestRevision == _requestRevision &&
+        globalState.isActiveXboardSession(session, sessionRevision);
+    setState(() => _loadingXboardNodes = true);
     try {
-      final nodes = await _xboardAuthService.fetchNodes(
-        endpoint: session.endpoint,
-        authData: session.authData,
-        userToken: session.token,
-        secureSubscription: session.secureSubscription,
-      );
-      if (!globalState.setXboardNodesForSession(
-        session,
-        sessionRevision,
-        nodes,
-        requestRevision: requestRevision,
-      )) {
-        return;
-      }
+      await (widget.nodesLoader?.call(_xboardAuthService, session) ??
+          globalState.loadXboardNodesSnapshot(_xboardAuthService, session));
     } catch (error, stackTrace) {
-      if (!globalState.markXboardNodesStaleForSession(
-        session,
-        sessionRevision,
-        requestRevision: requestRevision,
-      )) {
-        return;
-      }
+      if (!current()) return;
       commonPrint.log(
         'load XBoard nodes failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
     } finally {
-      if (mounted) setState(() => _loadingXboardNodes = false);
+      if (current()) {
+        setState(() => _loadingXboardNodes = false);
+        _queueAutomaticRead();
+      }
     }
   }
 
@@ -135,13 +199,23 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
   }
 
   Future<void> _updateNodes() async {
-    if (_loadingXboardNodes) return;
+    if (_updatingNodes || !_canManuallyRead) return;
     final refresh = globalState.refreshXboardNodes;
-    if (refresh == null) return;
-    setState(() => _loadingXboardNodes = true);
+    final session = globalState.xboardSession;
+    if (refresh == null || session == null) return;
+    final sessionRevision = globalState.xboardSessionRevision;
+    final requestRevision = ++_requestRevision;
+    bool current() =>
+        mounted &&
+        requestRevision == _requestRevision &&
+        globalState.isActiveXboardSession(session, sessionRevision);
+    setState(() {
+      _loadingXboardNodes = false;
+      _updatingNodes = true;
+    });
     try {
       final refreshed = await refresh();
-      if (!mounted) return;
+      if (!mounted || !current()) return;
       context.showNotifier(
         refreshed
             ? context.appLocalizations.nodeUpdateSuccess
@@ -152,11 +226,14 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
         'update latest nodes failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
-      if (mounted) {
+      if (mounted && current()) {
         context.showNotifier(context.appLocalizations.requestFailed);
       }
     } finally {
-      if (mounted) setState(() => _loadingXboardNodes = false);
+      if (current()) {
+        setState(() => _updatingNodes = false);
+        _queueAutomaticRead();
+      }
     }
   }
 
@@ -300,14 +377,15 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
                 ipInfo: ipInfo,
                 selectedName: selectedName,
                 isStart: isStart,
-                loadingNodes: _loadingXboardNodes,
+                loadingNodes: _loadingXboardNodes || _updatingNodes,
                 testingAll: _testingAll,
                 countryCount: countryCount,
                 availability: availability,
                 nodesScrollController: _nodesScrollController,
                 onUpdate:
                     group == null ||
-                        globalState.isOfflineMode ||
+                        _updatingNodes ||
+                        !_canManuallyRead ||
                         globalState.refreshXboardNodes == null
                     ? null
                     : _updateNodes,
@@ -911,7 +989,7 @@ class _PreferredNodesPanel extends StatelessWidget {
               if (compact)
                 IconButton(
                   key: const ValueKey('fengwo-node-status-update'),
-                  onPressed: loadingNodes ? null : onUpdate,
+                  onPressed: onUpdate,
                   tooltip: context.appLocalizations.update,
                   icon: loadingNodes
                       ? const SizedBox.square(
@@ -923,7 +1001,7 @@ class _PreferredNodesPanel extends StatelessWidget {
               else
                 TextButton.icon(
                   key: const ValueKey('fengwo-node-status-update'),
-                  onPressed: loadingNodes ? null : onUpdate,
+                  onPressed: onUpdate,
                   icon: loadingNodes
                       ? const SizedBox.square(
                           dimension: 17,
