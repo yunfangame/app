@@ -8,6 +8,7 @@ import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/login_routing_coordinator.dart';
 import 'package:fl_clash/common/startup_connection_coordinator.dart';
 import 'package:fl_clash/common/subscription_access.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/core/core.dart';
 import 'package:fl_clash/common/saved_node_selection.dart';
 import 'package:fl_clash/common/xboard_routing_store.dart';
@@ -1190,6 +1191,7 @@ class ApplicationState extends ConsumerState<Application> {
         allowTokenRegistration: !session.secureSubscription,
         forceRefresh: forceRefresh,
         requestScope: isCurrent,
+        canRequest: isCurrent,
       );
       if (!isCurrent()) return null;
       if (secureProfile != null) {
@@ -1260,7 +1262,8 @@ class ApplicationState extends ConsumerState<Application> {
       );
       return profile;
     } catch (error, stackTrace) {
-      if (!isCurrent() ||
+      if (error is XboardApiRequestDeferred ||
+          !isCurrent() ||
           (error is CorePreparationException &&
               error.code == 'core_preparation_superseded')) {
         commonPrint.event(

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/xboard_account_view_reads.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -90,6 +91,75 @@ void main() {
       await old;
     },
   );
+
+  test('one account reader leaving does not cancel another consumer', () async {
+    final read = XboardAccountViewRead<int>(ttl: const Duration(seconds: 15));
+    final pending = Completer<int>();
+    var firstActive = true;
+    late bool Function() aggregate;
+    final first = read.loadGuarded((allowed) {
+      aggregate = allowed;
+      return pending.future;
+    }, canRequest: () => firstActive);
+    final firstError = expectLater(
+      first,
+      throwsA(isA<XboardApiRequestDeferred>()),
+    );
+    final second = read.loadGuarded((_) async => 99, canRequest: () => true);
+    firstActive = false;
+    expect(aggregate(), isTrue);
+    pending.complete(7);
+    await firstError;
+    expect(await second, 7);
+    expect(await read.load(() async => 99), 7);
+  });
+
+  test(
+    'cancelled account intent cannot revive or cache a late reply',
+    () async {
+      final read = XboardAccountViewRead<int>(ttl: const Duration(seconds: 15));
+      final pending = Completer<int>();
+      var active = true;
+      late bool Function() aggregate;
+      final first = read.loadGuarded((allowed) {
+        aggregate = allowed;
+        return pending.future;
+      }, canRequest: () => active);
+      final firstError = expectLater(
+        first,
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      active = false;
+      expect(aggregate(), isFalse);
+      active = true;
+      expect(aggregate(), isFalse);
+      expect(
+        await read.loadGuarded((_) async => 8, canRequest: () => active),
+        8,
+      );
+      pending.complete(1);
+      await firstError;
+      expect(await read.load(() async => 99), 8);
+    },
+  );
+
+  test('invalid force does not supersede an active account request', () async {
+    final read = XboardAccountViewRead<int>();
+    final pending = Completer<int>();
+    final normal = read.load(() => pending.future);
+    final revision = read.revision;
+    await expectLater(
+      read.loadGuarded(
+        (_) async => 9,
+        forceRefresh: true,
+        canRequest: () => false,
+      ),
+      throwsA(isA<XboardApiRequestDeferred>()),
+    );
+    expect(read.revision, revision);
+    pending.complete(4);
+    expect(await normal, 4);
+  });
 
   test('failures are not cached as successful data', () async {
     final read = XboardAccountViewRead<int>(ttl: const Duration(seconds: 15));

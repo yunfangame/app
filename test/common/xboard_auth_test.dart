@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -216,6 +217,223 @@ void main() {
       expect(calls, 1);
     },
   );
+
+  for (final kind in [
+    'nodes',
+    'plans',
+    'methods',
+    'checkOrder',
+    'orders',
+    'orderDetail',
+    'userInfo',
+    'loginIps',
+    'subscription',
+    'traffic',
+    'inviteSummary',
+    'inviteDetails',
+  ]) {
+    test('$kind read rechecks admission before trusted backup', () async {
+      var active = true;
+      final calls = <String>[];
+      Future<XboardLoginResponse> fail(Uri uri, String auth) async {
+        calls.add(uri.host);
+        active = false;
+        throw const SocketException('controlled');
+      }
+
+      final service = XboardAuthService(
+        endpointLoader: () async => [
+          Uri.parse('https://api.example.com'),
+          Uri.parse('https://backup.example.com'),
+        ],
+        nodesRequester: fail,
+        plansRequester: fail,
+        paymentMethodsRequester: fail,
+        orderCheckRequester: (uri, auth, trade) => fail(uri, auth),
+        ordersRequester: fail,
+        orderDetailRequester: fail,
+        userInfoRequester: fail,
+        loginIpFetchRequester: fail,
+        subscriptionRequester: fail,
+        trafficLogsRequester: fail,
+        inviteFetchRequester: fail,
+        inviteDetailsRequester: fail,
+      );
+      final endpoint = Uri.parse('https://api.example.com');
+      bool allowed() => active;
+      final Future<Object?> result = switch (kind) {
+        'nodes' => service.fetchNodes(
+          endpoint: endpoint,
+          authData: 'fixture',
+          canRequest: allowed,
+        ),
+        'plans' => service.fetchPlans(
+          endpoint: endpoint,
+          authData: 'fixture',
+          canRequest: allowed,
+        ),
+        'methods' => service.fetchPaymentMethods(
+          endpoint: endpoint,
+          authData: 'fixture',
+          canRequest: allowed,
+        ),
+        'checkOrder' => service.checkOrder(
+          endpoint: endpoint,
+          authData: 'fixture',
+          tradeNo: 'fixture',
+          canRequest: allowed,
+        ),
+        'orders' => service.fetchOrders(
+          endpoint: endpoint,
+          authData: 'fixture',
+          canRequest: allowed,
+        ),
+        'orderDetail' => service.fetchOrderDetail(
+          endpoint: endpoint,
+          authData: 'fixture',
+          tradeNo: 'fixture',
+          canRequest: allowed,
+        ),
+        'userInfo' => service.fetchUserInfo(
+          endpoint: endpoint,
+          authData: 'fixture',
+          canRequest: allowed,
+        ),
+        'loginIps' => service.fetchLoginIps(
+          endpoint: endpoint,
+          authData: 'fixture',
+          canRequest: allowed,
+        ),
+        'subscription' => service.fetchSubscription(
+          endpoint: endpoint,
+          authData: 'fixture',
+          canRequest: allowed,
+        ),
+        'traffic' => service.fetchTrafficLogs(
+          endpoint: endpoint,
+          authData: 'fixture',
+          canRequest: allowed,
+        ),
+        'inviteSummary' => service.fetchInviteSummary(
+          endpoint: endpoint,
+          authData: 'fixture',
+          canRequest: allowed,
+        ),
+        _ => service.fetchInviteDetails(
+          endpoint: endpoint,
+          authData: 'fixture',
+          canRequest: allowed,
+        ),
+      };
+      await expectLater(result, throwsA(isA<XboardApiRequestDeferred>()));
+      expect(calls, ['api.example.com']);
+    });
+  }
+
+  for (final status in [0, 1, 2, 3]) {
+    test(
+      'already issued order status $status survives activity pause',
+      () async {
+        var active = true;
+        final entered = Completer<void>();
+        final pending = Completer<XboardLoginResponse>();
+        final calls = <String>[];
+        final service = XboardAuthService(
+          endpointLoader: () async => [
+            Uri.parse('https://api.example.com'),
+            Uri.parse('https://backup.example.com'),
+          ],
+          orderCheckRequester: (uri, auth, trade) {
+            calls.add(uri.host);
+            entered.complete();
+            return pending.future;
+          },
+        );
+        final result = service.checkOrder(
+          endpoint: Uri.parse('https://api.example.com'),
+          authData: 'fixture',
+          tradeNo: 'fixture',
+          canRequest: () => active,
+        );
+        await entered.future;
+        active = false;
+        pending.complete(
+          XboardLoginResponse(statusCode: 200, data: {'data': status}),
+        );
+        expect(await result, status);
+        expect(calls, ['api.example.com']);
+      },
+    );
+  }
+
+  test('background order HTTP failure never starts a backup request', () async {
+    var active = true;
+    final calls = <String>[];
+    final service = XboardAuthService(
+      endpointLoader: () async => [
+        Uri.parse('https://api.example.com'),
+        Uri.parse('https://backup.example.com'),
+      ],
+      orderCheckRequester: (uri, auth, trade) async {
+        calls.add(uri.host);
+        active = false;
+        return const XboardLoginResponse(statusCode: 503, data: {'data': 1});
+      },
+    );
+    await expectLater(
+      service.checkOrder(
+        endpoint: Uri.parse('https://api.example.com'),
+        authData: 'fixture',
+        tradeNo: 'fixture',
+        canRequest: () => active,
+      ),
+      throwsA(isA<XboardApiRequestDeferred>()),
+    );
+    expect(calls, ['api.example.com']);
+  });
+
+  test(
+    'order success exception never admits a request while already paused',
+    () async {
+      var calls = 0;
+      final service = XboardAuthService(
+        endpointLoader: () async => [Uri.parse('https://api.example.com')],
+        orderCheckRequester: (uri, auth, trade) async {
+          calls++;
+          return const XboardLoginResponse(statusCode: 200, data: {'data': 1});
+        },
+      );
+      await expectLater(
+        service.checkOrder(
+          endpoint: Uri.parse('https://api.example.com'),
+          authData: 'fixture',
+          tradeNo: 'fixture',
+          canRequest: () => false,
+        ),
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      expect(calls, 0);
+    },
+  );
+
+  test('other readonly successes still defer after activity pause', () async {
+    var active = true;
+    final service = XboardAuthService(
+      endpointLoader: () async => [Uri.parse('https://api.example.com')],
+      userInfoRequester: (uri, auth) async {
+        active = false;
+        return const XboardLoginResponse(statusCode: 200, data: {'data': {}});
+      },
+    );
+    await expectLater(
+      service.fetchUserInfo(
+        endpoint: Uri.parse('https://api.example.com'),
+        authData: 'fixture',
+        canRequest: () => active,
+      ),
+      throwsA(isA<XboardApiRequestDeferred>()),
+    );
+  });
 
   test('announcement read failover rechecks admission before backup', () async {
     var available = true;
@@ -2415,6 +2633,7 @@ class _FakeSubscriptionV2Client extends SubscriptionV2Client {
   Future<Map<String, Object?>> fetchNodes({
     required Uri endpoint,
     required String userToken,
+    bool Function()? canRequest,
   }) async => onNodes!(endpoint, userToken);
 
   @override
@@ -2435,6 +2654,7 @@ class _FakeSubscriptionV2Client extends SubscriptionV2Client {
   Future<Map<String, Object?>> fetchSummary({
     required Uri endpoint,
     required String userToken,
+    bool Function()? canRequest,
   }) async {
     final handler = onSummary;
     if (handler != null) return handler(endpoint);

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fl_clash/common/api_request_router.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/xboard_catalog_cache.dart';
 import 'package:fl_clash/l10n/l10n.dart';
@@ -170,6 +171,40 @@ void main() {
   });
 
   accountViewReadTest(
+    'a resumed plan page does not reuse or fail over a paused request',
+    (tester) async {
+      final rig = _CatalogRig(
+        candidates: [
+          Uri.parse('https://api.example.com'),
+          Uri.parse('https://backup.example.com'),
+        ],
+      );
+      final pending = Completer<XboardLoginResponse>();
+      rig.pending = pending;
+      globalState.activateXboardSession(_session());
+      final activity = await mountAccountView(
+        tester,
+        FengWoPurchasePlansView(authService: rig.service),
+        _app,
+      );
+      expect(rig.planReads, 1);
+      activity.value = false;
+      await flushAccountReads(tester);
+      rig.pending = null;
+      rig.price = 2000;
+      activity.value = true;
+      await tester.pumpAndSettle();
+      pending.completeError(TimeoutException('controlled outage'));
+      await tester.pumpAndSettle();
+      expect(rig.planReads, 2);
+      expect(rig.hosts, ['api.example.com', 'api.example.com']);
+      expect(find.text('20'), findsWidgets);
+      expect(find.text('10'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  accountViewReadTest(
     'changed server price requires another confirmation before saving an order',
     (tester) async {
       final rig = _CatalogRig();
@@ -207,15 +242,22 @@ void main() {
 }
 
 class _CatalogRig {
+  _CatalogRig({this.candidates});
+
+  final List<Uri>? candidates;
+  final hosts = <String>[];
   int planReads = 0;
   int orderSaves = 0;
   int price = 1000;
   Completer<XboardLoginResponse>? pending;
 
   late final service = XboardAuthService(
+    requestRouter: ApiRequestRouter(),
     apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
-    plansRequester: (_, _) async {
+    endpointLoader: candidates == null ? null : () async => candidates!,
+    plansRequester: (endpoint, _) async {
       planReads++;
+      hosts.add(endpoint.host);
       return pending?.future ?? _plans(price);
     },
     paymentMethodsRequester: (_, _) async => const XboardLoginResponse(

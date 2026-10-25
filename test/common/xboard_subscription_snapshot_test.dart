@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/xboard_auth.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/common/xboard_subscription_snapshot.dart';
 import 'package:fl_clash/state.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,6 +22,120 @@ void main() {
     globalState.clearXboardSession();
     globalState.setOfflineMode(false);
   });
+
+  test(
+    'subscription snapshot keeps another active reader across a pause',
+    () async {
+      final pending = Completer<XboardSubscriptionData>();
+      var active = true;
+      late bool Function() aggregate;
+      final first = cache.loadGuarded(
+        session: session,
+        loader: (allowed) {
+          aggregate = allowed;
+          return pending.future;
+        },
+        canRequest: () => active,
+      );
+      final firstError = expectLater(
+        first,
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      final second = cache.loadGuarded(
+        session: session,
+        loader: (_) async => _summary('unused'),
+        canRequest: () => true,
+      );
+      active = false;
+      expect(aggregate(), isTrue);
+      final value = _summary('complete');
+      pending.complete(value);
+      await firstError;
+      expect(await second, same(value));
+    },
+  );
+
+  test(
+    'paused snapshot failure does not add a negative cache or backoff',
+    () async {
+      var active = true;
+      await expectLater(
+        cache.loadGuarded(
+          session: session,
+          loader: (_) async {
+            active = false;
+            throw StateError('late business failure');
+          },
+          canRequest: () => active,
+        ),
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      var calls = 0;
+      Future<XboardSubscriptionData> fail() async {
+        calls++;
+        throw StateError('real failure');
+      }
+
+      active = true;
+      await expectLater(
+        cache.loadGuarded(
+          session: session,
+          loader: (_) => fail(),
+          canRequest: () => active,
+        ),
+        throwsStateError,
+      );
+      expect(calls, 1);
+      now = now.add(const Duration(seconds: 30));
+      await expectLater(
+        cache.load(session: session, loader: fail),
+        throwsStateError,
+      );
+      expect(calls, 2);
+    },
+  );
+
+  test(
+    'snapshot cancelled request cannot revive after all readers leave',
+    () async {
+      final pending = Completer<XboardSubscriptionData>();
+      var active = true;
+      late bool Function() aggregate;
+      final first = cache.loadGuarded(
+        session: session,
+        loader: (allowed) {
+          aggregate = allowed;
+          return pending.future;
+        },
+        canRequest: () => active,
+      );
+      final firstError = expectLater(
+        first,
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      active = false;
+      expect(aggregate(), isFalse);
+      active = true;
+      final value = _summary('resumed');
+      expect(
+        await cache.loadGuarded(
+          session: session,
+          loader: (_) async => value,
+          canRequest: () => active,
+        ),
+        same(value),
+      );
+      pending.complete(_summary('old'));
+      await firstError;
+      expect(
+        await cache.load(
+          session: session,
+          loader: () async => _summary('unused'),
+        ),
+        same(value),
+      );
+    },
+  );
 
   test(
     'automatic readers share the request and thirty second snapshot',
@@ -391,5 +506,6 @@ class _Auth extends XboardAuthService {
     required String authData,
     String? userToken,
     bool secureSubscription = false,
+    bool Function()? canRequest,
   }) => loader();
 }

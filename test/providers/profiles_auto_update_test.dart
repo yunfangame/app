@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/database/database.dart' show database;
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
@@ -52,6 +53,87 @@ void main() {
       globalState.setOfflineMode(false);
       await h.action.autoUpdateProfiles();
       expect(h.action.loaded, hasLength(1));
+    },
+  );
+
+  test('background automatic scans defer inactive profiles only', () async {
+    final h = _Harness(profiles: [_profile(1), _profile(2)]);
+    h.action.available = false;
+    h.container.read(currentProfileIdProvider.notifier).value = 1;
+    await h.action.autoUpdateProfiles();
+    expect(h.action.loaded.map((profile) => profile.id), [1]);
+    h.action.available = true;
+    await h.action.autoUpdateProfiles();
+    expect(h.action.loaded.map((profile) => profile.id), [1, 2]);
+  });
+
+  test('manual refresh bypasses a background automatic gate', () async {
+    final h = _Harness();
+    h.action.available = false;
+    await h.action.autoUpdateProfiles();
+    expect(h.action.loaded, isEmpty);
+    await h.action.updateProfile(h.profiles.single);
+    expect(h.action.loaded, hasLength(1));
+  });
+
+  for (final selected in [false, true]) {
+    test(
+      'suspension preserves only selected automatic work: $selected',
+      () async {
+        final h = _Harness();
+        if (selected) {
+          h.container.read(currentProfileIdProvider.notifier).value = 1;
+        }
+        final entered = Completer<void>();
+        final release = Completer<void>();
+        h.action.loader = (profile, current) async {
+          entered.complete();
+          await release.future;
+          if (current?.call() == false) {
+            throw const XboardApiRequestDeferred();
+          }
+          return profile.copyWith(lastUpdateDate: h.clock.now);
+        };
+        final automatic = h.action.autoUpdateProfiles();
+        await entered.future;
+        h.action.available = false;
+        h.action.available = true;
+        release.complete();
+        await automatic;
+        expect(h.profiles.single.lastUpdateDate, selected ? h.clock.now : null);
+        h.action.loader = null;
+        await h.action.autoUpdateProfiles();
+        expect(h.action.loaded, hasLength(selected ? 1 : 2));
+        expect(h.profiles.single.lastUpdateDate, h.clock.now);
+      },
+    );
+  }
+
+  test(
+    'background deferral does not create automatic failure cooling',
+    () async {
+      final h = _Harness();
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      h.action.loader = (profile, current) async {
+        entered.complete();
+        await release.future;
+        if (current?.call() == false) {
+          throw const XboardApiRequestDeferred();
+        }
+        return profile.copyWith(lastUpdateDate: h.clock.now);
+      };
+      final automatic = h.action.autoUpdateProfiles();
+      await entered.future;
+      h.action.available = false;
+      release.complete();
+      await automatic;
+      expect(h.profiles.single.lastUpdateDate, isNull);
+      h.action.available = true;
+      h.action.loader = null;
+      await h.action.autoUpdateProfiles();
+      expect(h.action.loaded, hasLength(2));
+      expect(h.profiles.single.lastUpdateDate, h.clock.now);
     },
   );
 
@@ -459,6 +541,7 @@ class _Harness {
     container = ProviderContainer(
       overrides: [
         profilesActionProvider.overrideWith(() => action),
+        setupActionProvider.overrideWith(_SetupAction.new),
         profilesProvider.overrideWith(
           () => _Profiles(profiles ?? [_profile(1)]),
         ),
@@ -468,6 +551,7 @@ class _Harness {
     );
     addTearDown(container.dispose);
     container.read(profilesActionProvider.notifier);
+    container.listen(currentProfileIdProvider, (_, _) {});
   }
   final _Clock clock;
   late final _Action action;
@@ -481,6 +565,14 @@ class _Action extends ProfilesAction {
   _Action(this.clock);
   final _Clock clock;
   int jitter = 0;
+  bool _available = true;
+  int activityRevision = 0;
+  bool get available => _available;
+  set available(bool value) {
+    if (_available && !value) activityRevision++;
+    _available = value;
+  }
+
   final loaded = <Profile>[];
   final v2ForceModes = <bool>[];
   final v2Scopes = <Object?>[];
@@ -490,6 +582,10 @@ class _Action extends ProfilesAction {
   DateTime get profileUpdateNow => clock.now;
   @override
   int profileUpdateJitterSeconds(int maximum) => jitter;
+  @override
+  bool get canAutomaticallyReadProfiles => available;
+  @override
+  int get automaticProfileRequestRevision => activityRevision;
   @override
   Future<Profile> loadProfileUpdate(
     Profile profile, {
@@ -506,6 +602,7 @@ class _Action extends ProfilesAction {
     XboardLoginResult session, {
     bool forceRefresh = false,
     Object? requestScope,
+    bool Function()? canRequest,
   }) {
     v2ForceModes.add(forceRefresh);
     v2Scopes.add(requestScope);
@@ -526,6 +623,11 @@ class _Profiles extends Profiles {
   @override
   Future<void> del(int id) async =>
       state = state.where((p) => p.id != id).toList();
+}
+
+class _SetupAction extends SetupAction {
+  @override
+  void applyProfileDebounce({bool silence = false, bool force = false}) {}
 }
 
 class _Paths extends PathProviderPlatform {

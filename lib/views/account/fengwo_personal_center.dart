@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/xboard_account_view_reads.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
@@ -49,6 +50,8 @@ class _FengWoPersonalCenterViewState
   late final XboardTicketController _tickets;
   final _userRead = XboardAccountViewRead<XboardUserInfo>();
   final _ipRead = XboardAccountViewRead<XboardLoginIpList>();
+  bool? _pendingUserForce = false;
+  bool? _pendingIpForce = false;
   bool _ticketRefreshQueued = false;
   bool _ticketEntryPending = true;
 
@@ -70,12 +73,22 @@ class _FengWoPersonalCenterViewState
         !_tickets.isForeground) {
       return;
     }
+    final session = accountViewSession;
+    final epoch = accountViewEpoch;
+    final canRequest = createAccountViewReadGuard();
     _ticketEntryPending = false;
     _tickets.updateSession(
       globalState.xboardSession,
       offline: globalState.isOfflineMode,
     );
-    await _tickets.refresh();
+    try {
+      await _tickets.refresh(canRequest: canRequest);
+    } on XboardApiRequestDeferred {
+      if (session != null && isCurrentAccountView(session, epoch)) {
+        _ticketEntryPending = true;
+        requestAccountViewRead();
+      }
+    }
   }
 
   XboardUserInfo? _userInfo;
@@ -106,6 +119,8 @@ class _FengWoPersonalCenterViewState
     final becameActive = _wasPageActive == false && isPageActive;
     _wasPageActive = isPageActive;
     if (!becameActive) return;
+    _pendingUserForce ??= false;
+    _pendingIpForce ??= false;
     _queueTicketRefresh();
   }
 
@@ -120,8 +135,10 @@ class _FengWoPersonalCenterViewState
 
   @override
   void onAccountViewReady() {
-    unawaited(_loadUserInfo(forceRefresh: false));
-    unawaited(_loadLoginIps(forceRefresh: false));
+    final userForce = _pendingUserForce;
+    final ipForce = _pendingIpForce;
+    if (userForce != null) unawaited(_loadUserInfo(forceRefresh: userForce));
+    if (ipForce != null) unawaited(_loadLoginIps(forceRefresh: ipForce));
     if (_ticketEntryPending) unawaited(_loadTickets());
   }
 
@@ -129,6 +146,9 @@ class _FengWoPersonalCenterViewState
   void onAccountViewReset() {
     _userRead.invalidate();
     _ipRead.invalidate();
+    _pendingUserForce = false;
+    _pendingIpForce = false;
+    _ticketEntryPending = true;
     setState(() {
       _userInfo = null;
       _loginIpList = null;
@@ -148,11 +168,15 @@ class _FengWoPersonalCenterViewState
     if (!(forceRefresh ? canUseAccountViewActions : canReadAccountView)) return;
     final session = accountViewSession!;
     final epoch = accountViewEpoch;
-    final request = _userRead.load(
-      () => _authService.fetchUserInfo(
+    _pendingUserForce = null;
+    final canRequest = createAccountViewReadGuard(automatic: !forceRefresh);
+    final request = _userRead.loadGuarded(
+      (requestAllowed) => _authService.fetchUserInfo(
         endpoint: session.endpoint,
         authData: session.authData,
+        canRequest: requestAllowed,
       ),
+      canRequest: canRequest,
       forceRefresh: forceRefresh,
     );
     final revision = _userRead.revision;
@@ -165,6 +189,11 @@ class _FengWoPersonalCenterViewState
     try {
       final userInfo = await request;
       if (current()) setState(() => _userInfo = userInfo);
+    } on XboardApiRequestDeferred {
+      if (current()) {
+        _pendingUserForce = (_pendingUserForce ?? false) || forceRefresh;
+        requestAccountViewRead();
+      }
     } catch (error, stackTrace) {
       commonPrint.log(
         'load XBoard user info failed: $error, $stackTrace',
@@ -180,11 +209,15 @@ class _FengWoPersonalCenterViewState
     if (!(forceRefresh ? canUseAccountViewActions : canReadAccountView)) return;
     final session = accountViewSession!;
     final epoch = accountViewEpoch;
-    final request = _ipRead.load(
-      () => _authService.fetchLoginIps(
+    _pendingIpForce = null;
+    final canRequest = createAccountViewReadGuard(automatic: !forceRefresh);
+    final request = _ipRead.loadGuarded(
+      (requestAllowed) => _authService.fetchLoginIps(
         endpoint: session.endpoint,
         authData: session.authData,
+        canRequest: requestAllowed,
       ),
+      canRequest: canRequest,
       forceRefresh: forceRefresh,
     );
     final revision = _ipRead.revision;
@@ -197,6 +230,11 @@ class _FengWoPersonalCenterViewState
     try {
       final loginIps = await request;
       if (current()) setState(() => _loginIpList = loginIps);
+    } on XboardApiRequestDeferred {
+      if (current()) {
+        _pendingIpForce = (_pendingIpForce ?? false) || forceRefresh;
+        requestAccountViewRead();
+      }
     } catch (error, stackTrace) {
       commonPrint.log(
         'load login IP records failed: $error, $stackTrace',

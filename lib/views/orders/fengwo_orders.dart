@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/common/xboard_order_changes.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/state.dart';
@@ -33,6 +34,8 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
   };
   XboardLoginResult? _accountSession;
   Completer<void>? _ordersRequest;
+  bool Function()? _ordersGuard;
+  Future<void>? _queuedManualRefresh;
   Timer? _windowRetryTimer;
   bool _pageActive = true;
   bool _foreground = true;
@@ -41,6 +44,7 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
   bool _dirty = true;
   bool _refreshQueued = false;
   int _generation = 0;
+  int _activityRevision = 0;
   int _dataRevision = 0;
   int _windowRevision = 0;
   int _windowRetries = 0;
@@ -84,6 +88,7 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
     if (_pageActive == active) return;
     _pageActive = active;
     if (!active) {
+      _activityRevision++;
       _markDirty();
       _windowRetryTimer?.cancel();
     } else if (_desktop && !_windowAvailable) {
@@ -123,6 +128,8 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
     _accountSession = session;
     _generation++;
     _ordersRequest = null;
+    _ordersGuard = null;
+    _queuedManualRefresh = null;
     _markDirty();
     setState(() {
       _orders = const [];
@@ -167,6 +174,7 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
 
   void _offlineChanged() {
     if (!mounted) return;
+    _activityRevision++;
     _markDirty();
     setState(() {
       _offline = globalState.isOfflineMode;
@@ -195,6 +203,7 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
   }
 
   void _pauseWindow() {
+    _activityRevision++;
     _windowRevision++;
     _windowAvailable = false;
     _windowKnownBackground = true;
@@ -250,6 +259,7 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
     if (_foreground == foreground) return;
     _foreground = foreground;
     if (!foreground) {
+      _activityRevision++;
       _windowRevision++;
       _windowRetryTimer?.cancel();
       _markDirty();
@@ -301,7 +311,26 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
 
   Future<void> _loadOrders({bool refresh = false}) {
     final pending = _ordersRequest;
-    if (pending != null) return pending.future;
+    if (pending != null) {
+      if (_ordersGuard?.call() != false) return pending.future;
+      final queued = _queuedManualRefresh;
+      if (queued != null) return queued;
+      final generation = _generation;
+      late final Future<void> next;
+      next = pending.future
+          .then<void>((_) async {
+            if (generation != _generation || !_canUseUserAction) return;
+            _dirty = true;
+            await _requestOrders(refresh: refresh, userInitiated: true);
+          })
+          .whenComplete(() {
+            if (identical(_queuedManualRefresh, next)) {
+              _queuedManualRefresh = null;
+            }
+          });
+      _queuedManualRefresh = next;
+      return next;
+    }
     _dirty = true;
     return _requestOrders(refresh: refresh, userInitiated: true);
   }
@@ -317,8 +346,20 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
     final pending = _ordersRequest;
     if (pending != null) return pending.future;
     final session = _accountSession!;
+    final generation = _generation;
+    final activityRevision = _activityRevision;
+    final dataRevision = _dataRevision;
+    final canRequest = userInitiated
+        ? null
+        : () =>
+              _isCurrent(session, generation) &&
+              activityRevision == _activityRevision &&
+              dataRevision == _dataRevision &&
+              _canUsePage &&
+              _windowAvailable;
     final request = Completer<void>();
     _ordersRequest = request;
+    _ordersGuard = canRequest;
     _dirty = false;
     setState(() {
       _loading = _orders.isEmpty;
@@ -327,7 +368,13 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
       _offline = false;
     });
     unawaited(
-      _performOrdersRequest(session, _generation, _dataRevision, request),
+      _performOrdersRequest(
+        session,
+        generation,
+        dataRevision,
+        request,
+        canRequest,
+      ),
     );
     return request.future;
   }
@@ -337,12 +384,16 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
     int generation,
     int dataRevision,
     Completer<void> request,
+    bool Function()? canRequest,
   ) async {
     try {
+      ensureXboardApiRequestAllowed(canRequest);
       final orders = await _authService.fetchOrders(
         endpoint: session.endpoint,
         authData: session.authData,
+        canRequest: canRequest,
       );
+      ensureXboardApiRequestAllowed(canRequest);
       if (!_isCurrent(session, generation) || dataRevision != _dataRevision) {
         return;
       }
@@ -351,6 +402,12 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
         _page = _page.clamp(0, _pageCount - 1);
       });
     } catch (error, stackTrace) {
+      if (error is XboardApiRequestDeferred || canRequest?.call() == false) {
+        if (_isCurrent(session, generation) && dataRevision == _dataRevision) {
+          _dirty = true;
+        }
+        return;
+      }
       commonPrint.log(
         'load XBoard orders failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
@@ -361,6 +418,7 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
     } finally {
       if (identical(_ordersRequest, request)) {
         _ordersRequest = null;
+        _ordersGuard = null;
       }
       if (_isCurrent(session, generation)) {
         setState(() {

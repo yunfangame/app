@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fl_clash/common/api_request_router.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/xboard_catalog_cache.dart';
 import 'package:fl_clash/l10n/l10n.dart';
@@ -197,6 +198,8 @@ void main() {
         session: rig.session,
       );
       expect(old, same(joined));
+      await flushAccountReads(tester);
+      expect(rig.methodReads, 1);
       rig.pending = null;
       rig.methodId = 9;
       final fresh = await loadXboardPaymentMethodCatalog(
@@ -281,9 +284,72 @@ void main() {
       expect(rig.methodReads, 1);
     },
   );
+
+  accountViewReadTest(
+    'paused method failure does not fail over or poison the resumed read',
+    (tester) async {
+      final rig = _MethodRig(
+        candidates: [
+          Uri.parse('https://api.example.com'),
+          Uri.parse('https://backup.example.com'),
+        ],
+      );
+      await rig.mount(tester);
+      final pending = Completer<XboardLoginResponse>();
+      rig.pending = pending;
+      await tester.tap(find.byKey(const ValueKey('open-payment')));
+      await flushAccountReads(tester);
+      expect(rig.methodReads, 1);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await flushAccountReads(tester);
+      rig.pending = null;
+      pending.completeError(TimeoutException('controlled outage'));
+      await tester.pumpAndSettle();
+      expect(rig.methodReads, 2);
+      expect(rig.methodHosts, ['api.example.com', 'api.example.com']);
+      expect(find.byKey(const ValueKey('payment-ready')), findsOneWidget);
+      expect(find.byKey(const ValueKey('payment-failure')), findsNothing);
+    },
+  );
+
+  accountViewReadTest(
+    'paused payment checks resume once without increasing failure backoff',
+    (tester) async {
+      final rig = _MethodRig(
+        candidates: [
+          Uri.parse('https://api.example.com'),
+          Uri.parse('https://backup.example.com'),
+        ],
+      );
+      await rig.mount(tester);
+      await rig.open(tester);
+      await rig.submit(tester);
+      final pending = Completer<XboardLoginResponse>();
+      rig.pendingStatus = pending;
+      await tester.pump(const Duration(seconds: 3));
+      await flushAccountReads(tester);
+      expect(rig.statusHosts, ['api.example.com']);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await flushAccountReads(tester);
+      rig.pendingStatus = null;
+      pending.completeError(TimeoutException('controlled outage'));
+      await flushAccountReads(tester);
+      await flushAccountReads(tester);
+      expect(rig.statusHosts, ['api.example.com', 'api.example.com']);
+      await tester.pump(const Duration(seconds: 3));
+      await flushAccountReads(tester);
+      expect(rig.statusHosts, hasLength(3));
+      expect(find.byKey(const ValueKey('payment-failure')), findsNothing);
+    },
+  );
 }
 
 class _MethodRig {
+  _MethodRig({this.candidates});
+
+  final List<Uri>? candidates;
   final session = _session();
   int methodReads = 0;
   int planReads = 0;
@@ -296,9 +362,14 @@ class _MethodRig {
   bool freeCheckout = false;
   bool checkoutFails = false;
   Completer<XboardLoginResponse>? pending;
+  Completer<XboardLoginResponse>? pendingStatus;
+  final methodHosts = <String>[];
+  final statusHosts = <String>[];
 
   late final service = XboardAuthService(
+    requestRouter: ApiRequestRouter(),
     apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
+    endpointLoader: candidates == null ? null : () async => candidates!,
     plansRequester: (_, _) async {
       planReads++;
       return const XboardLoginResponse(
@@ -316,8 +387,9 @@ class _MethodRig {
         },
       );
     },
-    paymentMethodsRequester: (_, _) async {
+    paymentMethodsRequester: (endpoint, _) async {
       methodReads++;
+      methodHosts.add(endpoint.host);
       return pending?.future ??
           (empty
               ? const XboardLoginResponse(statusCode: 200, data: {'data': []})
@@ -341,8 +413,11 @@ class _MethodRig {
         },
       );
     },
-    orderCheckRequester: (_, _, _) async =>
-        const XboardLoginResponse(statusCode: 200, data: {'data': 0}),
+    orderCheckRequester: (endpoint, _, _) async {
+      statusHosts.add(endpoint.host);
+      return pendingStatus?.future ??
+          const XboardLoginResponse(statusCode: 200, data: {'data': 0});
+    },
   );
 
   Future<void> mount(WidgetTester tester) async {
