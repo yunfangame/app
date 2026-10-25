@@ -18,6 +18,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'common/common.dart';
 import 'common/migration.dart';
 import 'common/xboard_subscription_snapshot.dart';
+import 'common/xboard_nodes_snapshot.dart';
 import 'common/xboard_tickets.dart';
 import 'database/database.dart';
 import 'enum/enum.dart';
@@ -72,6 +73,61 @@ class GlobalState {
       : xboardSession?.subscription;
 
   final _subscriptionSnapshots = XboardSubscriptionSnapshotCache();
+  final _nodesSnapshots = XboardNodesSnapshotCache();
+
+  Future<List<XboardNodeData>> loadXboardNodesSnapshot(
+    XboardAuthService service,
+    XboardLoginResult session, {
+    bool forceRefresh = false,
+    bool ignoreOfflineMode = false,
+  }) {
+    final revision = xboardSessionRevision;
+    bool isCurrent() =>
+        isActiveXboardSession(session, revision) &&
+        (!isOfflineMode || ignoreOfflineMode);
+    if (!isCurrent()) {
+      return Future.error(StateError('nodes_snapshot_superseded'));
+    }
+    return _nodesSnapshots.load(
+      session: session,
+      epoch: revision,
+      forceRefresh: forceRefresh,
+      loader: () async {
+        if (!isCurrent()) throw StateError('nodes_snapshot_superseded');
+        final requestRevision = beginXboardNodesRefresh(session, revision);
+        if (requestRevision == null) {
+          throw StateError('nodes_snapshot_superseded');
+        }
+        try {
+          final nodes = await service.fetchNodes(
+            endpoint: session.endpoint,
+            authData: session.authData,
+            userToken: session.token,
+            secureSubscription: session.secureSubscription,
+          );
+          if (!isCurrent() ||
+              !setXboardNodesForSession(
+                session,
+                revision,
+                nodes,
+                requestRevision: requestRevision,
+              )) {
+            throw StateError('nodes_snapshot_superseded');
+          }
+          return nodes;
+        } catch (_) {
+          if (isCurrent()) {
+            markXboardNodesStaleForSession(
+              session,
+              revision,
+              requestRevision: requestRevision,
+            );
+          }
+          rethrow;
+        }
+      },
+    );
+  }
 
   Future<XboardSubscriptionData> loadXboardSubscriptionSnapshot(
     XboardAuthService service,
@@ -132,6 +188,7 @@ class GlobalState {
   }
 
   void setOfflineMode(bool value) {
+    if (value && !isOfflineMode) _nodesSnapshots.clear();
     if (value && !isOfflineMode) _subscriptionSnapshots.clear();
     offlineModeNotifier.value = value;
   }
@@ -153,6 +210,7 @@ class GlobalState {
     bool nodesStatusFresh = false,
     bool subscriptionFresh = false,
   }) {
+    _nodesSnapshots.clear();
     final previous = xboardSession;
     if (previous == null ||
         XboardSubscriptionSnapshotCache.accountKey(previous) !=
@@ -212,6 +270,7 @@ class GlobalState {
   }
 
   void clearXboardSession() {
+    _nodesSnapshots.clear();
     _subscriptionSnapshots.clear();
     _xboardSessionRevision++;
     _xboardAnnouncementPromptPending = false;

@@ -473,7 +473,18 @@ void main() {
               apiHealthService: ApiHealthFixture(
                 Uri.parse('https://api.example.com'),
               ),
-              nodesRequester: (_, _) => request.future,
+              nodesRequester: (_, authData) => authData == 'old'
+                  ? request.future
+                  : Future.value(
+                      const XboardLoginResponse(
+                        statusCode: 200,
+                        data: {
+                          'data': [
+                            {'name': 'New account node', 'is_online': true},
+                          ],
+                        },
+                      ),
+                    ),
             ),
           ),
         );
@@ -498,7 +509,8 @@ void main() {
         await tester.pump();
 
         expect(globalState.xboardSession, same(newSession));
-        expect(globalState.xboardNodes, [newNode]);
+        expect(globalState.xboardNodes.single.name, newNode.name);
+        expect(globalState.xboardNodes.single.isOnline, isTrue);
         expect(tester.takeException(), isNull);
       },
     );
