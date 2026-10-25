@@ -430,8 +430,8 @@ jobs:
           if ($archives.Count -ne 1 -or $installers.Count -ne 1) { throw 'Expected one Windows archive and installer' }
           Expand-Archive $archives[0].FullName -DestinationPath verify-windows -Force
           $app = Get-ChildItem verify-windows -Recurse -Filter FengWo.exe | Select-Object -First 1
-          $core = Get-ChildItem verify-windows -Recurse -Filter FlClashCore.exe | Select-Object -First 1
-          $helper = Get-ChildItem verify-windows -Recurse -Filter FlClashHelperService.exe | Select-Object -First 1
+          $core = Get-ChildItem verify-windows -Recurse -Filter FengWoCore.exe | Select-Object -First 1
+          $helper = Get-ChildItem verify-windows -Recurse -Filter FengWoHelperService.exe | Select-Object -First 1
           $wifiPlugin = Get-ChildItem verify-windows -Recurse -Filter wifi_ssid_plugin.dll | Select-Object -First 1
           if ($null -eq $app) { throw 'FengWo.exe not found' }
           ./tooling/windows/verify_vc_runtime_bundle.ps1 -Architecture x64 -BundleDirectory $app.DirectoryName
