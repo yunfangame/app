@@ -57,6 +57,10 @@ class AppUpdateUnavailableException implements Exception {
   const AppUpdateUnavailableException();
 }
 
+class AppUpdateCheckDeferred implements Exception {
+  const AppUpdateCheckDeferred();
+}
+
 class AppUpdatePreferenceStore {
   AppUpdatePreferenceStore({
     Future<SharedPreferences> Function()? preferencesLoader,
@@ -80,6 +84,7 @@ class AppUpdatePreferenceStore {
 class AppUpdateService {
   AppUpdateService({
     AppUpdateMainConfigLoader? mainConfigLoader,
+    ApiHealthService? apiHealthService,
     AppUpdateManifestLoader? manifestLoader,
     AppUpdatePackageKeyResolver? packageKeyResolver,
     AppUpdatePreferenceStore? preferenceStore,
@@ -89,16 +94,16 @@ class AppUpdateService {
     this.retryDelay = const Duration(milliseconds: 300),
     this.aesKey = remoteConfigAesKey,
     this.signingPublicKey = remoteConfigSigningPublicKey,
-  }) : _mainConfigLoader =
-           mainConfigLoader ??
-           (() => ApiHealthService().loadConfig(forceRefresh: true)),
+  }) : _mainConfigLoader = mainConfigLoader,
+       _apiHealthService = apiHealthService,
        _manifestLoader = manifestLoader,
        _packageKeyResolver = packageKeyResolver ?? currentAppUpdatePackageKey,
        _preferenceStore = preferenceStore ?? AppUpdatePreferenceStore(),
        _diagnosticRecorder = diagnosticRecorder ?? recordApiDiagnosticEvent,
        _dio = dio ?? _createDirectUpdateDio();
 
-  final AppUpdateMainConfigLoader _mainConfigLoader;
+  final AppUpdateMainConfigLoader? _mainConfigLoader;
+  final ApiHealthService? _apiHealthService;
   final AppUpdateManifestLoader? _manifestLoader;
   final AppUpdatePackageKeyResolver _packageKeyResolver;
   final AppUpdatePreferenceStore _preferenceStore;
@@ -109,9 +114,12 @@ class AppUpdateService {
   final String aesKey;
   final String signingPublicKey;
   bool _closed = false;
+  static int _refreshSequence = 0;
 
   Future<AppUpdateCheckResult> discoverUpdate({
     required String currentVersion,
+    bool forceRefresh = false,
+    bool Function()? canFetch,
   }) async {
     final checkId = newApiDiagnosticAttemptId();
     final watch = Stopwatch()..start();
@@ -122,10 +130,15 @@ class AppUpdateService {
       'current_version': currentVersion,
     });
     try {
-      if (_closed) throw StateError('Update service is closed');
+      _ensureCanFetch(canFetch);
       final packageKey = _packageKeyResolver();
       if (packageKey == null) throw const AppUpdateUnavailableException();
-      final mainConfig = await _mainConfigLoader();
+      final mainConfig =
+          await (_mainConfigLoader?.call() ??
+              (_apiHealthService ?? ApiHealthService()).loadConfig(
+                forceRefresh: forceRefresh,
+              ));
+      _ensureCanFetch(canFetch);
       final manifestUris = appUpdateManifestUrisFromConfig(mainConfig);
       if (manifestUris.isEmpty) {
         throw const AppUpdateUnavailableException();
@@ -137,7 +150,15 @@ class AppUpdateService {
         'elapsed_ms': watch.elapsedMilliseconds,
       });
       stage = 'update_manifest';
-      final release = await _loadRelease(manifestUris, packageKey, checkId);
+      final release = await _loadRelease(
+        manifestUris,
+        packageKey,
+        checkId,
+        canFetch: canFetch,
+        refreshNonce: forceRefresh
+            ? '${DateTime.now().microsecondsSinceEpoch}-${++_refreshSequence}'
+            : null,
+      );
       final result = release == null
           ? const AppUpdateCheckResult(status: AppUpdateCheckStatus.unavailable)
           : compareAppUpdateVersions(release.version, currentVersion) <= 0
@@ -154,6 +175,9 @@ class AppUpdateService {
         'elapsed_ms': watch.elapsedMilliseconds,
       });
       return result;
+    } on AppUpdateCheckDeferred {
+      _record('app.update.check.deferred', {'check_id': checkId});
+      rethrow;
     } catch (error) {
       _record('app.update.check.failed', {
         'check_id': checkId,
@@ -169,8 +193,12 @@ class AppUpdateService {
   Future<AppUpdateRelease?> checkForUpdate({
     required String currentVersion,
     bool respectIgnored = true,
+    bool forceRefresh = true,
   }) async {
-    final result = await discoverUpdate(currentVersion: currentVersion);
+    final result = await discoverUpdate(
+      currentVersion: currentVersion,
+      forceRefresh: forceRefresh,
+    );
     final release = result.release;
     if (release != null && respectIgnored && await isIgnored(release)) {
       return null;
@@ -192,11 +220,18 @@ class AppUpdateService {
   void _record(String event, Map<String, Object?> fields) =>
       emitApiDiagnosticEvent(_diagnosticRecorder, event, fields);
 
+  void _ensureCanFetch(bool Function()? canFetch) {
+    if (_closed) throw StateError('Update service is closed');
+    if (canFetch?.call() == false) throw const AppUpdateCheckDeferred();
+  }
+
   Future<AppUpdateRelease?> _loadRelease(
     List<Uri> uris,
     String packageKey,
-    String checkId,
-  ) async {
+    String checkId, {
+    bool Function()? canFetch,
+    String? refreshNonce,
+  }) async {
     final retryable = uris.toSet();
     Object? selectedError;
     StackTrace? selectedStack;
@@ -210,7 +245,7 @@ class AppUpdateService {
         if (retryDelay > Duration.zero) await Future<void>.delayed(retryDelay);
       }
       for (var index = 0; index < uris.length; index++) {
-        if (_closed) throw StateError('Update service is closed');
+        _ensureCanFetch(canFetch);
         final uri = uris[index];
         if (!retryable.contains(uri)) continue;
         final fields = {
@@ -226,10 +261,18 @@ class AppUpdateService {
         final cancelToken = CancelToken();
         var stage = 'manifest_fetch';
         try {
+          final requestUri = refreshNonce == null
+              ? uri
+              : uri.replace(
+                  queryParameters: {
+                    ...uri.queryParametersAll,
+                    '_fengwo_update_refresh': refreshNonce,
+                  },
+                );
           final release = await (() async {
             final payload = _manifestLoader != null
-                ? await _manifestLoader(uri)
-                : await _loadManifest(uri, cancelToken);
+                ? await _manifestLoader(requestUri)
+                : await _loadManifest(requestUri, cancelToken);
             stage = 'manifest_decode';
             final decoded = await _decodeManifest(payload);
             stage = 'manifest_parse';

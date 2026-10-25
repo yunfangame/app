@@ -54,7 +54,7 @@ void main() {
   );
 
   testWidgets(
-    'settings check button disables while checking and displays a clean version',
+    'manual settings check upgrades automatic discovery and displays a clean version',
     (tester) async {
       final response = Completer<Object?>();
       var calls = 0;
@@ -76,12 +76,21 @@ void main() {
               find.byKey(const ValueKey('advanced-check-update')),
             )
             .onPressed,
-        isNull,
+        isNotNull,
       );
 
       await tester.tap(find.byKey(const ValueKey('advanced-check-update')));
       await tester.pump();
-      expect(calls, 1);
+      expect(calls, 2);
+      expect(container.read(appUpdateProvider).isManualChecking, isTrue);
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const ValueKey('advanced-check-update')),
+            )
+            .onPressed,
+        isNull,
+      );
       final check = container.read(appUpdateProvider.notifier).check();
       response.complete(_manifest('1.0.5'));
       await check;
