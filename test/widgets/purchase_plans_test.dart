@@ -845,6 +845,10 @@ class _PaymentRig {
     await tester.ensureVisible(find.text(l10n.buyNow).first);
     await tester.tap(find.text(l10n.buyNow).first);
     await tester.pumpAndSettle();
+    if (_windowQueryFails) {
+      await tester.tap(find.text(l10n.retry));
+      await tester.pumpAndSettle();
+    }
     await tester.tap(find.byKey(const ValueKey('create-payment-qr')));
     await _flushPaymentEvents(tester);
     await tester.pump(const Duration(milliseconds: 250));

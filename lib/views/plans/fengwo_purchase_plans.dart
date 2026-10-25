@@ -882,6 +882,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
   int _windowRetries = 0;
   late XboardAvailablePlan _plan = widget.plan;
   bool _needsConfirmation = false;
+  bool _methodsRequested = true;
 
   bool get _currentSession =>
       !_sessionInvalidated &&
@@ -982,6 +983,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
       _resumeWindowPolling();
       return;
     }
+    _resumePaymentMethods();
     _maybeRefreshSubscription();
     _scheduleStatusCheck(immediately: true);
   }
@@ -1024,7 +1026,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
         !_foreground ||
         globalState.isOfflineMode ||
         (_stage == _PaymentStage.success && _subscriptionRefreshStarted) ||
-        _stage == _PaymentStage.failure ||
+        (_stage == _PaymentStage.failure && !_methodsRequested) ||
         _windowRetries >= 4) {
       return;
     }
@@ -1063,6 +1065,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
       _windowReadFailed = false;
       _windowRetries = 0;
       _windowRetryTimer?.cancel();
+      _resumePaymentMethods();
       _maybeRefreshSubscription();
       _scheduleStatusCheck(immediately: immediately);
     } catch (error) {
@@ -1075,6 +1078,12 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
       _windowAvailable = false;
       _windowReadFailed = true;
       _cancelStatusTimer();
+      if (_methodsRequested && _stage == _PaymentStage.loading) {
+        setState(() {
+          _stage = _PaymentStage.failure;
+          _error = context.appLocalizations.paymentFailed;
+        });
+      }
       _scheduleWindowReadRetry();
       commonPrint.log(
         'read payment window state failed: $error',
@@ -1124,8 +1133,23 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
   @override
   void onShouldTerminate() => _pauseWindowPolling();
 
-  Future<void> _loadPaymentMethods() async {
+  void _resumePaymentMethods() {
+    if (_methodsRequested && _canUseNetwork) {
+      unawaited(_loadPaymentMethods());
+    }
+  }
+
+  Future<void> _retryPaymentMethods() =>
+      _loadPaymentMethods(forceRefresh: true);
+
+  Future<void> _loadPaymentMethods({bool forceRefresh = false}) async {
     if (!mounted || _closed || !_currentSession) return;
+    final allowed = forceRefresh ? _canUseUserAction : _canUseNetwork;
+    if (!allowed) {
+      _methodsRequested = true;
+      return;
+    }
+    _methodsRequested = false;
     final attempt = ++_attempt;
     if (mounted) {
       setState(() {
@@ -1134,9 +1158,10 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
       });
     }
     try {
-      final methods = await widget.authService.fetchPaymentMethods(
-        endpoint: widget.session.endpoint,
-        authData: widget.session.authData,
+      final methods = await loadXboardPaymentMethodCatalog(
+        authService: widget.authService,
+        session: widget.session,
+        forceRefresh: forceRefresh,
       );
       if (!_isCurrentAttempt(attempt)) return;
       setState(() {
@@ -1155,9 +1180,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
   }
 
   Future<void> _createAndCheckout() async {
-    if (!_canUseUserAction ||
-        _stage == _PaymentStage.submitting ||
-        (!_isFree && _selectedMethod == null)) {
+    if (!_canUseUserAction || _stage == _PaymentStage.submitting) {
       return;
     }
     final attempt = ++_attempt;
@@ -1169,6 +1192,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
       _error = null;
     });
     try {
+      var confirmationRequired = false;
       if (_tradeNo == null) {
         final plan = await findXboardCatalogPlan(
           authService: widget.authService,
@@ -1181,15 +1205,41 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
           _showFailure(context.appLocalizations.subscriptionPlanUnavailable);
           return;
         }
-        final changed = plan.prices[widget.period] != _price;
+        confirmationRequired = plan.prices[widget.period] != _price;
         _plan = plan;
-        if (changed) {
-          setState(() {
-            _needsConfirmation = true;
-            _stage = _PaymentStage.ready;
-          });
+      }
+      if (!_isFree) {
+        final previous = _selectedMethod;
+        final methods = await loadXboardPaymentMethodCatalog(
+          authService: widget.authService,
+          session: widget.session,
+          forceRefresh: true,
+        );
+        if (!mounted || !_isCurrentAttempt(attempt)) return;
+        XboardPaymentMethod? selected;
+        for (final method in methods) {
+          if (method.id == _selectedMethodId) selected = method;
+        }
+        selected ??= methods.firstOrNull;
+        _methods = methods;
+        _selectedMethodId = selected?.id;
+        if (selected == null) {
+          _showFailure(context.appLocalizations.noPaymentMethods);
           return;
         }
+        confirmationRequired =
+            confirmationRequired ||
+            previous?.id != selected.id ||
+            previous?.payment != selected.payment ||
+            previous?.handlingFeeFixed != selected.handlingFeeFixed ||
+            previous?.handlingFeePercent != selected.handlingFeePercent;
+      }
+      if (confirmationRequired) {
+        setState(() {
+          _needsConfirmation = true;
+          _stage = _PaymentStage.ready;
+        });
+        return;
       }
       final creatingOrder = _tradeNo == null;
       final tradeNo =
@@ -1278,6 +1328,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
     if (newlyPaid) {
       invalidateXboardOrders(widget.session);
       xboardPlanCatalog.invalidate(widget.session);
+      xboardPaymentMethodCatalog.invalidate(widget.session);
     }
     _maybeRefreshSubscription();
     if (_windowReadFailed && !_subscriptionRefreshStarted) {
@@ -1632,7 +1683,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
       subtitle: _error,
       colors: colors,
       action: FilledButton.tonalIcon(
-        onPressed: hasOrder ? _createAndCheckout : _loadPaymentMethods,
+        onPressed: hasOrder ? _createAndCheckout : _retryPaymentMethods,
         icon: const Icon(Icons.refresh_rounded),
         label: Text(context.appLocalizations.retry),
       ),
