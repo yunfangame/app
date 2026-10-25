@@ -6,6 +6,26 @@ import 'package:fl_clash/common/xboard_marquee.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+final _pollingControllers = <XboardMarqueeController>[];
+
+void _startPolling(XboardMarqueeController controller) {
+  _pollingControllers.add(controller);
+  controller.startPolling(foreground: true, offline: false);
+}
+
+void _pollingTest(String description, WidgetTesterCallback callback) {
+  testWidgets(description, (tester) async {
+    _pollingControllers.clear();
+    try {
+      await callback(tester);
+    } finally {
+      for (final controller in _pollingControllers) {
+        controller.stopPolling();
+      }
+    }
+  });
+}
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -126,7 +146,7 @@ void main() {
   });
 
   test(
-    'coalesces overlapping refreshes and enforces the request gap',
+    'coalesces overlapping refreshes and keeps the five minute deadline',
     () async {
       var now = DateTime(2026, 8, 31, 10);
       var calls = 0;
@@ -145,6 +165,7 @@ void main() {
 
       final loginRefresh = controller.updateSession(_session(), offline: false);
       final duplicate = controller.refresh(force: true);
+      await Future<void>.delayed(Duration.zero);
       expect(calls, 1);
       pending.complete(_unreadResponse());
       await Future.wait([loginRefresh, duplicate]);
@@ -153,9 +174,324 @@ void main() {
       expect(calls, 1);
       now = now.add(const Duration(seconds: 31));
       await controller.refresh();
+      expect(calls, 1);
+      now = now.add(const Duration(minutes: 5));
+      await controller.refresh();
       expect(calls, 2);
     },
   );
+
+  test(
+    'loading notifications cannot reenter or bypass a new background gate',
+    () async {
+      var calls = 0;
+      final controller = XboardMarqueeController(
+        store: _MemoryStore(),
+        api: XboardMarqueeApi(
+          unreadRequester: (_, _, _) async {
+            calls++;
+            return _unreadResponse();
+          },
+        ),
+      );
+      addTearDown(controller.dispose);
+      var paused = false;
+      controller.addListener(() {
+        if (!controller.isLoading || paused) return;
+        paused = true;
+        controller.setForeground(false);
+        unawaited(controller.refresh(force: true));
+      });
+      await controller.updateSession(_session(), offline: false);
+      expect(calls, 0);
+      controller.setForeground(true);
+      await controller.refresh(force: true);
+      expect(calls, 1);
+    },
+  );
+
+  _pollingTest(
+    'automatic failures back off and success restores five minutes',
+    (tester) async {
+      var calls = 0;
+      var failing = true;
+      final controller = XboardMarqueeController(
+        now: tester.binding.clock.now,
+        store: _MemoryStore(),
+        api: XboardMarqueeApi(
+          unreadRequester: (_, _, _) async {
+            calls++;
+            if (failing) throw StateError('controlled_marquee_outage');
+            return _unreadResponse();
+          },
+        ),
+      );
+      addTearDown(controller.dispose);
+      _startPolling(controller);
+      await controller.updateSession(_session(), offline: false);
+      expect(calls, 1);
+      for (final minutes in [5, 10, 20, 30, 30]) {
+        final previous = calls;
+        await tester.pump(Duration(minutes: minutes - 1));
+        expect(calls, previous);
+        await tester.pump(const Duration(minutes: 1));
+        expect(calls, previous + 1);
+      }
+      failing = false;
+      await tester.pump(const Duration(minutes: 30));
+      expect(calls, 7);
+      await tester.pump(const Duration(minutes: 4, seconds: 59));
+      expect(calls, 7);
+      await tester.pump(const Duration(seconds: 1));
+      expect(calls, 8);
+      expect(controller.messages, hasLength(2));
+    },
+  );
+
+  _pollingTest('all refresh paths respect background and offline gates', (
+    tester,
+  ) async {
+    final tokens = <String>[];
+    final controller = XboardMarqueeController(
+      now: tester.binding.clock.now,
+      store: _MemoryStore(),
+      api: XboardMarqueeApi(
+        unreadRequester: (_, token, _) async {
+          tokens.add(token);
+          return _unreadResponse();
+        },
+      ),
+    );
+    addTearDown(controller.dispose);
+    _startPolling(controller);
+    await controller.updateSession(_session(), offline: false);
+    controller.setForeground(false);
+    await tester.pump(const Duration(hours: 1));
+    await controller.updateSession(_session(token: 'rotated'), offline: false);
+    await controller.refresh(force: true);
+    expect(tokens, hasLength(1));
+    controller.setWindowForeground(false);
+    controller.setForeground(true);
+    await tester.pump(Duration.zero);
+    await controller.refresh(force: true);
+    expect(tokens, hasLength(1));
+    controller.setOffline(true);
+    controller.setWindowForeground(true);
+    await tester.pump(Duration.zero);
+    await controller.refresh(force: true);
+    expect(tokens, hasLength(1));
+    controller.setOffline(false);
+    controller.setForeground(true);
+    controller.setWindowForeground(true);
+    await tester.pump(Duration.zero);
+    expect(tokens, hasLength(2));
+    expect(tokens.last, 'rotated');
+    await controller.refresh();
+    expect(tokens, hasLength(2));
+    await controller.refresh(force: true);
+    expect(tokens, hasLength(3));
+  });
+
+  _pollingTest('recovery keeps failure cooldown and coalesces resume events', (
+    tester,
+  ) async {
+    var calls = 0;
+    final controller = XboardMarqueeController(
+      now: tester.binding.clock.now,
+      store: _MemoryStore(),
+      api: XboardMarqueeApi(
+        unreadRequester: (_, _, _) async {
+          calls++;
+          throw StateError('controlled_marquee_outage');
+        },
+      ),
+    );
+    addTearDown(controller.dispose);
+    _startPolling(controller);
+    await controller.updateSession(_session(), offline: false);
+    controller.setForeground(false);
+    await tester.pump(const Duration(minutes: 2));
+    controller.setForeground(true);
+    controller.setWindowForeground(true);
+    controller.setOffline(false);
+    await tester.pump(const Duration(minutes: 2, seconds: 59));
+    expect(calls, 1);
+    await tester.pump(const Duration(seconds: 1));
+    expect(calls, 2);
+    controller.setForeground(false);
+    await tester.pump(const Duration(hours: 1));
+    controller.setForeground(true);
+    controller.setWindowForeground(true);
+    controller.setOffline(false);
+    await tester.pump(Duration.zero);
+    expect(calls, 3);
+  });
+
+  test(
+    'same authentication metadata updates credentials without fetching',
+    () async {
+      final tokens = <String>[];
+      final store = _MemoryStore();
+      final controller = XboardMarqueeController(
+        store: store,
+        api: XboardMarqueeApi(
+          unreadRequester: (_, token, _) async {
+            tokens.add(token);
+            return _unreadResponse();
+          },
+        ),
+      );
+      addTearDown(controller.dispose);
+      await controller.updateSession(_session(), offline: false);
+      await controller.updateSession(
+        _session(token: 'rotated'),
+        offline: false,
+      );
+      expect(tokens, hasLength(1));
+      expect(store.queues['https://api.example.com|rotated'], hasLength(2));
+      await controller.refresh(force: true);
+      expect(tokens.last, 'rotated');
+    },
+  );
+
+  _pollingTest(
+    'an in-flight result is kept in background without another poll',
+    (tester) async {
+      final pending = Completer<Object?>();
+      var calls = 0;
+      final controller = XboardMarqueeController(
+        now: tester.binding.clock.now,
+        store: _MemoryStore(),
+        api: XboardMarqueeApi(
+          unreadRequester: (_, _, _) {
+            calls++;
+            return calls == 1
+                ? pending.future
+                : Future.value(_unreadResponse());
+          },
+        ),
+      );
+      addTearDown(controller.dispose);
+      _startPolling(controller);
+      final loading = controller.updateSession(_session(), offline: false);
+      await tester.pump(Duration.zero);
+      controller.setForeground(false);
+      pending.complete(_unreadResponse());
+      await loading;
+      expect(controller.messages, hasLength(2));
+      await tester.pump(const Duration(hours: 1));
+      expect(calls, 1);
+      controller.setForeground(true);
+      await tester.pump(Duration.zero);
+      expect(calls, 2);
+    },
+  );
+
+  test(
+    'a delayed old cache cannot fetch or replace the next account',
+    () async {
+      final cached = Completer<List<XboardMarqueeMessage>>();
+      final store = _MemoryStore()..firstLoad = cached.future;
+      final tokens = <String>[];
+      final controller = XboardMarqueeController(
+        store: store,
+        api: XboardMarqueeApi(
+          unreadRequester: (_, token, _) async {
+            tokens.add(token);
+            return _unreadResponse();
+          },
+        ),
+      );
+      addTearDown(controller.dispose);
+      final old = controller.updateSession(_session(), offline: false);
+      final oldForce = controller.refresh(force: true);
+      await controller.updateSession(
+        _session(token: 'next', auth: 'next-auth'),
+        offline: false,
+      );
+      cached.complete([_message(999)]);
+      await Future.wait([old, oldForce]);
+      expect(tokens, ['next']);
+      expect(controller.messages.map((message) => message.id), [123, 124]);
+    },
+  );
+
+  test('logout and a new login ignore an old unread response', () async {
+    final pending = Completer<Object?>();
+    var calls = 0;
+    final controller = XboardMarqueeController(
+      store: _MemoryStore(),
+      api: XboardMarqueeApi(
+        unreadRequester: (_, _, _) {
+          calls++;
+          return calls == 1 ? pending.future : Future.value(_unreadResponse());
+        },
+      ),
+    );
+    addTearDown(controller.dispose);
+    final old = controller.updateSession(_session(), offline: false);
+    await Future<void>.delayed(Duration.zero);
+    await controller.updateSession(null, offline: false);
+    await controller.updateSession(_session(), offline: false);
+    pending.complete({
+      'status': 1,
+      'data': {'items': []},
+    });
+    await old;
+    expect(calls, 2);
+    expect(controller.messages, hasLength(2));
+  });
+
+  test(
+    'late unread cannot restore a message marked read during its request',
+    () async {
+      final pending = Completer<Object?>();
+      var calls = 0;
+      final store = _MemoryStore();
+      final controller = XboardMarqueeController(
+        store: store,
+        api: XboardMarqueeApi(
+          unreadRequester: (_, _, _) =>
+              ++calls == 1 ? Future.value(_unreadResponse()) : pending.future,
+          readRequester: (_, _, _) async {},
+        ),
+      );
+      addTearDown(controller.dispose);
+      await controller.updateSession(_session(), offline: false);
+      final refresh = controller.refresh(force: true);
+      expect(await controller.markRead(controller.messages.first), isTrue);
+      pending.complete(_unreadResponse());
+      await refresh;
+      expect(controller.messages.map((message) => message.id), [124]);
+      expect(store.queues.values.single.map((message) => message.id), [124]);
+    },
+  );
+
+  _pollingTest('disposing while fetching prevents notifications and timers', (
+    tester,
+  ) async {
+    final pending = Completer<Object?>();
+    var calls = 0;
+    final controller = XboardMarqueeController(
+      now: tester.binding.clock.now,
+      store: _MemoryStore(),
+      api: XboardMarqueeApi(
+        unreadRequester: (_, _, _) {
+          calls++;
+          return pending.future;
+        },
+      ),
+    );
+    _startPolling(controller);
+    final loading = controller.updateSession(_session(), offline: false);
+    await tester.pump(Duration.zero);
+    controller.dispose();
+    pending.complete(_unreadResponse());
+    await loading;
+    await tester.pump(const Duration(hours: 1));
+    expect(calls, 1);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Map<String, Object?> _unreadResponse() => {
@@ -193,10 +529,13 @@ XboardMarqueeMessage _message(int id) => XboardMarqueeMessage(
   actionUrl: '/message/$id',
 );
 
-XboardLoginResult _session() => XboardLoginResult(
+XboardLoginResult _session({
+  String token = '12345678901234567890123456789012',
+  String auth = 'Bearer auth',
+}) => XboardLoginResult(
   endpoint: Uri.parse('https://api.example.com'),
-  token: '12345678901234567890123456789012',
-  authData: 'Bearer auth',
+  token: token,
+  authData: auth,
   isAdmin: false,
   subscription: XboardSubscriptionData(
     endpoint: Uri.parse('https://api.example.com'),
@@ -207,6 +546,26 @@ XboardLoginResult _session() => XboardLoginResult(
     rawData: const {},
   ),
 );
+
+class _MemoryStore extends XboardMarqueeQueueStore {
+  final queues = <String, List<XboardMarqueeMessage>>{};
+  Future<List<XboardMarqueeMessage>>? firstLoad;
+
+  @override
+  Future<List<XboardMarqueeMessage>> load(String accountKey) {
+    final pending = firstLoad;
+    firstLoad = null;
+    return pending ?? Future.value(queues[accountKey] ?? const []);
+  }
+
+  @override
+  Future<void> save(
+    String accountKey,
+    List<XboardMarqueeMessage> messages,
+  ) async {
+    queues[accountKey] = List.of(messages);
+  }
+}
 
 class _RecordingAdapter implements HttpClientAdapter {
   _RecordingAdapter(this._responses);
