@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fl_clash/common/network_diagnostic.dart';
+import 'package:fl_clash/common/print.dart';
 import 'package:fl_clash/core/desktop/model.dart';
+import 'package:fl_clash/database/database.dart' show database;
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/action.dart';
@@ -12,9 +15,39 @@ import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/database.dart';
 import 'package:fl_clash/providers/state.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:riverpod/riverpod.dart';
 
+class _TestPathProvider extends PathProviderPlatform {
+  _TestPathProvider(this.root);
+
+  final String root;
+
+  @override
+  Future<String?> getTemporaryPath() async => root;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => root;
+
+  @override
+  Future<String?> getApplicationCachePath() async => root;
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  late Directory directory;
+
+  setUpAll(() async {
+    directory = await Directory.systemTemp.createTemp('android_action_test');
+    PathProviderPlatform.instance = _TestPathProvider(directory.path);
+  });
+
+  tearDownAll(() async {
+    await database.close();
+    await commonPrint.flushDiagnosticEvents();
+    await directory.delete(recursive: true);
+  });
+
   group('ProfilesAction', () {
     test('keeps edited profile data when remote update fails', () async {
       final original = Profile.normal(label: 'old label', url: 'bad-url');
