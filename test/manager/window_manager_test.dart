@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:fl_clash/common/api_health.dart';
 import 'package:fl_clash/common/render.dart';
 import 'package:fl_clash/common/xboard_tickets.dart';
 import 'package:fl_clash/manager/window_manager.dart';
@@ -11,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 const _saved = WindowProps(left: 3020, top: 181, width: 1280, height: 720);
 const _recovered = WindowProps(left: 120, top: 80, width: 1180, height: 680);
@@ -57,6 +59,7 @@ class _Rig {
   int boundsReads = 0;
   bool visible = true;
   bool minimized = false;
+  bool focused = true;
   Future<Map<String, double>> Function()? readBounds;
 
   Future<void> mount(WidgetTester tester, {bool isWindows = true}) async {
@@ -67,6 +70,7 @@ class _Rig {
     ) async {
       if (call.method == 'isVisible') return visible;
       if (call.method == 'isMinimized') return minimized;
+      if (call.method == 'isFocused') return focused;
       if (call.method != 'getBounds') return null;
       boundsReads++;
       return readBounds?.call() ?? Future.value(_bounds(_recovered));
@@ -122,7 +126,65 @@ class _Rig {
 }
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    ApiHealthService.setAppForeground(true);
+    ApiHealthService.setWindowForeground(true);
+  });
+  tearDown(() {
+    ApiHealthService.setAppForeground(true);
+    ApiHealthService.setWindowForeground(true);
+  });
+
   for (final isWindows in [true, false]) {
+    testWidgets(
+      'desktop $isWindows defers config refresh until focused and visible',
+      (tester) async {
+        final rig = _Rig();
+        await rig.mount(tester, isWindows: isWindows);
+        var requests = 0;
+        final service = ApiHealthService(
+          configUrl: 'https://config.example/window',
+          configCacheTtl: Duration.zero,
+          diagnosticRecorder: (_, _) {},
+          configLoader: (_) async {
+            requests++;
+            return {
+              'Authentication': 'FengWo',
+              'hosts': ['https://api.example.com'],
+            };
+          },
+        );
+        await service.loadConfig();
+        expect(requests, 1);
+        rig.visible = false;
+        rig.focused = false;
+        await rig.emit('hide');
+        await service.loadConfig();
+        await service.loadVerifiedCandidateEndpoints();
+        await tester.pump();
+        expect(requests, 1);
+        await rig.emit('restore');
+        await tester.pump();
+        expect(requests, 1);
+        rig.visible = true;
+        await rig.emit('show');
+        await tester.pump();
+        expect(requests, 1);
+        rig.focused = true;
+        await rig.emit('focus');
+        await tester.pump();
+        expect(requests, 2);
+        await rig.emit('blur');
+        await service.loadConfig();
+        await tester.pump();
+        expect(requests, 2);
+        await rig.emit('focus');
+        await tester.pump();
+        expect(requests, 3);
+      },
+    );
+
     testWidgets(
       'desktop $isWindows pauses ticket polling when hidden or blurred',
       (tester) async {

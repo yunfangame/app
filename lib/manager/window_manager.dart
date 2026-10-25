@@ -32,10 +32,29 @@ class _WindowContainerState extends ConsumerState<WindowManager>
     with WindowListener, WindowExtListener {
   Timer? _boundsSyncTimer;
   int _boundsSyncRevision = 0;
+  int _configWindowRevision = 0;
 
   bool get _isWindows => widget.isWindows ?? system.isWindows;
   XboardTicketController get _tickets =>
       widget.ticketController ?? globalState.xboardTicketController;
+
+  void _setConfigWindowForeground(bool foreground) {
+    _configWindowRevision++;
+    ApiHealthService.setWindowForeground(foreground);
+  }
+
+  Future<void> _refreshConfigWindowActivity() async {
+    final revision = ++_configWindowRevision;
+    try {
+      final state = await Future.wait([
+        windowManager.isVisible(),
+        windowManager.isMinimized(),
+        windowManager.isFocused(),
+      ]).timeout(const Duration(seconds: 2));
+      if (!mounted || revision != _configWindowRevision) return;
+      ApiHealthService.setWindowForeground(state[0] && !state[1] && state[2]);
+    } catch (_) {}
+  }
 
   void _cancelWindowBoundsSync() {
     _boundsSyncTimer?.cancel();
@@ -120,7 +139,10 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   void onWindowEvent(String eventName) {
     super.onWindowEvent(eventName);
     if (eventName == 'hide') {
+      _setConfigWindowForeground(false);
       _tickets.setWindowForeground(false);
+    } else if (eventName == 'show') {
+      unawaited(_refreshConfigWindowActivity());
     }
     if (_isWindows && eventName == 'show') {
       render?.resume();
@@ -134,6 +156,7 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   void onWindowFocus() {
     super.onWindowFocus();
     commonPrint.log('focus');
+    _setConfigWindowForeground(true);
     _tickets.setWindowForeground(true);
     render?.resume();
     _scheduleWindowBoundsSync();
@@ -153,6 +176,7 @@ class _WindowContainerState extends ConsumerState<WindowManager>
 
   @override
   void onWindowBlur() {
+    _setConfigWindowForeground(false);
     _tickets.setWindowForeground(false);
     super.onWindowBlur();
   }
@@ -192,6 +216,7 @@ class _WindowContainerState extends ConsumerState<WindowManager>
 
   @override
   void onWindowMinimize() async {
+    _setConfigWindowForeground(false);
     _tickets.setWindowForeground(false);
     _cancelWindowBoundsSync();
     ref.read(storeActionProvider.notifier).savePreferencesDebounce();
@@ -203,6 +228,7 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   @override
   void onWindowRestore() {
     commonPrint.log('restore');
+    unawaited(_refreshConfigWindowActivity());
     _tickets.setWindowForeground(true);
     render?.resume();
     super.onWindowRestore();
@@ -210,6 +236,7 @@ class _WindowContainerState extends ConsumerState<WindowManager>
 
   @override
   Future<void> dispose() async {
+    _configWindowRevision++;
     _cancelWindowBoundsSync();
     windowManager.removeListener(this);
     windowExtManager.removeListener(this);

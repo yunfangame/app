@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:fl_clash/common/api_endpoint_preference.dart';
@@ -139,6 +140,76 @@ typedef ApiRemoteConfigLoader = Future<Object?> Function(Uri configUri);
 typedef ApiEmergencyConfigLoader = Future<Object?> Function();
 typedef ApiEndpointProbe = Future<bool> Function(Uri endpoint);
 
+class ApiRemoteConfigMemoryCache {
+  static int _sequence = 0;
+  final Map<String, _RemoteConfigCacheState> _domains = {};
+  final String _namespace =
+      '${DateTime.now().microsecondsSinceEpoch}-${_sequence++}';
+}
+
+class ApiRemoteConfigActivity {
+  bool _appForeground = true;
+  bool _windowForeground = true;
+  final Map<Object, void Function()> _pending = {};
+
+  bool get isForeground => _appForeground && _windowForeground;
+
+  void setAppForeground(bool value) {
+    _appForeground = value;
+    _resume();
+  }
+
+  void setWindowForeground(bool value) {
+    _windowForeground = value;
+    _resume();
+  }
+
+  void _defer(Object key, void Function() refresh) => _pending[key] = refresh;
+
+  void _resume() {
+    if (!isForeground || _pending.isEmpty) return;
+    final pending = _pending.values.toList();
+    _pending.clear();
+    for (final refresh in pending) {
+      refresh();
+    }
+  }
+}
+
+class _RemoteConfigCacheState {
+  _VerifiedRemoteConfig? verified;
+  DateTime? verifiedAt;
+  ApiRemoteConfigException? failure;
+  DateTime? failedAt;
+  DateTime? retryAfter;
+  int failures = 0;
+  int revision = 0;
+  int verifiedRevision = 0;
+  bool deferredRequireEndpoints = false;
+  _RemoteConfigRequest? normal;
+  _RemoteConfigRequest? forced;
+  Future<void> persistence = Future.value();
+}
+
+class _RemoteConfigRequest {
+  _RemoteConfigRequest({
+    required this.revision,
+    required this.requireEndpoints,
+  });
+
+  final int revision;
+  final bool requireEndpoints;
+  final completer = Completer<_VerifiedRemoteConfig>();
+
+  Future<_VerifiedRemoteConfig> get future => completer.future;
+}
+
+class _RemoteConfigRefreshDeferred implements Exception {
+  const _RemoteConfigRefreshDeferred(this.verified);
+
+  final _VerifiedRemoteConfig verified;
+}
+
 class ApiHealthService {
   ApiHealthService({
     String configUrl = apiHealthConfigUrl,
@@ -149,10 +220,14 @@ class ApiHealthService {
     ApiEndpointProbe? endpointProbe,
     ApiEndpointPreferenceStore? preferenceStore,
     ApiDiagnosticRecorder? diagnosticRecorder,
+    ApiRemoteConfigMemoryCache? memoryCache,
+    ApiRemoteConfigActivity? activity,
+    DateTime Function()? now,
     String aesKey = remoteConfigAesKey,
     String signingPublicKey = remoteConfigSigningPublicKey,
     this.probeTimeout = const Duration(seconds: 3),
     this.initialRemoteWait = const Duration(seconds: 2),
+    this.configCacheTtl = const Duration(minutes: 5),
     this.configRetryDelays = const [
       Duration.zero,
       Duration(milliseconds: 250),
@@ -161,17 +236,49 @@ class ApiHealthService {
   }) : _configUris = _buildConfigUris(configUrl, backupConfigUrls),
        _configLoader = configLoader,
        _emergencyConfigLoader = emergencyConfigLoader,
-       _configCacheStore = configCacheStore ?? ApiRemoteConfigCacheStore(),
        _endpointProbe = endpointProbe,
        _preferenceStore = preferenceStore ?? ApiEndpointPreferenceStore(),
        _diagnosticRecorder = diagnosticRecorder ?? recordApiDiagnosticEvent,
        _aesKey = aesKey,
-       _signingPublicKey = signingPublicKey;
+       _signingPublicKey = signingPublicKey,
+       _activity = activity ?? _sharedActivity,
+       _now = now ?? DateTime.now {
+    final domain = _configTrustDomain(_configUris, aesKey, signingPublicKey);
+    final usesDefaultSources =
+        configLoader == null &&
+        emergencyConfigLoader == null &&
+        configCacheStore == null &&
+        activity == null &&
+        now == null;
+    final pool =
+        memoryCache ??
+        (usesDefaultSources
+            ? _sharedMemoryCache
+            : ApiRemoteConfigMemoryCache());
+    _cacheState = pool._domains.putIfAbsent(
+      domain,
+      _RemoteConfigCacheState.new,
+    );
+    _configCacheStore =
+        configCacheStore ??
+        ApiRemoteConfigCacheStore(
+          namespace: usesDefaultSources ? domain : '$domain.${pool._namespace}',
+          clearInvalidOnLoad: false,
+          allowLegacyFallback:
+              usesDefaultSources &&
+              domain ==
+                  _configTrustDomain(
+                    _buildConfigUris(apiHealthConfigUrl, null),
+                    remoteConfigAesKey,
+                    remoteConfigSigningPublicKey,
+                  ),
+        );
+  }
 
   final List<Uri> _configUris;
   final ApiRemoteConfigLoader? _configLoader;
   final ApiEmergencyConfigLoader? _emergencyConfigLoader;
-  final ApiRemoteConfigCacheStore _configCacheStore;
+  late final ApiRemoteConfigCacheStore _configCacheStore;
   final ApiEndpointProbe? _endpointProbe;
   final ApiEndpointPreferenceStore _preferenceStore;
   final ApiDiagnosticRecorder _diagnosticRecorder;
@@ -179,9 +286,36 @@ class ApiHealthService {
   final String _signingPublicKey;
   final Duration probeTimeout;
   final Duration initialRemoteWait;
+  final Duration configCacheTtl;
   final List<Duration> configRetryDelays;
-  Future<void>? _backgroundRefresh;
+  final DateTime Function() _now;
+  final ApiRemoteConfigActivity _activity;
+  late final _RemoteConfigCacheState _cacheState;
+  static final _sharedMemoryCache = ApiRemoteConfigMemoryCache();
+  static final _sharedActivity = ApiRemoteConfigActivity();
   static int _configRefreshSequence = 0;
+
+  static void setAppForeground(bool foreground) =>
+      _sharedActivity.setAppForeground(foreground);
+
+  static void setWindowForeground(bool foreground) =>
+      _sharedActivity.setWindowForeground(foreground);
+
+  static String _configTrustDomain(
+    List<Uri> sources,
+    String aesKey,
+    String signingPublicKey,
+  ) => sha256
+      .convert(
+        utf8.encode(
+          jsonEncode([
+            sources.map((source) => source.toString()).toList(),
+            aesKey,
+            signingPublicKey,
+          ]),
+        ),
+      )
+      .toString();
 
   static List<Uri> _buildConfigUris(
     String configUrl,
@@ -212,7 +346,7 @@ class ApiHealthService {
     return uri;
   }
 
-  Future<ApiHealthSnapshot> check() async {
+  Future<ApiHealthSnapshot> check({bool forceRefresh = true}) async {
     if (_configUris.isEmpty) {
       return ApiHealthSnapshot.unavailable(
         'config_not_configured',
@@ -226,8 +360,8 @@ class ApiHealthService {
     try {
       final verified = await _loadRemoteConfigWithRetries(
         requireEndpoints: true,
+        forceRefresh: forceRefresh,
       );
-      await _saveVerifiedCache(verified);
 
       final results = await Future.wait(verified.endpoints.map(probeEndpoint));
       return ApiHealthSnapshot(endpoints: results, checkedAt: DateTime.now());
@@ -248,8 +382,7 @@ class ApiHealthService {
     final verified = await _loadRemoteConfigWithRetries(
       forceRefresh: forceRefresh,
     );
-    if (verified.endpoints.isNotEmpty) await _saveVerifiedCache(verified);
-    return verified.config;
+    return _copyConfigValue(verified.config);
   }
 
   Future<ApiEndpointHealth> probeEndpoint(Uri endpoint) async {
@@ -313,8 +446,23 @@ class ApiHealthService {
         const Duration(seconds: 1),
       );
     } catch (_) {}
-    final cached = await _loadVerifiedCache();
+    final fresh = _freshConfig(requireEndpoints: true);
+    if (fresh != null) {
+      return _prioritizeLastSuccessful(fresh.endpoints, lastSuccessful);
+    }
+    final revision = _cacheState.revision;
+    final memory = _cacheState.verified;
+    final stored = memory != null && memory.endpoints.isNotEmpty
+        ? memory
+        : await _loadVerifiedCache();
+    final latest = _cacheState.verified;
+    final cached = latest != null && latest.endpoints.isNotEmpty
+        ? latest
+        : stored;
     if (cached != null) {
+      if (_cacheState.revision == revision && _cacheState.verified == null) {
+        _cacheState.verified = cached;
+      }
       emitApiDiagnosticEvent(_diagnosticRecorder, 'api.config.fallback', {
         'source': 'verified_cache',
         'candidate_count': cached.endpoints.length,
@@ -325,9 +473,9 @@ class ApiHealthService {
 
     ApiRemoteConfigException? remoteFailure;
     final remoteLoad = _loadRemoteConfigWithRetries(requireEndpoints: true);
+    final remoteRevision = _cacheState.revision;
     try {
       final remote = await remoteLoad.timeout(initialRemoteWait);
-      await _saveVerifiedCache(remote);
       return _prioritizeLastSuccessful(remote.endpoints, lastSuccessful);
     } on ApiRemoteConfigException catch (error) {
       remoteFailure = error;
@@ -337,7 +485,6 @@ class ApiHealthService {
         cause: error,
         diagnostic: classifyApiNetworkFailure(error, stage: 'remote_config'),
       );
-      unawaited(remoteLoad.then(_saveVerifiedCache).catchError((Object _) {}));
     }
 
     try {
@@ -346,7 +493,14 @@ class ApiHealthService {
         'source': 'verified_emergency',
         'candidate_count': emergency.endpoints.length,
       });
-      await _saveVerifiedCache(emergency);
+      final latest = _cacheState.verified;
+      if (latest != null && latest.endpoints.isNotEmpty) {
+        return _prioritizeLastSuccessful(latest.endpoints, lastSuccessful);
+      }
+      if (_cacheState.revision == remoteRevision) {
+        _cacheState.verified = emergency;
+        await _saveVerifiedCache(emergency, revision: remoteRevision);
+      }
       return _prioritizeLastSuccessful(emergency.endpoints, lastSuccessful);
     } on ApiRemoteConfigException catch (emergencyFailure) {
       if (allowLastSuccessfulFallback && lastSuccessful != null) {
@@ -379,6 +533,142 @@ class ApiHealthService {
   Future<_VerifiedRemoteConfig> _loadRemoteConfigWithRetries({
     bool requireEndpoints = false,
     bool forceRefresh = false,
+  }) {
+    final forced = _cacheState.forced;
+    if (forced != null) {
+      return _joinConfigRequest(
+        forced,
+        requireEndpoints: requireEndpoints,
+        forceRefresh: true,
+      );
+    }
+    if (!forceRefresh) {
+      final fresh = _freshConfig(requireEndpoints: requireEndpoints);
+      if (fresh != null) return Future.value(fresh);
+      final verified = _cacheState.verified;
+      if (!_activity.isForeground &&
+          verified != null &&
+          (!requireEndpoints || verified.endpoints.isNotEmpty)) {
+        _deferConfigRefresh(requireEndpoints: requireEndpoints);
+        return Future.value(verified);
+      }
+      final normal = _cacheState.normal;
+      if (normal != null) {
+        return _joinConfigRequest(normal, requireEndpoints: requireEndpoints);
+      }
+      final failure = _cacheState.failure;
+      final failedAt = _cacheState.failedAt;
+      final retryAfter = _cacheState.retryAfter;
+      final now = _now();
+      if (failure != null &&
+          failedAt != null &&
+          retryAfter != null &&
+          !now.isBefore(failedAt) &&
+          now.isBefore(retryAfter)) {
+        return Future.error(failure);
+      }
+    }
+    final request = _RemoteConfigRequest(
+      revision: ++_cacheState.revision,
+      requireEndpoints: requireEndpoints,
+    );
+    if (forceRefresh) {
+      _cacheState.forced = request;
+      _cacheState.normal = null;
+    } else {
+      _cacheState.normal = request;
+    }
+    unawaited(_completeConfigRequest(request, forceRefresh: forceRefresh));
+    return request.future;
+  }
+
+  _VerifiedRemoteConfig? _freshConfig({required bool requireEndpoints}) {
+    final verified = _cacheState.verified;
+    final verifiedAt = _cacheState.verifiedAt;
+    if (verified == null ||
+        verifiedAt == null ||
+        (requireEndpoints && verified.endpoints.isEmpty)) {
+      return null;
+    }
+    final age = _now().difference(verifiedAt);
+    return !age.isNegative && age < configCacheTtl ? verified : null;
+  }
+
+  Future<_VerifiedRemoteConfig> _joinConfigRequest(
+    _RemoteConfigRequest request, {
+    required bool requireEndpoints,
+    bool forceRefresh = false,
+  }) async {
+    final verified = await request.future;
+    if (requireEndpoints && verified.endpoints.isEmpty) {
+      return _loadRemoteConfigWithRetries(
+        requireEndpoints: true,
+        forceRefresh: forceRefresh,
+      );
+    }
+    return verified;
+  }
+
+  Future<void> _completeConfigRequest(
+    _RemoteConfigRequest request, {
+    required bool forceRefresh,
+  }) async {
+    try {
+      final verified = await _downloadRemoteConfigWithRetries(
+        requireEndpoints: request.requireEndpoints,
+        forceRefresh: forceRefresh,
+      );
+      if (_cacheState.revision == request.revision) {
+        _cacheState.verified = verified;
+        _cacheState.verifiedAt = _now();
+        _cacheState.verifiedRevision = request.revision;
+        _cacheState.failure = null;
+        _cacheState.failedAt = null;
+        _cacheState.retryAfter = null;
+        _cacheState.failures = 0;
+        if (verified.endpoints.isNotEmpty) {
+          await _saveVerifiedCache(verified, revision: request.revision);
+        }
+      }
+      final latest = _cacheState.verified;
+      request.completer.complete(
+        latest != null &&
+                _cacheState.verifiedRevision > request.revision &&
+                (!request.requireEndpoints || latest.endpoints.isNotEmpty)
+            ? latest
+            : verified,
+      );
+    } on _RemoteConfigRefreshDeferred catch (deferred) {
+      final latest = _cacheState.verified;
+      request.completer.complete(
+        latest != null &&
+                _cacheState.verifiedRevision > request.revision &&
+                (!request.requireEndpoints || latest.endpoints.isNotEmpty)
+            ? latest
+            : deferred.verified,
+      );
+    } on ApiRemoteConfigException catch (error, stackTrace) {
+      if (_cacheState.revision == request.revision) {
+        const delays = [30, 60, 120, 240, 300];
+        _cacheState.failures++;
+        final delay = delays[(_cacheState.failures - 1).clamp(0, 4)];
+        final now = _now();
+        _cacheState.failure = error;
+        _cacheState.failedAt = now;
+        _cacheState.retryAfter = now.add(Duration(seconds: delay));
+      }
+      request.completer.completeError(error, stackTrace);
+    } catch (error, stackTrace) {
+      request.completer.completeError(error, stackTrace);
+    } finally {
+      if (identical(_cacheState.forced, request)) _cacheState.forced = null;
+      if (identical(_cacheState.normal, request)) _cacheState.normal = null;
+    }
+  }
+
+  Future<_VerifiedRemoteConfig> _downloadRemoteConfigWithRetries({
+    bool requireEndpoints = false,
+    bool forceRefresh = false,
   }) async {
     if (_configUris.isEmpty) {
       throw const ApiRemoteConfigException(
@@ -398,6 +688,14 @@ class ApiHealthService {
     ApiRemoteConfigException? lastFailure;
     for (final delay in retryDelays) {
       if (delay > Duration.zero) await Future<void>.delayed(delay);
+      final verified = _cacheState.verified;
+      if (!forceRefresh &&
+          !_activity.isForeground &&
+          verified != null &&
+          (!requireEndpoints || verified.endpoints.isNotEmpty)) {
+        _deferConfigRefresh(requireEndpoints: requireEndpoints);
+        throw _RemoteConfigRefreshDeferred(verified);
+      }
       try {
         return await _loadRemoteConfigRound(
           requireEndpoints: requireEndpoints,
@@ -503,6 +801,7 @@ class ApiHealthService {
   }
 
   Future<_VerifiedRemoteConfig?> _loadVerifiedCache() async {
+    final revision = _cacheState.revision;
     try {
       final payload = await _configCacheStore.load().timeout(
         const Duration(seconds: 1),
@@ -512,9 +811,7 @@ class ApiHealthService {
     } on TimeoutException {
       return null;
     } catch (_) {
-      try {
-        await _configCacheStore.clear().timeout(const Duration(seconds: 1));
-      } catch (_) {}
+      await _persistConfig(revision, _configCacheStore.clear);
       return null;
     }
   }
@@ -560,9 +857,11 @@ class ApiHealthService {
         );
       }
       return _VerifiedRemoteConfig(
-        config: config,
-        encryptedPayload: payload,
-        endpoints: endpoints,
+        config: _freezeConfigValue(config),
+        encryptedPayload: payload is List<int>
+            ? List<int>.unmodifiable(payload)
+            : _freezeConfigValue(payload),
+        endpoints: List.unmodifiable(endpoints),
       );
     } on ApiRemoteConfigException {
       rethrow;
@@ -586,29 +885,53 @@ class ApiHealthService {
     }
   }
 
-  Future<void> _saveVerifiedCache(_VerifiedRemoteConfig verified) async {
+  Future<void> _saveVerifiedCache(
+    _VerifiedRemoteConfig verified, {
+    required int revision,
+  }) => _persistConfig(
+    revision,
+    () => _configCacheStore.save(
+      encryptedConfig: verified.encryptedPayload,
+      candidateCount: verified.endpoints.length,
+    ),
+  );
+
+  Future<void> _persistConfig(
+    int revision,
+    Future<void> Function() operation,
+  ) async {
+    final pending = _cacheState.persistence
+        .then((_) async {
+          if (_cacheState.revision != revision) return;
+          await operation();
+        })
+        .catchError((Object _) {});
+    _cacheState.persistence = pending;
     try {
-      await _configCacheStore
-          .save(
-            encryptedConfig: verified.encryptedPayload,
-            candidateCount: verified.endpoints.length,
-          )
-          .timeout(const Duration(seconds: 1));
+      await pending.timeout(const Duration(seconds: 1));
     } catch (_) {}
   }
 
-  void _refreshRemoteConfigInBackground() {
-    if (_backgroundRefresh != null) return;
+  void _refreshRemoteConfigInBackground({bool requireEndpoints = true}) {
+    if (!_activity.isForeground) {
+      _deferConfigRefresh(requireEndpoints: requireEndpoints);
+      return;
+    }
     final refresh = () async {
       try {
-        final verified = await _loadRemoteConfigWithRetries(
-          requireEndpoints: true,
-        );
-        await _saveVerifiedCache(verified);
+        await _loadRemoteConfigWithRetries(requireEndpoints: requireEndpoints);
       } catch (_) {}
     }();
-    _backgroundRefresh = refresh;
-    unawaited(refresh.whenComplete(() => _backgroundRefresh = null));
+    unawaited(refresh);
+  }
+
+  void _deferConfigRefresh({required bool requireEndpoints}) {
+    _cacheState.deferredRequireEndpoints |= requireEndpoints;
+    _activity._defer(_cacheState, () {
+      final requireEndpoints = _cacheState.deferredRequireEndpoints;
+      _cacheState.deferredRequireEndpoints = false;
+      _refreshRemoteConfigInBackground(requireEndpoints: requireEndpoints);
+    });
   }
 
   ApiRemoteConfigException _classifyRemoteError(
@@ -772,6 +1095,22 @@ class _VerifiedRemoteConfig {
   final Object? encryptedPayload;
   final List<Uri> endpoints;
 }
+
+Object? _freezeConfigValue(Object? value) => switch (value) {
+  final Map value => Map.unmodifiable(
+    value.map((key, value) => MapEntry(key, _freezeConfigValue(value))),
+  ),
+  final List value => List.unmodifiable(value.map(_freezeConfigValue)),
+  _ => value,
+};
+
+Object? _copyConfigValue(Object? value) => switch (value) {
+  final Map value => value.map(
+    (key, value) => MapEntry(key, _copyConfigValue(value)),
+  ),
+  final List value => value.map(_copyConfigValue).toList(),
+  _ => value,
+};
 
 List<Uri> parseApiEndpoints(Object? config) {
   Object? rawEndpoints;
