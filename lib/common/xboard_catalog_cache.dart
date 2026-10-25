@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fl_clash/state.dart';
 
 import 'xboard_auth.dart';
+import 'xboard_api_request.dart';
 
 final _catalogScope = _CatalogScope();
 final xboardPlanCatalog = XboardCatalogCache<List<XboardAvailablePlan>>();
@@ -29,9 +30,16 @@ class XboardCatalogCache<T> {
     return !age.isNegative && age < ttl ? entry.value : null;
   }
 
-  Future<T>? inFlight(XboardLoginResult session, {Object key = 'all'}) {
+  Future<T>? inFlight(
+    XboardLoginResult session, {
+    Object key = 'all',
+    bool Function()? canRequest,
+  }) {
     _synchronize(session);
-    return _entries[key]?.pending;
+    final request = _entries[key]?.pending;
+    if (request == null || !request.consumers.aggregateAllowed) return null;
+    final consumer = request.consumers.add(canRequest);
+    return consumer.wait(request.future);
   }
 
   Future<T> load(
@@ -39,51 +47,98 @@ class XboardCatalogCache<T> {
     Future<T> Function() loader, {
     Object key = 'all',
     bool forceRefresh = false,
+    bool Function()? canRequest,
+  }) => loadGuarded(
+    session,
+    (_) => loader(),
+    key: key,
+    forceRefresh: forceRefresh,
+    canRequest: canRequest,
+  );
+
+  Future<T> loadGuarded(
+    XboardLoginResult session,
+    Future<T> Function(bool Function() canRequest) loader, {
+    Object key = 'all',
+    bool forceRefresh = false,
+    bool Function()? canRequest,
   }) {
     final epoch = _synchronize(session);
     final entry = _entries.putIfAbsent(key, _CatalogEntry<T>.new);
-    if (entry.forced != null) return entry.forced!;
+    final forced = entry.forced;
+    if (forced != null && forced.consumers.aggregateAllowed) {
+      return forced.consumers.add(canRequest).wait(forced.future);
+    }
     if (!forceRefresh) {
       final value = peek(session, key: key);
-      if (value != null) return Future.value(value);
-      if (entry.pending != null) return entry.pending!;
+      if (value != null) {
+        if (canRequest?.call() == false) {
+          return Future.error(const XboardApiRequestDeferred());
+        }
+        return Future.value(value);
+      }
+      final pending = entry.pending;
+      if (pending != null && pending.consumers.aggregateAllowed) {
+        return pending.consumers.add(canRequest).wait(pending.future);
+      }
     }
-    final revision = ++entry.revision;
-    final completer = Completer<T>();
-    final future = completer.future;
-    entry.latest = future;
-    entry.pending = future;
-    if (forceRefresh) entry.forced = future;
+    final request = _CatalogRequest<T>(entry.revision + 1);
+    final consumer = request.consumers.add(canRequest);
+    if (!consumer.allowed) {
+      return Future.error(const XboardApiRequestDeferred());
+    }
+    entry.revision = request.revision;
+    if (forceRefresh && entry.pending != null) {
+      request.consumers.inherit(entry.pending!.consumers);
+      entry.pending!.consumers.close();
+    }
+    entry.latest = request;
+    entry.pending = request;
+    if (forceRefresh) entry.forced = request;
+    bool requestAllowed() =>
+        _isCurrent(session, epoch, key, entry) &&
+        entry.revision == request.revision &&
+        request.consumers.aggregateAllowed;
     unawaited(() async {
       try {
-        final value = await loader();
+        ensureXboardApiRequestAllowed(requestAllowed);
+        final value = await loader(requestAllowed);
         if (!_isCurrent(session, epoch, key, entry)) {
           throw StateError('Catalog session changed');
         }
-        if (entry.revision != revision) {
-          completer.complete(await entry.latest!);
+        if (entry.revision != request.revision) {
+          request.completer.complete(await entry.latest!.future);
         } else {
+          ensureXboardApiRequestAllowed(requestAllowed);
           entry.value = value;
           entry.at = _now();
-          completer.complete(value);
+          request.completer.complete(value);
         }
       } catch (error, stackTrace) {
         if (_isCurrent(session, epoch, key, entry) &&
-            entry.revision != revision) {
+            entry.revision != request.revision) {
           try {
-            completer.complete(await entry.latest!);
+            request.completer.complete(await entry.latest!.future);
           } catch (latestError, latestStack) {
-            completer.completeError(latestError, latestStack);
+            request.completer.completeError(latestError, latestStack);
           }
         } else {
-          completer.completeError(error, stackTrace);
+          request.completer.completeError(
+            !_isCurrent(session, epoch, key, entry)
+                ? StateError('Catalog session changed')
+                : error is XboardApiRequestDeferred ||
+                      !request.consumers.aggregateAllowed
+                ? const XboardApiRequestDeferred()
+                : error,
+            stackTrace,
+          );
         }
       } finally {
-        if (identical(entry.pending, future)) entry.pending = null;
-        if (identical(entry.forced, future)) entry.forced = null;
+        if (identical(entry.pending, request)) entry.pending = null;
+        if (identical(entry.forced, request)) entry.forced = null;
       }
     }());
-    return future;
+    return consumer.wait(request.future);
   }
 
   void invalidate(XboardLoginResult session) {
@@ -116,10 +171,18 @@ class XboardCatalogCache<T> {
 class _CatalogEntry<T> {
   T? value;
   DateTime? at;
-  Future<T>? pending;
-  Future<T>? forced;
-  Future<T>? latest;
+  _CatalogRequest<T>? pending;
+  _CatalogRequest<T>? forced;
+  _CatalogRequest<T>? latest;
   int revision = 0;
+}
+
+class _CatalogRequest<T> {
+  _CatalogRequest(this.revision);
+  final int revision;
+  final consumers = XboardApiRequestConsumers();
+  final completer = Completer<T>();
+  Future<T> get future => completer.future;
 }
 
 class _CatalogScope {
@@ -170,12 +233,17 @@ Future<List<XboardAvailablePlan>> loadXboardPlanCatalog({
   required XboardLoginResult session,
   int? planId,
   bool forceRefresh = false,
+  bool Function()? canRequest,
 }) async {
+  ensureXboardApiRequestAllowed(canRequest);
   final epoch = _catalogScope.capture(session);
   if (planId != null && !forceRefresh) {
     var plans = xboardPlanCatalog.peek(session);
     if (plans == null) {
-      final pending = xboardPlanCatalog.inFlight(session);
+      final pending = xboardPlanCatalog.inFlight(
+        session,
+        canRequest: canRequest,
+      );
       if (pending != null) {
         try {
           plans = await pending;
@@ -191,13 +259,15 @@ Future<List<XboardAvailablePlan>> loadXboardPlanCatalog({
       return plans;
     }
   }
-  return xboardPlanCatalog.load(
+  return xboardPlanCatalog.loadGuarded(
     session,
-    () => authService.fetchPlans(
+    (requestAllowed) => authService.fetchPlans(
       endpoint: session.endpoint,
       authData: session.authData,
       planId: planId,
+      canRequest: requestAllowed,
     ),
+    canRequest: canRequest,
     key: planId ?? 'all',
     forceRefresh: forceRefresh,
   );
@@ -209,7 +279,9 @@ Future<XboardAvailablePlan?> findXboardCatalogPlan({
   int? planId,
   String? planName,
   bool forceRefresh = false,
+  bool Function()? canRequest,
 }) async {
+  ensureXboardApiRequestAllowed(canRequest);
   final epoch = _catalogScope.capture(session);
   if (planId != null) {
     try {
@@ -218,6 +290,7 @@ Future<XboardAvailablePlan?> findXboardCatalogPlan({
         session: session,
         planId: planId,
         forceRefresh: forceRefresh,
+        canRequest: canRequest,
       );
       for (final plan in plans) {
         if (plan.id == planId) return plan;
@@ -231,6 +304,7 @@ Future<XboardAvailablePlan?> findXboardCatalogPlan({
     authService: authService,
     session: session,
     forceRefresh: forceRefresh,
+    canRequest: canRequest,
   );
   for (final plan in plans) {
     if (planId != null && plan.id == planId) return plan;
@@ -253,11 +327,14 @@ Future<List<XboardPaymentMethod>> loadXboardPaymentMethodCatalog({
   required XboardAuthService authService,
   required XboardLoginResult session,
   bool forceRefresh = false,
-}) => xboardPaymentMethodCatalog.load(
+  bool Function()? canRequest,
+}) => xboardPaymentMethodCatalog.loadGuarded(
   session,
-  () => authService.fetchPaymentMethods(
+  (requestAllowed) => authService.fetchPaymentMethods(
     endpoint: session.endpoint,
     authData: session.authData,
+    canRequest: requestAllowed,
   ),
+  canRequest: canRequest,
   forceRefresh: forceRefresh,
 );

@@ -13,6 +13,41 @@ import '../support/account_view_test_scope.dart';
 
 void main() {
   accountViewReadTest(
+    'traffic pause and immediate resume do not revive an older read',
+    (tester) async {
+      globalState.activateXboardSession(_testSession());
+      final pending = Completer<XboardLoginResponse>();
+      late XboardLoginResponse old;
+      var logs = 0;
+      await mountAccountView(
+        tester,
+        FengWoTrafficDetailsView(
+          authService: _testService(
+            onTrafficRequested: () => logs++,
+            logsResponse: (call, value) {
+              if (call == 1) {
+                old = value;
+                return pending.future;
+              }
+              return Future.value(
+                const XboardLoginResponse(statusCode: 200, data: {'data': []}),
+              );
+            },
+          ),
+        ),
+        (child) => _TestApp(child: child),
+      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      pending.complete(old);
+      await tester.pumpAndSettle();
+      expect(logs, 2);
+      expect(find.byKey(const ValueKey('traffic-record-0')), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  accountViewReadTest(
     'traffic reuses automatic logs but manual refresh stays fresh',
     (tester) async {
       globalState.activateXboardSession(
@@ -335,6 +370,7 @@ class _DelayedTrafficAuth extends XboardAuthService {
   Future<List<XboardTrafficLog>> fetchTrafficLogs({
     required Uri endpoint,
     required String authData,
+    bool Function()? canRequest,
   }) {
     logCalls++;
     return logCalls == 1 ? Future.value(const []) : delayedLogs.future;
@@ -346,6 +382,7 @@ class _DelayedTrafficAuth extends XboardAuthService {
     required String authData,
     String? userToken,
     bool secureSubscription = false,
+    bool Function()? canRequest,
   }) async {
     summaryCalls++;
     return _testSession().subscription;

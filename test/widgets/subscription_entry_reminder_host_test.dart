@@ -684,6 +684,7 @@ class _FakeAuthService extends XboardAuthService {
     required String authData,
     String? userToken,
     bool secureSubscription = false,
+    bool Function()? canRequest,
   }) {
     calls++;
     if (_queued.isNotEmpty) return _queued.removeAt(0).future;

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/xboard_account_view_reads.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/subscription_status_indicator.dart';
@@ -34,6 +35,7 @@ class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView>
   bool _loading = false;
   bool _refreshing = false;
   bool _failed = false;
+  bool _pendingRefreshSubscription = false;
 
   @override
   void initState() {
@@ -43,11 +45,18 @@ class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView>
   }
 
   @override
-  void onAccountViewReady() => unawaited(_loadData(automatic: true));
+  void onAccountViewReady() {
+    final refreshSubscription = _pendingRefreshSubscription;
+    _pendingRefreshSubscription = false;
+    unawaited(
+      _loadData(automatic: true, refreshSubscription: refreshSubscription),
+    );
+  }
 
   @override
   void onAccountViewReset() {
     _logsRead.invalidate();
+    _pendingRefreshSubscription = false;
     setState(() {
       _records = const [];
       _subscription = globalState.xboardSubscription;
@@ -68,11 +77,14 @@ class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView>
     final session = accountViewSession!;
     final epoch = accountViewEpoch;
     final sessionRevision = globalState.xboardSessionRevision;
-    final logs = _logsRead.load(
-      () => _authService.fetchTrafficLogs(
+    final canRequest = createAccountViewReadGuard(automatic: automatic);
+    final logs = _logsRead.loadGuarded(
+      (requestAllowed) => _authService.fetchTrafficLogs(
         endpoint: session.endpoint,
         authData: session.authData,
+        canRequest: requestAllowed,
       ),
+      canRequest: canRequest,
       forceRefresh: !automatic,
     );
     final revision = _logsRead.revision;
@@ -97,6 +109,7 @@ class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView>
                 _authService,
                 session,
                 forceRefresh: true,
+                canRequest: canRequest,
               )
             : Future<XboardSubscriptionData>.value(
                 globalState.xboardSubscription ?? session.subscription,
@@ -126,6 +139,11 @@ class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView>
         _records = records;
         _subscription = subscription;
       });
+    } on XboardApiRequestDeferred {
+      if (currentRead()) {
+        _pendingRefreshSubscription |= refreshSubscription;
+        requestAccountViewRead();
+      }
     } catch (error, stackTrace) {
       commonPrint.log(
         'load XBoard traffic details failed: $error, $stackTrace',
