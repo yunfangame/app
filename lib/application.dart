@@ -536,6 +536,7 @@ class ApplicationState extends ConsumerState<Application> {
   Future<bool> _loadXboardNodes(
     XboardLoginResult session, {
     bool ignoreOfflineMode = false,
+    bool forceRefresh = false,
   }) {
     final revision = globalState.xboardSessionRevision;
     bool isCurrent() =>
@@ -544,41 +545,39 @@ class ApplicationState extends ConsumerState<Application> {
         globalState.isActiveXboardSession(session, revision) &&
         (!globalState.isOfflineMode || ignoreOfflineMode);
     if (!isCurrent()) return Future<bool>.value(false);
+    if (forceRefresh) _nodeRefresh.cancel();
     return _nodeRefresh.run(
       isCurrent: isCurrent,
-      refresh: (_) => _performXboardNodesRefresh(session, revision, isCurrent),
+      refresh: (_) => _performXboardNodesRefresh(
+        session,
+        revision,
+        isCurrent,
+        forceRefresh: forceRefresh,
+        ignoreOfflineMode: ignoreOfflineMode,
+      ),
     );
   }
 
   Future<bool> _performXboardNodesRefresh(
     XboardLoginResult session,
     int revision,
-    bool Function() isCurrent,
-  ) async {
-    final requestRevision = globalState.beginXboardNodesRefresh(
-      session,
-      revision,
-    );
-    if (requestRevision == null) return false;
+    bool Function() isCurrent, {
+    required bool forceRefresh,
+    required bool ignoreOfflineMode,
+  }) async {
     final ruleAccountKey = globalState.xboardRuleAccountKey;
     commonPrint.event(
       'subscription.nodes.fetch.started',
       fields: {'session_revision': revision},
     );
     try {
-      final nodes = await _xboardAuthService.fetchNodes(
-        endpoint: session.endpoint,
-        authData: session.authData,
-        userToken: session.token,
-        secureSubscription: session.secureSubscription,
+      final nodes = await globalState.loadXboardNodesSnapshot(
+        _xboardAuthService,
+        session,
+        forceRefresh: forceRefresh,
+        ignoreOfflineMode: ignoreOfflineMode,
       );
-      if (!isCurrent() ||
-          !globalState.setXboardNodesForSession(
-            session,
-            revision,
-            nodes,
-            requestRevision: requestRevision,
-          )) {
+      if (!isCurrent()) {
         commonPrint.event(
           'subscription.nodes.fetch.discarded',
           fields: {'session_revision': revision},
@@ -613,11 +612,6 @@ class ApplicationState extends ConsumerState<Application> {
           'error': '$error',
           'session_revision': revision,
         },
-      );
-      globalState.markXboardNodesStaleForSession(
-        session,
-        revision,
-        requestRevision: requestRevision,
       );
       commonPrint.log(
         'load XBoard nodes failed: $error, $stackTrace',
@@ -1687,7 +1681,7 @@ class ApplicationState extends ConsumerState<Application> {
           if (attempt.refreshMetadata &&
               attempt.isCurrent() &&
               nodesRefresh == null) {
-            nodesRefresh = _loadXboardNodes(updatedSession);
+            nodesRefresh = _loadXboardNodes(updatedSession, forceRefresh: true);
           }
         }
 
