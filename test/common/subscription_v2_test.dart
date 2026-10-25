@@ -12,6 +12,7 @@ import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/api_request_router.dart';
 import 'package:fl_clash/common/subscription_v2.dart';
 import 'package:fl_clash/common/xboard_auth.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -19,6 +20,306 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('automatic read revision records each suspension once', () {
+    final activity = ApiRemoteConfigActivity();
+    addTearDown(activity.dispose);
+    activity.setAppForeground(false);
+    activity.setWindowForeground(false);
+    expect(activity.requestRevision, 1);
+    activity.setAppForeground(true);
+    expect(activity.isAvailable, isFalse);
+    activity.setWindowForeground(true);
+    expect(activity.requestRevision, 1);
+    activity.setOffline(true);
+    expect(activity.requestRevision, 2);
+    activity.setOffline(false);
+    activity.networkChanged(available: false);
+    expect(activity.requestRevision, 3);
+    activity.networkChanged(available: false);
+    activity.networkChanged();
+    expect(activity.isAvailable, isTrue);
+    expect(activity.requestRevision, 3);
+  });
+
+  test('closed read gates start no secure gateway operation', () async {
+    final server = await _FakeSubscriptionV2Server.create();
+    final client = _fixtureClient(server, _MemorySubscriptionV2ValueStore());
+    for (final read in [
+      () => _fixtureProfile(client, canRequest: () => false),
+      () => client.fetchSummary(
+        endpoint: _primaryEndpoint,
+        userToken: _token,
+        canRequest: () => false,
+      ),
+      () => client.fetchNodes(
+        endpoint: _primaryEndpoint,
+        userToken: _token,
+        canRequest: () => false,
+      ),
+    ]) {
+      await expectLater(read(), throwsA(isA<XboardApiRequestDeferred>()));
+    }
+    expect(server.operations, isEmpty);
+  });
+
+  test('request scope remains an opaque single flight key', () async {
+    final server = await _FakeSubscriptionV2Server.create();
+    final client = _fixtureClient(server, _MemorySubscriptionV2ValueStore());
+    await _fixtureLogin(client);
+    expect(await _fixtureProfile(client, requestScope: () => false), isNotNull);
+    expect(server.operations, [
+      'login_device',
+      'issue_ticket',
+      'redeem_ticket',
+    ]);
+  });
+
+  test(
+    'invalidated issue stops redeem without losing valid credentials',
+    () async {
+      final server = await _FakeSubscriptionV2Server.create();
+      final store = _MemorySubscriptionV2ValueStore();
+      final events = <String>[];
+      var current = true;
+      var closeAfterIssue = true;
+      final client = _fixtureClient(
+        server,
+        store,
+        diagnosticRecorder: (event, fields) => events.add(
+          event == 'subscription_v2.stage'
+              ? '$event.${fields['stage']}'
+              : event,
+        ),
+        requester: (endpoint, envelope) async {
+          final response = await server.request(endpoint, envelope);
+          if (closeAfterIssue && server.operations.last == 'issue_ticket') {
+            current = false;
+          }
+          return response;
+        },
+      );
+      await _fixtureLogin(client);
+      final credentials = Map<String, String>.of(store.values);
+      await expectLater(
+        _fixtureProfile(client, canRequest: () => current),
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      expect(server.operations, ['login_device', 'issue_ticket']);
+      expect(store.values, credentials);
+      expect(events, contains('subscription_v2.stage.ticket_issue_deferred'));
+      expect(events.where((event) => event.endsWith('_failed')), isEmpty);
+      closeAfterIssue = false;
+      current = true;
+      expect(
+        await _fixtureProfile(client, canRequest: () => current),
+        isNotNull,
+      );
+      expect(server.operations, [
+        'login_device',
+        'issue_ticket',
+        'issue_ticket',
+        'redeem_ticket',
+      ]);
+    },
+  );
+
+  test(
+    'registration invalidation stops issue and credential persistence',
+    () async {
+      final server = await _FakeSubscriptionV2Server.create();
+      final store = _MemorySubscriptionV2ValueStore();
+      var current = true;
+      final client = _fixtureClient(
+        server,
+        store,
+        requester: (endpoint, envelope) async {
+          final response = await server.request(endpoint, envelope);
+          current = false;
+          return response;
+        },
+      );
+      await expectLater(
+        client.fetchProfile(
+          endpoint: _primaryEndpoint,
+          userToken: _token,
+          appVersion: '1.9.0',
+          canRequest: () => current,
+        ),
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      expect(server.operations, ['register_device']);
+      expect(
+        store.values.keys.where(
+          (key) => key.startsWith('subscription_v2.credential.'),
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test('Dio late read defers without recording transport failure', () async {
+    final server = await _FakeSubscriptionV2Server.create();
+    final events = <String>[];
+    var current = true;
+    final dio = Dio();
+    addTearDown(() => dio.close(force: true));
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) async {
+          final response = await server.request(
+            options.uri,
+            Map<String, Object?>.from(options.data as Map),
+          );
+          if (server.operations.last == 'issue_ticket') current = false;
+          handler.resolve(
+            Response<Object?>(
+              requestOptions: options,
+              statusCode: 200,
+              data: response,
+            ),
+          );
+        },
+      ),
+    );
+    final client = _fixtureClient(
+      server,
+      _MemorySubscriptionV2ValueStore(),
+      dio: dio,
+      diagnosticRecorder: (event, fields) => events.add(
+        event == 'subscription_v2.stage' ? '$event.${fields['stage']}' : event,
+      ),
+    );
+    await _fixtureLogin(client);
+    await expectLater(
+      _fixtureProfile(client, canRequest: () => current),
+      throwsA(isA<XboardApiRequestDeferred>()),
+    );
+    expect(server.operations, ['login_device', 'issue_ticket']);
+    expect(events, isNot(contains('api.secure_gateway.failed')));
+    expect(events.where((event) => event.endsWith('_failed')), isEmpty);
+  });
+
+  test(
+    'invalidated network failure does not start a gateway fallback',
+    () async {
+      final server = await _FakeSubscriptionV2Server.create()
+        ..hosts = _trustedHosts;
+      final attempts = <Uri>[];
+      final events = <String>[];
+      var current = true;
+      var failing = false;
+      final client = _fixtureClient(
+        server,
+        _MemorySubscriptionV2ValueStore(),
+        diagnosticRecorder: (event, fields) => events.add(
+          event == 'subscription_v2.stage'
+              ? '$event.${fields['stage']}'
+              : event,
+        ),
+        requester: (endpoint, envelope) async {
+          attempts.add(endpoint);
+          if (failing) {
+            current = false;
+            throw const SubscriptionV2Exception(
+              'gateway_unavailable',
+              statusCode: 503,
+            );
+          }
+          return server.request(endpoint, envelope);
+        },
+      );
+      await _fixtureLogin(client);
+      attempts.clear();
+      failing = true;
+      await expectLater(
+        _fixtureProfile(client, canRequest: () => current),
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      expect(attempts, hasLength(1));
+      expect(events, isNot(contains('subscription_v2.gateway.retry')));
+      expect(events.where((event) => event.endsWith('_failed')), isEmpty);
+    },
+  );
+
+  test('a valid joined consumer keeps the secure exchange alive', () async {
+    final server = await _FakeSubscriptionV2Server.create();
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    var firstCurrent = true;
+    final client = _fixtureClient(
+      server,
+      _MemorySubscriptionV2ValueStore(),
+      requester: (endpoint, envelope) async {
+        final response = await server.request(endpoint, envelope);
+        if (server.operations.last == 'issue_ticket' && !entered.isCompleted) {
+          entered.complete();
+          await release.future;
+        }
+        return response;
+      },
+    );
+    await _fixtureLogin(client);
+    final first = _fixtureProfile(client, canRequest: () => firstCurrent);
+    final rejected = expectLater(
+      first,
+      throwsA(isA<XboardApiRequestDeferred>()),
+    );
+    await entered.future;
+    final second = _fixtureProfile(client, canRequest: () => true);
+    await Future<void>.delayed(Duration.zero);
+    firstCurrent = false;
+    release.complete();
+    expect(await second, isNotNull);
+    await rejected;
+    expect(server.ticketSequence, 1);
+    expect(server.operations, [
+      'login_device',
+      'issue_ticket',
+      'redeem_ticket',
+    ]);
+  });
+
+  test(
+    'new consumers cannot revive an entirely invalid old exchange',
+    () async {
+      final server = await _FakeSubscriptionV2Server.create();
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      var current = true;
+      final client = _fixtureClient(
+        server,
+        _MemorySubscriptionV2ValueStore(),
+        requester: (endpoint, envelope) async {
+          final response = await server.request(endpoint, envelope);
+          if (server.operations.last == 'issue_ticket' &&
+              !entered.isCompleted) {
+            entered.complete();
+            await release.future;
+          }
+          return response;
+        },
+      );
+      await _fixtureLogin(client);
+      final old = _fixtureProfile(client, canRequest: () => current);
+      final rejected = expectLater(
+        old,
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      await entered.future;
+      current = false;
+      expect(await _fixtureProfile(client, canRequest: () => true), isNotNull);
+      expect(server.ticketSequence, 2);
+      release.complete();
+      await rejected;
+      expect(server.operations, [
+        'login_device',
+        'issue_ticket',
+        'issue_ticket',
+        'redeem_ticket',
+      ]);
+    },
+  );
 
   for (final status in [403, 407, 429, 503]) {
     test(
@@ -2275,6 +2576,7 @@ Future<SubscriptionV2Profile?> _fixtureProfile(
   Uri? endpoint,
   bool forceRefresh = false,
   Object? requestScope,
+  bool Function()? canRequest,
 }) => client.fetchProfile(
   endpoint: endpoint ?? _primaryEndpoint,
   userToken: _token,
@@ -2283,6 +2585,7 @@ Future<SubscriptionV2Profile?> _fixtureProfile(
   allowTokenRegistration: false,
   forceRefresh: forceRefresh,
   requestScope: requestScope,
+  canRequest: canRequest,
 );
 
 SubscriptionV2Client _sharedRouterClient(

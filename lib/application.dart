@@ -8,6 +8,7 @@ import 'package:fl_clash/common/fengwo_mobile_theme.dart';
 import 'package:fl_clash/common/login_routing_coordinator.dart';
 import 'package:fl_clash/common/startup_connection_coordinator.dart';
 import 'package:fl_clash/common/subscription_access.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/core/core.dart';
 import 'package:fl_clash/common/saved_node_selection.dart';
 import 'package:fl_clash/common/xboard_routing_store.dart';
@@ -911,7 +912,7 @@ class ApplicationState extends ConsumerState<Application> {
     );
   }
 
-  Future<Profile> _performSubscriptionProfileSync(
+  Future<Profile?> _performSubscriptionProfileSync(
     XboardLoginResult session,
     bool Function() isCurrent, {
     bool forceRefresh = false,
@@ -940,6 +941,7 @@ class ApplicationState extends ConsumerState<Application> {
         allowTokenRegistration: !session.secureSubscription,
         forceRefresh: forceRefresh,
         requestScope: isCurrent,
+        canRequest: isCurrent,
       );
       ensureCurrent();
       if (secureProfile != null) {
@@ -1024,6 +1026,12 @@ class ApplicationState extends ConsumerState<Application> {
         fields: {'protocol': 'v1'},
       );
       return profile;
+    } on XboardApiRequestDeferred {
+      commonPrint.event(
+        'subscription.profile.sync.discarded',
+        fields: const {'stage': 'profile_mutation'},
+      );
+      return null;
     } catch (error, stackTrace) {
       final failureDiagnostic = subscriptionProfileDiagnostic(error);
       commonPrint.event(

@@ -14,6 +14,43 @@ import '../support/account_view_test_scope.dart';
 
 void main() {
   accountViewReadTest(
+    'invite resumes only the details interrupted by app pause',
+    (tester) async {
+      globalState.activateXboardSession(_testSession());
+      final pending = Completer<XboardLoginResponse>();
+      late XboardLoginResponse old;
+      var summaries = 0;
+      var details = 0;
+      await mountAccountView(
+        tester,
+        FengWoInvitePromotionView(
+          authService: _testService(
+            onSummaryRequested: () => summaries++,
+            onDetailsRequested: () => details++,
+            detailsResponse: (call, value) {
+              if (call == 1) {
+                old = value;
+                return pending.future;
+              }
+              return Future.value(value);
+            },
+          ),
+        ),
+        (child) => _TestApp(child: child),
+      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      pending.complete(old);
+      await flushAccountReads(tester);
+      expect(details, 1);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(summaries, 1);
+      expect(details, 2);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  accountViewReadTest(
     'background invite writes keep a full refresh after late generation',
     (tester) async {
       globalState.activateXboardSession(_testSession());
@@ -107,7 +144,7 @@ void main() {
     },
   );
 
-  accountViewReadTest('repeated invite entry shares each in-flight read', (
+  accountViewReadTest('repeated invite entry replaces each paused read', (
     tester,
   ) async {
     globalState.activateXboardSession(_testSession());
@@ -139,8 +176,8 @@ void main() {
     await tester.pump();
     activity.value = true;
     await flushAccountReads(tester);
-    expect(summaries, 1);
-    expect(details, 1);
+    expect(summaries, 2);
+    expect(details, 2);
     summary.complete(summaryValue);
     detail.complete(detailValue);
     await tester.pumpAndSettle();

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/xboard_account_view_reads.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/offline_mode_panel.dart';
@@ -33,6 +34,8 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView>
   late final Future<Object?> Function() _remoteConfigLoader;
   final _summaryRead = XboardAccountViewRead<XboardInviteSummary>();
   final _detailsRead = XboardAccountViewRead<List<XboardCommissionRecord>>();
+  bool? _pendingSummaryForce = false;
+  bool? _pendingDetailsForce = false;
   int _loadRevision = 0;
   bool? _summaryOnlyOnResume;
   bool? _wasPageActive;
@@ -63,7 +66,11 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView>
   void didChangeDependencies() {
     super.didChangeDependencies();
     final active = PageActivityScope.isActiveOf(context);
-    if (_wasPageActive == false && active) _summaryOnlyOnResume = false;
+    if (_wasPageActive == false && active) {
+      _summaryOnlyOnResume = false;
+      _pendingSummaryForce ??= false;
+      _pendingDetailsForce ??= false;
+    }
     _wasPageActive = active;
   }
 
@@ -71,13 +78,21 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView>
   void onAccountViewReady() {
     final summaryOnly = _summaryOnlyOnResume ?? false;
     _summaryOnlyOnResume = null;
-    unawaited(_loadData(forceRefresh: false, summaryOnly: summaryOnly));
+    unawaited(
+      _loadData(
+        forceRefresh: false,
+        summaryOnly: summaryOnly,
+        pendingOnly: true,
+      ),
+    );
   }
 
   @override
   void onAccountViewReset() {
     _summaryRead.invalidate();
     _detailsRead.invalidate();
+    _pendingSummaryForce = false;
+    _pendingDetailsForce = false;
     _loadRevision++;
     _summaryOnlyOnResume = null;
     setState(() {
@@ -94,19 +109,28 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView>
   Future<void> _loadData({
     bool forceRefresh = true,
     bool summaryOnly = false,
+    bool pendingOnly = false,
   }) async {
     if (!(forceRefresh ? canUseAccountViewActions : canReadAccountView)) return;
     final session = accountViewSession!;
     final epoch = accountViewEpoch;
+    final summaryForce = pendingOnly ? _pendingSummaryForce : forceRefresh;
+    final detailsForce = summaryOnly
+        ? null
+        : pendingOnly
+        ? _pendingDetailsForce
+        : forceRefresh;
+    if (summaryForce == null && detailsForce == null) return;
     final loadRevision = ++_loadRevision;
     setState(() {
       _loading = _summary == null;
       _failed = false;
     });
     await Future.wait([
-      _loadSummary(session, epoch, forceRefresh: forceRefresh),
-      if (!summaryOnly)
-        _loadDetails(session, epoch, forceRefresh: forceRefresh),
+      if (summaryForce != null)
+        _loadSummary(session, epoch, forceRefresh: summaryForce),
+      if (detailsForce != null)
+        _loadDetails(session, epoch, forceRefresh: detailsForce),
     ]);
     if (isCurrentAccountView(session, epoch) && loadRevision == _loadRevision) {
       setState(() => _loading = false);
@@ -118,11 +142,15 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView>
     int epoch, {
     required bool forceRefresh,
   }) async {
-    final request = _summaryRead.load(
-      () => _authService.fetchInviteSummary(
+    _pendingSummaryForce = null;
+    final canRequest = createAccountViewReadGuard(automatic: !forceRefresh);
+    final request = _summaryRead.loadGuarded(
+      (requestAllowed) => _authService.fetchInviteSummary(
         endpoint: session.endpoint,
         authData: session.authData,
+        canRequest: requestAllowed,
       ),
+      canRequest: canRequest,
       forceRefresh: forceRefresh,
     );
     final revision = _summaryRead.revision;
@@ -132,6 +160,16 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView>
     try {
       final summary = await request;
       if (current()) setState(() => _summary = summary);
+    } on XboardApiRequestDeferred {
+      if (current()) {
+        _pendingSummaryForce = (_pendingSummaryForce ?? false) || forceRefresh;
+        if (_pendingDetailsForce != null) {
+          _summaryOnlyOnResume = false;
+        } else {
+          _summaryOnlyOnResume ??= true;
+        }
+        requestAccountViewRead();
+      }
     } catch (error, stackTrace) {
       commonPrint.log(
         'load XBoard invite summary failed: $error, $stackTrace',
@@ -146,11 +184,15 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView>
     int epoch, {
     required bool forceRefresh,
   }) async {
-    final request = _detailsRead.load(
-      () => _authService.fetchInviteDetails(
+    _pendingDetailsForce = null;
+    final canRequest = createAccountViewReadGuard(automatic: !forceRefresh);
+    final request = _detailsRead.loadGuarded(
+      (requestAllowed) => _authService.fetchInviteDetails(
         endpoint: session.endpoint,
         authData: session.authData,
+        canRequest: requestAllowed,
       ),
+      canRequest: canRequest,
       forceRefresh: forceRefresh,
     );
     final revision = _detailsRead.revision;
@@ -160,6 +202,12 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView>
     try {
       final records = await request;
       if (current()) setState(() => _records = records);
+    } on XboardApiRequestDeferred {
+      if (current()) {
+        _pendingDetailsForce = (_pendingDetailsForce ?? false) || forceRefresh;
+        _summaryOnlyOnResume = false;
+        requestAccountViewRead();
+      }
     } catch (error, stackTrace) {
       commonPrint.log(
         'load XBoard invite details failed: $error, $stackTrace',
@@ -181,6 +229,7 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView>
       );
       if (!mounted || !isCurrentAccountView(session, epoch)) return;
       _summaryRead.invalidate();
+      _pendingSummaryForce = true;
       if (!canUseAccountViewActions) {
         _summaryOnlyOnResume ??= true;
         requestAccountViewRead();
@@ -246,7 +295,9 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView>
       );
       if (!mounted || !isCurrentAccountView(session, epoch)) return;
       _summaryRead.invalidate();
+      _pendingSummaryForce = true;
       _detailsRead.invalidate();
+      _pendingDetailsForce = true;
       _summaryOnlyOnResume = false;
       if (!canUseAccountViewActions) requestAccountViewRead();
       await _loadData();

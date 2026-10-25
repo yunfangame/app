@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/xboard_account_view_reads.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/common/xboard_catalog_cache.dart';
 import 'package:fl_clash/common/xboard_order_changes.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -104,8 +105,10 @@ class _FengWoPurchasePlansViewState extends State<FengWoPurchasePlansView>
     if (!allowed || session == null) return;
     final epoch = accountViewEpoch;
     final revision = ++_requestRevision;
+    final activityGuard = createAccountViewReadGuard();
     bool current() =>
         isCurrentAccountView(session, epoch) && revision == _requestRevision;
+    final canRequest = forceRefresh ? null : () => current() && activityGuard();
     setState(() {
       _loading = true;
       _failed = false;
@@ -115,10 +118,16 @@ class _FengWoPurchasePlansViewState extends State<FengWoPurchasePlansView>
         authService: _authService,
         session: session,
         forceRefresh: forceRefresh,
+        canRequest: canRequest,
       );
+      ensureXboardApiRequestAllowed(canRequest);
       if (!current()) return;
       setState(() => _plans = plans);
     } catch (error, stackTrace) {
+      if (error is XboardApiRequestDeferred || canRequest?.call() == false) {
+        if (current()) requestAccountViewRead();
+        return;
+      }
       commonPrint.log(
         'load XBoard plans failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
@@ -880,6 +889,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
   int _attempt = 0;
   int _windowRevision = 0;
   int _windowRetries = 0;
+  int _activityRevision = 0;
   late XboardAvailablePlan _plan = widget.plan;
   bool _needsConfirmation = false;
   bool _methodsRequested = true;
@@ -978,6 +988,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
   }
 
   void _availabilityChanged() {
+    _activityRevision++;
     if (globalState.isOfflineMode) _windowRetryTimer?.cancel();
     if (_desktop && !globalState.isOfflineMode) {
       _resumeWindowPolling();
@@ -1003,6 +1014,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
   }
 
   void _pauseWindowPolling() {
+    _activityRevision++;
     _windowRevision++;
     _windowAvailable = false;
     _windowKnownBackground = true;
@@ -1098,6 +1110,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
     if (_foreground == foreground) return;
     _foreground = foreground;
     if (!foreground) {
+      _activityRevision++;
       _cancelStatusTimer();
       _windowRetryTimer?.cancel();
     } else if (_desktop) {
@@ -1151,6 +1164,14 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
     }
     _methodsRequested = false;
     final attempt = ++_attempt;
+    final activityRevision = _activityRevision;
+    final canRequest = forceRefresh
+        ? null
+        : () =>
+              _isCurrentAttempt(attempt) &&
+              activityRevision == _activityRevision &&
+              _canUseNetwork;
+    var deferred = false;
     if (mounted) {
       setState(() {
         _stage = _PaymentStage.loading;
@@ -1162,7 +1183,9 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
         authService: widget.authService,
         session: widget.session,
         forceRefresh: forceRefresh,
+        canRequest: canRequest,
       );
+      ensureXboardApiRequestAllowed(canRequest);
       if (!_isCurrentAttempt(attempt)) return;
       setState(() {
         _methods = methods;
@@ -1175,7 +1198,17 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
         }
       });
     } catch (error) {
+      if (_isCurrentAttempt(attempt) &&
+          (error is XboardApiRequestDeferred || canRequest?.call() == false)) {
+        _methodsRequested = true;
+        deferred = true;
+        return;
+      }
       if (_isCurrentAttempt(attempt)) _showFailure(_messageFor(error));
+    } finally {
+      if (deferred && _isCurrentAttempt(attempt) && _canUseNetwork) {
+        unawaited(_loadPaymentMethods());
+      }
     }
   }
 
@@ -1284,6 +1317,14 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
       _resumeWindowPolling();
     }
     final attempt = _attempt;
+    final activityRevision = _activityRevision;
+    final canRequest = userInitiated
+        ? null
+        : () =>
+              _isCurrentAttempt(attempt) &&
+              activityRevision == _activityRevision &&
+              _canCheck;
+    var deferred = false;
     _cancelStatusTimer();
     setState(() => _checking = true);
     try {
@@ -1291,6 +1332,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
         endpoint: widget.session.endpoint,
         authData: widget.session.authData,
         tradeNo: tradeNo,
+        canRequest: canRequest,
       );
       if (!mounted || !_isCurrentAttempt(attempt) || _tradeNo != tradeNo) {
         return;
@@ -1303,6 +1345,10 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
       }
     } catch (error, stackTrace) {
       if (!_isCurrentAttempt(attempt)) return;
+      if (error is XboardApiRequestDeferred || canRequest?.call() == false) {
+        deferred = true;
+        return;
+      }
       if (_failures < 4) _failures++;
       commonPrint.log(
         'check XBoard payment status failed: $error, $stackTrace',
@@ -1311,7 +1357,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
     } finally {
       if (mounted && !_closed) {
         setState(() => _checking = false);
-        _scheduleStatusCheck();
+        _scheduleStatusCheck(immediately: deferred);
       }
     }
   }

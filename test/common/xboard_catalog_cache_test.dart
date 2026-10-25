@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/xboard_auth.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/common/xboard_catalog_cache.dart';
 import 'package:fl_clash/state.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -142,6 +143,113 @@ void main() {
       expect(cache.peek(session), 2);
     });
   }
+
+  test('catalog fallback belongs to all active consumers', () async {
+    final pending = Completer<int>();
+    late bool Function() aggregate;
+    var firstActive = true;
+    final first = cache.loadGuarded(session, (allowed) {
+      aggregate = allowed;
+      return pending.future;
+    }, canRequest: () => firstActive);
+    final firstError = expectLater(
+      first,
+      throwsA(isA<XboardApiRequestDeferred>()),
+    );
+    final second = cache.loadGuarded(
+      session,
+      (_) async => 99,
+      canRequest: () => true,
+    );
+    firstActive = false;
+    expect(aggregate(), isTrue);
+    pending.complete(7);
+    await firstError;
+    expect(await second, 7);
+    expect(cache.peek(session), 7);
+  });
+
+  test(
+    'all cancelled catalog consumers start a fresh resumed intent',
+    () async {
+      final pending = Completer<int>();
+      late bool Function() aggregate;
+      var active = true;
+      final first = cache.loadGuarded(session, (allowed) {
+        aggregate = allowed;
+        return pending.future;
+      }, canRequest: () => active);
+      final error = expectLater(
+        first,
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      active = false;
+      expect(aggregate(), isFalse);
+      active = true;
+      expect(aggregate(), isFalse);
+      expect(
+        await cache.loadGuarded(
+          session,
+          (_) async => 8,
+          canRequest: () => active,
+        ),
+        8,
+      );
+      pending.complete(1);
+      await error;
+      expect(cache.peek(session), 8);
+    },
+  );
+
+  test(
+    'force inherits a live normal waiter but stops its old transport',
+    () async {
+      final pending = Completer<int>();
+      final forced = Completer<int>();
+      late bool Function() oldAllowed;
+      late bool Function() forceAllowed;
+      var manualActive = true;
+      final normal = cache.loadGuarded(session, (allowed) {
+        oldAllowed = allowed;
+        return pending.future;
+      }, canRequest: () => true);
+      final manual = cache.loadGuarded(
+        session,
+        (allowed) {
+          forceAllowed = allowed;
+          return forced.future;
+        },
+        forceRefresh: true,
+        canRequest: () => manualActive,
+      );
+      final manualError = expectLater(
+        manual,
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      manualActive = false;
+      expect(oldAllowed(), isFalse);
+      expect(forceAllowed(), isTrue);
+      forced.complete(9);
+      await manualError;
+      pending.complete(1);
+      expect(await normal, 9);
+      expect(cache.peek(session), 9);
+    },
+  );
+
+  test('deferred catalog does not replace a complete older cache', () async {
+    expect(await cache.load(session, () async => 5), 5);
+    now = now.add(const Duration(seconds: 60));
+    var active = true;
+    await expectLater(
+      cache.loadGuarded(session, (allowed) async {
+        active = false;
+        throw StateError('late failure');
+      }, canRequest: () => active),
+      throwsA(isA<XboardApiRequestDeferred>()),
+    );
+    expect(await cache.load(session, () async => 6), 6);
+  });
 
   test('clock rollback does not reuse a future-dated cached value', () async {
     expect(await cache.load(session, () async => 1), 1);

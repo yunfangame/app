@@ -943,7 +943,9 @@ class XboardAuthService {
     required String authData,
     String? userToken,
     bool secureSubscription = false,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     if (secureSubscription) {
       final normalizedToken = userToken?.trim() ?? '';
       if (normalizedToken.isEmpty) {
@@ -955,7 +957,11 @@ class XboardAuthService {
       }
       try {
         final metadata = await (_subscriptionV2Client ?? SubscriptionV2Client())
-            .fetchNodes(endpoint: endpoint, userToken: normalizedToken);
+            .fetchNodes(
+              endpoint: endpoint,
+              userToken: normalizedToken,
+              canRequest: canRequest,
+            );
         return _parseNodesSuccess(endpoint, {
           'data': metadata['nodes'],
         }, rejectInvalidNodes: true);
@@ -968,6 +974,7 @@ class XboardAuthService {
       requestEndpoint,
       (requestUri) => (_nodesRequester ?? _requestNodes)(requestUri, authData),
       readOnly: true,
+      canRequest: canRequest,
     );
     requestEndpoint = routed.endpoint;
     final response = routed.response;
@@ -1001,12 +1008,15 @@ class XboardAuthService {
     required Uri endpoint,
     required String authData,
     int? planId,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     var requestEndpoint = buildXboardPlanFetchUri(endpoint, planId: planId);
     final routed = await _routeRequest(
       requestEndpoint,
       (requestUri) => (_plansRequester ?? _requestPlans)(requestUri, authData),
       readOnly: true,
+      canRequest: canRequest,
     );
     requestEndpoint = routed.endpoint;
     final response = routed.response;
@@ -1034,7 +1044,9 @@ class XboardAuthService {
   Future<List<XboardPaymentMethod>> fetchPaymentMethods({
     required Uri endpoint,
     required String authData,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     var requestEndpoint = buildXboardPaymentMethodUri(endpoint);
     final routed = await _routeRequest(
       requestEndpoint,
@@ -1043,6 +1055,7 @@ class XboardAuthService {
         authData,
       ),
       readOnly: true,
+      canRequest: canRequest,
     );
     requestEndpoint = routed.endpoint;
     final response = routed.response;
@@ -1150,7 +1163,9 @@ class XboardAuthService {
     required Uri endpoint,
     required String authData,
     required String tradeNo,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     var requestEndpoint = buildXboardOrderCheckUri(endpoint, tradeNo);
     final routed = await _routeRequest(
       requestEndpoint,
@@ -1160,6 +1175,8 @@ class XboardAuthService {
         tradeNo,
       ),
       readOnly: true,
+      canRequest: canRequest,
+      acceptInFlightSuccess: true,
     );
     requestEndpoint = routed.endpoint;
     final response = routed.response;
@@ -1186,13 +1203,16 @@ class XboardAuthService {
   Future<List<XboardOrderData>> fetchOrders({
     required Uri endpoint,
     required String authData,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     var requestEndpoint = buildXboardOrderFetchUri(endpoint);
     final routed = await _routeRequest(
       requestEndpoint,
       (requestUri) =>
           (_ordersRequester ?? _requestOrders)(requestUri, authData),
       readOnly: true,
+      canRequest: canRequest,
     );
     requestEndpoint = routed.endpoint;
     final response = routed.response;
@@ -1212,13 +1232,16 @@ class XboardAuthService {
     required Uri endpoint,
     required String authData,
     required String tradeNo,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     var requestEndpoint = buildXboardOrderDetailUri(endpoint, tradeNo);
     final routed = await _routeRequest(
       requestEndpoint,
       (requestUri) =>
           (_orderDetailRequester ?? _requestOrders)(requestUri, authData),
       readOnly: true,
+      canRequest: canRequest,
     );
     requestEndpoint = routed.endpoint;
     final response = routed.response;
@@ -1311,13 +1334,16 @@ class XboardAuthService {
   Future<XboardUserInfo> fetchUserInfo({
     required Uri endpoint,
     required String authData,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     var requestEndpoint = buildXboardUserInfoUri(endpoint);
     final routed = await _routeRequest(
       requestEndpoint,
       (requestUri) =>
           (_userInfoRequester ?? _requestUserInfo)(requestUri, authData),
       readOnly: true,
+      canRequest: canRequest,
     );
     requestEndpoint = routed.endpoint;
     final response = routed.response;
@@ -1336,13 +1362,16 @@ class XboardAuthService {
   Future<XboardLoginIpList> fetchLoginIps({
     required Uri endpoint,
     required String authData,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     var requestEndpoint = buildXboardLoginIpFetchUri(endpoint);
     final routed = await _routeRequest(
       requestEndpoint,
       (requestUri) =>
           (_loginIpFetchRequester ?? _requestLoginIps)(requestUri, authData),
       readOnly: true,
+      canRequest: canRequest,
     );
     requestEndpoint = routed.endpoint;
     final response = routed.response;
@@ -1417,7 +1446,9 @@ class XboardAuthService {
     required String authData,
     String? userToken,
     bool secureSubscription = false,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     var requestEndpoint = buildXboardSubscribeUri(endpoint);
     if (secureSubscription) {
       final normalizedToken = userToken?.trim() ?? '';
@@ -1430,7 +1461,11 @@ class XboardAuthService {
       }
       try {
         final summary = await (_subscriptionV2Client ?? SubscriptionV2Client())
-            .fetchSummary(endpoint: endpoint, userToken: normalizedToken);
+            .fetchSummary(
+              endpoint: endpoint,
+              userToken: normalizedToken,
+              canRequest: canRequest,
+            );
         return _parseSubscriptionSuccess(requestEndpoint, {'data': summary});
       } on SubscriptionV2Exception catch (error) {
         throw _mapSubscriptionV2Error(error, requestEndpoint);
@@ -1443,6 +1478,7 @@ class XboardAuthService {
         authData,
       ),
       readOnly: true,
+      canRequest: canRequest,
     );
     requestEndpoint = routed.endpoint;
     final response = routed.response;
@@ -1461,13 +1497,16 @@ class XboardAuthService {
   Future<List<XboardTrafficLog>> fetchTrafficLogs({
     required Uri endpoint,
     required String authData,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     var requestEndpoint = buildXboardTrafficLogUri(endpoint);
     final routed = await _routeRequest(
       requestEndpoint,
       (requestUri) =>
           (_trafficLogsRequester ?? _requestTrafficLogs)(requestUri, authData),
       readOnly: true,
+      canRequest: canRequest,
     );
     requestEndpoint = routed.endpoint;
     final response = routed.response;
@@ -1486,13 +1525,16 @@ class XboardAuthService {
   Future<XboardInviteSummary> fetchInviteSummary({
     required Uri endpoint,
     required String authData,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     var requestEndpoint = buildXboardInviteFetchUri(endpoint);
     final routed = await _routeRequest(
       requestEndpoint,
       (requestUri) =>
           (_inviteFetchRequester ?? _requestInvite)(requestUri, authData),
       readOnly: true,
+      canRequest: canRequest,
     );
     requestEndpoint = routed.endpoint;
     final response = routed.response;
@@ -1533,13 +1575,16 @@ class XboardAuthService {
   Future<List<XboardCommissionRecord>> fetchInviteDetails({
     required Uri endpoint,
     required String authData,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     var requestEndpoint = buildXboardInviteDetailsUri(endpoint);
     final routed = await _routeRequest(
       requestEndpoint,
       (requestUri) =>
           (_inviteDetailsRequester ?? _requestInvite)(requestUri, authData),
       readOnly: true,
+      canRequest: canRequest,
     );
     requestEndpoint = routed.endpoint;
     final response = routed.response;
@@ -2663,6 +2708,7 @@ class XboardAuthService {
     List<Uri>? candidates,
     Stopwatch? operationStopwatch,
     bool Function()? canRequest,
+    bool acceptInFlightSuccess = false,
   }) async {
     ensureXboardApiRequestAllowed(canRequest);
     final stopwatch = operationStopwatch ?? (Stopwatch()..start());
@@ -2742,7 +2788,11 @@ class XboardAuthService {
                 throw TimeoutException('API request exceeded its time budget');
               },
             );
-        ensureXboardApiRequestAllowed(canRequest);
+        if (!acceptInFlightSuccess ||
+            response.statusCode < 200 ||
+            response.statusCode >= 300) {
+          ensureXboardApiRequestAllowed(canRequest);
+        }
         final routed = _RoutedXboardResponse(
           endpoint: endpoint,
           response: response,

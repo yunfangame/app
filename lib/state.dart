@@ -20,6 +20,7 @@ import 'common/migration.dart';
 import 'common/xboard_subscription_snapshot.dart';
 import 'common/xboard_nodes_snapshot.dart';
 import 'common/xboard_tickets.dart';
+import 'common/xboard_api_request.dart';
 import 'database/database.dart';
 import 'enum/enum.dart';
 import 'l10n/l10n.dart';
@@ -133,6 +134,7 @@ class GlobalState {
     XboardAuthService service,
     XboardLoginResult session, {
     bool forceRefresh = false,
+    bool Function()? canRequest,
   }) {
     final key = XboardSubscriptionSnapshotCache.accountKey(session);
     bool isCurrent() =>
@@ -142,16 +144,19 @@ class GlobalState {
     if (!isCurrent()) {
       return Future.error(StateError('subscription_snapshot_superseded'));
     }
-    return _subscriptionSnapshots.load(
+    return _subscriptionSnapshots.loadGuarded(
       session: session,
       forceRefresh: forceRefresh,
-      loader: () async {
+      canRequest: canRequest == null ? null : () => isCurrent() && canRequest(),
+      loader: (requestAllowed) async {
         final result = await service.fetchSubscription(
           endpoint: session.endpoint,
           authData: session.authData,
           userToken: session.token,
           secureSubscription: session.secureSubscription,
+          canRequest: () => isCurrent() && requestAllowed(),
         );
+        ensureXboardApiRequestAllowed(requestAllowed);
         if (!isCurrent()) {
           throw StateError('subscription_snapshot_superseded');
         }

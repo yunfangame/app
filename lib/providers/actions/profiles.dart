@@ -196,6 +196,7 @@ class ProfilesAction extends _$ProfilesAction {
 
   bool _canAutomaticallyUpdate(Profile profile) {
     if (!profile.autoUpdate || profile.type == ProfileType.file) return false;
+    if (!_canAutomaticallyReadProfile(profile.id)) return false;
     final now = profileUpdateNow;
     final lastUpdate = profile.lastUpdateDate;
     if (lastUpdate != null &&
@@ -207,6 +208,17 @@ class ProfilesAction extends _$ProfilesAction {
         now.isBefore(failure.failedAt) ||
         !now.isBefore(failure.retryAfter);
   }
+
+  @visibleForTesting
+  bool get canAutomaticallyReadProfiles =>
+      ApiHealthService.automaticRequestsAvailable;
+
+  @visibleForTesting
+  int get automaticProfileRequestRevision =>
+      ApiHealthService.automaticRequestsRevision;
+
+  bool _canAutomaticallyReadProfile(int id) =>
+      canAutomaticallyReadProfiles || id == ref.read(currentProfileIdProvider);
 
   _ProfileUpdateScope _updateScope(Profile profile) =>
       (id: profile.id, source: profile.url, account: _accountRevision);
@@ -819,6 +831,11 @@ class ProfilesAction extends _$ProfilesAction {
             ref.read(profilesProvider.notifier).put(candidate);
           }
           operation.sourceRevision = _profileSourceRevisions[profile.id] ?? 0;
+          final requestRevision =
+              operation.automatic &&
+                  profile.id != ref.read(currentProfileIdProvider)
+              ? automaticProfileRequestRevision
+              : null;
           bool isCurrent() {
             if (!ref.mounted ||
                 scope.account != _accountRevision ||
@@ -831,6 +848,11 @@ class ProfilesAction extends _$ProfilesAction {
             }
             final current = ref.read(profilesProvider).getProfile(profile.id);
             return current != null &&
+                (!operation.automatic ||
+                    (_canAutomaticallyReadProfile(profile.id) &&
+                        (requestRevision == null ||
+                            requestRevision ==
+                                automaticProfileRequestRevision))) &&
                 current.url == candidate.url &&
                 current.lastUpdateDate == candidate.lastUpdateDate;
           }
@@ -844,6 +866,8 @@ class ProfilesAction extends _$ProfilesAction {
               forceRefresh: !operation.automatic,
             );
             _automaticFailures.remove(scope);
+          } on XboardApiRequestDeferred {
+            return;
           } catch (error) {
             if (isCurrent()) _recordAutomaticFailure(scope);
             rethrow;
@@ -1041,6 +1065,7 @@ class ProfilesAction extends _$ProfilesAction {
       session,
       forceRefresh: forceRefresh,
       requestScope: isCurrent,
+      canRequest: isCurrent,
     );
     _markSubscriptionTokenRegistration(result?.usedTokenRegistration ?? false);
     if (!isCurrent()) throw StateError('profile_sync_superseded');
@@ -1064,12 +1089,14 @@ class ProfilesAction extends _$ProfilesAction {
     XboardLoginResult session, {
     bool forceRefresh = false,
     Object? requestScope,
+    bool Function()? canRequest,
   }) => SubscriptionV2Client().fetchProfile(
     endpoint: session.endpoint,
     userToken: session.token,
     appVersion: globalState.packageInfo.version,
     forceRefresh: forceRefresh,
     requestScope: requestScope,
+    canRequest: canRequest,
   );
 
   Future<_ProfileFileSnapshot> _captureProfileFile(int profileId) async {

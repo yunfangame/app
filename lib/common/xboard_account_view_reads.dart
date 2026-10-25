@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'xboard_auth.dart';
+import 'xboard_api_request.dart';
 
 class XboardAccountViewRead<T> {
   XboardAccountViewRead({this.ttl = Duration.zero, DateTime Function()? now})
@@ -14,57 +15,110 @@ class XboardAccountViewRead<T> {
 
   final Duration ttl;
   final DateTime Function() _now;
-  Future<T>? _normal;
-  Future<T>? _forced;
+  _AccountViewRequest<T>? _normal;
+  _AccountViewRequest<T>? _forced;
   T? _value;
   DateTime? _at;
   int _revision = 0;
 
   int get revision => _revision;
 
-  Future<T> load(Future<T> Function() loader, {bool forceRefresh = false}) {
-    if (_forced != null) return _forced!;
+  Future<T> load(
+    Future<T> Function() loader, {
+    bool forceRefresh = false,
+    bool Function()? canRequest,
+  }) => loadGuarded(
+    (_) => loader(),
+    forceRefresh: forceRefresh,
+    canRequest: canRequest,
+  );
+
+  Future<T> loadGuarded(
+    Future<T> Function(bool Function() canRequest) loader, {
+    bool forceRefresh = false,
+    bool Function()? canRequest,
+  }) {
+    final forced = _forced;
+    if (forced != null && forced.consumers.aggregateAllowed) {
+      return forced.consumers.add(canRequest).wait(forced.future);
+    }
     if (!forceRefresh) {
       final at = _at;
       if (_value != null && at != null) {
         final age = _now().difference(at);
-        if (!age.isNegative && age < ttl) return Future.value(_value);
+        if (!age.isNegative && age < ttl) {
+          if (canRequest?.call() == false) {
+            return Future.error(const XboardApiRequestDeferred());
+          }
+          return Future.value(_value);
+        }
       }
-      if (_normal != null) return _normal!;
+      final normal = _normal;
+      if (normal != null && normal.consumers.aggregateAllowed) {
+        return normal.consumers.add(canRequest).wait(normal.future);
+      }
     }
-    final revision = ++_revision;
-    final request = Completer<T>();
+    final request = _AccountViewRequest<T>(_revision + 1);
+    final consumer = request.consumers.add(canRequest);
+    if (!consumer.allowed) {
+      return Future.error(const XboardApiRequestDeferred());
+    }
+    _revision = request.revision;
     if (forceRefresh) {
-      _forced = request.future;
+      if (_normal != null) {
+        request.consumers.inherit(_normal!.consumers);
+        _normal!.consumers.close();
+      }
+      _forced = request;
       _normal = null;
     } else {
-      _normal = request.future;
+      _normal = request;
     }
+    bool requestAllowed() =>
+        _revision == request.revision && request.consumers.aggregateAllowed;
     unawaited(() async {
       try {
-        final value = await loader();
-        if (_revision == revision) {
+        ensureXboardApiRequestAllowed(requestAllowed);
+        final value = await loader(requestAllowed);
+        if (_revision == request.revision) {
+          ensureXboardApiRequestAllowed(requestAllowed);
           _value = value;
           _at = _now();
         }
-        request.complete(value);
+        request.completer.complete(value);
       } catch (error, stackTrace) {
-        request.completeError(error, stackTrace);
+        request.completer.completeError(
+          error is XboardApiRequestDeferred ||
+                  !request.consumers.aggregateAllowed
+              ? const XboardApiRequestDeferred()
+              : error,
+          stackTrace,
+        );
       } finally {
-        if (identical(_normal, request.future)) _normal = null;
-        if (identical(_forced, request.future)) _forced = null;
+        if (identical(_normal, request)) _normal = null;
+        if (identical(_forced, request)) _forced = null;
       }
     }());
-    return request.future;
+    return consumer.wait(request.future);
   }
 
   void invalidate() {
     _revision++;
+    _normal?.consumers.close();
+    _forced?.consumers.close();
     _normal = null;
     _forced = null;
     _value = null;
     _at = null;
   }
+}
+
+class _AccountViewRequest<T> {
+  _AccountViewRequest(this.revision);
+  final int revision;
+  final consumers = XboardApiRequestConsumers();
+  final completer = Completer<T>();
+  Future<T> get future => completer.future;
 }
 
 mixin XboardAccountViewActivity<T extends StatefulWidget> on State<T> {
@@ -83,6 +137,7 @@ mixin XboardAccountViewActivity<T extends StatefulWidget> on State<T> {
   bool _requested = true;
   bool _queued = false;
   int _epoch = 0;
+  int _activityRevision = 0;
   int _windowRevision = 0;
   int _windowRetries = 0;
   Timer? _windowRetry;
@@ -92,6 +147,19 @@ mixin XboardAccountViewActivity<T extends StatefulWidget> on State<T> {
       ? globalState.xboardSession
       : _viewSession;
   int get accountViewEpoch => _epoch;
+  int get accountViewActivityRevision => _activityRevision;
+
+  bool Function() createAccountViewReadGuard({bool automatic = true}) {
+    final session = accountViewSession;
+    final epoch = _epoch;
+    final activity = _activityRevision;
+    return () =>
+        session != null &&
+        isCurrentAccountView(session, epoch) &&
+        (!automatic || activity == _activityRevision) &&
+        (automatic ? canReadAccountView : canUseAccountViewActions);
+  }
+
   bool get accountViewIsForeground => _foreground;
   bool get canReadAccountView => canUseAccountViewActions && _windowAvailable;
   bool get canUseAccountViewActions =>
@@ -139,6 +207,7 @@ mixin XboardAccountViewActivity<T extends StatefulWidget> on State<T> {
     final active = PageActivityScope.isActiveOf(context);
     if (_pageActive == active) return;
     _pageActive = active;
+    if (!active) _activityRevision++;
     if (active) {
       requestAccountViewRead();
       if (_desktop && !_windowAvailable) _resumeWindow();
@@ -172,12 +241,14 @@ mixin XboardAccountViewActivity<T extends StatefulWidget> on State<T> {
     }
     _viewSession = session;
     _epoch++;
+    _activityRevision++;
     onAccountViewReset();
     requestAccountViewRead();
   }
 
   void _offlineChanged() {
     _epoch++;
+    _activityRevision++;
     onAccountViewReset();
     requestAccountViewRead();
     if (globalState.isOfflineMode) {
@@ -192,6 +263,7 @@ mixin XboardAccountViewActivity<T extends StatefulWidget> on State<T> {
     final foreground = state == AppLifecycleState.resumed;
     if (_foreground == foreground) return;
     _foreground = foreground;
+    if (!foreground) _activityRevision++;
     if (!foreground) {
       _windowRevision++;
       _windowRetry?.cancel();
@@ -203,6 +275,7 @@ mixin XboardAccountViewActivity<T extends StatefulWidget> on State<T> {
   }
 
   void _pauseWindow() {
+    _activityRevision++;
     _windowRevision++;
     _windowAvailable = false;
     _windowKnownBackground = true;
@@ -235,6 +308,7 @@ mixin XboardAccountViewActivity<T extends StatefulWidget> on State<T> {
       if (!mounted || revision != _windowRevision) return;
       _windowAvailable = values[0] && !values[1] && values[2];
       _windowKnownBackground = !_windowAvailable;
+      if (!_windowAvailable) _activityRevision++;
       _windowRetries = 0;
       _scheduleRead();
     } catch (_) {
@@ -254,6 +328,7 @@ mixin XboardAccountViewActivity<T extends StatefulWidget> on State<T> {
   @override
   void dispose() {
     _epoch++;
+    _activityRevision++;
     _windowRevision++;
     _windowRetry?.cancel();
     globalState.xboardSessionRevisionNotifier.removeListener(_sessionChanged);

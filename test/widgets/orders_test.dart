@@ -362,6 +362,77 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  _ordersTest('leaving orders stops an automatic failed-origin fallback', (
+    tester,
+  ) async {
+    final pending = Completer<XboardLoginResponse>();
+    final hosts = <String>[];
+    final activity = await _mountOrders(
+      tester,
+      _testService(
+        candidates: [
+          Uri.parse('https://api.example.com'),
+          Uri.parse('https://backup.example.com'),
+        ],
+        orders: (endpoint, _) async {
+          hosts.add(endpoint.host);
+          if (hosts.length == 1) return pending.future;
+          return _ordersResponse('resumed');
+        },
+      ),
+    );
+    activity.value = false;
+    await tester.pump();
+    pending.completeError(TimeoutException('controlled outage'));
+    await _flushOrders(tester);
+    expect(hosts, ['api.example.com']);
+    activity.value = true;
+    await tester.pumpAndSettle();
+    expect(hosts, ['api.example.com', 'api.example.com']);
+    expect(find.byKey(const ValueKey('order-row-resumed')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  _ordersTest(
+    'resume cannot revive an old order read before explicit refresh',
+    (tester) async {
+      final pending = Completer<XboardLoginResponse>();
+      var requests = 0;
+      final activity = await _mountOrders(
+        tester,
+        _testService(
+          candidates: [
+            Uri.parse('https://api.example.com'),
+            Uri.parse('https://backup.example.com'),
+          ],
+          orders: (_, _) async {
+            requests++;
+            if (requests == 1) return pending.future;
+            return _ordersResponse('manual-current');
+          },
+        ),
+      );
+      activity.value = false;
+      await tester.pump();
+      activity.value = true;
+      await tester.pump();
+      final refresh = tester.widget<RefreshIndicator>(
+        find.byType(RefreshIndicator),
+      );
+      final manual = refresh.onRefresh();
+      final repeated = refresh.onRefresh();
+      pending.completeError(TimeoutException('controlled outage'));
+      await Future.wait([manual, repeated]);
+      await tester.pumpAndSettle();
+      expect(requests, 2);
+      expect(
+        find.byKey(const ValueKey('order-row-manual-current')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   _ordersTest('orders page paginates, shows details, and cancels an order', (
     tester,
   ) async {
@@ -519,12 +590,14 @@ XboardAuthService _testService({
   VoidCallback? onRequested,
   ValueChanged<String>? onAuthRequested,
   Future<XboardLoginResponse> Function(Uri, String)? orders,
+  List<Uri>? candidates,
   bool Function()? isCancelled,
   VoidCallback? onCancelled,
 }) {
   return XboardAuthService(
     requestRouter: ApiRequestRouter(),
     apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
+    endpointLoader: candidates == null ? null : () async => candidates,
     ordersRequester: (endpoint, authData) async {
       onRequested?.call();
       onAuthRequested?.call(authData);

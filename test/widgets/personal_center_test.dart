@@ -20,6 +20,93 @@ import '../support/account_view_test_scope.dart';
 import '../support/ticket_fixtures.dart';
 
 void main() {
+  accountViewReadTest(
+    'paused IP read resumes once without reloading completed user',
+    (tester) async {
+      globalState.activateXboardSession(_testSession());
+      final pending = Completer<XboardLoginResponse>();
+      late XboardLoginResponse old;
+      var users = 0;
+      final ips = _LoginIpTestState();
+      await mountAccountView(
+        tester,
+        _readPersonal(
+          _testService(
+            onUserInfoFetched: () => users++,
+            loginIpState: ips,
+            ipResponse: (call, value) {
+              if (call == 1) {
+                old = value;
+                return pending.future;
+              }
+              return Future.value(value);
+            },
+          ),
+        ),
+        (child) => _TestApp(child: child),
+      );
+      expect(users, 1);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      pending.complete(old);
+      await flushAccountReads(tester);
+      expect(ips.fetchCalls, 1);
+      expect(find.byKey(const ValueKey('login-ip-error-state')), findsNothing);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(users, 1);
+      expect(ips.fetchCalls, 2);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  accountViewReadTest(
+    'personal ticket entry leaves and resumes one automatic intent',
+    (tester) async {
+      globalState.activateXboardSession(_testSession());
+      final pending = Completer<Object?>();
+      final fixture = TicketFixture();
+      var fetches = 0;
+      late Object? old;
+      final tickets = XboardTicketController(
+        api: XboardTicketApi(
+          requester: (uri, auth, body) async {
+            if (uri.path.endsWith('/fetch')) {
+              fetches++;
+              if (fetches == 1) {
+                old = await fixture.request(uri, auth, body);
+                return pending.future;
+              }
+            }
+            return fixture.request(uri, auth, body);
+          },
+        ),
+      );
+      addTearDown(tickets.dispose);
+      final activity = await mountAccountView(
+        tester,
+        FengWoPersonalCenterView(
+          authService: _testService(),
+          ticketController: tickets,
+        ),
+        (child) => _TestApp(child: child),
+      );
+      expect(fetches, 1);
+      activity.value = false;
+      await tester.pump();
+      pending.complete(old);
+      await flushAccountReads(tester);
+      expect(tickets.tickets, isEmpty);
+      expect(tickets.failed, isFalse);
+      activity.value = true;
+      await tester.pumpAndSettle();
+      expect(fetches, 2);
+      expect(tickets.tickets, hasLength(1));
+      await tester.pump(const Duration(minutes: 6));
+      expect(fetches, 2);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   accountViewReadTest('account reads wait for active foreground and online', (
     tester,
   ) async {
@@ -61,7 +148,7 @@ void main() {
     expect(accountViewWindowCalls, 0);
   });
 
-  accountViewReadTest('repeated entry shares in-flight account reads', (
+  accountViewReadTest('repeated entry replaces paused account reads', (
     tester,
   ) async {
     globalState.activateXboardSession(_testSession());
@@ -93,8 +180,8 @@ void main() {
     await tester.pump();
     activity.value = true;
     await flushAccountReads(tester);
-    expect(users, 1);
-    expect(ips.fetchCalls, 1);
+    expect(users, 2);
+    expect(ips.fetchCalls, 2);
     user.complete(userValue);
     ip.complete(ipValue);
     await tester.pumpAndSettle();

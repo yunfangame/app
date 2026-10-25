@@ -14,6 +14,7 @@ import 'api_health.dart';
 import 'api_network_diagnostic.dart';
 import 'api_request_router.dart';
 import 'local_secret_store.dart';
+import 'xboard_api_request.dart';
 
 const _subscriptionV2Version = 1;
 const _deviceSeedKey = 'subscription_v2.device_seed';
@@ -265,10 +266,9 @@ class SubscriptionV2Client {
   final Duration _operationTimeout;
   final ApiRequestRouter _requestRouter;
   final bool _shareProfileRequests;
-  final _pendingProfiles =
-      <(String, Object?), Future<SubscriptionV2Profile?>>{};
+  final _pendingProfiles = <(String, Object?), _PendingSubscriptionV2Profile>{};
   static final _sharedPendingProfiles =
-      <(String, Object?), Future<SubscriptionV2Profile?>>{};
+      <(String, Object?), _PendingSubscriptionV2Profile>{};
 
   Future<T> _mutateCredential<T>(String key, Future<T> Function() mutation) {
     final scope = (_credentialStoreScope, key);
@@ -300,14 +300,17 @@ class SubscriptionV2Client {
 
   Future<bool> _deleteCredentialIfCurrent(
     String key,
-    _SubscriptionV2Credential? credential,
-  ) => _mutateCredential(key, () async {
+    _SubscriptionV2Credential? credential, {
+    _SubscriptionV2RequestScope? requestScope,
+  }) => _mutateCredential(key, () async {
+    requestScope?.ensureActive();
     if (credential == null) return false;
     final scope = (_credentialStoreScope, key);
     if (credential.storeRevision != (_credentialRevisions[scope] ?? 0)) {
       return false;
     }
     final stored = await _valueStore.read(key);
+    requestScope?.ensureActive();
     if (stored == null ||
         canonicalSubscriptionV2Json(jsonDecode(stored)) !=
             canonicalSubscriptionV2Json(credential.toJson())) {
@@ -365,8 +368,11 @@ class SubscriptionV2Client {
     bool allowTokenRegistration = true,
     bool forceRefresh = false,
     Object? requestScope,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     final config = await _loadSubscriptionV2Config('config_read');
+    ensureXboardApiRequestAllowed(canRequest);
     final gateways = _gatewayCandidates(endpoint, config);
     final trustedGateways =
         config.trustedGateways.map((gateway) => gateway.toString()).toList()
@@ -396,13 +402,20 @@ class SubscriptionV2Client {
         ? _sharedPendingProfiles
         : _pendingProfiles;
     final existing = pending[requestKey];
-    if (existing != null) return existing;
+    if (existing != null && existing.canRequest()) {
+      existing.consumers.add(canRequest);
+      final profile = await existing.future;
+      ensureXboardApiRequestAllowed(canRequest);
+      return profile;
+    }
+    final operation = _PendingSubscriptionV2Profile(canRequest);
     late _SubscriptionV2Identity identity;
     _SubscriptionV2Credential? credential;
     var usedTokenRegistration = false;
     final future =
         _withGatewayFailover<SubscriptionV2Profile?>(
           gateways: gateways,
+          canRequest: operation.canRequest,
           prepare: (scope) async {
             identity = await _loadIdentity(scope: scope);
             credential = await _loadCredential(
@@ -444,11 +457,14 @@ class SubscriptionV2Client {
                   usedTokenRegistration: usedTokenRegistration,
                 ),
         );
-    pending[requestKey] = future;
+    operation.future = future;
+    pending[requestKey] = operation;
     try {
-      return await future;
+      final profile = await future;
+      ensureXboardApiRequestAllowed(canRequest);
+      return profile;
     } finally {
-      if (identical(pending[requestKey], future)) pending.remove(requestKey);
+      if (identical(pending[requestKey], operation)) pending.remove(requestKey);
     }
   }
 
@@ -499,6 +515,7 @@ class SubscriptionV2Client {
       final removed = await _deleteCredentialIfCurrent(
         credentialKey,
         credential,
+        requestScope: scope,
       );
       if (!allowTokenRegistration) rethrow;
       if (!removed && credential != null) {
@@ -648,22 +665,26 @@ class SubscriptionV2Client {
   Future<Map<String, Object?>> fetchSummary({
     required Uri endpoint,
     required String userToken,
+    bool Function()? canRequest,
   }) {
     return _sendWithStoredCredential(
       endpoint: endpoint,
       userToken: userToken,
       operation: 'get_summary',
+      canRequest: canRequest,
     );
   }
 
   Future<Map<String, Object?>> fetchNodes({
     required Uri endpoint,
     required String userToken,
+    bool Function()? canRequest,
   }) {
     return _sendWithStoredCredential(
       endpoint: endpoint,
       userToken: userToken,
       operation: 'get_nodes',
+      canRequest: canRequest,
     );
   }
 
@@ -685,10 +706,13 @@ class SubscriptionV2Client {
     required Uri endpoint,
     required String userToken,
     required String operation,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     final config = parseSubscriptionV2RemoteConfig(
       await _apiHealthService.loadConfig(),
     );
+    ensureXboardApiRequestAllowed(canRequest);
     if (config == null) {
       throw const SubscriptionV2Exception('secure_config_disabled');
     }
@@ -697,6 +721,7 @@ class SubscriptionV2Client {
     late _SubscriptionV2Identity identity;
     return _withGatewayFailover<Map<String, Object?>>(
       gateways: gateways,
+      canRequest: canRequest,
       prepare: (scope) async {
         final loaded = await _loadCredential(
           _credentialKey(userToken),
@@ -860,14 +885,13 @@ class SubscriptionV2Client {
       try {
         scope?.ensureActive();
         final requester = _requester;
+        final timeout = _requestTimeout(scope);
         response = requester == null
             ? await _request(gateway, envelope, scope: scope)
-            : await requester(
-                gateway,
-                envelope,
-              ).timeout(_requestTimeout(scope));
+            : await requester(gateway, envelope).timeout(timeout);
         scope?.ensureActive();
       } on SubscriptionV2Exception catch (error) {
+        scope?.ensureActive();
         _recordGatewayFailure(
           config,
           gateway,
@@ -877,6 +901,7 @@ class SubscriptionV2Client {
         );
         throw error.withRequestRef(requestRef);
       } on TimeoutException catch (error) {
+        scope?.ensureActive();
         final failure = SubscriptionV2Exception(
           'gateway_unavailable',
           requestRef: requestRef,
@@ -924,6 +949,8 @@ class SubscriptionV2Client {
             endpoint: gateway,
           ),
         );
+      } on XboardApiRequestDeferred {
+        rethrow;
       } catch (_) {
         throw SubscriptionV2Exception(
           'invalid_response_payload',
@@ -1069,6 +1096,7 @@ class SubscriptionV2Client {
     final cancelToken = CancelToken();
     scope?.add(cancelToken);
     try {
+      final timeout = _requestTimeout(scope);
       final response = await _dio
           .postUri<Object?>(
             endpoint,
@@ -1083,7 +1111,7 @@ class SubscriptionV2Client {
             cancelToken: cancelToken,
           )
           .timeout(
-            _requestTimeout(scope),
+            timeout,
             onTimeout: () {
               cancelToken.cancel('Secure gateway request deadline');
               throw TimeoutException('Secure gateway request deadline');
@@ -1110,9 +1138,13 @@ class SubscriptionV2Client {
       return (response.data as Map).map(
         (key, value) => MapEntry(key.toString(), value),
       );
+    } on XboardApiRequestDeferred {
+      rethrow;
     } on SubscriptionV2Exception {
+      scope?.ensureActive();
       rethrow;
     } catch (error) {
+      scope?.ensureActive();
       diagnostic = classifyApiNetworkFailure(
         error,
         stage: 'secure_gateway',
@@ -1304,6 +1336,9 @@ class SubscriptionV2Client {
         contentBytes: _estimatedByteLength(response),
       );
       return response;
+    } on XboardApiRequestDeferred {
+      _recordSubscriptionV2Stage('${stage}_deferred');
+      rethrow;
     } on SubscriptionV2Exception catch (error) {
       _recordSubscriptionV2Stage('${stage}_failed', errorCode: error.code);
       rethrow;
@@ -1473,12 +1508,17 @@ class SubscriptionV2Client {
     required Future<T> Function(Uri gateway, _SubscriptionV2RequestScope scope)
     operation,
     bool allowRetry = true,
+    bool Function()? canRequest,
   }) async {
-    final scope = _SubscriptionV2RequestScope(_operationTimeout);
+    final scope = _SubscriptionV2RequestScope(
+      _operationTimeout,
+      canRequest: canRequest,
+    );
     var activeGateway = gateways.first;
     final attempted = <Uri>{};
     SubscriptionV2Exception? previousFailure;
     Future<T> run() async {
+      scope.ensureActive();
       await prepare(scope);
       scope.ensureActive();
       for (var index = 0; index < gateways.length; index++) {
@@ -1503,6 +1543,7 @@ class SubscriptionV2Client {
           scope.ensureActive();
           return result;
         } on SubscriptionV2Exception catch (error) {
+          scope.ensureActive();
           if (!allowRetry ||
               !scope.allowGatewayFallback ||
               !_canRetryGateway(error) ||
@@ -1652,9 +1693,10 @@ int _requiredInt(Map<String, Object?> data, String key) {
 }
 
 class _SubscriptionV2RequestScope {
-  _SubscriptionV2RequestScope(this.timeout);
+  _SubscriptionV2RequestScope(this.timeout, {this.canRequest});
 
   final Duration timeout;
+  final bool Function()? canRequest;
   final _stopwatch = Stopwatch()..start();
   final _tokens = <CancelToken>{};
   bool _active = true;
@@ -1671,6 +1713,7 @@ class _SubscriptionV2RequestScope {
   }
 
   void ensureActive() {
+    ensureXboardApiRequestAllowed(canRequest);
     if (!isActive) {
       throw TimeoutException('Secure gateway operation deadline');
     }
@@ -1690,6 +1733,22 @@ class _SubscriptionV2RequestScope {
       token.cancel('Secure gateway operation deadline');
     }
     _tokens.clear();
+  }
+}
+
+class _PendingSubscriptionV2Profile {
+  _PendingSubscriptionV2Profile(bool Function()? canRequest)
+    : consumers = [canRequest];
+
+  final List<bool Function()?> consumers;
+  late final Future<SubscriptionV2Profile?> future;
+  bool _active = true;
+
+  bool canRequest() {
+    if (!_active) return false;
+    final available = consumers.any((consumer) => consumer?.call() != false);
+    if (!available) _active = false;
+    return available;
   }
 }
 

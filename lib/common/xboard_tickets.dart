@@ -200,6 +200,7 @@ class XboardTicketController extends ChangeNotifier {
   int _pollFailures = 0;
   int _dataRevision = 0;
   Future<bool?>? _listOperation;
+  XboardApiRequestConsumers? _listConsumers;
   int? _listRequestStatus;
   int? _listRequestDataRevision;
   bool _listRequestMore = false;
@@ -465,6 +466,8 @@ class XboardTicketController extends ChangeNotifier {
     _offline = offline;
     _summaryOperation = null;
     _listOperation = null;
+    _listConsumers?.close();
+    _listConsumers = null;
     _pollOperation = null;
     _pollFailures = 0;
     _pollTimer?.cancel();
@@ -535,11 +538,22 @@ class XboardTicketController extends ChangeNotifier {
     });
   }
 
-  Future<void> refresh({int? filter, bool more = false}) async {
-    await _refreshList(filter: filter, more: more);
+  Future<void> refresh({
+    int? filter,
+    bool more = false,
+    bool Function()? canRequest,
+  }) async {
+    ensureXboardApiRequestAllowed(canRequest);
+    await _refreshList(filter: filter, more: more, canRequest: canRequest);
+    ensureXboardApiRequestAllowed(canRequest);
   }
 
-  Future<bool?> _refreshList({int? filter, bool more = false}) {
+  Future<bool?> _refreshList({
+    int? filter,
+    bool more = false,
+    bool automatic = false,
+    bool Function()? canRequest,
+  }) {
     final session = _session;
     if (session == null ||
         _offline ||
@@ -549,12 +563,28 @@ class XboardTicketController extends ChangeNotifier {
       return Future.value();
     }
     final requestedStatus = filter ?? status;
+    final generation = _generation;
+    final activity = _activityRevision;
+    final callerGuard = automatic || canRequest != null
+        ? () =>
+              !_disposed &&
+              !_offline &&
+              _foreground &&
+              generation == _generation &&
+              activity == _activityRevision &&
+              (!automatic || _canPoll) &&
+              canRequest?.call() != false
+        : null;
+    if (callerGuard?.call() == false) {
+      return Future.error(const XboardApiRequestDeferred());
+    }
     if (!more &&
         _listOperation != null &&
         !_listRequestMore &&
         _listRequestStatus == requestedStatus &&
-        _listRequestDataRevision == _dataRevision) {
-      return _listOperation!;
+        _listRequestDataRevision == _dataRevision &&
+        _listConsumers?.aggregateAllowed == true) {
+      return _listConsumers!.add(callerGuard).wait(_listOperation!);
     }
     if (filter != null && filter != status) {
       status = filter;
@@ -562,13 +592,18 @@ class XboardTicketController extends ChangeNotifier {
       page = 0;
       hasMore = false;
     }
-    final generation = _generation;
     final revision = ++_listRevision;
     final summaryRevision = ++_summaryRevision;
     final nextPage = more ? page + 1 : 1;
     loading = true;
     failed = false;
     notifyListeners();
+    final consumers = XboardApiRequestConsumers();
+    final consumer = consumers.add(callerGuard);
+    bool requestAllowed() =>
+        generation == _generation &&
+        revision == _listRevision &&
+        consumers.aggregateAllowed;
     final request = () async {
       try {
         final data =
@@ -576,8 +611,10 @@ class XboardTicketController extends ChangeNotifier {
                   session,
                   'ticket-sync/fetch',
                   query: {'status': status, 'page': nextPage, 'limit': 30},
+                  canRequest: requestAllowed,
                 )
                 as Map;
+        ensureXboardApiRequestAllowed(requestAllowed);
         if (_disposed ||
             generation != _generation ||
             revision != _listRevision) {
@@ -598,6 +635,8 @@ class XboardTicketController extends ChangeNotifier {
         page = nextPage;
         if (summaryRevision == _summaryRevision) _summary(data);
         return true;
+      } on XboardApiRequestDeferred {
+        return null;
       } catch (_) {
         if (!_disposed &&
             generation == _generation &&
@@ -619,10 +658,13 @@ class XboardTicketController extends ChangeNotifier {
     _listRequestStatus = requestedStatus;
     _listRequestDataRevision = _dataRevision;
     _listRequestMore = more;
+    _listConsumers = consumers;
     _listOperation = operation;
-    return operation.whenComplete(() {
+    final result = operation.whenComplete(() {
+      consumers.close();
       if (identical(_listOperation, operation)) _listOperation = null;
     });
+    return consumer.wait(result);
   }
 
   Future<XboardTicketDetail> detail(
@@ -635,19 +677,21 @@ class XboardTicketController extends ChangeNotifier {
     }
     final generation = _generation;
     final activity = _activityRevision;
+    final requestAllowed = canRequest == null
+        ? null
+        : () =>
+              generation == _generation &&
+              activity == _activityRevision &&
+              isCurrent(session) &&
+              _canPollDetails &&
+              canRequest();
     final data = await api.request(
       session,
       'ticket-sync/detail',
       query: {'id': id},
-      canRequest: canRequest == null
-          ? null
-          : () =>
-                generation == _generation &&
-                activity == _activityRevision &&
-                isCurrent(session) &&
-                _canPollDetails &&
-                canRequest(),
+      canRequest: requestAllowed,
     );
+    ensureXboardApiRequestAllowed(requestAllowed);
     if (generation != _generation || !isCurrent(session)) {
       throw StateError('Session changed');
     }

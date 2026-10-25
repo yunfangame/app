@@ -16,6 +16,62 @@ void ensureXboardApiRequestAllowed(bool Function()? canRequest) {
   if (canRequest?.call() == false) throw const XboardApiRequestDeferred();
 }
 
+class XboardApiRequestConsumers {
+  final _consumers = <XboardApiRequestConsumer>[];
+  bool _closed = false;
+
+  bool get isClosed => _closed;
+
+  bool get aggregateAllowed {
+    if (_closed) return false;
+    if (_consumers.any((consumer) => consumer.allowed)) return true;
+    _closed = true;
+    return false;
+  }
+
+  XboardApiRequestConsumer add(bool Function()? canRequest) {
+    final consumer = XboardApiRequestConsumer._(canRequest);
+    _consumers.add(consumer);
+    return consumer;
+  }
+
+  void inherit(XboardApiRequestConsumers other) {
+    _consumers.addAll(other._consumers.where((consumer) => consumer.allowed));
+  }
+
+  void close() => _closed = true;
+}
+
+class XboardApiRequestConsumer {
+  XboardApiRequestConsumer._(this._canRequest);
+
+  final bool Function()? _canRequest;
+  bool _allowed = true;
+
+  bool get allowed {
+    if (_allowed && _canRequest?.call() == false) _allowed = false;
+    return _allowed;
+  }
+
+  Future<T> wait<T>(Future<T> future) =>
+      _canRequest == null ? future : _wait(future);
+
+  Future<T> _wait<T>(Future<T> future) async {
+    if (!allowed) {
+      future.ignore();
+      throw const XboardApiRequestDeferred();
+    }
+    try {
+      final value = await future;
+      ensureXboardApiRequestAllowed(() => allowed);
+      return value;
+    } catch (_) {
+      ensureXboardApiRequestAllowed(() => allowed);
+      rethrow;
+    }
+  }
+}
+
 class XboardApiRequestExecutor {
   XboardApiRequestExecutor({
     ApiHealthService? apiHealthService,

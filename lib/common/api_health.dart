@@ -157,15 +157,18 @@ class ApiRemoteConfigActivity extends ChangeNotifier {
   bool _offline = false;
   bool _networkAvailable = true;
   int _networkRevision = 0;
+  int _requestRevision = 0;
   final Map<Object, void Function()> _pending = {};
 
   bool get isForeground => _appForeground && _windowForeground;
   bool get isAvailable => isForeground && !_offline && _networkAvailable;
   int get networkRevision => _networkRevision;
+  int get requestRevision => _requestRevision;
 
   void setAppForeground(bool value) {
     final before = isAvailable;
     _appForeground = value;
+    if (before && !isAvailable) _requestRevision++;
     _resume();
     if (before != isAvailable) notifyListeners();
   }
@@ -173,6 +176,7 @@ class ApiRemoteConfigActivity extends ChangeNotifier {
   void setWindowForeground(bool value) {
     final before = isAvailable;
     _windowForeground = value;
+    if (before && !isAvailable) _requestRevision++;
     _resume();
     if (before != isAvailable) notifyListeners();
   }
@@ -180,12 +184,15 @@ class ApiRemoteConfigActivity extends ChangeNotifier {
   void setOffline(bool value) {
     final before = isAvailable;
     _offline = value;
+    if (before && !isAvailable) _requestRevision++;
     _resume();
     if (before != isAvailable) notifyListeners();
   }
 
   void networkChanged({bool available = true}) {
+    final before = isAvailable;
     _networkAvailable = available;
+    if (before && !isAvailable) _requestRevision++;
     _networkRevision++;
     _resume();
     notifyListeners();
@@ -348,6 +355,7 @@ class ApiHealthService {
       _sharedActivity.setWindowForeground(foreground);
 
   static bool get automaticRequestsAvailable => _sharedActivity.isAvailable;
+  static int get automaticRequestsRevision => _sharedActivity.requestRevision;
 
   static void setOffline(bool offline) => _sharedActivity.setOffline(offline);
 
