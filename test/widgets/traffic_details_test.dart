@@ -9,8 +9,183 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/api_health_fixture.dart';
+import '../support/account_view_test_scope.dart';
 
 void main() {
+  accountViewReadTest(
+    'traffic reuses automatic logs but manual refresh stays fresh',
+    (tester) async {
+      globalState.activateXboardSession(
+        _testSession(),
+        subscriptionFresh: true,
+      );
+      var logs = 0;
+      var summaries = 0;
+      final activity = await mountAccountView(
+        tester,
+        FengWoTrafficDetailsView(
+          authService: _testService(
+            onTrafficRequested: () => logs++,
+            onSubscriptionRequested: () => summaries++,
+          ),
+        ),
+        (child) => _TestApp(child: child),
+        size: const Size(390, 844),
+      );
+      expect(logs, 1);
+      activity.value = false;
+      await tester.pump();
+      activity.value = true;
+      await tester.pumpAndSettle();
+      expect(logs, 1);
+      expect(summaries, 0);
+      await tester
+          .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+          .onRefresh();
+      await tester.pumpAndSettle();
+      expect(logs, 2);
+      expect(summaries, 1);
+      expect(globalState.xboardSubscription?.remainingGb, 1400);
+      activity.value = false;
+      await tester.pump();
+      activity.value = true;
+      await tester.pumpAndSettle();
+      expect(logs, 2);
+      expect(summaries, 1);
+      expect(accountViewWindowCalls, 0);
+    },
+  );
+
+  accountViewReadTest(
+    'traffic initial reads wait for page and app availability',
+    (tester) async {
+      globalState.activateXboardSession(_testSession());
+      var logs = 0;
+      final activity = await mountAccountView(
+        tester,
+        FengWoTrafficDetailsView(
+          authService: _testService(onTrafficRequested: () => logs++),
+        ),
+        (child) => _TestApp(child: child),
+        active: false,
+      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      activity.value = true;
+      await tester.pump(const Duration(hours: 1));
+      expect(logs, 0);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(logs, 1);
+      expect(accountViewWindowCalls, 0);
+    },
+  );
+
+  accountViewReadTest(
+    'manual traffic refresh supersedes its initial in-flight logs',
+    (tester) async {
+      globalState.activateXboardSession(_testSession());
+      final pending = Completer<XboardLoginResponse>();
+      late XboardLoginResponse old;
+      var logs = 0;
+      var summaries = 0;
+      await mountAccountView(
+        tester,
+        FengWoTrafficDetailsView(
+          authService: _testService(
+            onTrafficRequested: () => logs++,
+            onSubscriptionRequested: () => summaries++,
+            logsResponse: (call, value) {
+              if (call == 1) {
+                old = value;
+                return pending.future;
+              }
+              return Future.value(
+                const XboardLoginResponse(statusCode: 200, data: {'data': []}),
+              );
+            },
+          ),
+        ),
+        (child) => _TestApp(child: child),
+      );
+      await tester
+          .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+          .onRefresh();
+      expect(logs, 2);
+      expect(summaries, 1);
+      pending.complete(old);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('traffic-record-0')), findsNothing);
+      expect(globalState.xboardSubscription?.remainingGb, 1400);
+    },
+  );
+
+  accountViewReadTest(
+    'offline clears traffic reuse and rejects a prior reply',
+    (tester) async {
+      globalState.activateXboardSession(_testSession());
+      final pending = Completer<XboardLoginResponse>();
+      late XboardLoginResponse old;
+      var logs = 0;
+      await mountAccountView(
+        tester,
+        FengWoTrafficDetailsView(
+          authService: _testService(
+            onTrafficRequested: () => logs++,
+            logsResponse: (call, value) {
+              if (call == 1) {
+                old = value;
+                return pending.future;
+              }
+              return Future.value(
+                const XboardLoginResponse(statusCode: 200, data: {'data': []}),
+              );
+            },
+          ),
+        ),
+        (child) => _TestApp(child: child),
+      );
+      globalState.setOfflineMode(true);
+      await tester.pump(const Duration(minutes: 10));
+      expect(logs, 1);
+      globalState.setOfflineMode(false);
+      await flushAccountReads(tester);
+      expect(logs, 2);
+      pending.complete(old);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('traffic-record-0')), findsNothing);
+    },
+  );
+
+  accountViewReadTest(
+    'disposing traffic reads prevents future lifecycle work',
+    (tester) async {
+      globalState.activateXboardSession(_testSession());
+      final pending = Completer<XboardLoginResponse>();
+      late XboardLoginResponse old;
+      var logs = 0;
+      await mountAccountView(
+        tester,
+        FengWoTrafficDetailsView(
+          authService: _testService(
+            onTrafficRequested: () => logs++,
+            logsResponse: (_, value) {
+              old = value;
+              return pending.future;
+            },
+          ),
+        ),
+        (child) => _TestApp(child: child),
+      );
+      await tester.pumpWidget(const SizedBox());
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      pending.complete(old);
+      await tester.pumpAndSettle();
+      expect(logs, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   for (final relogin in [false, true]) {
     testWidgets(
       'late traffic refresh cannot replace a newer session ($relogin)',
@@ -180,10 +355,13 @@ class _DelayedTrafficAuth extends XboardAuthService {
 XboardAuthService _testService({
   VoidCallback? onTrafficRequested,
   VoidCallback? onSubscriptionRequested,
+  Future<XboardLoginResponse> Function(int, XboardLoginResponse)? logsResponse,
 }) {
+  var logs = 0;
   return XboardAuthService(
     apiHealthService: ApiHealthFixture(Uri.parse('https://api.example.com')),
     trafficLogsRequester: (endpoint, authData) async {
+      logs++;
       onTrafficRequested?.call();
       final today = DateTime.now();
       final recordAt =
@@ -194,7 +372,7 @@ XboardAuthService _testService({
             12,
           ).millisecondsSinceEpoch ~/
           1000;
-      return XboardLoginResponse(
+      final response = XboardLoginResponse(
         statusCode: 200,
         data: {
           'data': [
@@ -213,6 +391,7 @@ XboardAuthService _testService({
           ],
         },
       );
+      return logsResponse?.call(logs, response) ?? response;
     },
     subscriptionRequester: (endpoint, authData) async {
       onSubscriptionRequested?.call();

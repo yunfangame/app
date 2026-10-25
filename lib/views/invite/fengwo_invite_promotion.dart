@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_account_view_reads.dart';
 import 'package:fl_clash/common/invite_link.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/offline_mode_panel.dart';
+import 'package:fl_clash/widgets/inherited.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -22,14 +26,20 @@ class FengWoInvitePromotionView extends StatefulWidget {
       _FengWoInvitePromotionViewState();
 }
 
-class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView> {
+class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView>
+    with XboardAccountViewActivity<FengWoInvitePromotionView> {
   final _inviteCodesMeasureKey = GlobalKey();
   final _commissionScrollController = ScrollController();
   late final XboardAuthService _authService;
+  final _summaryRead = XboardAccountViewRead<XboardInviteSummary>();
+  final _detailsRead = XboardAccountViewRead<List<XboardCommissionRecord>>();
+  int _loadRevision = 0;
+  bool? _summaryOnlyOnResume;
+  bool? _wasPageActive;
   XboardInviteSummary? _summary;
   List<XboardCommissionRecord> _records = const [];
   double? _desktopPanelsHeight;
-  bool _loading = true;
+  bool _loading = false;
   bool _failed = false;
   bool _generating = false;
   bool _transferring = false;
@@ -46,78 +56,155 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView> {
   void initState() {
     super.initState();
     _authService = widget.authService ?? XboardAuthService();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
   }
 
-  Future<void> _loadData() async {
-    if (globalState.isOfflineMode) {
-      if (mounted) setState(() => _loading = false);
-      return;
-    }
-    final session = globalState.xboardSession;
-    if (session == null) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _failed = true;
-      });
-      return;
-    }
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final active = PageActivityScope.isActiveOf(context);
+    if (_wasPageActive == false && active) _summaryOnlyOnResume = false;
+    _wasPageActive = active;
+  }
+
+  @override
+  void onAccountViewReady() {
+    final summaryOnly = _summaryOnlyOnResume ?? false;
+    _summaryOnlyOnResume = null;
+    unawaited(_loadData(forceRefresh: false, summaryOnly: summaryOnly));
+  }
+
+  @override
+  void onAccountViewReset() {
+    _summaryRead.invalidate();
+    _detailsRead.invalidate();
+    _loadRevision++;
+    _summaryOnlyOnResume = null;
     setState(() {
-      _loading = true;
+      _summary = null;
+      _records = const [];
+      _loading = false;
+      _failed = false;
+      _generating = false;
+      _transferring = false;
+      _submittingWithdrawal = false;
+      _copyingInviteCode = null;
+    });
+  }
+
+  Future<void> _loadData({
+    bool forceRefresh = true,
+    bool summaryOnly = false,
+  }) async {
+    if (!(forceRefresh ? canUseAccountViewActions : canReadAccountView)) return;
+    final session = accountViewSession!;
+    final epoch = accountViewEpoch;
+    final loadRevision = ++_loadRevision;
+    setState(() {
+      _loading = _summary == null;
       _failed = false;
     });
+    await Future.wait([
+      _loadSummary(session, epoch, forceRefresh: forceRefresh),
+      if (!summaryOnly)
+        _loadDetails(session, epoch, forceRefresh: forceRefresh),
+    ]);
+    if (isCurrentAccountView(session, epoch) && loadRevision == _loadRevision) {
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadSummary(
+    XboardLoginResult session,
+    int epoch, {
+    required bool forceRefresh,
+  }) async {
+    final request = _summaryRead.load(
+      () => _authService.fetchInviteSummary(
+        endpoint: session.endpoint,
+        authData: session.authData,
+      ),
+      forceRefresh: forceRefresh,
+    );
+    final revision = _summaryRead.revision;
+    bool current() =>
+        isCurrentAccountView(session, epoch) &&
+        revision == _summaryRead.revision;
     try {
-      final results = await Future.wait<Object>([
-        _authService.fetchInviteSummary(
-          endpoint: session.endpoint,
-          authData: session.authData,
-        ),
-        _authService.fetchInviteDetails(
-          endpoint: session.endpoint,
-          authData: session.authData,
-        ),
-      ]);
-      if (!mounted) return;
-      setState(() {
-        _summary = results[0] as XboardInviteSummary;
-        _records = results[1] as List<XboardCommissionRecord>;
-      });
+      final summary = await request;
+      if (current()) setState(() => _summary = summary);
     } catch (error, stackTrace) {
       commonPrint.log(
-        'load XBoard invite data failed: $error, $stackTrace',
+        'load XBoard invite summary failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
-      if (mounted) setState(() => _failed = true);
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      if (current()) setState(() => _failed = true);
+    }
+  }
+
+  Future<void> _loadDetails(
+    XboardLoginResult session,
+    int epoch, {
+    required bool forceRefresh,
+  }) async {
+    final request = _detailsRead.load(
+      () => _authService.fetchInviteDetails(
+        endpoint: session.endpoint,
+        authData: session.authData,
+      ),
+      forceRefresh: forceRefresh,
+    );
+    final revision = _detailsRead.revision;
+    bool current() =>
+        isCurrentAccountView(session, epoch) &&
+        revision == _detailsRead.revision;
+    try {
+      final records = await request;
+      if (current()) setState(() => _records = records);
+    } catch (error, stackTrace) {
+      commonPrint.log(
+        'load XBoard invite details failed: $error, $stackTrace',
+        logLevel: LogLevel.warning,
+      );
+      if (current()) setState(() => _failed = true);
     }
   }
 
   Future<void> _generateInviteCode() async {
-    final session = globalState.xboardSession;
-    if (session == null || _generating) return;
+    if (!canUseAccountViewActions || _generating) return;
+    final session = accountViewSession!;
+    final epoch = accountViewEpoch;
     setState(() => _generating = true);
     try {
       await _authService.generateInviteCode(
         endpoint: session.endpoint,
         authData: session.authData,
       );
-      await _loadData();
-      if (mounted) {
+      if (!mounted || !isCurrentAccountView(session, epoch)) return;
+      _summaryRead.invalidate();
+      if (!canUseAccountViewActions) {
+        _summaryOnlyOnResume ??= true;
+        requestAccountViewRead();
+      }
+      await _loadData(summaryOnly: true);
+      if (mounted && isCurrentAccountView(session, epoch)) {
         _showMessage(context.appLocalizations.inviteCodeGenerated);
       }
     } catch (error) {
-      if (mounted) _showMessage(_errorMessage(error), isError: true);
+      if (mounted && isCurrentAccountView(session, epoch)) {
+        _showMessage(_errorMessage(error), isError: true);
+      }
     } finally {
-      if (mounted) setState(() => _generating = false);
+      if (isCurrentAccountView(session, epoch)) {
+        setState(() => _generating = false);
+      }
     }
   }
 
   Future<void> _transferCommission() async {
-    final session = globalState.xboardSession;
+    if (!canUseAccountViewActions || _transferring) return;
+    final session = accountViewSession!;
+    final epoch = accountViewEpoch;
     final available = _summary?.availableCommission ?? 0;
-    if (session == null || _transferring) return;
     if (available <= 0) {
       _showMessage(context.appLocalizations.availableCommissionEmpty);
       return;
@@ -144,7 +231,12 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true ||
+        !mounted ||
+        !isCurrentAccountView(session, epoch) ||
+        !canUseAccountViewActions) {
+      return;
+    }
     setState(() => _transferring = true);
     try {
       await _authService.transferCommission(
@@ -152,44 +244,60 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView> {
         authData: session.authData,
         amount: available,
       );
+      if (!mounted || !isCurrentAccountView(session, epoch)) return;
+      _summaryRead.invalidate();
+      _detailsRead.invalidate();
+      _summaryOnlyOnResume = false;
+      if (!canUseAccountViewActions) requestAccountViewRead();
       await _loadData();
-      if (mounted) {
+      if (mounted && isCurrentAccountView(session, epoch)) {
         _showMessage(context.appLocalizations.commissionTransferred);
       }
     } catch (error) {
-      if (mounted) _showMessage(_errorMessage(error), isError: true);
+      if (mounted && isCurrentAccountView(session, epoch)) {
+        _showMessage(_errorMessage(error), isError: true);
+      }
     } finally {
-      if (mounted) setState(() => _transferring = false);
+      if (isCurrentAccountView(session, epoch)) {
+        setState(() => _transferring = false);
+      }
     }
   }
 
   Future<void> _copyInviteLink(String code) async {
-    if (_copyingInviteCode != null) return;
+    if (_copyingInviteCode != null || !canUseAccountViewActions) return;
+    final session = accountViewSession!;
+    final epoch = accountViewEpoch;
     setState(() => _copyingInviteCode = code);
     try {
       final config =
           await (widget.inviteConfigLoader?.call() ??
               ApiHealthService().loadConfig());
-      if (!mounted) return;
+      if (!mounted || !isCurrentAccountView(session, epoch)) return;
       final link = buildInviteLink(config, code);
       await Clipboard.setData(ClipboardData(text: link));
-      if (mounted) _showMessage(context.appLocalizations.inviteLinkCopied);
+      if (mounted && isCurrentAccountView(session, epoch)) {
+        _showMessage(context.appLocalizations.inviteLinkCopied);
+      }
     } catch (_) {
-      if (mounted) {
+      if (mounted && isCurrentAccountView(session, epoch)) {
         _showMessage(
           context.appLocalizations.inviteLinkCopyFailed,
           isError: true,
         );
       }
     } finally {
-      if (mounted) setState(() => _copyingInviteCode = null);
+      if (isCurrentAccountView(session, epoch)) {
+        setState(() => _copyingInviteCode = null);
+      }
     }
   }
 
   Future<void> _openWithdrawalDialog() async {
-    final session = globalState.xboardSession;
+    if (!canUseAccountViewActions || _submittingWithdrawal) return;
+    final session = accountViewSession!;
+    final epoch = accountViewEpoch;
     final available = _summary?.availableCommissionAmount ?? 0;
-    if (session == null || _submittingWithdrawal) return;
     if (available <= 0) {
       _showMessage(context.appLocalizations.availableCommissionEmpty);
       return;
@@ -207,7 +315,12 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView> {
         ],
       ),
     );
-    if (request == null || !mounted) return;
+    if (request == null ||
+        !mounted ||
+        !isCurrentAccountView(session, epoch) ||
+        !canUseAccountViewActions) {
+      return;
+    }
     setState(() => _submittingWithdrawal = true);
     final message = [
       '${l10n.withdrawalMethod}: ${request.method}',
@@ -222,11 +335,17 @@ class _FengWoInvitePromotionViewState extends State<FengWoInvitePromotionView> {
         level: 2,
         message: message,
       );
-      if (mounted) _showMessage(l10n.withdrawalTicketCreated);
+      if (mounted && isCurrentAccountView(session, epoch)) {
+        _showMessage(l10n.withdrawalTicketCreated);
+      }
     } catch (error) {
-      if (mounted) _showMessage(_errorMessage(error), isError: true);
+      if (mounted && isCurrentAccountView(session, epoch)) {
+        _showMessage(_errorMessage(error), isError: true);
+      }
     } finally {
-      if (mounted) setState(() => _submittingWithdrawal = false);
+      if (isCurrentAccountView(session, epoch)) {
+        setState(() => _submittingWithdrawal = false);
+      }
     }
   }
 

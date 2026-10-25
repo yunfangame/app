@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_account_view_reads.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/subscription_status_indicator.dart';
@@ -20,11 +23,15 @@ class FengWoTrafficDetailsView extends StatefulWidget {
       _FengWoTrafficDetailsViewState();
 }
 
-class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView> {
+class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView>
+    with XboardAccountViewActivity<FengWoTrafficDetailsView> {
   late final XboardAuthService _authService;
+  final _logsRead = XboardAccountViewRead<List<XboardTrafficLog>>(
+    ttl: const Duration(seconds: 15),
+  );
   XboardSubscriptionData? _subscription;
   List<XboardTrafficLog> _records = const [];
-  bool _loading = true;
+  bool _loading = false;
   bool _refreshing = false;
   bool _failed = false;
 
@@ -33,31 +40,50 @@ class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView> {
     super.initState();
     _authService = widget.authService ?? XboardAuthService();
     _subscription = globalState.xboardSubscription;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
   }
 
-  Future<void> _loadData({bool refreshSubscription = false}) async {
-    if (globalState.isOfflineMode) {
-      if (!mounted) return;
-      setState(() {
-        _subscription = globalState.xboardSubscription;
-        _loading = false;
-        _refreshing = false;
-        _failed = false;
-      });
+  @override
+  void onAccountViewReady() => unawaited(_loadData(automatic: true));
+
+  @override
+  void onAccountViewReset() {
+    _logsRead.invalidate();
+    setState(() {
+      _records = const [];
+      _subscription = globalState.xboardSubscription;
+      _loading = false;
+      _refreshing = false;
+      _failed = false;
+    });
+  }
+
+  Future<void> _loadData({
+    bool refreshSubscription = false,
+    bool automatic = false,
+  }) async {
+    if (!(automatic ? canReadAccountView : canUseAccountViewActions) ||
+        (automatic && _refreshing)) {
       return;
     }
-    final session = globalState.xboardSession;
+    final session = accountViewSession!;
+    final epoch = accountViewEpoch;
     final sessionRevision = globalState.xboardSessionRevision;
-    if (session == null) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _refreshing = false;
-        _failed = true;
-      });
-      return;
-    }
+    final logs = _logsRead.load(
+      () => _authService.fetchTrafficLogs(
+        endpoint: session.endpoint,
+        authData: session.authData,
+      ),
+      forceRefresh: !automatic,
+    );
+    final revision = _logsRead.revision;
+    XboardLoginResult? publishedSession;
+    bool currentRead() =>
+        isCurrentAccountView(session, epoch) && revision == _logsRead.revision;
+    bool current() =>
+        currentRead() &&
+        (globalState.isActiveXboardSession(session, sessionRevision) ||
+            (publishedSession != null &&
+                identical(publishedSession, globalState.xboardSession)));
     setState(() {
       if (_records.isEmpty) _loading = true;
       _refreshing = refreshSubscription;
@@ -65,24 +91,20 @@ class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView> {
     });
     try {
       final results = await Future.wait<Object>([
-        _authService.fetchTrafficLogs(
-          endpoint: session.endpoint,
-          authData: session.authData,
-        ),
+        logs,
         refreshSubscription
             ? globalState.loadXboardSubscriptionSnapshot(
                 _authService,
                 session,
                 forceRefresh: true,
               )
-            : Future<XboardSubscriptionData>.value(session.subscription),
+            : Future<XboardSubscriptionData>.value(
+                globalState.xboardSubscription ?? session.subscription,
+              ),
       ]);
       final records = results[0] as List<XboardTrafficLog>;
       final subscription = results[1] as XboardSubscriptionData;
-      if (!mounted ||
-          !globalState.isActiveXboardSession(session, sessionRevision)) {
-        return;
-      }
+      if (!current()) return;
       if (refreshSubscription &&
           globalState.xboardSession?.authData == session.authData) {
         globalState.xboardSession = XboardLoginResult(
@@ -94,8 +116,9 @@ class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView> {
           secureSubscription: session.secureSubscription,
           rawData: session.rawData,
         );
+        publishedSession = globalState.xboardSession;
         globalState.updateXboardSubscriptionSnapshot(
-          globalState.xboardSession!,
+          publishedSession!,
           subscription,
         );
       }
@@ -108,9 +131,9 @@ class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView> {
         'load XBoard traffic details failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
-      if (mounted) setState(() => _failed = true);
+      if (current()) setState(() => _failed = true);
     } finally {
-      if (mounted) {
+      if (currentRead()) {
         setState(() {
           _loading = false;
           _refreshing = false;
