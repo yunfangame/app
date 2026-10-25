@@ -5,6 +5,17 @@ import 'package:dio/dio.dart';
 import 'api_health.dart';
 import 'api_request_router.dart';
 
+class XboardApiRequestDeferred implements Exception {
+  const XboardApiRequestDeferred();
+
+  @override
+  String toString() => 'XboardApiRequestDeferred';
+}
+
+void ensureXboardApiRequestAllowed(bool Function()? canRequest) {
+  if (canRequest?.call() == false) throw const XboardApiRequestDeferred();
+}
+
 class XboardApiRequestExecutor {
   XboardApiRequestExecutor({
     ApiHealthService? apiHealthService,
@@ -30,6 +41,7 @@ class XboardApiRequestExecutor {
   Future<T> run<T>({
     required Uri endpoint,
     required bool allowRetry,
+    bool Function()? canRequest,
     required Future<T> Function(Uri endpoint, CancelToken cancelToken) request,
   }) async {
     if (!{'http', 'https'}.contains(endpoint.scheme) ||
@@ -37,11 +49,13 @@ class XboardApiRequestExecutor {
         endpoint.userInfo.isNotEmpty) {
       throw const FormatException('Invalid API endpoint');
     }
+    ensureXboardApiRequestAllowed(canRequest);
     final scope = _XboardApiRequestScope(operationTimeout);
     try {
       return await _run(
         endpoint: endpoint,
         allowRetry: allowRetry,
+        canRequest: canRequest,
         request: request,
         scope: scope,
       ).timeout(
@@ -51,6 +65,10 @@ class XboardApiRequestExecutor {
           throw TimeoutException('api_operation_timeout', operationTimeout);
         },
       );
+    } catch (error) {
+      if (error is XboardApiRequestDeferred) rethrow;
+      ensureXboardApiRequestAllowed(canRequest);
+      rethrow;
     } finally {
       scope.cancel();
     }
@@ -59,6 +77,7 @@ class XboardApiRequestExecutor {
   Future<T> _run<T>({
     required Uri endpoint,
     required bool allowRetry,
+    required bool Function()? canRequest,
     required Future<T> Function(Uri endpoint, CancelToken cancelToken) request,
     required _XboardApiRequestScope scope,
   }) async {
@@ -75,6 +94,7 @@ class XboardApiRequestExecutor {
               )
               .toList(growable: false);
     scope.ensureActive();
+    ensureXboardApiRequestAllowed(canRequest);
     final eligible = candidates
         .where(
           (candidate) =>
@@ -87,6 +107,7 @@ class XboardApiRequestExecutor {
     final tried = <String>{};
     while (tried.length < eligible.length) {
       scope.ensureActive();
+      ensureXboardApiRequestAllowed(canRequest);
       final candidate = _router
           .orderCandidates(
             candidates,
@@ -102,6 +123,12 @@ class XboardApiRequestExecutor {
         candidate,
         candidates: candidates,
       );
+      void releaseProbe() => _router.releaseRecoveryProbe(
+        candidate,
+        candidates: candidates,
+        probeToken: probeToken,
+      );
+      scope.releaseProbe = releaseProbe;
       tried.add(candidate.origin);
       final available = scope.remaining;
       final timeout = available < requestTimeout ? available : requestTimeout;
@@ -113,6 +140,7 @@ class XboardApiRequestExecutor {
       final cancelToken = CancelToken();
       scope.activeRequest = cancelToken;
       try {
+        ensureXboardApiRequestAllowed(canRequest);
         final result = await Future<T>.sync(() => request(target, cancelToken))
             .timeout(
               timeout,
@@ -122,6 +150,7 @@ class XboardApiRequestExecutor {
               },
             );
         scope.ensureActive();
+        ensureXboardApiRequestAllowed(canRequest);
         _router.recordSuccess(
           candidate,
           candidates: candidates,
@@ -129,6 +158,8 @@ class XboardApiRequestExecutor {
         );
         return result;
       } catch (error, stackTrace) {
+        if (error is XboardApiRequestDeferred) rethrow;
+        ensureXboardApiRequestAllowed(canRequest);
         final recoverable =
             scope.active &&
             _router.recordFailure(
@@ -144,12 +175,9 @@ class XboardApiRequestExecutor {
           Error.throwWithStackTrace(error, stackTrace);
         }
       } finally {
-        if (scope.active) {
-          _router.releaseRecoveryProbe(
-            candidate,
-            candidates: candidates,
-            probeToken: probeToken,
-          );
+        releaseProbe();
+        if (identical(scope.releaseProbe, releaseProbe)) {
+          scope.releaseProbe = null;
         }
         if (identical(scope.activeRequest, cancelToken)) {
           scope.activeRequest = null;
@@ -167,6 +195,7 @@ class _XboardApiRequestScope {
   final Stopwatch _stopwatch = Stopwatch()..start();
   bool active = true;
   CancelToken? activeRequest;
+  void Function()? releaseProbe;
 
   Duration get remaining => timeout - _stopwatch.elapsed;
 
@@ -179,5 +208,7 @@ class _XboardApiRequestScope {
   void cancel() {
     active = false;
     activeRequest?.cancel('api_operation_finished');
+    releaseProbe?.call();
+    releaseProbe = null;
   }
 }

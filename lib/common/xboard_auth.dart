@@ -7,6 +7,7 @@ import 'api_endpoint_preference.dart';
 import 'api_health.dart';
 import 'api_network_diagnostic.dart';
 import 'api_request_router.dart';
+import 'xboard_api_request.dart';
 import 'subscription_v2.dart';
 
 const xboardLoginPath = '/api/v1/passport/auth/login';
@@ -1263,6 +1264,7 @@ class XboardAuthService {
   Future<List<XboardNoticeData>> fetchNotices({
     required Uri endpoint,
     required String authData,
+    bool Function()? canRequest,
   }) async {
     final operationStopwatch = Stopwatch()..start();
     final notices = <XboardNoticeData>[];
@@ -1270,6 +1272,7 @@ class XboardAuthService {
     var current = 1;
     var total = 0;
     do {
+      ensureXboardApiRequestAllowed(canRequest);
       var requestEndpoint = buildXboardNoticeFetchUri(
         endpoint,
         current: current,
@@ -1280,7 +1283,9 @@ class XboardAuthService {
             (_noticesRequester ?? _requestNotices)(requestUri, authData),
         readOnly: true,
         operationStopwatch: operationStopwatch,
+        canRequest: canRequest,
       );
+      ensureXboardApiRequestAllowed(canRequest);
       requestEndpoint = routed.endpoint;
       final response = routed.response;
       final body = _decodeResponseMap(response.data, apiName: '公告列表接口');
@@ -1300,6 +1305,7 @@ class XboardAuthService {
       if (page.notices.isEmpty || notices.length >= total) break;
       current++;
     } while (current <= 100);
+    ensureXboardApiRequestAllowed(canRequest);
     return List.unmodifiable(notices);
   }
 
@@ -2657,23 +2663,33 @@ class XboardAuthService {
     bool readOnly = false,
     List<Uri>? candidates,
     Stopwatch? operationStopwatch,
+    bool Function()? canRequest,
   }) async {
+    ensureXboardApiRequestAllowed(canRequest);
     final stopwatch = operationStopwatch ?? (Stopwatch()..start());
     final candidateBudget = apiOperationTimeout - stopwatch.elapsed;
     if (candidateBudget <= Duration.zero) {
       throw TimeoutException('API operation exceeded its time budget');
     }
-    final trusted =
-        candidates ??
-        await (_endpointLoader ?? _loadAvailableEndpoints)().timeout(
-          candidateBudget,
-        );
+    late final List<Uri> trusted;
+    try {
+      trusted =
+          candidates ??
+          await (_endpointLoader ?? _loadAvailableEndpoints)().timeout(
+            candidateBudget,
+          );
+    } catch (_) {
+      ensureXboardApiRequestAllowed(canRequest);
+      rethrow;
+    }
+    ensureXboardApiRequestAllowed(canRequest);
     final attemptedOrigins = <String>{};
     _RoutedXboardResponse? lastResponse;
     Object? lastError;
     StackTrace? lastStackTrace;
     final maximumAttempts = readOnly ? 4 : 1;
     for (var attempt = 0; attempt < maximumAttempts; attempt++) {
+      ensureXboardApiRequestAllowed(canRequest);
       final remaining = apiOperationTimeout - stopwatch.elapsed;
       if (remaining <= Duration.zero) {
         throw TimeoutException('API operation exceeded its time budget');
@@ -2715,6 +2731,7 @@ class XboardAuthService {
           ? remaining
           : apiRequestTimeout;
       try {
+        ensureXboardApiRequestAllowed(canRequest);
         final response =
             await runZoned(
               () => request(endpoint),
@@ -2726,6 +2743,7 @@ class XboardAuthService {
                 throw TimeoutException('API request exceeded its time budget');
               },
             );
+        ensureXboardApiRequestAllowed(canRequest);
         final routed = _RoutedXboardResponse(
           endpoint: endpoint,
           response: response,
@@ -2755,6 +2773,8 @@ class XboardAuthService {
         }
         return routed;
       } catch (error, stackTrace) {
+        if (error is XboardApiRequestDeferred) rethrow;
+        ensureXboardApiRequestAllowed(canRequest);
         final failed = _requestRouter.recordFailure(
           endpoint,
           candidates: trusted,
