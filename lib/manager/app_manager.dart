@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/system_dns.dart';
+import 'package:fl_clash/common/xboard_tickets.dart';
 import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
@@ -33,8 +34,13 @@ String fengWoNavigationLabel(PageLabel pageLabel) {
 
 class AppStateManager extends ConsumerStatefulWidget {
   final Widget child;
+  final XboardTicketController? ticketController;
 
-  const AppStateManager({super.key, required this.child});
+  const AppStateManager({
+    super.key,
+    this.ticketController,
+    required this.child,
+  });
 
   @override
   ConsumerState<AppStateManager> createState() => _AppStateManagerState();
@@ -42,14 +48,17 @@ class AppStateManager extends ConsumerStatefulWidget {
 
 class _AppStateManagerState extends ConsumerState<AppStateManager>
     with WidgetsBindingObserver {
+  XboardTicketController get _tickets =>
+      widget.ticketController ?? globalState.xboardTicketController;
+
   void _syncTickets() {
     ApiHealthService.setOffline(globalState.isOfflineMode);
-    final controller = globalState.xboardTicketController;
+    final controller = _tickets;
     controller.updateSession(
       globalState.xboardSession,
       offline: globalState.isOfflineMode,
     );
-    controller.refreshNow();
+    controller.refreshAutomatically();
   }
 
   @override
@@ -63,7 +72,7 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
     globalState.xboardSessionRevisionNotifier.addListener(_syncTickets);
     globalState.offlineModeNotifier.addListener(_syncTickets);
     _syncTickets();
-    globalState.xboardTicketController.startPolling(
+    _tickets.startPolling(
       foreground:
           WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed,
     );
@@ -117,7 +126,7 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
   @override
   void dispose() {
     ApiHealthService.setAppForeground(false);
-    globalState.xboardTicketController.stopPolling();
+    _tickets.stopPolling();
     globalState.xboardSessionRevisionNotifier.removeListener(_syncTickets);
     globalState.offlineModeNotifier.removeListener(_syncTickets);
     WidgetsBinding.instance.removeObserver(this);
@@ -128,9 +137,7 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
   Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
     commonPrint.log('$state');
     ApiHealthService.setAppForeground(state == AppLifecycleState.resumed);
-    globalState.xboardTicketController.setForeground(
-      state == AppLifecycleState.resumed,
-    );
+    _tickets.setForeground(state == AppLifecycleState.resumed);
     if (state == AppLifecycleState.resumed) {
       _syncTickets();
       unawaited(systemDnsCoordinator?.resync() ?? Future.value());
