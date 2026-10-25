@@ -19,12 +19,84 @@ class _ProfileSyncSnapshot {
   final List<_ProfileFileSnapshot> files;
 }
 
+typedef _ProfileUpdateScope = ({int id, String source, int account});
+
+class _ProfileUpdateOperation {
+  _ProfileUpdateOperation(
+    this.profile,
+    this.sourceRevision, {
+    required this.automatic,
+  });
+
+  final Profile profile;
+  int sourceRevision;
+  bool automatic;
+  late final Future<void> future;
+}
+
+class _ProfileUpdateFailure {
+  const _ProfileUpdateFailure(this.count, this.failedAt, this.retryAfter);
+
+  final int count;
+  final DateTime failedAt;
+  final DateTime retryAfter;
+}
+
 @Riverpod(keepAlive: true)
 class ProfilesAction extends _$ProfilesAction {
   final _profileMutationScheduler = SerialTaskScheduler();
+  final _profileUpdates = <_ProfileUpdateScope, _ProfileUpdateOperation>{};
+  final _automaticFailures = <_ProfileUpdateScope, _ProfileUpdateFailure>{};
+  final _profileSourceRevisions = <int, int>{};
+  Object? _accountIdentity;
+  int _accountRevision = 0;
 
   @override
-  void build() {}
+  void build() {
+    _accountIdentity = _currentAccountIdentity;
+    globalState.xboardSessionRevisionNotifier.addListener(_accountChanged);
+    ref.onDispose(() {
+      globalState.xboardSessionRevisionNotifier.removeListener(_accountChanged);
+    });
+    ref.listen(profilesProvider, (previous, next) {
+      final before = {
+        for (final profile in previous ?? <Profile>[]) profile.id: profile.url,
+      };
+      final after = {for (final profile in next) profile.id: profile.url};
+      for (final id in {...before.keys, ...after.keys}) {
+        if (before[id] == after[id]) continue;
+        _profileSourceRevisions[id] = (_profileSourceRevisions[id] ?? 0) + 1;
+        _automaticFailures.removeWhere((scope, _) => scope.id == id);
+      }
+    });
+  }
+
+  Object? get _currentAccountIdentity {
+    final session = globalState.xboardSession;
+    return session == null
+        ? null
+        : (
+            endpoint: session.endpoint,
+            authData: session.authData,
+            token: session.token,
+            secure: session.secureSubscription,
+          );
+  }
+
+  void _accountChanged() {
+    final identity = _currentAccountIdentity;
+    if (identity == _accountIdentity) return;
+    _accountIdentity = identity;
+    _accountRevision++;
+    _automaticFailures.clear();
+  }
+
+  @visibleForTesting
+  DateTime get profileUpdateNow => DateTime.now();
+
+  @visibleForTesting
+  int profileUpdateJitterSeconds(int maximum) =>
+      DateTime.now().microsecondsSinceEpoch % (maximum + 1);
 
   void updateCurrentSelectedMap(String groupName, String proxyName) {
     if (isChainProxyRuntimeName(proxyName)) return;
@@ -56,20 +128,61 @@ class ProfilesAction extends _$ProfilesAction {
   }
 
   Future<void> autoUpdateProfiles() async {
-    for (final profile in ref.read(profilesProvider)) {
-      if (!profile.autoUpdate) continue;
-      final isNotNeedUpdate = profile.lastUpdateDate
-          ?.add(profile.autoUpdateDuration)
-          .isBeforeNow;
-      if (isNotNeedUpdate == false || profile.type == ProfileType.file) {
-        continue;
+    _accountChanged();
+    if (globalState.isOfflineMode || !ref.mounted) return;
+    final account = _accountRevision;
+    final ids = ref
+        .read(profilesProvider)
+        .map((profile) => profile.id)
+        .toList();
+    for (final id in ids) {
+      if (!ref.mounted ||
+          globalState.isOfflineMode ||
+          account != _accountRevision) {
+        return;
       }
+      final profile = ref.read(profilesProvider).getProfile(id);
+      if (profile == null || !_canAutomaticallyUpdate(profile)) continue;
       try {
-        await updateProfile(profile);
+        await _scheduleProfileUpdate(profile, automatic: true);
       } catch (e) {
         commonPrint.log(e.toString(), logLevel: LogLevel.warning);
       }
     }
+  }
+
+  bool _canAutomaticallyUpdate(Profile profile) {
+    if (!profile.autoUpdate || profile.type == ProfileType.file) return false;
+    final now = profileUpdateNow;
+    final lastUpdate = profile.lastUpdateDate;
+    if (lastUpdate != null &&
+        lastUpdate.add(profile.autoUpdateDuration).isAfter(now)) {
+      return false;
+    }
+    final failure = _automaticFailures[_updateScope(profile)];
+    return failure == null ||
+        now.isBefore(failure.failedAt) ||
+        !now.isBefore(failure.retryAfter);
+  }
+
+  _ProfileUpdateScope _updateScope(Profile profile) =>
+      (id: profile.id, source: profile.url, account: _accountRevision);
+
+  void _recordAutomaticFailure(_ProfileUpdateScope scope) {
+    final count = (_automaticFailures[scope]?.count ?? 0) + 1;
+    const minutes = [20, 40, 80, 160, 320, 360];
+    final base = Duration(minutes: minutes[(count - 1).clamp(0, 5)]);
+    final jitter = profileUpdateJitterSeconds(60).clamp(0, 60);
+    final seconds = (base.inSeconds + jitter).clamp(
+      0,
+      const Duration(hours: 6).inSeconds,
+    );
+    final now = profileUpdateNow;
+    _automaticFailures[scope] = _ProfileUpdateFailure(
+      count,
+      now,
+      now.add(Duration(seconds: seconds)),
+    );
   }
 
   void putProfile(Profile profile) {
@@ -638,31 +751,155 @@ class ProfilesAction extends _$ProfilesAction {
   }
 
   Future<void> updateProfile(Profile profile, {bool showLoading = false}) {
-    return _profileMutationScheduler.run(
-      () => _updateProfile(profile, showLoading: showLoading),
+    _accountChanged();
+    return _scheduleProfileUpdate(profile, showLoading: showLoading);
+  }
+
+  Future<void> _scheduleProfileUpdate(
+    Profile profile, {
+    bool automatic = false,
+    bool showLoading = false,
+  }) {
+    final scope = _updateScope(profile);
+    final initial = ref.read(profilesProvider).getProfile(profile.id);
+    final sourceRevision = _profileSourceRevisions[profile.id] ?? 0;
+    final existing = _profileUpdates[scope];
+    if (existing != null &&
+        existing.sourceRevision == sourceRevision &&
+        (automatic || existing.profile == profile || initial == profile)) {
+      if (!automatic) existing.automatic = false;
+      if (showLoading) {
+        ref.read(isUpdatingProvider(profile.updatingKey).notifier).value = true;
+      }
+      return existing.future;
+    }
+    final operation = _ProfileUpdateOperation(
+      profile,
+      sourceRevision,
+      automatic: automatic,
     );
+    operation.future = _profileMutationScheduler
+        .run(() async {
+          if (!ref.mounted ||
+              scope.account != _accountRevision ||
+              _currentAccountIdentity != _accountIdentity) {
+            return;
+          }
+          final latest = ref.read(profilesProvider).getProfile(profile.id);
+          if (latest == null ||
+              operation.sourceRevision !=
+                  (_profileSourceRevisions[profile.id] ?? 0)) {
+            return;
+          }
+          if (operation.automatic &&
+              (globalState.isOfflineMode ||
+                  latest.url != profile.url ||
+                  !_canAutomaticallyUpdate(latest))) {
+            return;
+          }
+          if (!operation.automatic &&
+              latest.url != initial?.url &&
+              latest.url != profile.url) {
+            return;
+          }
+          final candidate = operation.automatic || profile == initial
+              ? latest
+              : profile.copyWith(lastUpdateDate: latest.lastUpdateDate);
+          if (!operation.automatic) {
+            ref.read(profilesProvider.notifier).put(candidate);
+          }
+          operation.sourceRevision = _profileSourceRevisions[profile.id] ?? 0;
+          bool isCurrent() {
+            if (!ref.mounted ||
+                scope.account != _accountRevision ||
+                _currentAccountIdentity != _accountIdentity ||
+                globalState.isOfflineMode ||
+                operation.sourceRevision !=
+                    (_profileSourceRevisions[profile.id] ?? 0)) {
+              return false;
+            }
+            final current = ref.read(profilesProvider).getProfile(profile.id);
+            return current != null &&
+                current.url == candidate.url &&
+                current.lastUpdateDate == candidate.lastUpdateDate;
+          }
+
+          try {
+            await _updateProfile(
+              candidate,
+              showLoading: showLoading,
+              isCurrent: isCurrent,
+            );
+            _automaticFailures.remove(scope);
+          } catch (error) {
+            if (isCurrent()) _recordAutomaticFailure(scope);
+            rethrow;
+          }
+        })
+        .whenComplete(() {
+          if (ref.mounted) {
+            ref.read(isUpdatingProvider(profile.updatingKey).notifier).value =
+                false;
+          }
+          if (identical(_profileUpdates[scope], operation)) {
+            _profileUpdates.remove(scope);
+          }
+        });
+    _profileUpdates[scope] = operation;
+    return operation.future;
   }
 
   Future<void> _updateProfile(
     Profile profile, {
     bool showLoading = false,
+    required bool Function() isCurrent,
   }) async {
+    final snapshot = await _captureProfileFile(profile.id);
     try {
+      if (!isCurrent()) throw StateError('profile_sync_superseded');
       if (showLoading) {
         ref.read(isUpdatingProvider(profile.updatingKey).notifier).value = true;
       }
-      ref.read(profilesProvider.notifier).put(profile);
       final newProfile = isSubscriptionV2ProfileSource(profile.url)
-          ? await _updateSubscriptionV2Profile(profile)
-          : await _updateLegacySubscriptionProfile(profile);
-      ref.read(profilesProvider.notifier).put(newProfile);
+          ? await _updateSubscriptionV2Profile(profile, isCurrent: isCurrent)
+          : await _updateLegacySubscriptionProfile(
+              profile,
+              isCurrent: isCurrent,
+            );
+      if (!isCurrent()) throw StateError('profile_sync_superseded');
+      final latest = ref.read(profilesProvider).getProfile(profile.id)!;
+      ref
+          .read(profilesProvider.notifier)
+          .put(
+            latest.copyWith(
+              url: newProfile.url,
+              label: latest.label == profile.label
+                  ? newProfile.label
+                  : latest.label,
+              lastUpdateDate: newProfile.lastUpdateDate,
+              subscriptionInfo: newProfile.subscriptionInfo,
+            ),
+          );
       if (profile.id == ref.read(currentProfileIdProvider)) {
         ref
             .read(setupActionProvider.notifier)
             .applyProfileDebounce(silence: true);
       }
+    } catch (error, stackTrace) {
+      if (ref.mounted) {
+        final latest = ref.read(profilesProvider).getProfile(profile.id);
+        if (latest == null) {
+          await File(snapshot.path).safeDelete();
+        } else if (latest.lastUpdateDate == profile.lastUpdateDate) {
+          await _restoreProfileFile(snapshot);
+        }
+      }
+      Error.throwWithStackTrace(error, stackTrace);
     } finally {
-      ref.read(isUpdatingProvider(profile.updatingKey).notifier).value = false;
+      if (ref.mounted) {
+        ref.read(isUpdatingProvider(profile.updatingKey).notifier).value =
+            false;
+      }
     }
   }
 
@@ -671,9 +908,14 @@ class ProfilesAction extends _$ProfilesAction {
     bool Function()? isCurrent,
   }) => profile.update(isCurrent: isCurrent);
 
-  Future<Profile> _updateLegacySubscriptionProfile(Profile profile) async {
+  Future<Profile> _updateLegacySubscriptionProfile(
+    Profile profile, {
+    required bool Function() isCurrent,
+  }) async {
     final session = globalState.xboardSession;
-    if (session == null) return loadProfileUpdate(profile);
+    if (session == null) {
+      return loadProfileUpdate(profile, isCurrent: isCurrent);
+    }
     final revision = globalState.xboardSessionRevision;
     final source = session.subscribeUrl;
     final profileUri = Uri.tryParse(profile.url);
@@ -685,11 +927,12 @@ class ProfilesAction extends _$ProfilesAction {
     if (!session.secureSubscription &&
         source != null &&
         !matchesCurrentSource) {
-      return loadProfileUpdate(profile);
+      return loadProfileUpdate(profile, isCurrent: isCurrent);
     }
     final storage = XboardSessionStorage();
     final managedUrl = await storage.loadManagedProfileUrl();
-    bool isCurrent() =>
+    bool isSessionCurrent() =>
+        isCurrent() &&
         globalState.isActiveXboardSession(session, revision) &&
         !globalState.isOfflineMode;
     if (!globalState.isActiveXboardSession(session, revision)) {
@@ -702,52 +945,63 @@ class ProfilesAction extends _$ProfilesAction {
                 isSameApiEndpoint(profileUri, session.endpoint))) ||
         (profile.url == managedUrl &&
             (session.secureSubscription || source == null));
-    if (!isManaged) return loadProfileUpdate(profile);
+    if (!isManaged) return loadProfileUpdate(profile, isCurrent: isCurrent);
     if (globalState.isOfflineMode) return profile;
     final target = session.legacySubscribeUrl;
     if (target == null) {
       throw const SubscriptionV2Exception('legacy_subscription_unavailable');
     }
-    final sourceSnapshot = await _captureProfileFile(profile.id);
-    try {
-      if (!isCurrent()) throw StateError('profile_sync_superseded');
-      commonPrint.event(
-        'subscription.profile.v1.download.started',
-        fields: {'endpoint_ref': apiDiagnosticEndpointRef(target)},
-      );
-      final updated = await loadProfileUpdate(
-        profile.copyWith(url: target.toString()),
-        isCurrent: isCurrent,
-      );
-      if (!isCurrent()) throw StateError('profile_sync_superseded');
-      await storage.setManagedProfileUrl(updated.url, isCurrent: isCurrent);
-      if (!isCurrent()) throw StateError('profile_sync_superseded');
-      return updated;
-    } catch (error, stackTrace) {
-      await _restoreProfileFile(sourceSnapshot);
-      Error.throwWithStackTrace(error, stackTrace);
-    }
+    if (!isSessionCurrent()) throw StateError('profile_sync_superseded');
+    commonPrint.event(
+      'subscription.profile.v1.download.started',
+      fields: {'endpoint_ref': apiDiagnosticEndpointRef(target)},
+    );
+    final updated = await loadProfileUpdate(
+      profile.copyWith(url: target.toString()),
+      isCurrent: isSessionCurrent,
+    );
+    if (!isSessionCurrent()) throw StateError('profile_sync_superseded');
+    await storage.setManagedProfileUrl(
+      updated.url,
+      isCurrent: isSessionCurrent,
+    );
+    if (!isSessionCurrent()) throw StateError('profile_sync_superseded');
+    return updated;
   }
 
-  Future<Profile> _updateSubscriptionV2Profile(Profile profile) async {
+  Future<Profile> _updateSubscriptionV2Profile(
+    Profile profile, {
+    required bool Function() isCurrent,
+  }) async {
     final session = globalState.xboardSession;
     if (session == null || globalState.isOfflineMode) {
       throw const SubscriptionV2Exception('authenticated_session_required');
     }
-    final result = await SubscriptionV2Client().fetchProfile(
-      endpoint: session.endpoint,
-      userToken: session.token,
-      appVersion: globalState.packageInfo.version,
-    );
+    final result = await loadSubscriptionV2Profile(session);
+    if (!isCurrent()) throw StateError('profile_sync_superseded');
     if (result == null) {
       throw const SubscriptionV2Exception('gray_access_removed');
     }
     final updated = await profile
         .copyWith(url: result.sourceId)
-        .saveFile(result.bytes);
-    await XboardSessionStorage().setManagedProfileUrl(result.sourceId);
+        .saveFile(result.bytes, isCurrent: isCurrent);
+    if (!isCurrent()) throw StateError('profile_sync_superseded');
+    await XboardSessionStorage().setManagedProfileUrl(
+      result.sourceId,
+      isCurrent: isCurrent,
+    );
+    if (!isCurrent()) throw StateError('profile_sync_superseded');
     return updated;
   }
+
+  @visibleForTesting
+  Future<SubscriptionV2Profile?> loadSubscriptionV2Profile(
+    XboardLoginResult session,
+  ) => SubscriptionV2Client().fetchProfile(
+    endpoint: session.endpoint,
+    userToken: session.token,
+    appVersion: globalState.packageInfo.version,
+  );
 
   Future<void> addProfileFormFile() async {
     final platformFile = await globalState.safeRun(picker.pickerFile);
