@@ -139,7 +139,7 @@ void main() {
     expect(tokens, ['first', 'first']);
   });
 
-  testWidgets('returning during a request never overlaps or loses its result', (
+  testWidgets('interrupted unread replays once after returning', (
     tester,
   ) async {
     final pending = Completer<Object?>();
@@ -170,10 +170,11 @@ void main() {
       pending.complete(_response);
       await tester.pump(Duration.zero);
       expect(controller.messages.single.id, 7);
-      await tester.pump(const Duration(minutes: 4, seconds: 59));
-      expect(tokens, hasLength(1));
-      await tester.pump(const Duration(seconds: 1));
       expect(tokens, hasLength(2));
+      await tester.pump(const Duration(minutes: 4, seconds: 59));
+      expect(tokens, hasLength(2));
+      await tester.pump(const Duration(seconds: 1));
+      expect(tokens, hasLength(3));
     } finally {
       await tester.pumpWidget(const SizedBox());
     }

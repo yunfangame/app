@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:crypto/crypto.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/xboard_announcement_query.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
@@ -55,6 +56,8 @@ class _XboardAnnouncementCenterHostState
   String? _identity;
   String? _shownDate;
   int _requestRevision = 0;
+  int _activityRevision = 0;
+  bool _wasAutomaticAvailable = false;
   int _windowRevision = 0;
   int _windowRetries = 0;
   bool _foreground = true;
@@ -146,6 +149,9 @@ class _XboardAnnouncementCenterHostState
   }
 
   void _scheduleAutomatic() {
+    final available = _automaticAvailable;
+    if (_wasAutomaticAvailable && !available) _activityRevision++;
+    _wasAutomaticAvailable = available;
     if (!_automaticPending ||
         _automaticScheduled ||
         _automaticLoading ||
@@ -179,7 +185,6 @@ class _XboardAnnouncementCenterHostState
     _requestRevision++;
     _automaticLoading = false;
     _manualLoading = false;
-    _queries.clear();
     _closeDialog();
     _automaticPending = _identity != null;
     _scheduleAutomatic();
@@ -236,6 +241,11 @@ class _XboardAnnouncementCenterHostState
     }
     if (!(automatic ? _automaticAvailable : _manualAvailable)) return;
     final revision = ++_requestRevision;
+    final activityRevision = _activityRevision;
+    bool canRequest() =>
+        _current(session, revision) &&
+        activityRevision == _activityRevision &&
+        (automatic ? _automaticAvailable : _manualAvailable);
     if (automatic) {
       _automaticLoading = true;
     } else {
@@ -260,15 +270,21 @@ class _XboardAnnouncementCenterHostState
       final allNotices = await _queries.load(
         session: session,
         forceRefresh: !automatic,
-        loader: () {
-          if (!_current(session, revision) ||
-              !(automatic ? _available : _manualAvailable)) {
-            throw StateError('announcement_query_superseded');
+        canRequest: canRequest,
+        loader: () async {
+          ensureXboardApiRequestAllowed(canRequest);
+          try {
+            final notices = await _authService.fetchNotices(
+              endpoint: session.endpoint,
+              authData: session.authData,
+              canRequest: canRequest,
+            );
+            ensureXboardApiRequestAllowed(canRequest);
+            return notices;
+          } catch (_) {
+            ensureXboardApiRequestAllowed(canRequest);
+            rethrow;
           }
-          return _authService.fetchNotices(
-            endpoint: session.endpoint,
-            authData: session.authData,
-          );
         },
       );
       if (!mounted ||
@@ -311,6 +327,10 @@ class _XboardAnnouncementCenterHostState
       }
     } catch (error, stackTrace) {
       if (!mounted || !_current(session, revision)) return;
+      if (error is XboardApiRequestDeferred || !canRequest()) {
+        if (automatic) _automaticPending = true;
+        return;
+      }
       if (automatic) _automaticPending = false;
       commonPrint.log(
         'load XBoard announcements failed: $error, $stackTrace',
@@ -401,6 +421,7 @@ class _XboardAnnouncementCenterHostState
     _windowForeground = false;
     _windowKnownBackground = true;
     _windowRetry?.cancel();
+    _scheduleAutomatic();
   }
 
   void _focusWindow() {
@@ -420,6 +441,7 @@ class _XboardAnnouncementCenterHostState
     }
     final revision = ++_windowRevision;
     _windowForeground = false;
+    _scheduleAutomatic();
     try {
       final state = await Future.wait([
         windowManager.isVisible(),

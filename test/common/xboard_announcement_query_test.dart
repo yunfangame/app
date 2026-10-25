@@ -2,9 +2,133 @@ import 'dart:async';
 
 import 'package:fl_clash/common/xboard_announcement_query.dart';
 import 'package:fl_clash/common/xboard_auth.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'pause between a loader error and cache handling stays deferred',
+    () async {
+      var available = true;
+      final cache = XboardAnnouncementQueryCache();
+      await expectLater(
+        cache.load(
+          session: _session(),
+          canRequest: () => available,
+          loader: () async {
+            scheduleMicrotask(() => available = false);
+            throw StateError('controlled foreground failure');
+          },
+        ),
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      available = true;
+      final replay = await cache.load(
+        session: _session(),
+        loader: () async => [_notice(2)],
+      );
+      expect(replay.single.id, 2);
+    },
+  );
+
+  test(
+    'cache admission is checked again before committing a complete response',
+    () async {
+      var available = true;
+      final cache = XboardAnnouncementQueryCache();
+      await expectLater(
+        cache.load(
+          session: _session(),
+          canRequest: () => available,
+          loader: () async {
+            available = false;
+            return [_notice(1)];
+          },
+        ),
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      available = true;
+      final replay = await cache.load(
+        session: _session(),
+        loader: () async => [_notice(2)],
+      );
+      expect(replay.single.id, 2);
+    },
+  );
+
+  test(
+    'deferred pagination preserves complete cache and permits immediate replay',
+    () async {
+      var now = DateTime.utc(2026, 10, 25);
+      final cache = XboardAnnouncementQueryCache(now: () => now);
+      await cache.load(session: _session(), loader: () async => [_notice(1)]);
+      now = now.add(const Duration(minutes: 5));
+      await expectLater(
+        cache.load(
+          session: _session(),
+          loader: () async => throw const XboardApiRequestDeferred(),
+        ),
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      now = now.subtract(const Duration(minutes: 1));
+      final cached = await cache.load(
+        session: _session(),
+        loader: () async => throw StateError('must keep complete cache'),
+      );
+      expect(cached.single.id, 1);
+      now = now.add(const Duration(minutes: 1));
+      final replay = await cache.load(
+        session: _session(),
+        loader: () async => [_notice(2)],
+      );
+      expect(replay.single.id, 2);
+    },
+  );
+
+  test(
+    'deferred manual attempt neither resets nor advances failure backoff',
+    () async {
+      var now = DateTime.utc(2026, 10, 25);
+      final cache = XboardAnnouncementQueryCache(now: () => now);
+      var calls = 0;
+      Future<List<XboardNoticeData>> fail() async {
+        calls++;
+        throw StateError('controlled');
+      }
+
+      await expectLater(
+        cache.load(session: _session(), loader: fail),
+        throwsStateError,
+      );
+      await expectLater(
+        cache.load(
+          session: _session(),
+          forceRefresh: true,
+          loader: () async => throw const XboardApiRequestDeferred(),
+        ),
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      now = now.add(const Duration(seconds: 30));
+      await expectLater(
+        cache.load(session: _session(), loader: fail),
+        throwsStateError,
+      );
+      expect(calls, 2);
+      now = now.add(const Duration(seconds: 59));
+      await expectLater(
+        cache.load(session: _session(), loader: fail),
+        throwsStateError,
+      );
+      expect(calls, 2);
+      now = now.add(const Duration(seconds: 1));
+      await expectLater(
+        cache.load(session: _session(), loader: fail),
+        throwsStateError,
+      );
+      expect(calls, 3);
+    },
+  );
+
   test(
     'positive and empty results have separate TTLs and stable auth keys',
     () async {

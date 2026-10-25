@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -7,6 +8,7 @@ import 'package:fl_clash/common/api_health.dart';
 import 'package:fl_clash/common/api_request_router.dart';
 import 'package:fl_clash/common/subscription_v2.dart';
 import 'package:fl_clash/common/xboard_auth.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -180,6 +182,92 @@ void main() {
     expect(blockedIp, '178.94.14.100');
     expect(blockedReason, 'Not mine');
     expect(unblockedIp, '2001:4860:4860::8888');
+  });
+
+  test(
+    'announcement pagination stops with no partial return after admission closes',
+    () async {
+      var available = true;
+      var calls = 0;
+      final service = XboardAuthService(
+        endpointLoader: () async => [Uri.parse('https://api.example.com')],
+        noticesRequester: (uri, _) async {
+          calls++;
+          available = false;
+          return const XboardLoginResponse(
+            statusCode: 200,
+            data: {
+              'data': [
+                {'id': 1, 'title': 'First'},
+              ],
+              'total': 2,
+            },
+          );
+        },
+      );
+      await expectLater(
+        service.fetchNotices(
+          endpoint: Uri.parse('https://api.example.com'),
+          authData: 'fixture',
+          canRequest: () => available,
+        ),
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      expect(calls, 1);
+    },
+  );
+
+  test('announcement read failover rechecks admission before backup', () async {
+    var available = true;
+    final calls = <String>[];
+    final service = XboardAuthService(
+      endpointLoader: () async => [
+        Uri.parse('https://api.example.com'),
+        Uri.parse('https://backup.example.com'),
+      ],
+      noticesRequester: (uri, _) async {
+        calls.add(uri.host);
+        available = false;
+        throw const SocketException('controlled');
+      },
+    );
+    await expectLater(
+      service.fetchNotices(
+        endpoint: Uri.parse('https://api.example.com'),
+        authData: 'fixture',
+        canRequest: () => available,
+      ),
+      throwsA(isA<XboardApiRequestDeferred>()),
+    );
+    expect(calls, ['api.example.com']);
+  });
+
+  test('announcement guard preserves all one hundred server pages', () async {
+    var calls = 0;
+    final service = XboardAuthService(
+      endpointLoader: () async => [Uri.parse('https://api.example.com')],
+      noticesRequester: (uri, _) async {
+        calls++;
+        final id = int.parse(uri.queryParameters['current']!);
+        return XboardLoginResponse(
+          statusCode: 200,
+          data: {
+            'data': [
+              {'id': id, 'title': 'Notice $id'},
+            ],
+            'total': 100,
+          },
+        );
+      },
+    );
+    final notices = await service.fetchNotices(
+      endpoint: Uri.parse('https://api.example.com'),
+      authData: 'fixture',
+      canRequest: () => true,
+    );
+    expect(calls, 100);
+    expect(notices, hasLength(100));
+    expect(notices.last.id, 100);
   });
 
   test('loads every XBoard notice page with tags and HTML content', () async {

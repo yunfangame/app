@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:fl_clash/common/xboard_auth.dart';
@@ -248,6 +249,106 @@ void main() {
     },
   );
 
+  for (final pause in ['app', 'window', 'offline']) {
+    _pollingTest(
+      'deferred unread preserves queue and replays once after $pause',
+      (tester) async {
+        var calls = 0;
+        final pending = Completer<Object?>();
+        final controller = XboardMarqueeController(
+          now: tester.binding.clock.now,
+          store: _MemoryStore(),
+          api: XboardMarqueeApi(
+            unreadRequester: (_, _, _) {
+              calls++;
+              if (calls == 2) return pending.future;
+              if (calls == 3) throw StateError('controlled subsequent failure');
+              return Future.value(_unreadResponse());
+            },
+          ),
+        );
+        addTearDown(controller.dispose);
+        _startPolling(controller);
+        await controller.updateSession(_session(), offline: false);
+        await tester.pump(const Duration(minutes: 5));
+        expect(calls, 2);
+        switch (pause) {
+          case 'app':
+            controller.setForeground(false);
+          case 'window':
+            controller.setWindowForeground(false);
+          case 'offline':
+            controller.setOffline(true);
+        }
+        pending.completeError(
+          const SocketException('controlled paused failure'),
+        );
+        await tester.pump(Duration.zero);
+        expect(controller.messages.map((message) => message.id), [123, 124]);
+        switch (pause) {
+          case 'app':
+            controller.setForeground(true);
+          case 'window':
+            controller.setWindowForeground(true);
+          case 'offline':
+            controller.setOffline(false);
+        }
+        controller.setForeground(true);
+        controller.setWindowForeground(true);
+        controller.setOffline(false);
+        await tester.pump(Duration.zero);
+        expect(calls, 3);
+        await tester.pump(const Duration(minutes: 4, seconds: 59));
+        expect(calls, 3);
+        await tester.pump(const Duration(seconds: 1));
+        expect(calls, 4);
+      },
+    );
+  }
+
+  _pollingTest(
+    'manual force after interrupted automatic work queues one fresh request',
+    (tester) async {
+      var calls = 0;
+      final pending = Completer<Object?>();
+      final controller = XboardMarqueeController(
+        now: tester.binding.clock.now,
+        store: _MemoryStore(),
+        api: XboardMarqueeApi(
+          unreadRequester: (_, _, _) {
+            calls++;
+            if (calls == 2) return pending.future;
+            if (calls >= 3) {
+              return Future.value({
+                'status': 1,
+                'data': {
+                  'items': [
+                    {'id': 999, 'title': 'Fresh', 'marquee_text': 'Fresh'},
+                  ],
+                },
+              });
+            }
+            return Future.value(_unreadResponse());
+          },
+        ),
+      );
+      addTearDown(controller.dispose);
+      _startPolling(controller);
+      await controller.updateSession(_session(), offline: false);
+      final old = controller.refresh(force: true);
+      await tester.pump(Duration.zero);
+      controller.setForeground(false);
+      controller.setForeground(true);
+      final first = controller.refresh(force: true);
+      final second = controller.refresh(force: true);
+      pending.complete(_unreadResponse());
+      await Future.wait([old, first, second]);
+      await tester.pump(Duration.zero);
+      expect(calls, 3);
+      expect(controller.messages.single.id, 999);
+    },
+  );
+
   _pollingTest('all refresh paths respect background and offline gates', (
     tester,
   ) async {
@@ -355,7 +456,7 @@ void main() {
   );
 
   _pollingTest(
-    'an in-flight result is kept in background without another poll',
+    'an interrupted unread result is deferred without background polling',
     (tester) async {
       final pending = Completer<Object?>();
       var calls = 0;
@@ -378,12 +479,13 @@ void main() {
       controller.setForeground(false);
       pending.complete(_unreadResponse());
       await loading;
-      expect(controller.messages, hasLength(2));
+      expect(controller.messages, isEmpty);
       await tester.pump(const Duration(hours: 1));
       expect(calls, 1);
       controller.setForeground(true);
       await tester.pump(Duration.zero);
       expect(calls, 2);
+      expect(controller.messages, hasLength(2));
     },
   );
 
