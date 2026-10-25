@@ -31,6 +31,7 @@ class _ProfileUpdateOperation {
   final Profile profile;
   int sourceRevision;
   bool automatic;
+  bool started = false;
   late final Future<void> future;
 }
 
@@ -42,6 +43,52 @@ class _ProfileUpdateFailure {
   final DateTime retryAfter;
 }
 
+typedef _AuthenticatedProfileSource = ({int account, String source});
+
+class _AuthenticatedProfileOperation {
+  _AuthenticatedProfileOperation({
+    required this.source,
+    required this.generation,
+    required this.allowTokenRegistration,
+    required this.automatic,
+    required this.forceRefresh,
+    required this.originalProfile,
+    required this.sourceRevision,
+    required this.isCurrent,
+  });
+
+  final _AuthenticatedProfileSource source;
+  final int generation;
+  final bool allowTokenRegistration;
+  final bool automatic;
+  final bool forceRefresh;
+  Profile? originalProfile;
+  int sourceRevision;
+  final bool Function()? isCurrent;
+  Profile? committingProfile;
+  int? committingSourceRevision;
+  bool usedTokenRegistration = false;
+  late final Future<Profile?> future;
+}
+
+class _RecentAuthenticatedProfile {
+  const _RecentAuthenticatedProfile({
+    required this.profile,
+    required this.file,
+    required this.sourceRevision,
+    required this.completedAt,
+    required this.usedTokenRegistration,
+  });
+
+  final Profile profile;
+  final _ProfileFileSnapshot file;
+  final int sourceRevision;
+  final DateTime completedAt;
+  final bool usedTokenRegistration;
+}
+
+final _authenticatedProfileOperationKey = Object();
+
 @Riverpod(keepAlive: true)
 class ProfilesAction extends _$ProfilesAction {
   final _profileMutationScheduler = SerialTaskScheduler();
@@ -50,6 +97,11 @@ class ProfilesAction extends _$ProfilesAction {
   final _profileSourceRevisions = <int, int>{};
   Object? _accountIdentity;
   int _accountRevision = 0;
+  final _authenticatedProfilePending =
+      <(_AuthenticatedProfileSource, bool), _AuthenticatedProfileOperation>{};
+  final _recentAuthenticatedProfiles =
+      <_AuthenticatedProfileSource, _RecentAuthenticatedProfile>{};
+  final _authenticatedProfileGenerations = <_AuthenticatedProfileSource, int>{};
 
   @override
   void build() {
@@ -89,6 +141,9 @@ class ProfilesAction extends _$ProfilesAction {
     _accountIdentity = identity;
     _accountRevision++;
     _automaticFailures.clear();
+    _recentAuthenticatedProfiles.clear();
+    _authenticatedProfilePending.clear();
+    _authenticatedProfileGenerations.clear();
   }
 
   @visibleForTesting
@@ -183,6 +238,284 @@ class ProfilesAction extends _$ProfilesAction {
       now,
       now.add(Duration(seconds: seconds)),
     );
+  }
+
+  Future<Profile?> runAuthenticatedSubscriptionSync(
+    XboardLoginResult session, {
+    required Future<Profile?> Function(bool Function() isCurrent) sync,
+    required bool allowTokenRegistration,
+    bool forceRefresh = false,
+    bool Function()? isCurrent,
+    Future<void> Function(Profile profile, bool Function() isCurrent)? onReuse,
+    Profile? sourceProfile,
+    bool automatic = false,
+  }) async {
+    _accountChanged();
+    final identity = (
+      endpoint: session.endpoint,
+      authData: session.authData,
+      token: session.token,
+      secure: session.secureSubscription,
+    );
+    final account = _accountRevision;
+    bool accountCurrent() =>
+        ref.mounted &&
+        !globalState.isOfflineMode &&
+        account == _accountRevision &&
+        identity == _currentAccountIdentity &&
+        isCurrent?.call() != false;
+    if (!accountCurrent()) return null;
+    final source = (
+      account: account,
+      source: session.legacySubscribeUrl?.toString() ?? 'secure-profile',
+    );
+    final key = (source, allowTokenRegistration);
+    final pending =
+        _authenticatedProfilePending[key] ??
+        (allowTokenRegistration
+            ? _authenticatedProfilePending[(source, false)]
+            : null);
+    if (pending != null &&
+        (!forceRefresh || pending.forceRefresh) &&
+        _authenticatedOperationCurrent(pending)) {
+      Profile? profile;
+      var failed = false;
+      try {
+        profile = await pending.future;
+      } catch (_) {
+        if (pending.allowTokenRegistration == allowTokenRegistration) rethrow;
+        failed = true;
+      }
+      if (!accountCurrent()) return null;
+      if (!failed) {
+        if (!pending.automatic || automatic || profile == null) return profile;
+        return runAuthenticatedSubscriptionSync(
+          session,
+          sync: sync,
+          allowTokenRegistration: allowTokenRegistration,
+          forceRefresh: forceRefresh,
+          isCurrent: isCurrent,
+          onReuse: onReuse,
+        );
+      }
+    }
+    if (forceRefresh) {
+      _authenticatedProfileGenerations[source] =
+          (_authenticatedProfileGenerations[source] ?? 0) + 1;
+      _recentAuthenticatedProfiles.remove(source);
+    }
+    final generation = _authenticatedProfileGenerations[source] ?? 0;
+    bool current() =>
+        accountCurrent() &&
+        generation == (_authenticatedProfileGenerations[source] ?? 0);
+    final loose = !forceRefresh && !allowTokenRegistration
+        ? _authenticatedProfilePending[(source, true)]
+        : null;
+    final operation = _AuthenticatedProfileOperation(
+      source: source,
+      generation: generation,
+      allowTokenRegistration: allowTokenRegistration,
+      automatic: automatic,
+      forceRefresh: forceRefresh,
+      originalProfile: null,
+      sourceRevision: 0,
+      isCurrent: current,
+    );
+    final completer = Completer<Profile?>();
+    operation.future = completer.future;
+    operation.future.ignore();
+    _authenticatedProfilePending[key] = operation;
+    try {
+      if (loose != null && _authenticatedOperationCurrent(loose)) {
+        try {
+          await loose.future;
+        } catch (_) {}
+      }
+      if (!current()) {
+        completer.complete(null);
+        return null;
+      }
+      final recent = !forceRefresh
+          ? _recentAuthenticatedProfiles[source]
+          : null;
+      final reuse =
+          recent != null &&
+          (allowTokenRegistration || !recent.usedTokenRegistration) &&
+          await _canReuseAuthenticatedProfile(recent, current);
+      final original = reuse
+          ? recent.profile
+          : sourceProfile ?? await _managedAuthenticatedProfile(session);
+      operation.originalProfile = original;
+      operation.sourceRevision = original == null
+          ? 0
+          : _profileSourceRevisions[original.id] ?? 0;
+      if (!current()) {
+        completer.complete(null);
+        return null;
+      }
+      final profile = await runZoned(() async {
+        bool guardedCurrent() => _authenticatedOperationCurrent(operation);
+        if (!reuse) return sync(guardedCurrent);
+        final restored = await _activateReusedAuthenticatedProfile(
+          recent,
+          guardedCurrent,
+        );
+        if (!guardedCurrent()) return null;
+        await onReuse?.call(restored, guardedCurrent);
+        return guardedCurrent() ? restored : null;
+      }, zoneValues: {_authenticatedProfileOperationKey: operation});
+      if (!reuse &&
+          profile != null &&
+          _authenticatedOperationCurrent(operation)) {
+        final file = await _captureProfileFile(profile.id);
+        if (_authenticatedOperationCurrent(operation) && file.bytes != null) {
+          final committed = ref.read(profilesProvider).getProfile(profile.id);
+          if (committed == null || committed.url != profile.url) {
+            completer.complete(null);
+            return null;
+          }
+          final completed = _RecentAuthenticatedProfile(
+            profile: committed,
+            file: file,
+            sourceRevision: _profileSourceRevisions[profile.id] ?? 0,
+            completedAt: profileUpdateNow,
+            usedTokenRegistration: operation.usedTokenRegistration,
+          );
+          if (await _canReuseAuthenticatedProfile(completed, current)) {
+            _recentAuthenticatedProfiles[source] = completed;
+          }
+        }
+      }
+      final result = _authenticatedOperationCurrent(operation) ? profile : null;
+      completer.complete(result);
+      return result;
+    } catch (error, stackTrace) {
+      completer.completeError(error, stackTrace);
+      rethrow;
+    } finally {
+      if (identical(_authenticatedProfilePending[key], operation)) {
+        _authenticatedProfilePending.remove(key);
+      }
+    }
+  }
+
+  bool _authenticatedOperationCurrent(
+    _AuthenticatedProfileOperation operation,
+  ) {
+    if (!ref.mounted ||
+        globalState.isOfflineMode ||
+        operation.source.account != _accountRevision ||
+        operation.isCurrent?.call() == false ||
+        operation.generation !=
+            (_authenticatedProfileGenerations[operation.source] ?? 0)) {
+      return false;
+    }
+    final original = operation.originalProfile;
+    if (original == null) return true;
+    final latest = ref.read(profilesProvider).getProfile(original.id);
+    if (latest == null) return false;
+    if ((_profileSourceRevisions[original.id] ?? 0) ==
+        operation.sourceRevision) {
+      return latest.url == original.url;
+    }
+    final committing = operation.committingProfile;
+    return committing != null &&
+        (_profileSourceRevisions[original.id] ?? 0) ==
+            operation.committingSourceRevision &&
+        latest.url == committing.url &&
+        latest.lastUpdateDate == committing.lastUpdateDate;
+  }
+
+  Future<Profile?> _managedAuthenticatedProfile(
+    XboardLoginResult session,
+  ) async {
+    final managed = await XboardSessionStorage().loadManagedProfileUrl();
+    final source = session.legacySubscribeUrl?.toString();
+    for (final profile in ref.read(profilesProvider)) {
+      if (profile.url == source || profile.url == managed) return profile;
+    }
+    return null;
+  }
+
+  Future<bool> _canReuseAuthenticatedProfile(
+    _RecentAuthenticatedProfile recent,
+    bool Function() isCurrent,
+  ) async {
+    final age = profileUpdateNow.difference(recent.completedAt);
+    if (!isCurrent() || age.isNegative || age >= const Duration(seconds: 30)) {
+      return false;
+    }
+    final current = ref.read(profilesProvider).getProfile(recent.profile.id);
+    if (current == null ||
+        current.url != recent.profile.url ||
+        current.lastUpdateDate != recent.profile.lastUpdateDate ||
+        (_profileSourceRevisions[current.id] ?? 0) != recent.sourceRevision) {
+      return false;
+    }
+    final ruleAccountKey = globalState.xboardRuleAccountKey;
+    if (ruleAccountKey != null &&
+        await database.rulesDao.getProfileAccountKey(current.id) !=
+            ruleAccountKey) {
+      return false;
+    }
+    final file = File(recent.file.path);
+    if (!await file.exists()) return false;
+    final bytes = await file.readAsBytes();
+    final expected = recent.file.bytes!;
+    if (bytes.length != expected.length) return false;
+    for (var index = 0; index < bytes.length; index++) {
+      if (bytes[index] != expected[index]) return false;
+    }
+    return isCurrent();
+  }
+
+  Future<Profile> _activateReusedAuthenticatedProfile(
+    _RecentAuthenticatedProfile recent,
+    bool Function() isCurrent,
+  ) {
+    final profile = ref.read(profilesProvider).getProfile(recent.profile.id);
+    if (profile == null) throw StateError('profile_sync_superseded');
+    Future<Profile> load() async {
+      if (!await _canReuseAuthenticatedProfile(recent, isCurrent)) {
+        throw StateError('profile_sync_superseded');
+      }
+      return profile;
+    }
+
+    if (isSubscriptionV2ProfileSource(profile.url)) {
+      return syncSubscriptionProfileBytes(
+        recent.file.bytes!,
+        sourceId: profile.url,
+        ruleAccountKey: globalState.xboardRuleAccountKey,
+        usedTokenRegistration: recent.usedTokenRegistration,
+        loader: (_, _) => load(),
+        isCurrent: isCurrent,
+      );
+    }
+    return syncSubscriptionProfile(
+      profile.url,
+      ruleAccountKey: globalState.xboardRuleAccountKey,
+      loader: (_) => load(),
+      isCurrent: isCurrent,
+    );
+  }
+
+  void _markAuthenticatedProfileCommit(Profile profile) {
+    final operation = Zone.current[_authenticatedProfileOperationKey];
+    if (operation is _AuthenticatedProfileOperation) {
+      operation.committingProfile = profile;
+      final previous = ref.read(profilesProvider).getProfile(profile.id);
+      operation.committingSourceRevision =
+          (_profileSourceRevisions[profile.id] ?? 0) +
+          (previous?.url == profile.url ? 0 : 1);
+    }
+  }
+
+  void _markSubscriptionTokenRegistration(bool usedTokenRegistration) {
+    final operation = Zone.current[_authenticatedProfileOperationKey];
+    if (operation is _AuthenticatedProfileOperation && usedTokenRegistration) {
+      operation.usedTokenRegistration = true;
+    }
   }
 
   void putProfile(Profile profile) {
@@ -315,6 +648,7 @@ class ProfilesAction extends _$ProfilesAction {
           );
       candidateApplied = true;
       ensureCurrent();
+      _markAuthenticatedProfileCommit(updatedProfile);
       await ref.read(profilesProvider.notifier).putDurable(updatedProfile);
       ensureCurrent();
       ref.read(currentProfileIdProvider.notifier).value = updatedProfile.id;
@@ -354,7 +688,9 @@ class ProfilesAction extends _$ProfilesAction {
     bool Function()? isCurrent,
     Duration? validationTimeout,
     SubscriptionDiagnosticRecorder? diagnosticRecorder,
+    bool usedTokenRegistration = false,
   }) {
+    _markSubscriptionTokenRegistration(usedTokenRegistration);
     return _profileMutationScheduler.run(
       () => _syncSubscriptionProfileBytes(
         bytes,
@@ -467,6 +803,7 @@ class ProfilesAction extends _$ProfilesAction {
               );
           candidateApplied = true;
           ensureCurrent();
+          _markAuthenticatedProfileCommit(updatedProfile);
           await ref.read(profilesProvider.notifier).putDurable(updatedProfile);
           ensureCurrent();
           ref.read(currentProfileIdProvider.notifier).value = updatedProfile.id;
@@ -766,6 +1103,10 @@ class ProfilesAction extends _$ProfilesAction {
     final existing = _profileUpdates[scope];
     if (existing != null &&
         existing.sourceRevision == sourceRevision &&
+        !(existing.automatic &&
+            !automatic &&
+            existing.started &&
+            globalState.xboardSession != null) &&
         (automatic || existing.profile == profile || initial == profile)) {
       if (!automatic) existing.automatic = false;
       if (showLoading) {
@@ -778,8 +1119,8 @@ class ProfilesAction extends _$ProfilesAction {
       sourceRevision,
       automatic: automatic,
     );
-    operation.future = _profileMutationScheduler
-        .run(() async {
+    Future<void> execute(bool Function() transactionCurrent) =>
+        _profileMutationScheduler.run(() async {
           if (!ref.mounted ||
               scope.account != _accountRevision ||
               _currentAccountIdentity != _accountIdentity) {
@@ -814,6 +1155,7 @@ class ProfilesAction extends _$ProfilesAction {
                 scope.account != _accountRevision ||
                 _currentAccountIdentity != _accountIdentity ||
                 globalState.isOfflineMode ||
+                !transactionCurrent() ||
                 operation.sourceRevision !=
                     (_profileSourceRevisions[profile.id] ?? 0)) {
               return false;
@@ -825,18 +1167,25 @@ class ProfilesAction extends _$ProfilesAction {
           }
 
           try {
+            operation.started = true;
             await _updateProfile(
               candidate,
               showLoading: showLoading,
               isCurrent: isCurrent,
+              forceRefresh: !operation.automatic,
             );
             _automaticFailures.remove(scope);
           } catch (error) {
             if (isCurrent()) _recordAutomaticFailure(scope);
             rethrow;
           }
-        })
-        .whenComplete(() {
+        });
+    operation.future =
+        _runAutomaticAuthenticatedProfileUpdate(
+          profile,
+          automatic: automatic,
+          execute: execute,
+        ).whenComplete(() {
           if (ref.mounted) {
             ref.read(isUpdatingProvider(profile.updatingKey).notifier).value =
                 false;
@@ -849,10 +1198,46 @@ class ProfilesAction extends _$ProfilesAction {
     return operation.future;
   }
 
+  Future<void> _runAutomaticAuthenticatedProfileUpdate(
+    Profile profile, {
+    required bool automatic,
+    required Future<void> Function(bool Function() isCurrent) execute,
+  }) async {
+    final session = globalState.xboardSession;
+    if (session == null) {
+      _recentAuthenticatedProfiles.removeWhere(
+        (_, recent) => recent.profile.id == profile.id,
+      );
+      await execute(() => true);
+      return;
+    }
+    final managed = await _managedAuthenticatedProfile(session);
+    if (managed?.id != profile.id) {
+      await execute(() => true);
+      return;
+    }
+    await runAuthenticatedSubscriptionSync(
+      session,
+      allowTokenRegistration: true,
+      forceRefresh: !automatic,
+      sourceProfile: profile,
+      automatic: automatic,
+      sync: (isCurrent) async {
+        await execute(isCurrent);
+        if (!ref.mounted) return null;
+        final updated = ref.read(profilesProvider).getProfile(profile.id);
+        return updated?.lastUpdateDate != profile.lastUpdateDate
+            ? updated
+            : null;
+      },
+    );
+  }
+
   Future<void> _updateProfile(
     Profile profile, {
     bool showLoading = false,
     required bool Function() isCurrent,
+    required bool forceRefresh,
   }) async {
     final snapshot = await _captureProfileFile(profile.id);
     try {
@@ -861,13 +1246,18 @@ class ProfilesAction extends _$ProfilesAction {
         ref.read(isUpdatingProvider(profile.updatingKey).notifier).value = true;
       }
       final newProfile = isSubscriptionV2ProfileSource(profile.url)
-          ? await _updateSubscriptionV2Profile(profile, isCurrent: isCurrent)
+          ? await _updateSubscriptionV2Profile(
+              profile,
+              isCurrent: isCurrent,
+              forceRefresh: forceRefresh,
+            )
           : await _updateLegacySubscriptionProfile(
               profile,
               isCurrent: isCurrent,
             );
       if (!isCurrent()) throw StateError('profile_sync_superseded');
       final latest = ref.read(profilesProvider).getProfile(profile.id)!;
+      _markAuthenticatedProfileCommit(newProfile);
       ref
           .read(profilesProvider.notifier)
           .put(
@@ -972,12 +1362,18 @@ class ProfilesAction extends _$ProfilesAction {
   Future<Profile> _updateSubscriptionV2Profile(
     Profile profile, {
     required bool Function() isCurrent,
+    required bool forceRefresh,
   }) async {
     final session = globalState.xboardSession;
     if (session == null || globalState.isOfflineMode) {
       throw const SubscriptionV2Exception('authenticated_session_required');
     }
-    final result = await loadSubscriptionV2Profile(session);
+    final result = await loadSubscriptionV2Profile(
+      session,
+      forceRefresh: forceRefresh,
+      requestScope: isCurrent,
+    );
+    _markSubscriptionTokenRegistration(result?.usedTokenRegistration ?? false);
     if (!isCurrent()) throw StateError('profile_sync_superseded');
     if (result == null) {
       throw const SubscriptionV2Exception('gray_access_removed');
@@ -996,11 +1392,15 @@ class ProfilesAction extends _$ProfilesAction {
 
   @visibleForTesting
   Future<SubscriptionV2Profile?> loadSubscriptionV2Profile(
-    XboardLoginResult session,
-  ) => SubscriptionV2Client().fetchProfile(
+    XboardLoginResult session, {
+    bool forceRefresh = false,
+    Object? requestScope,
+  }) => SubscriptionV2Client().fetchProfile(
     endpoint: session.endpoint,
     userToken: session.token,
     appVersion: globalState.packageInfo.version,
+    forceRefresh: forceRefresh,
+    requestScope: requestScope,
   );
 
   Future<void> addProfileFormFile() async {

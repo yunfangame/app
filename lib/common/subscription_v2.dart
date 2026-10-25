@@ -80,10 +80,15 @@ class SubscriptionV2RemoteConfig {
 }
 
 class SubscriptionV2Profile {
-  const SubscriptionV2Profile({required this.bytes, required this.sourceId});
+  const SubscriptionV2Profile({
+    required this.bytes,
+    required this.sourceId,
+    this.usedTokenRegistration = false,
+  });
 
   final Uint8List bytes;
   final String sourceId;
+  final bool usedTokenRegistration;
 }
 
 class SubscriptionV2Login {
@@ -270,6 +275,7 @@ class SubscriptionV2Client {
              ),
            ),
        _valueStore = valueStore ?? createSubscriptionV2ValueStore(),
+       _credentialStoreScope = valueStore ?? _sharedCredentialStoreScope,
        _requester = requester,
        _now = now ?? DateTime.now,
        _random = random ?? Random.secure(),
@@ -289,6 +295,10 @@ class SubscriptionV2Client {
   final ApiHealthService _apiHealthService;
   final Dio _dio;
   final SubscriptionV2ValueStore _valueStore;
+  final Object _credentialStoreScope;
+  static final _sharedCredentialStoreScope = Object();
+  static final _credentialRevisions = <(Object, String), int>{};
+  static final _credentialMutations = <(Object, String), Future<void>>{};
   final SubscriptionV2Requester? _requester;
   final DateTime Function() _now;
   final Random _random;
@@ -297,18 +307,66 @@ class SubscriptionV2Client {
   final Duration _operationTimeout;
   final ApiRequestRouter _requestRouter;
   final bool _shareProfileRequests;
-  final _pendingProfiles = <String, Future<SubscriptionV2Profile?>>{};
+  final _pendingProfiles =
+      <(String, Object?), Future<SubscriptionV2Profile?>>{};
   static final _sharedPendingProfiles =
-      <String, Future<SubscriptionV2Profile?>>{};
+      <(String, Object?), Future<SubscriptionV2Profile?>>{};
 
-  Future<void> clearCredential(String userToken) =>
-      _valueStore.delete(_credentialKey(userToken));
+  Future<T> _mutateCredential<T>(String key, Future<T> Function() mutation) {
+    final scope = (_credentialStoreScope, key);
+    final previous = _credentialMutations[scope] ?? Future<void>.value();
+    final future = previous.then((_) => mutation());
+    final tail = future.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _credentialMutations[scope] = tail;
+    unawaited(
+      tail.whenComplete(() {
+        if (identical(_credentialMutations[scope], tail)) {
+          _credentialMutations.remove(scope);
+        }
+      }),
+    );
+    return future;
+  }
+
+  Future<void> clearCredential(String userToken) {
+    final key = _credentialKey(userToken);
+    return _mutateCredential(key, () async {
+      final scope = (_credentialStoreScope, key);
+      _credentialRevisions[scope] = (_credentialRevisions[scope] ?? 0) + 1;
+      await _valueStore.delete(key);
+    });
+  }
+
+  Future<bool> _deleteCredentialIfCurrent(
+    String key,
+    _SubscriptionV2Credential? credential,
+  ) => _mutateCredential(key, () async {
+    if (credential == null) return false;
+    final scope = (_credentialStoreScope, key);
+    if (credential.storeRevision != (_credentialRevisions[scope] ?? 0)) {
+      return false;
+    }
+    final stored = await _valueStore.read(key);
+    if (stored == null ||
+        canonicalSubscriptionV2Json(jsonDecode(stored)) !=
+            canonicalSubscriptionV2Json(credential.toJson())) {
+      return false;
+    }
+    _credentialRevisions[scope] = (_credentialRevisions[scope] ?? 0) + 1;
+    await _valueStore.delete(key);
+    return true;
+  });
 
   Future<void> revokeDevice({
     required Uri endpoint,
     required String userToken,
   }) async {
     final credentialKey = _credentialKey(userToken);
+    final originalRevision =
+        _credentialRevisions[(_credentialStoreScope, credentialKey)] ?? 0;
     try {
       final config = parseSubscriptionV2RemoteConfig(
         await _apiHealthService.loadConfig(),
@@ -332,7 +390,12 @@ class SubscriptionV2Client {
         'device_id': credential.deviceId,
       }, probeToken: probeToken);
     } finally {
-      await _valueStore.delete(credentialKey);
+      await _mutateCredential(credentialKey, () async {
+        final scope = (_credentialStoreScope, credentialKey);
+        if ((_credentialRevisions[scope] ?? 0) != originalRevision) return;
+        _credentialRevisions[scope] = originalRevision + 1;
+        await _valueStore.delete(credentialKey);
+      });
     }
   }
 
@@ -342,6 +405,8 @@ class SubscriptionV2Client {
     required String appVersion,
     String? platform,
     bool allowTokenRegistration = true,
+    bool forceRefresh = false,
+    Object? requestScope,
   }) async {
     final config = await runSubscriptionDiagnosticStage(
       stage: 'profile_config_read',
@@ -360,7 +425,7 @@ class SubscriptionV2Client {
     final trustedGateways =
         config.trustedGateways.map((gateway) => gateway.toString()).toList()
           ..sort();
-    final requestKey = dart_crypto.sha256
+    final requestDigest = dart_crypto.sha256
         .convert(
           utf8.encode(
             canonicalSubscriptionV2Json({
@@ -373,12 +438,14 @@ class SubscriptionV2Client {
                   : trustedGateways,
               'require_https': endpoint.scheme == 'https',
               'allow_token_registration': allowTokenRegistration,
+              'force_refresh': forceRefresh,
               'app_version': appVersion,
               'platform': platform ?? Platform.operatingSystem,
             }),
           ),
         )
         .toString();
+    final requestKey = (requestDigest, requestScope);
     final pending = _shareProfileRequests
         ? _sharedPendingProfiles
         : _pendingProfiles;
@@ -386,49 +453,60 @@ class SubscriptionV2Client {
     if (existing != null) return existing;
     late _SubscriptionV2Identity identity;
     _SubscriptionV2Credential? credential;
-    final future = _withGatewayFailover<SubscriptionV2Profile?>(
-      gateways: gateways,
-      prepare: (scope) async {
-        final state = await runSubscriptionDiagnosticStage(
-          stage: 'profile_credential_read',
-          recorder: _diagnosticRecorder,
-          task: () async {
-            final identity = await _loadIdentity(scope: scope);
-            final credential = await _loadCredential(
-              _credentialKey(userToken),
-              config,
-              gateways.first,
+    var usedTokenRegistration = false;
+    final future =
+        _withGatewayFailover<SubscriptionV2Profile?>(
+          gateways: gateways,
+          prepare: (scope) async {
+            final state = await runSubscriptionDiagnosticStage(
+              stage: 'profile_credential_read',
+              recorder: _diagnosticRecorder,
+              task: () async {
+                final identity = await _loadIdentity(scope: scope);
+                final credential = await _loadCredential(
+                  _credentialKey(userToken),
+                  config,
+                  gateways.first,
+                );
+                scope.ensureActive();
+                return (identity: identity, credential: credential);
+              },
             );
-            scope.ensureActive();
-            return (identity: identity, credential: credential);
+            identity = state.identity;
+            credential = state.credential;
+            if (credential == null && !allowTokenRegistration) {
+              throw const SubscriptionV2Exception('device_not_registered');
+            }
           },
+          selectGateways: (attempted, scope) => _gatewayCandidates(
+            endpoint,
+            config,
+            reserveRecoveryProbe: true,
+            excludedGateways: attempted,
+            onProbeToken: (token) => scope.probeToken = token,
+          ),
+          operation: (gateway, scope) => _fetchProfileAtGateway(
+            config: config,
+            gateway: gateway,
+            userToken: userToken,
+            appVersion: appVersion,
+            platform: platform,
+            allowTokenRegistration: allowTokenRegistration,
+            identity: identity,
+            initialCredential: credential,
+            rememberCredential: (value) => credential = value,
+            onTokenRegistration: () => usedTokenRegistration = true,
+            scope: scope,
+          ),
+        ).then(
+          (profile) => profile == null
+              ? null
+              : SubscriptionV2Profile(
+                  bytes: profile.bytes,
+                  sourceId: profile.sourceId,
+                  usedTokenRegistration: usedTokenRegistration,
+                ),
         );
-        identity = state.identity;
-        credential = state.credential;
-        if (credential == null && !allowTokenRegistration) {
-          throw const SubscriptionV2Exception('device_not_registered');
-        }
-      },
-      selectGateways: (attempted, scope) => _gatewayCandidates(
-        endpoint,
-        config,
-        reserveRecoveryProbe: true,
-        excludedGateways: attempted,
-        onProbeToken: (token) => scope.probeToken = token,
-      ),
-      operation: (gateway, scope) => _fetchProfileAtGateway(
-        config: config,
-        gateway: gateway,
-        userToken: userToken,
-        appVersion: appVersion,
-        platform: platform,
-        allowTokenRegistration: allowTokenRegistration,
-        identity: identity,
-        initialCredential: credential,
-        rememberCredential: (value) => credential = value,
-        scope: scope,
-      ),
-    );
     pending[requestKey] = future;
     try {
       return await future;
@@ -448,6 +526,7 @@ class SubscriptionV2Client {
     required _SubscriptionV2Credential? initialCredential,
     required void Function(_SubscriptionV2Credential credential)
     rememberCredential,
+    required void Function() onTokenRegistration,
     required _SubscriptionV2RequestScope scope,
   }) async {
     final credentialKey = _credentialKey(userToken);
@@ -457,16 +536,19 @@ class SubscriptionV2Client {
           await runSubscriptionDiagnosticStage<_SubscriptionV2Credential>(
             stage: 'device_registration',
             recorder: _diagnosticRecorder,
-            task: () => _registerDevice(
-              config: config,
-              gateway: gateway,
-              identity: identity,
-              credentialKey: credentialKey,
-              userToken: userToken,
-              appVersion: appVersion,
-              platform: platform ?? Platform.operatingSystem,
-              scope: scope,
-            ),
+            task: () {
+              onTokenRegistration();
+              return _registerDevice(
+                config: config,
+                gateway: gateway,
+                identity: identity,
+                credentialKey: credentialKey,
+                userToken: userToken,
+                appVersion: appVersion,
+                platform: platform ?? Platform.operatingSystem,
+                scope: scope,
+              );
+            },
           );
       rememberCredential(credential);
       return await _fetchWithCredential(
@@ -482,21 +564,30 @@ class SubscriptionV2Client {
       if (error.code != 'device_not_registered') rethrow;
       scope.allowGatewayFallback = false;
       scope.ensureActive();
-      await _valueStore.delete(credentialKey);
+      final removed = await _deleteCredentialIfCurrent(
+        credentialKey,
+        credential,
+      );
       if (!allowTokenRegistration) rethrow;
+      if (!removed && credential != null) {
+        throw const SubscriptionV2Exception('credential_superseded');
+      }
       final registered = await runSubscriptionDiagnosticStage(
         stage: 'device_registration',
         recorder: _diagnosticRecorder,
-        task: () => _registerDevice(
-          config: config,
-          gateway: gateway,
-          identity: identity,
-          credentialKey: credentialKey,
-          userToken: userToken,
-          appVersion: appVersion,
-          platform: platform ?? Platform.operatingSystem,
-          scope: scope,
-        ),
+        task: () {
+          onTokenRegistration();
+          return _registerDevice(
+            config: config,
+            gateway: gateway,
+            identity: identity,
+            credentialKey: credentialKey,
+            userToken: userToken,
+            appVersion: appVersion,
+            platform: platform ?? Platform.operatingSystem,
+            scope: scope,
+          );
+        },
       );
       rememberCredential(registered);
       return _fetchWithCredential(
@@ -619,10 +710,12 @@ class SubscriptionV2Client {
         keyId: config.keyId,
         gateway: gateway.toString(),
       );
-      await _valueStore.write(
-        _credentialKey(token),
-        jsonEncode(credential.toJson()),
-      );
+      final credentialKey = _credentialKey(token);
+      await _mutateCredential(credentialKey, () async {
+        final scope = (_credentialStoreScope, credentialKey);
+        _credentialRevisions[scope] = (_credentialRevisions[scope] ?? 0) + 1;
+        await _valueStore.write(credentialKey, jsonEncode(credential.toJson()));
+      });
       return SubscriptionV2Login(
         endpoint: Uri.parse(gateway.origin),
         token: token,
@@ -735,6 +828,13 @@ class SubscriptionV2Client {
   }) async {
     final allowGatewayFallback = scope?.allowGatewayFallback;
     if (scope != null) scope.allowGatewayFallback = false;
+    final revisionKey = (_credentialStoreScope, credentialKey);
+    final revision = await _mutateCredential(credentialKey, () async {
+      scope?.ensureActive();
+      final next = (_credentialRevisions[revisionKey] ?? 0) + 1;
+      _credentialRevisions[revisionKey] = next;
+      return next;
+    });
     final data = await _sendSigned(config, gateway, identity, {
       'op': 'register_device',
       'timestamp': _timestamp,
@@ -749,9 +849,16 @@ class SubscriptionV2Client {
       expiresAt: _requiredInt(data, 'expires_at'),
       keyId: config.keyId,
       gateway: gateway.toString(),
+      storeRevision: revision,
     );
     scope?.ensureActive();
-    await _valueStore.write(credentialKey, jsonEncode(credential.toJson()));
+    await _mutateCredential(credentialKey, () async {
+      scope?.ensureActive();
+      if (_credentialRevisions[revisionKey] != revision) {
+        throw const SubscriptionV2Exception('credential_superseded');
+      }
+      await _valueStore.write(credentialKey, jsonEncode(credential.toJson()));
+    });
     scope?.ensureActive();
     if (scope != null) {
       scope.allowGatewayFallback = allowGatewayFallback!;
@@ -1082,7 +1189,8 @@ class SubscriptionV2Client {
 
   Future<_SubscriptionV2Identity> _loadIdentity({
     _SubscriptionV2RequestScope? scope,
-  }) async {
+  }) => _mutateCredential(_deviceSeedKey, () async {
+    scope?.ensureActive();
     final stored = await _valueStore.read(_deviceSeedKey);
     scope?.ensureActive();
     List<int>? seed;
@@ -1107,19 +1215,22 @@ class SubscriptionV2Client {
     final publicKey = await keyPair.extractPublicKey();
     scope?.ensureActive();
     return _SubscriptionV2Identity(keyPair: keyPair, publicKey: publicKey);
-  }
+  });
 
   Future<_SubscriptionV2Credential?> _loadCredential(
     String key,
     SubscriptionV2RemoteConfig config,
     Uri gateway,
-  ) async {
+  ) => _mutateCredential(key, () async {
     final stored = await _valueStore.read(key);
     if (stored == null) return null;
     try {
       final decoded = jsonDecode(stored);
       if (decoded is! Map) return null;
-      final credential = _SubscriptionV2Credential.fromJson(decoded);
+      final credential = _SubscriptionV2Credential.fromJson(
+        decoded,
+        storeRevision: _credentialRevisions[(_credentialStoreScope, key)] ?? 0,
+      );
       final gateways = config.trustedGateways
           .map((gateway) => gateway.toString())
           .toSet();
@@ -1139,7 +1250,7 @@ class SubscriptionV2Client {
     } catch (_) {
       return null;
     }
-  }
+  });
 
   Future<SecretKey> _deriveKey(
     SecretKey shared,
@@ -1500,14 +1611,16 @@ class _SubscriptionV2Credential {
     required this.expiresAt,
     required this.keyId,
     required this.gateway,
+    this.storeRevision,
   });
 
-  factory _SubscriptionV2Credential.fromJson(Map source) {
+  factory _SubscriptionV2Credential.fromJson(Map source, {int? storeRevision}) {
     return _SubscriptionV2Credential(
       deviceId: source['device_id']?.toString() ?? '',
       expiresAt: source['expires_at'] is int ? source['expires_at'] as int : 0,
       keyId: source['key_id']?.toString() ?? '',
       gateway: source['gateway']?.toString() ?? '',
+      storeRevision: storeRevision,
     );
   }
 
@@ -1515,6 +1628,7 @@ class _SubscriptionV2Credential {
   final int expiresAt;
   final String keyId;
   final String gateway;
+  final int? storeRevision;
 
   Map<String, Object?> toJson() => {
     'device_id': deviceId,
