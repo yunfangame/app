@@ -18,7 +18,12 @@ class _DashboardSubscriptionRefreshButtonState
 
   Future<void> _refresh() async {
     if (_refreshing) return;
-    final callback = widget.onRefresh ?? globalState.refreshXboardSubscription;
+    final refreshView = globalState.refreshXboardSubscriptionView;
+    final callback =
+        widget.onRefresh ??
+        (refreshView == null
+            ? globalState.refreshXboardSubscription
+            : () => refreshView(forceRefresh: true));
     if (callback == null ||
         globalState.xboardSession == null ||
         globalState.isOfflineMode) {
@@ -46,6 +51,7 @@ class _DashboardSubscriptionRefreshButtonState
         !globalState.isOfflineMode &&
         globalState.xboardSession != null &&
         (widget.onRefresh != null ||
+            globalState.refreshXboardSubscriptionView != null ||
             globalState.refreshXboardSubscription != null);
     return IconButton(
       key: const ValueKey('fengwo-dashboard-traffic-refresh'),

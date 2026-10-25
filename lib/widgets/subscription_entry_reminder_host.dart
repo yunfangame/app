@@ -153,13 +153,8 @@ class _SubscriptionEntryReminderHostState
         return;
       }
       final previousSnapshot = globalState.xboardSubscription;
-      final subscription = await _authService
-          .fetchSubscription(
-            endpoint: session.endpoint,
-            authData: session.authData,
-            userToken: session.token,
-            secureSubscription: session.secureSubscription,
-          )
+      final subscription = await globalState
+          .loadXboardSubscriptionSnapshot(_authService, session)
           .timeout(widget.requestTimeout);
       if (!_isCurrent(entry, session, sessionRevision) ||
           !identical(previousSnapshot, globalState.xboardSubscription)) {

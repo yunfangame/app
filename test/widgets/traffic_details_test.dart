@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/state.dart';
@@ -9,6 +11,36 @@ import 'package:flutter_test/flutter_test.dart';
 import '../support/api_health_fixture.dart';
 
 void main() {
+  for (final relogin in [false, true]) {
+    testWidgets(
+      'late traffic refresh cannot replace a newer session ($relogin)',
+      (tester) async {
+        globalState.setOfflineMode(false);
+        globalState.activateXboardSession(_testSession());
+        addTearDown(globalState.clearXboardSession);
+        final service = _DelayedTrafficAuth();
+        await tester.pumpWidget(
+          _TestApp(child: FengWoTrafficDetailsView(authService: service)),
+        );
+        await tester.pumpAndSettle();
+        final button = find.byKey(const ValueKey('refresh-traffic-data'));
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pump();
+        await tester.pump();
+        expect(service.summaryCalls, 1);
+        final current = _testSession(unlimited: true);
+        if (relogin) globalState.clearXboardSession();
+        globalState.activateXboardSession(current, subscriptionFresh: true);
+        service.delayedLogs.complete(const []);
+        await tester.pumpAndSettle();
+        expect(globalState.xboardSession, same(current));
+        expect(globalState.xboardSubscription, same(current.subscription));
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('traffic details renders XBoard totals, rates, and refreshes', (
     tester,
   ) async {
@@ -17,19 +49,16 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(globalState.clearXboardSession);
-    globalState.xboardSession = _testSession();
+    globalState.activateXboardSession(_testSession(), subscriptionFresh: true);
     var trafficRequests = 0;
     var subscriptionRequests = 0;
+    final service = _testService(
+      onTrafficRequested: () => trafficRequests++,
+      onSubscriptionRequested: () => subscriptionRequests++,
+    );
 
     await tester.pumpWidget(
-      _TestApp(
-        child: FengWoTrafficDetailsView(
-          authService: _testService(
-            onTrafficRequested: () => trafficRequests++,
-            onSubscriptionRequested: () => subscriptionRequests++,
-          ),
-        ),
-      ),
+      _TestApp(child: FengWoTrafficDetailsView(authService: service)),
     );
     await tester.pumpAndSettle();
 
@@ -62,6 +91,14 @@ void main() {
     expect(trafficRequests, 2);
     expect(subscriptionRequests, 1);
     expect(globalState.xboardSubscription?.remainingGb, 1400);
+    final displayed = globalState.xboardSubscription;
+    final automatic = await globalState.loadXboardSubscriptionSnapshot(
+      service,
+      globalState.xboardSession!,
+    );
+    expect(automatic, same(displayed));
+    expect(automatic.remainingGb, 1400);
+    expect(subscriptionRequests, 1);
     expect(tester.takeException(), isNull);
   });
 
@@ -112,6 +149,32 @@ void main() {
     expect(find.byKey(const ValueKey('traffic-reset-plan')), findsNothing);
     expect(tester.takeException(), isNull);
   });
+}
+
+class _DelayedTrafficAuth extends XboardAuthService {
+  int logCalls = 0;
+  int summaryCalls = 0;
+  final delayedLogs = Completer<List<XboardTrafficLog>>();
+
+  @override
+  Future<List<XboardTrafficLog>> fetchTrafficLogs({
+    required Uri endpoint,
+    required String authData,
+  }) {
+    logCalls++;
+    return logCalls == 1 ? Future.value(const []) : delayedLogs.future;
+  }
+
+  @override
+  Future<XboardSubscriptionData> fetchSubscription({
+    required Uri endpoint,
+    required String authData,
+    String? userToken,
+    bool secureSubscription = false,
+  }) async {
+    summaryCalls++;
+    return _testSession().subscription;
+  }
 }
 
 XboardAuthService _testService({
