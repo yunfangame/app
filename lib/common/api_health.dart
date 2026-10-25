@@ -206,6 +206,8 @@ class ApiRemoteConfigActivity extends ChangeNotifier {
 class _RemoteConfigCacheState {
   _VerifiedRemoteConfig? verified;
   DateTime? verifiedAt;
+  Uri? successfulSource;
+  DateTime? successfulSourceAt;
   ApiRemoteConfigException? failure;
   DateTime? failedAt;
   DateTime? retryAfter;
@@ -237,6 +239,10 @@ class _RemoteConfigRefreshDeferred implements Exception {
   final _VerifiedRemoteConfig verified;
 }
 
+class _RemoteConfigSourceDiscarded implements Exception {
+  const _RemoteConfigSourceDiscarded();
+}
+
 class ApiHealthService {
   ApiHealthService({
     String configUrl = apiHealthConfigUrl,
@@ -256,12 +262,14 @@ class ApiHealthService {
     this.probeTimeout = const Duration(seconds: 3),
     this.initialRemoteWait = const Duration(seconds: 2),
     this.configCacheTtl = const Duration(minutes: 5),
+    this.configHedgeDelay = const Duration(milliseconds: 300),
     this.configRetryDelays = const [
       Duration.zero,
       Duration(milliseconds: 250),
       Duration(milliseconds: 750),
     ],
-  }) : _configUris = _buildConfigUris(configUrl, backupConfigUrls),
+  }) : assert(!configHedgeDelay.isNegative),
+       _configUris = _buildConfigUris(configUrl, backupConfigUrls),
        _configLoader = configLoader,
        _emergencyConfigLoader = emergencyConfigLoader,
        _endpointProbe = endpointProbe,
@@ -321,6 +329,7 @@ class ApiHealthService {
   final Duration probeTimeout;
   final Duration initialRemoteWait;
   final Duration configCacheTtl;
+  final Duration configHedgeDelay;
   final List<Duration> configRetryDelays;
   final DateTime Function() _now;
   final ApiRemoteConfigActivity _activity;
@@ -712,6 +721,10 @@ class ApiHealthService {
       if (_cacheState.revision == request.revision) {
         _cacheState.verified = verified;
         _cacheState.verifiedAt = _now();
+        if (verified.source != null) {
+          _cacheState.successfulSource = verified.source;
+          _cacheState.successfulSourceAt = _cacheState.verifiedAt;
+        }
         _cacheState.verifiedRevision = request.revision;
         _cacheState.failure = null;
         _cacheState.failedAt = null;
@@ -802,35 +815,98 @@ class ApiHealthService {
         const ApiRemoteConfigException(failure: ApiRemoteConfigFailure.http);
   }
 
+  List<Uri> _orderedConfigSources() {
+    final preferred = _cacheState.successfulSource;
+    final at = _cacheState.successfulSourceAt;
+    if (preferred == null || at == null || !_configUris.contains(preferred)) {
+      return _configUris;
+    }
+    final age = _now().difference(at);
+    if (age.isNegative || age >= const Duration(hours: 1)) return _configUris;
+    return [preferred, ..._configUris.where((uri) => uri != preferred)];
+  }
+
   Future<_VerifiedRemoteConfig> _loadRemoteConfigRound({
     required bool requireEndpoints,
     String? refreshNonce,
   }) {
     final completer = Completer<_VerifiedRemoteConfig>();
     final failures = <ApiRemoteConfigException>[];
-    var remaining = _configUris.length;
-    for (final configUri in _configUris) {
+    final sources = _orderedConfigSources();
+    final transports = <Uri, CancelToken>{};
+    Timer? hedge;
+    var next = 0;
+    var active = 0;
+    late final void Function() startNext;
+
+    void cancelTransports({Uri? winner}) {
+      for (final entry in transports.entries) {
+        if (entry.key != winner) {
+          entry.value.cancel('Config source attempt superseded');
+        }
+      }
+    }
+
+    void scheduleNext() {
+      if (completer.isCompleted || next >= sources.length) return;
+      hedge?.cancel();
+      hedge = Timer(configHedgeDelay, startNext);
+    }
+
+    void fail() {
+      hedge?.cancel();
+      var selected = failures.first;
+      for (final failure in failures.skip(1)) {
+        selected = _moreImportantFailure(selected, failure);
+      }
+      completer.completeError(selected);
+    }
+
+    startNext = () {
+      hedge?.cancel();
+      hedge = null;
+      if (completer.isCompleted || next >= sources.length) return;
+      final verified = _cacheState.verified;
+      if (refreshNonce == null &&
+          !_activity.isAvailable &&
+          verified != null &&
+          (!requireEndpoints || verified.endpoints.isNotEmpty)) {
+        _deferConfigRefresh(requireEndpoints: requireEndpoints);
+        completer.completeError(_RemoteConfigRefreshDeferred(verified));
+        cancelTransports();
+        return;
+      }
+      final configUri = sources[next++];
+      final token = _configLoader == null ? CancelToken() : null;
+      if (token != null) transports[configUri] = token;
+      active++;
       unawaited(() async {
         try {
           final verified = await _loadVerifiedRemoteConfig(
             configUri,
             requireEndpoints: requireEndpoints,
             refreshNonce: refreshNonce,
+            cancelToken: token,
+            canAccept: () => !completer.isCompleted,
           );
-          if (!completer.isCompleted) completer.complete(verified);
+          if (completer.isCompleted) return;
+          hedge?.cancel();
+          completer.complete(verified);
+          cancelTransports(winner: configUri);
         } catch (error) {
+          if (completer.isCompleted) return;
           failures.add(_classifyRemoteError(error, configUri));
-          remaining--;
-          if (remaining == 0 && !completer.isCompleted) {
-            var selected = failures.first;
-            for (final failure in failures.skip(1)) {
-              selected = _moreImportantFailure(selected, failure);
-            }
-            completer.completeError(selected);
+          active--;
+          if (next < sources.length) {
+            startNext();
+          } else if (active == 0) {
+            fail();
           }
         }
       }());
-    }
+      scheduleNext();
+    };
+    startNext();
     return completer.future;
   }
 
@@ -838,6 +914,8 @@ class ApiHealthService {
     Uri configUri, {
     required bool requireEndpoints,
     String? refreshNonce,
+    CancelToken? cancelToken,
+    bool Function()? canAccept,
   }) async {
     final stopwatch = Stopwatch()..start();
     final attemptId = newApiDiagnosticAttemptId();
@@ -855,12 +933,19 @@ class ApiHealthService {
           : await _loadRemoteConfig(
               requestUri,
               forceRefresh: refreshNonce != null,
+              cancelToken: cancelToken,
             );
+      if (canAccept?.call() == false) {
+        throw const _RemoteConfigSourceDiscarded();
+      }
       final verified = await _verifyPayload(
         payload,
         source: configUri,
         requireEndpoints: requireEndpoints,
       );
+      if (canAccept?.call() == false) {
+        throw const _RemoteConfigSourceDiscarded();
+      }
       emitApiDiagnosticEvent(
         _diagnosticRecorder,
         'api.config.attempt.succeeded',
@@ -874,6 +959,11 @@ class ApiHealthService {
       );
       return verified;
     } catch (error) {
+      if (error is _RemoteConfigSourceDiscarded ||
+          cancelToken?.isCancelled == true ||
+          canAccept?.call() == false) {
+        rethrow;
+      }
       final classified = _classifyRemoteError(
         error,
         configUri,
@@ -953,6 +1043,7 @@ class ApiHealthService {
             ? List<int>.unmodifiable(payload)
             : _freezeConfigValue(payload),
         endpoints: List.unmodifiable(endpoints),
+        source: source,
       );
     } on ApiRemoteConfigException {
       rethrow;
@@ -1102,6 +1193,7 @@ class ApiHealthService {
   Future<Object?> _loadRemoteConfig(
     Uri configUri, {
     bool forceRefresh = false,
+    CancelToken? cancelToken,
   }) async {
     final dio = Dio(
       BaseOptions(
@@ -1120,6 +1212,7 @@ class ApiHealthService {
     try {
       final response = await dio.getUri<List<int>>(
         configUri,
+        cancelToken: cancelToken,
         options: Options(
           headers: forceRefresh
               ? const {
@@ -1180,11 +1273,13 @@ class _VerifiedRemoteConfig {
     required this.config,
     required this.encryptedPayload,
     required this.endpoints,
+    this.source,
   });
 
   final Object? config;
   final Object? encryptedPayload;
   final List<Uri> endpoints;
+  final Uri? source;
 }
 
 Object? _freezeConfigValue(Object? value) => switch (value) {
