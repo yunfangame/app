@@ -1,10 +1,179 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/xboard_auth.dart';
+import 'package:fl_clash/common/xboard_api_request.dart';
 import 'package:fl_clash/common/xboard_nodes_snapshot.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'a departed automatic consumer does not cancel another active consumer',
+    () async {
+      final cache = XboardNodesSnapshotCache();
+      final session = _session();
+      final pending = Completer<List<XboardNodeData>>();
+      var firstActive = true;
+      var secondActive = true;
+      late bool Function() allowed;
+      final first = cache.loadGuarded(
+        session: session,
+        epoch: 1,
+        canRequest: () => firstActive,
+        loader: (guard) {
+          allowed = guard;
+          return pending.future;
+        },
+      );
+      final second = cache.loadGuarded(
+        session: session,
+        epoch: 1,
+        canRequest: () => secondActive,
+        loader: (_) async => throw StateError('duplicate'),
+      );
+      firstActive = false;
+      final firstError = expectLater(
+        first,
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      expect(allowed(), isTrue);
+      pending.complete([_node('shared')]);
+      expect((await second).single.name, 'shared');
+      await firstError;
+      secondActive = false;
+      expect(
+        (await cache.load(
+          session: session,
+          epoch: 1,
+          loader: () async => throw StateError('cached'),
+        )).single.name,
+        'shared',
+      );
+    },
+  );
+
+  test(
+    'an abandoned automatic request cannot revive when a new activity joins',
+    () async {
+      final cache = XboardNodesSnapshotCache();
+      final session = _session();
+      final pending = Completer<List<XboardNodeData>>();
+      var activity = 0;
+      late bool Function() oldAllowed;
+      final old = cache.loadGuarded(
+        session: session,
+        epoch: 1,
+        canRequest: () => activity == 0,
+        loader: (guard) {
+          oldAllowed = guard;
+          return pending.future;
+        },
+      );
+      final oldError = expectLater(
+        old,
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      activity++;
+      final fresh = await cache.loadGuarded(
+        session: session,
+        epoch: 1,
+        canRequest: () => activity == 1,
+        loader: (_) async => [_node('new activity')],
+      );
+      expect(oldAllowed(), isFalse);
+      await oldError;
+      pending.complete([_node('obsolete')]);
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        (await cache.load(
+          session: session,
+          epoch: 1,
+          loader: () async => throw StateError('cached'),
+        )).single.name,
+        fresh.single.name,
+      );
+    },
+  );
+
+  test(
+    'unrestricted login keeps the shared request alive after a page leaves',
+    () async {
+      final cache = XboardNodesSnapshotCache();
+      final session = _session();
+      final pending = Completer<List<XboardNodeData>>();
+      late bool Function() allowed;
+      final login = cache.loadGuarded(
+        session: session,
+        epoch: 1,
+        loader: (guard) {
+          allowed = guard;
+          return pending.future;
+        },
+      );
+      var pageActive = true;
+      final page = cache.loadGuarded(
+        session: session,
+        epoch: 1,
+        canRequest: () => pageActive,
+        loader: (_) async => throw StateError('duplicate'),
+      );
+      final pageError = expectLater(
+        page,
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      pageActive = false;
+      expect(allowed(), isTrue);
+      pending.complete([_node('login')]);
+      expect((await login).single.name, 'login');
+      await pageError;
+    },
+  );
+
+  test(
+    'manual force keeps working after its inherited automatic consumer leaves',
+    () async {
+      final cache = XboardNodesSnapshotCache();
+      final session = _session();
+      final oldTransport = Completer<List<XboardNodeData>>();
+      final forceTransport = Completer<List<XboardNodeData>>();
+      var active = true;
+      late bool Function() oldAllowed;
+      final old = cache.loadGuarded(
+        session: session,
+        epoch: 1,
+        canRequest: () => active,
+        loader: (guard) {
+          oldAllowed = guard;
+          return oldTransport.future;
+        },
+      );
+      final oldError = expectLater(
+        old,
+        throwsA(isA<XboardApiRequestDeferred>()),
+      );
+      final manual = cache.loadGuarded(
+        session: session,
+        epoch: 1,
+        forceRefresh: true,
+        loader: (_) => forceTransport.future,
+      );
+      active = false;
+      expect(oldAllowed(), isFalse);
+      forceTransport.complete([_node('manual')]);
+      expect((await manual).single.name, 'manual');
+      await oldError;
+      oldTransport.complete([_node('old')]);
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        (await cache.load(
+          session: session,
+          epoch: 1,
+          loader: () async => throw StateError('cached'),
+        )).single.name,
+        'manual',
+      );
+    },
+  );
+
   test(
     'automatic readers share requests and success expires without sliding TTL',
     () async {
