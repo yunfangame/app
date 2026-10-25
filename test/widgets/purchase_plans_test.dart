@@ -834,6 +834,10 @@ class _PaymentRig {
         ),
       ),
     );
+    if (_windowQueryFails) {
+      await _flushPaymentEvents(tester);
+      await tester.tap(find.byIcon(Icons.refresh_rounded));
+    }
     await tester.pumpAndSettle();
     final l10n = tester
         .element(find.byType(FengWoPurchasePlansView))

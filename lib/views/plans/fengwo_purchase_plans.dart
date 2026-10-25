@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/xboard_account_view_reads.dart';
+import 'package:fl_clash/common/xboard_catalog_cache.dart';
 import 'package:fl_clash/common/xboard_order_changes.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/state.dart';
@@ -58,54 +60,72 @@ class FengWoPurchasePlansView extends StatefulWidget {
       _FengWoPurchasePlansViewState();
 }
 
-class _FengWoPurchasePlansViewState extends State<FengWoPurchasePlansView> {
+class _FengWoPurchasePlansViewState extends State<FengWoPurchasePlansView>
+    with XboardAccountViewActivity<FengWoPurchasePlansView> {
   late final XboardAuthService _authService;
   List<XboardAvailablePlan> _plans = const [];
   _PlanType _planType = _PlanType.all;
   bool _loading = true;
   bool _failed = false;
+  bool _forceOnResume = false;
+  int _requestRevision = 0;
 
   @override
   void initState() {
     super.initState();
     _authService = widget.authService ?? XboardAuthService();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadPlans());
   }
 
-  Future<void> _loadPlans() async {
-    if (globalState.isOfflineMode) {
-      if (mounted) setState(() => _loading = false);
-      return;
-    }
-    final session = globalState.xboardSession;
-    if (session == null) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _failed = true;
-        });
-      }
-      return;
-    }
+  @override
+  void onAccountViewReady() {
+    final force = _forceOnResume;
+    _forceOnResume = false;
+    unawaited(_loadPlans(forceRefresh: force));
+  }
+
+  @override
+  void onAccountViewReset() {
+    _requestRevision++;
+    _forceOnResume = false;
+    setState(() {
+      _plans = const [];
+      _loading = true;
+      _failed = false;
+    });
+  }
+
+  Future<void> _refreshPlans() => _loadPlans(forceRefresh: true);
+
+  Future<void> _loadPlans({bool forceRefresh = false}) async {
+    final allowed = forceRefresh
+        ? canUseAccountViewActions
+        : canReadAccountView;
+    final session = accountViewSession;
+    if (!allowed || session == null) return;
+    final epoch = accountViewEpoch;
+    final revision = ++_requestRevision;
+    bool current() =>
+        isCurrentAccountView(session, epoch) && revision == _requestRevision;
     setState(() {
       _loading = true;
       _failed = false;
     });
     try {
-      final plans = await _authService.fetchPlans(
-        endpoint: session.endpoint,
-        authData: session.authData,
+      final plans = await loadXboardPlanCatalog(
+        authService: _authService,
+        session: session,
+        forceRefresh: forceRefresh,
       );
-      if (!mounted) return;
+      if (!current()) return;
       setState(() => _plans = plans);
     } catch (error, stackTrace) {
       commonPrint.log(
         'load XBoard plans failed: $error, $stackTrace',
         logLevel: LogLevel.warning,
       );
-      if (mounted) setState(() => _failed = true);
+      if (current()) setState(() => _failed = true);
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (current()) setState(() => _loading = false);
     }
   }
 
@@ -120,8 +140,9 @@ class _FengWoPurchasePlansViewState extends State<FengWoPurchasePlansView> {
   }
 
   Future<void> _showPayment(XboardAvailablePlan plan, String period) async {
-    final session = globalState.xboardSession;
-    if (session == null) return;
+    final session = accountViewSession;
+    if (!canUseAccountViewActions || session == null) return;
+    final epoch = accountViewEpoch;
     final paid = await showXboardPaymentDialog(
       context: context,
       authService: _authService,
@@ -129,12 +150,9 @@ class _FengWoPurchasePlansViewState extends State<FengWoPurchasePlansView> {
       plan: plan,
       period: period,
     );
-    final current = globalState.xboardSession;
-    if (paid == true &&
-        mounted &&
-        current?.endpoint == session.endpoint &&
-        current?.authData == session.authData) {
-      await _loadPlans();
+    if (isCurrentAccountView(session, epoch)) {
+      _forceOnResume = paid == true;
+      requestAccountViewRead();
     }
   }
 
@@ -152,7 +170,7 @@ class _FengWoPurchasePlansViewState extends State<FengWoPurchasePlansView> {
     return Material(
       color: colors.background,
       child: RefreshIndicator(
-        onRefresh: _loadPlans,
+        onRefresh: _refreshPlans,
         child: CustomScrollView(
           key: const ValueKey('fengwo-plan-store-scroll'),
           physics: const AlwaysScrollableScrollPhysics(),
@@ -162,7 +180,7 @@ class _FengWoPurchasePlansViewState extends State<FengWoPurchasePlansView> {
                 colors: colors,
                 selectedType: _planType,
                 onTypeChanged: (value) => setState(() => _planType = value),
-                onRefresh: _loadPlans,
+                onRefresh: _refreshPlans,
               ),
             ),
             if (_loading)
@@ -176,7 +194,7 @@ class _FengWoPurchasePlansViewState extends State<FengWoPurchasePlansView> {
                 child: _PlanStoreStatus(
                   icon: Icons.cloud_off_rounded,
                   label: context.appLocalizations.planCatalogFailed,
-                  onRetry: _loadPlans,
+                  onRetry: _refreshPlans,
                 ),
               )
             else if (visiblePlans.isEmpty)
@@ -862,6 +880,8 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
   int _attempt = 0;
   int _windowRevision = 0;
   int _windowRetries = 0;
+  late XboardAvailablePlan _plan = widget.plan;
+  bool _needsConfirmation = false;
 
   bool get _currentSession =>
       !_sessionInvalidated &&
@@ -899,7 +919,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
     },
   );
 
-  int get _price => widget.plan.prices[widget.period] ?? 0;
+  int get _price => _plan.prices[widget.period] ?? 0;
 
   bool get _isFree => _price == 0;
 
@@ -1149,6 +1169,29 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
       _error = null;
     });
     try {
+      if (_tradeNo == null) {
+        final plan = await findXboardCatalogPlan(
+          authService: widget.authService,
+          session: widget.session,
+          planId: _plan.id,
+          forceRefresh: true,
+        );
+        if (!mounted || !_isCurrentAttempt(attempt)) return;
+        if (plan == null || !plan.prices.containsKey(widget.period)) {
+          _showFailure(context.appLocalizations.subscriptionPlanUnavailable);
+          return;
+        }
+        final changed = plan.prices[widget.period] != _price;
+        _plan = plan;
+        if (changed) {
+          setState(() {
+            _needsConfirmation = true;
+            _stage = _PaymentStage.ready;
+          });
+          return;
+        }
+      }
+      final creatingOrder = _tradeNo == null;
       final tradeNo =
           _tradeNo ??
           await widget.authService.createOrder(
@@ -1159,6 +1202,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
           );
       if (!_isCurrentAttempt(attempt)) return;
       _tradeNo = tradeNo;
+      if (creatingOrder) xboardPlanCatalog.invalidate(widget.session);
       final checkout = await widget.authService.checkoutOrder(
         endpoint: widget.session.endpoint,
         authData: widget.session.authData,
@@ -1231,7 +1275,10 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
       _stage = _PaymentStage.success;
       _error = null;
     });
-    if (newlyPaid) invalidateXboardOrders(widget.session);
+    if (newlyPaid) {
+      invalidateXboardOrders(widget.session);
+      xboardPlanCatalog.invalidate(widget.session);
+    }
     _maybeRefreshSubscription();
     if (_windowReadFailed && !_subscriptionRefreshStarted) {
       _scheduleWindowReadRetry();
@@ -1390,7 +1437,7 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
         children: [
           _PaymentOrderSummary(
             colors: colors,
-            planName: widget.plan.name,
+            planName: _plan.name,
             period: xboardPeriodLabel(context, widget.period),
             price: _price,
           ),
@@ -1432,7 +1479,13 @@ class _XboardPaymentDialogState extends State<_XboardPaymentDialog>
                 ? _createAndCheckout
                 : null,
             icon: Icon(_isFree ? Icons.check_rounded : Icons.qr_code_rounded),
-            label: Text(_isFree ? l10n.activateNow : l10n.generatePaymentQr),
+            label: Text(
+              _needsConfirmation
+                  ? l10n.confirm
+                  : _isFree
+                  ? l10n.activateNow
+                  : l10n.generatePaymentQr,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
