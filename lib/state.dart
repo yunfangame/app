@@ -17,6 +17,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'common/common.dart';
 import 'common/migration.dart';
+import 'common/xboard_subscription_snapshot.dart';
 import 'common/xboard_tickets.dart';
 import 'database/database.dart';
 import 'enum/enum.dart';
@@ -48,6 +49,7 @@ class GlobalState {
   Future<bool> Function()? enableOfflineMode;
   Future<bool> Function()? restoreOnlineMode;
   Future<bool> Function()? refreshXboardSubscription;
+  Future<bool> Function({bool forceRefresh})? refreshXboardSubscriptionView;
   Future<bool> Function()? refreshXboardNodes;
   XboardAnnouncementRequest? showXboardAnnouncements;
   bool _xboardAnnouncementPromptPending = false;
@@ -68,6 +70,39 @@ class GlobalState {
       identical(_subscriptionSnapshotSession, xboardSession)
       ? xboardSubscriptionNotifier.value ?? xboardSession?.subscription
       : xboardSession?.subscription;
+
+  final _subscriptionSnapshots = XboardSubscriptionSnapshotCache();
+
+  Future<XboardSubscriptionData> loadXboardSubscriptionSnapshot(
+    XboardAuthService service,
+    XboardLoginResult session, {
+    bool forceRefresh = false,
+  }) {
+    final key = XboardSubscriptionSnapshotCache.accountKey(session);
+    bool isCurrent() =>
+        !isOfflineMode &&
+        xboardSession != null &&
+        key == XboardSubscriptionSnapshotCache.accountKey(xboardSession!);
+    if (!isCurrent()) {
+      return Future.error(StateError('subscription_snapshot_superseded'));
+    }
+    return _subscriptionSnapshots.load(
+      session: session,
+      forceRefresh: forceRefresh,
+      loader: () async {
+        final result = await service.fetchSubscription(
+          endpoint: session.endpoint,
+          authData: session.authData,
+          userToken: session.token,
+          secureSubscription: session.secureSubscription,
+        );
+        if (!isCurrent()) {
+          throw StateError('subscription_snapshot_superseded');
+        }
+        return result;
+      },
+    );
+  }
 
   void updateXboardSubscriptionSnapshot(
     XboardLoginResult session,
@@ -97,6 +132,7 @@ class GlobalState {
   }
 
   void setOfflineMode(bool value) {
+    if (value && !isOfflineMode) _subscriptionSnapshots.clear();
     offlineModeNotifier.value = value;
   }
 
@@ -115,9 +151,19 @@ class GlobalState {
     XboardLoginResult session, {
     List<XboardNodeData> nodes = const [],
     bool nodesStatusFresh = false,
+    bool subscriptionFresh = false,
   }) {
+    final previous = xboardSession;
+    if (previous == null ||
+        XboardSubscriptionSnapshotCache.accountKey(previous) !=
+            XboardSubscriptionSnapshotCache.accountKey(session)) {
+      _subscriptionSnapshots.clear();
+    }
     _xboardSessionRevision++;
     xboardSession = session;
+    if (subscriptionFresh) {
+      _subscriptionSnapshots.remember(session, session.subscription);
+    }
     updateXboardSubscriptionSnapshot(session, session.subscription);
     _xboardNodesRequestRevision++;
     _replaceXboardNodes(nodes, fresh: nodesStatusFresh);
@@ -166,6 +212,7 @@ class GlobalState {
   }
 
   void clearXboardSession() {
+    _subscriptionSnapshots.clear();
     _xboardSessionRevision++;
     _xboardAnnouncementPromptPending = false;
     xboardSession = null;

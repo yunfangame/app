@@ -48,6 +48,7 @@ class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView> {
       return;
     }
     final session = globalState.xboardSession;
+    final sessionRevision = globalState.xboardSessionRevision;
     if (session == null) {
       if (!mounted) return;
       setState(() {
@@ -69,17 +70,19 @@ class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView> {
           authData: session.authData,
         ),
         refreshSubscription
-            ? _authService.fetchSubscription(
-                endpoint: session.endpoint,
-                authData: session.authData,
-                userToken: session.token,
-                secureSubscription: session.secureSubscription,
+            ? globalState.loadXboardSubscriptionSnapshot(
+                _authService,
+                session,
+                forceRefresh: true,
               )
             : Future<XboardSubscriptionData>.value(session.subscription),
       ]);
       final records = results[0] as List<XboardTrafficLog>;
       final subscription = results[1] as XboardSubscriptionData;
-      if (!mounted) return;
+      if (!mounted ||
+          !globalState.isActiveXboardSession(session, sessionRevision)) {
+        return;
+      }
       if (refreshSubscription &&
           globalState.xboardSession?.authData == session.authData) {
         globalState.xboardSession = XboardLoginResult(
@@ -90,6 +93,10 @@ class _FengWoTrafficDetailsViewState extends State<FengWoTrafficDetailsView> {
           subscription: subscription,
           secureSubscription: session.secureSubscription,
           rawData: session.rawData,
+        );
+        globalState.updateXboardSubscriptionSnapshot(
+          globalState.xboardSession!,
+          subscription,
         );
       }
       setState(() {

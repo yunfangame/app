@@ -5,6 +5,7 @@ import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/subscription_status_indicator.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -12,6 +13,31 @@ import '../support/api_health_fixture.dart';
 
 void main() {
   final now = DateTime(2026, 8, 29, 12);
+
+  setUp(() {
+    final binding = TestWidgetsFlutterBinding.ensureInitialized();
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('window_manager'),
+      (call) async => switch (call.method) {
+        'isVisible' || 'isFocused' => true,
+        'isMinimized' => false,
+        _ => null,
+      },
+    );
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('window_ext'),
+      (call) async => null,
+    );
+  });
+
+  tearDown(() {
+    final messenger = TestWidgetsFlutterBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('window_manager'),
+      null,
+    );
+    messenger.setMockMethodCallHandler(const MethodChannel('window_ext'), null);
+  });
 
   test('evaluates low traffic and finite expiry independently', () {
     final lowTraffic = evaluateSubscriptionStatus(

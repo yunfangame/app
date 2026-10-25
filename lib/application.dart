@@ -646,7 +646,7 @@ class ApplicationState extends ConsumerState<Application> {
           secureSubscription: storedSession.secureSubscription,
         );
         if (!mounted) return;
-        globalState.activateXboardSession(session);
+        globalState.activateXboardSession(session, subscriptionFresh: true);
         _beginDefaultLoginRouting(session, autoConnect: true);
         globalState.setOfflineMode(false);
         await _xboardSessionStorage.setOfflineMode(false);
@@ -712,7 +712,7 @@ class ApplicationState extends ConsumerState<Application> {
         secureSubscription: stored.secureSubscription,
       );
       if (!mounted || _logoutInProgress) return session;
-      globalState.activateXboardSession(session);
+      globalState.activateXboardSession(session, subscriptionFresh: true);
       _beginDefaultLoginRouting(session, autoConnect: true);
       commonPrint.event(
         'auth.remembered_login.succeeded',
@@ -1276,7 +1276,7 @@ class ApplicationState extends ConsumerState<Application> {
         secureSubscription: storedSession.secureSubscription,
       );
       _saveRoutingSelection();
-      globalState.activateXboardSession(session);
+      globalState.activateXboardSession(session, subscriptionFresh: true);
       _beginDefaultLoginRouting(session, autoConnect: true);
       routingSession = session;
       final revision = globalState.xboardSessionRevision;
@@ -1321,6 +1321,34 @@ class ApplicationState extends ConsumerState<Application> {
       retryWhenUnchanged: true,
       refreshNodeMetadata: false,
     );
+  }
+
+  Future<bool> _refreshXboardSubscriptionView({
+    bool forceRefresh = false,
+  }) async {
+    if (forceRefresh) {
+      return _refreshXboardSubscription();
+    }
+    final session = globalState.xboardSession;
+    if (!mounted || globalState.isOfflineMode || session == null) return false;
+    final revision = globalState.xboardSessionRevision;
+    try {
+      final subscription = await globalState.loadXboardSubscriptionSnapshot(
+        _xboardAuthService,
+        session,
+      );
+      if (!mounted || !globalState.isActiveXboardSession(session, revision)) {
+        return false;
+      }
+      globalState.updateXboardSubscriptionSnapshot(session, subscription);
+      return true;
+    } catch (error) {
+      commonPrint.event(
+        'subscription.view_refresh.failed',
+        fields: {'error_type': error.runtimeType.toString()},
+      );
+      return false;
+    }
   }
 
   Future<bool> _refreshXboardNodes() {
@@ -1388,11 +1416,10 @@ class ApplicationState extends ConsumerState<Application> {
       if (!attempt.isCurrent()) return false;
       XboardLoginResult? routingSession;
       try {
-        final subscription = await _xboardAuthService.fetchSubscription(
-          endpoint: activeSession.endpoint,
-          authData: activeSession.authData,
-          userToken: activeSession.token,
-          secureSubscription: activeSession.secureSubscription,
+        final subscription = await globalState.loadXboardSubscriptionSnapshot(
+          _xboardAuthService,
+          activeSession,
+          forceRefresh: true,
         );
         if (!attempt.isCurrent()) return false;
         final isLastAttempt = index == retryDelays.length - 1;
@@ -1418,6 +1445,7 @@ class ApplicationState extends ConsumerState<Application> {
           updatedSession,
           nodes: globalState.xboardNodes,
           nodesStatusFresh: globalState.xboardNodesStatusFresh,
+          subscriptionFresh: true,
         );
         onSessionUpdated(updatedSession, updatedRevision);
         _beginDefaultLoginRouting(updatedSession);
@@ -1667,6 +1695,7 @@ class ApplicationState extends ConsumerState<Application> {
     globalState.enableOfflineMode = _enableOfflineMode;
     globalState.restoreOnlineMode = _restoreOnlineMode;
     globalState.refreshXboardSubscription = _refreshXboardSubscription;
+    globalState.refreshXboardSubscriptionView = _refreshXboardSubscriptionView;
     globalState.refreshXboardNodes = _refreshXboardNodes;
     unawaited(_xboardAuthService.prepareApiConfiguration());
     unawaited(_restoreRememberedSession());
@@ -1712,7 +1741,7 @@ class ApplicationState extends ConsumerState<Application> {
             appVersion: globalState.packageInfo.version,
           );
           if (!mounted || _logoutInProgress) return session;
-          globalState.activateXboardSession(session);
+          globalState.activateXboardSession(session, subscriptionFresh: true);
           _beginDefaultLoginRouting(session, autoConnect: true);
           commonPrint.event(
             'auth.login.succeeded',
@@ -1927,6 +1956,7 @@ class ApplicationState extends ConsumerState<Application> {
     globalState.enableOfflineMode = null;
     globalState.restoreOnlineMode = null;
     globalState.refreshXboardSubscription = null;
+    globalState.refreshXboardSubscriptionView = null;
     globalState.refreshXboardNodes = null;
     super.dispose();
   }
