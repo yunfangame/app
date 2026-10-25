@@ -16,8 +16,14 @@ import 'package:window_manager/window_manager.dart';
 class FengWoOrdersView extends StatefulWidget {
   final XboardAuthService? authService;
   final int pageSize;
+  final DateTime Function()? now;
 
-  const FengWoOrdersView({super.key, this.authService, this.pageSize = 6});
+  const FengWoOrdersView({
+    super.key,
+    this.authService,
+    this.pageSize = 6,
+    this.now,
+  });
 
   @override
   State<FengWoOrdersView> createState() => _FengWoOrdersViewState();
@@ -26,6 +32,8 @@ class FengWoOrdersView extends StatefulWidget {
 class _FengWoOrdersViewState extends State<FengWoOrdersView>
     with WidgetsBindingObserver, WindowListener, WindowExtListener {
   late final XboardAuthService _authService;
+  late final DateTime Function() _now = widget.now ?? DateTime.now;
+  DateTime? _ordersLoadedAt;
   final bool _desktop = switch (defaultTargetPlatform) {
     TargetPlatform.windows ||
     TargetPlatform.macOS ||
@@ -89,7 +97,6 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
     _pageActive = active;
     if (!active) {
       _activityRevision++;
-      _markDirty();
       _windowRetryTimer?.cancel();
     } else if (_desktop && !_windowAvailable) {
       _resumeWindow();
@@ -130,6 +137,7 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
     _ordersRequest = null;
     _ordersGuard = null;
     _queuedManualRefresh = null;
+    _ordersLoadedAt = null;
     _markDirty();
     setState(() {
       _orders = const [];
@@ -160,6 +168,13 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
       generation == _generation &&
       _sameAccount(session, _accountSession) &&
       _sameAccount(session, globalState.xboardSession);
+
+  bool get _ordersFresh {
+    final at = _ordersLoadedAt;
+    if (at == null) return false;
+    final age = _now().difference(at);
+    return !age.isNegative && age < const Duration(seconds: 30);
+  }
 
   void _markDirty() {
     _dirty = true;
@@ -208,7 +223,6 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
     _windowAvailable = false;
     _windowKnownBackground = true;
     _windowRetryTimer?.cancel();
-    _markDirty();
   }
 
   void _resumeWindow({bool knownForeground = false}) {
@@ -262,7 +276,6 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
       _activityRevision++;
       _windowRevision++;
       _windowRetryTimer?.cancel();
-      _markDirty();
     } else if (_desktop) {
       _resumeWindow();
     } else {
@@ -339,7 +352,7 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
     final allowed = userInitiated
         ? _canUseUserAction
         : _canUsePage && _windowAvailable;
-    if (!_dirty || !allowed) return Future.value();
+    if (!allowed || (!_dirty && _ordersFresh)) return Future.value();
     final pending = _ordersRequest;
     if (pending != null) return pending.future;
     final session = _accountSession!;
@@ -396,6 +409,7 @@ class _FengWoOrdersViewState extends State<FengWoOrdersView>
       }
       setState(() {
         _orders = orders;
+        _ordersLoadedAt = _now();
         _page = _page.clamp(0, _pageCount - 1);
       });
     } catch (error, stackTrace) {
