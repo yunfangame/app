@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/theme.dart';
+import 'package:fl_clash/common/windows_identity.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
@@ -12,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
 class _FakePathProvider extends PathProviderPlatform {
@@ -23,7 +25,13 @@ class _FakePathProvider extends PathProviderPlatform {
   Future<String?> getTemporaryPath() async => root;
 
   @override
-  Future<String?> getApplicationSupportPath() async => root;
+  Future<String?> getApplicationSupportPath() async {
+    final directory = Directory(
+      p.join(root, windowsDataCompany, windowsDataProduct),
+    );
+    await directory.create(recursive: true);
+    return directory.path;
+  }
 
   @override
   Future<String?> getApplicationCachePath() async => root;
@@ -128,13 +136,16 @@ bool _isTextFieldFocused() {
 
 void main() {
   late Directory tempDir;
+  late PathProviderPlatform originalPathProvider;
 
   setUpAll(() {
+    originalPathProvider = PathProviderPlatform.instance;
     tempDir = Directory.systemTemp.createTempSync('edit_profile_focus_test');
     PathProviderPlatform.instance = _FakePathProvider(tempDir.path);
   });
 
   tearDownAll(() {
+    PathProviderPlatform.instance = originalPathProvider;
     try {
       tempDir.deleteSync(recursive: true);
     } catch (_) {}

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:fl_clash/common/constant.dart';
 import 'package:fl_clash/common/request.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
@@ -419,8 +418,14 @@ void main() {
       );
       addTearDown(container.dispose);
 
+      final completed = Completer<void>();
+      container.listen(networkDetectionProvider, (_, next) {
+        if (!next.isLoading && next.ipInfo != null && !completed.isCompleted) {
+          completed.complete();
+        }
+      });
       container.read(networkDetectionProvider.notifier).startCheck();
-      await Future.delayed(commonDuration + const Duration(milliseconds: 120));
+      await completed.future.timeout(const Duration(seconds: 10));
 
       final state = container.read(networkDetectionProvider);
       expect(state.ipInfo?.countryCode, 'CN');
