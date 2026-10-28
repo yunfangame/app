@@ -150,6 +150,12 @@ jobs:
       - name: Test the complete Flutter application
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $gitRoot = Split-Path -Parent (Split-Path -Parent (Get-Command git -ErrorAction Stop).Source)
+          $gitBash = Join-Path $gitRoot 'bin/bash.exe'
+          if (-not (Test-Path -LiteralPath $gitBash -PathType Leaf)) { throw 'Git Bash is required for setup shell checks' }
+          $env:FENGWO_SETUP_TEST_BASH = $gitBash
+          $gitBash | Set-Content -LiteralPath "$env:RUNNER_TEMP/release-validation/setup-test-bash.txt" -Encoding utf8NoBOM
           flutter test --no-pub --reporter expanded 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/release-validation/flutter-full-root.log"
           if ($LASTEXITCODE -ne 0) { throw 'Complete Flutter application tests failed' }
           node --test tooling/tests/crisp_support_bridge_test.cjs 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/release-validation/crisp-bridge.log"
