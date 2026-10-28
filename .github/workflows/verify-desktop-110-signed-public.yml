@@ -53,7 +53,7 @@ jobs:
           proof_path = pathlib.Path('.github/release/root-accepted-unsigned-' + release['architecture'] + '.json')
           if proof_path.is_symlink() or not proof_path.is_file():
               raise ValueError('Committed root provenance must be a regular file')
-          proof_bytes = proof_path.read_bytes()
+          proof_bytes = proof_path.read_bytes().replace(b'\r\n', b'\n')
           proof = json.loads(proof_bytes)
           proof_fields = {'schema', 'passed', 'version', 'base_source_sha', 'architecture', 'source_sha', 'unsigned_run_id', 'unsigned_artifact_id', 'unsigned_sha256', 'unsigned_bytes', 'workflow_path', 'original_repository', 'original_run_conclusion', 'root_accepted_manifest_sha256', 'root_acceptance_receipt_sha256'}
           if set(proof) != proof_fields:
@@ -117,8 +117,12 @@ jobs:
           $expectedUnsignedUrl = 'https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.0/unsigned-validation-20261029/' + $env:UNSIGNED_SHA256 + '/' + $filename
           if ($env:SIGNED_URL -cne $expectedSignedUrl -or $env:UNSIGNED_URL -cne $expectedUnsignedUrl) { throw 'Only exact hash-scoped installer staging URLs are allowed' }
           $proofPath = Join-Path $env:GITHUB_WORKSPACE ('verification/.github/release/root-accepted-unsigned-' + $env:ARCHITECTURE + '.json')
-          if ((Get-FileHash -LiteralPath $proofPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:ROOT_PROVENANCE_SHA256) { throw 'Root provenance changed between jobs' }
-          $proof = Get-Content -LiteralPath $proofPath -Raw | ConvertFrom-Json
+          $proofCheckoutRawSha = (Get-FileHash -LiteralPath $proofPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $proofUtf8 = [Text.UTF8Encoding]::new($false, $true)
+          $proofBytes = $proofUtf8.GetBytes($proofUtf8.GetString([IO.File]::ReadAllBytes($proofPath)).Replace("`r`n", "`n"))
+          $proofSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($proofBytes)).ToLowerInvariant()
+          if ($proofSha -cne $env:ROOT_PROVENANCE_SHA256) { throw 'Root provenance changed between jobs' }
+          $proof = $proofUtf8.GetString($proofBytes) | ConvertFrom-Json
           foreach ($binding in @(@('architecture', $env:ARCHITECTURE), @('source_sha', $env:SOURCE_SHA), @('unsigned_run_id', $env:UNSIGNED_RUN_ID), @('unsigned_artifact_id', $env:UNSIGNED_ARTIFACT_ID), @('unsigned_sha256', $env:UNSIGNED_SHA256))) {
             if ([string]$proof.($binding[0]) -cne [string]$binding[1]) { throw ('Root provenance identity differs: ' + $binding[0]) }
           }
@@ -128,8 +132,8 @@ jobs:
           $unsigned = Join-Path $env:RUNNER_TEMP 'unsigned-1.1.0.exe'
           Invoke-WebRequest -Uri $env:UNSIGNED_URL -OutFile $unsigned
           if ((Get-Item -LiteralPath $unsigned).Length -ne [long]$env:UNSIGNED_BYTES -or (Get-FileHash -LiteralPath $unsigned -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:UNSIGNED_SHA256) { throw 'Unsigned staging bytes differ from the root-accepted size or SHA256' }
-          Copy-Item -LiteralPath $proofPath -Destination (Join-Path $evidence 'root-accepted-unsigned.json')
-          @{ source_sha = $env:SOURCE_SHA; original_run_id = $env:UNSIGNED_RUN_ID; original_artifact_id = $env:UNSIGNED_ARTIFACT_ID; unsigned_sha256 = $env:UNSIGNED_SHA256; unsigned_bytes = [long]$env:UNSIGNED_BYTES; architecture = $env:ARCHITECTURE; root_provenance_sha256 = $env:ROOT_PROVENANCE_SHA256; root_accepted_manifest_sha256 = $proof.root_accepted_manifest_sha256; root_acceptance_receipt_sha256 = $proof.root_acceptance_receipt_sha256; provenance_verification = 'root_local_private_ci_api_review'; public_runner_private_ci_api_queried = $false; unsigned_staging_url = $expectedUnsignedUrl; signed_staging_url = $expectedSignedUrl; publication_performed = $false } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'accepted-source.json') -Encoding utf8NoBOM
+          [IO.File]::WriteAllBytes((Join-Path $evidence 'root-accepted-unsigned.json'), $proofBytes)
+          @{ source_sha = $env:SOURCE_SHA; original_run_id = $env:UNSIGNED_RUN_ID; original_artifact_id = $env:UNSIGNED_ARTIFACT_ID; unsigned_sha256 = $env:UNSIGNED_SHA256; unsigned_bytes = [long]$env:UNSIGNED_BYTES; architecture = $env:ARCHITECTURE; root_provenance_sha256 = $env:ROOT_PROVENANCE_SHA256; root_provenance_checkout_raw_sha256 = $proofCheckoutRawSha; root_provenance_line_endings_normalized = ($proofCheckoutRawSha -cne $env:ROOT_PROVENANCE_SHA256); root_accepted_manifest_sha256 = $proof.root_accepted_manifest_sha256; root_acceptance_receipt_sha256 = $proof.root_acceptance_receipt_sha256; provenance_verification = 'root_local_private_ci_api_review'; public_runner_private_ci_api_queried = $false; unsigned_staging_url = $expectedUnsignedUrl; signed_staging_url = $expectedSignedUrl; publication_performed = $false } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'accepted-source.json') -Encoding utf8NoBOM
       - name: Checkout the exact accepted application source
         uses: actions/checkout@v4
         with:
