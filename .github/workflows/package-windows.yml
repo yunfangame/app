@@ -105,7 +105,11 @@ jobs:
           & ./tooling/windows/collect_tls_diagnostics.ps1 -TargetsFile "$PWD/build/tls_targets.json" -OutputDirectory "$env:RUNNER_TEMP/tls-diagnostics"
           $reportFile = Get-ChildItem "$env:RUNNER_TEMP/tls-diagnostics" -Filter '*.json' | Select-Object -First 1
           $report = Get-Content $reportFile.FullName -Raw | ConvertFrom-Json
-          if ($report.endpoints.Count -ne 6) { throw 'Expected all six public endpoints' }
+          $expectedInput = Get-Content -LiteralPath "$PWD/build/tls_targets.json" -Raw | ConvertFrom-Json
+          $expectedTargets = @($expectedInput | ForEach-Object { ([Uri]$_).AbsoluteUri } | Select-Object -Unique)
+          $actualTargets = @($report.endpoints | ForEach-Object { [string]$_.url })
+          if ($expectedTargets.Count -lt 3 -or $expectedTargets.Count -gt 8) { throw 'Unexpected public endpoint input count' }
+          if ($actualTargets.Count -ne $expectedTargets.Count -or @(Compare-Object $expectedTargets $actualTargets -CaseSensitive).Count -ne 0) { throw 'Collector did not inspect every configured public endpoint' }
           if ($report.powershell_version -notlike '5.1.*') { throw 'Wrong PowerShell runtime' }
           if ($report.elapsed_seconds -gt 120) { throw 'Collector exceeded two-minute budget' }
           if (@(Get-ChildItem "$env:RUNNER_TEMP/tls-diagnostics" -Filter '*.txt').Count -ne 1) { throw 'Missing text report' }
