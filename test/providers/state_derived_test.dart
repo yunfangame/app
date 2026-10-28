@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fl_clash/common/constant.dart';
 import 'package:fl_clash/common/chain_proxy.dart';
 import 'package:fl_clash/common/network.dart';
@@ -228,6 +230,12 @@ void main() {
     expect(proxy.bassDomain, containsAll(localNetworkBypassDomains));
     expect(proxy.port, 8899);
     expect(container.read(isStartProvider), isTrue);
+
+    expect(container.read(trayStateProvider).tunEnable, !Platform.isWindows);
+    container
+        .read(coreStatusProvider.notifier)
+        .update((_) => CoreStatus.connected);
+    container.read(windowsTunReadyProvider.notifier).update((_) => true);
 
     final tray = container.read(trayStateProvider);
     expect(tray.mode, Mode.global);
