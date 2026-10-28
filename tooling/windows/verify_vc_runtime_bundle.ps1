@@ -11,7 +11,11 @@ param(
 function Assert-VcRuntimeBundle {
   param([string]$BundleDirectory, [string]$Architecture)
   $minimumVersion = [version]'14.0.0.0'
-  foreach ($name in @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll')) {
+  $runtimeNames = if ($Architecture -ieq 'arm64') {
+    if ([IO.File]::Exists((Join-Path $BundleDirectory 'vcruntime140_1.dll'))) { throw 'ARM64 bundle must not include vcruntime140_1.dll' }
+    @('vcruntime140.dll', 'msvcp140.dll')
+  } else { @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll') }
+  foreach ($name in $runtimeNames) {
     $path = Join-Path $BundleDirectory $name
     if (-not [IO.File]::Exists($path)) { throw "Missing bundled runtime: $name" }
     $metadata = Get-VcRuntimeFileVersion -Path $path

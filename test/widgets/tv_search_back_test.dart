@@ -24,6 +24,23 @@ void main() {
     );
   });
 
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('window_manager'),
+          (call) async => switch (call.method) {
+            'isVisible' || 'isFocused' => true,
+            'isMinimized' || 'isMaximized' || 'isAlwaysOnTop' => false,
+            _ => null,
+          },
+        );
+  });
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('window_manager'), null);
+  });
+
   testWidgets('desktop escape runs the back flow and exits search', (
     tester,
   ) async {

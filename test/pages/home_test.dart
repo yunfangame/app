@@ -32,12 +32,23 @@ void main() {
   });
 
   setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('window_manager'),
+          (call) async => switch (call.method) {
+            'isVisible' || 'isFocused' => true,
+            'isMinimized' || 'isMaximized' || 'isAlwaysOnTop' => false,
+            _ => null,
+          },
+        );
     globalState.setOfflineMode(false);
     globalState.enableOfflineMode = null;
     globalState.restoreOnlineMode = null;
   });
 
   tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('window_manager'), null);
     globalState.setOfflineMode(false);
     globalState.enableOfflineMode = null;
     globalState.restoreOnlineMode = null;

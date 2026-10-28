@@ -4,7 +4,20 @@ unset(MSVC_REDIST_DIR CACHE)
 unset(MSVC_REDIST_DIR)
 include(InstallRequiredSystemLibraries)
 
-foreach(runtime_name IN ITEMS vcruntime140.dll vcruntime140_1.dll msvcp140.dll)
+set(vc_runtime_required vcruntime140.dll vcruntime140_1.dll msvcp140.dll)
+if(CMAKE_MSVC_ARCH STREQUAL "arm64")
+  set(vc_runtime_required vcruntime140.dll msvcp140.dll)
+  set(vc_runtime_native_libraries)
+  foreach(runtime_path IN LISTS CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
+    get_filename_component(runtime_filename "${runtime_path}" NAME)
+    if(NOT runtime_filename STREQUAL "vcruntime140_1.dll")
+      list(APPEND vc_runtime_native_libraries "${runtime_path}")
+    endif()
+  endforeach()
+  set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS ${vc_runtime_native_libraries})
+endif()
+
+foreach(runtime_name IN LISTS vc_runtime_required)
   set(runtime_found FALSE)
   foreach(runtime_path IN LISTS CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
     get_filename_component(runtime_filename "${runtime_path}" NAME)
@@ -16,6 +29,8 @@ foreach(runtime_name IN ITEMS vcruntime140.dll vcruntime140_1.dll msvcp140.dll)
     message(FATAL_ERROR "Missing MSVC redistributable ${runtime_name}; install the Visual Studio C++ build tools before packaging")
   endif()
 endforeach()
+
+message(STATUS "Bundled MSVC runtime (${CMAKE_MSVC_ARCH}): ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}")
 
 install(FILES ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}
   DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"

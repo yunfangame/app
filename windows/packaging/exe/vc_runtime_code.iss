@@ -38,7 +38,11 @@ var
   Version: String;
 begin
   Result := False;
+#if VcRuntimeArchitecture == "arm64"
+  Names := ['vcruntime140.dll', 'msvcp140.dll'];
+#else
   Names := ['vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll'];
+#endif
   for I := 0 to GetArrayLength(Names) - 1 do
   begin
     if not GetVersionNumbersString(ExpandConstant('{sysnative}\') + Names[I], Version) then Exit;

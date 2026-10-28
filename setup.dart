@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:args/args.dart';
@@ -53,9 +54,14 @@ Future<void> main(List<String> args) async {
 
   final env = results['env'] as String;
   final rootDir = Directory.current.path;
-  final arch = _detectArch();
+  final requestedArch = results['arch'] as String?;
+  final arch = resolveBuildArchitecture(
+    platform: platform,
+    hostArch: _detectArch(),
+    requestedArch: requestedArch,
+  );
   final targets = _getTargets(platform, arch, results['targets']);
-  final androidArch = results['arch'] as String?;
+  final androidArch = platform == 'android' ? requestedArch : null;
   final verbose = results['verbose'] as bool;
   final macOsFileSecretStorage = results['macos-file-secret-storage'] as bool;
 
@@ -89,7 +95,7 @@ ArgParser createSetupArgParser() {
       'arch',
       valueHelp: 'arm,arm64,amd64',
       allowed: ['arm', 'arm64', 'amd64'],
-      help: 'Target architecture (Android only)',
+      help: 'Target architecture (Android or native Windows host)',
     )
     ..addFlag(
       'verbose',
@@ -103,6 +109,49 @@ ArgParser createSetupArgParser() {
       help: 'Use encrypted local secret storage for unsigned macOS builds',
     );
 }
+
+String windowsArchitectureForAbi(Abi abi) => switch (abi) {
+  Abi.windowsArm64 => 'arm64',
+  Abi.windowsX64 => 'amd64',
+  _ => throw ArgumentError.value(abi, 'abi', 'Unsupported Windows Dart ABI'),
+};
+
+String resolveBuildArchitecture({
+  required String platform,
+  required String hostArch,
+  String? requestedArch,
+}) {
+  if (platform != 'windows') return hostArch;
+  final arch = requestedArch ?? hostArch;
+  if (arch != 'amd64' && arch != 'arm64') {
+    throw ArgumentError.value(arch, 'arch', 'Unsupported Windows target');
+  }
+  if (arch != hostArch) {
+    throw ArgumentError(
+      'Windows $arch packaging requires a native $arch Dart SDK and runner; '
+      'the current Dart SDK is $hostArch.',
+    );
+  }
+  return arch;
+}
+
+Map<String, String> createPackageEnvironment({
+  required String platform,
+  required String arch,
+  String? androidArch,
+}) => {
+  if (platform == 'android' && androidArch != null) 'ANDROID_ARCH': androidArch,
+  if (platform == 'windows')
+    'PROCESSOR_ARCHITECTURE': switch (arch) {
+      'arm64' => 'ARM64',
+      'amd64' => 'AMD64',
+      _ => throw ArgumentError.value(
+        arch,
+        'arch',
+        'Unsupported Windows target',
+      ),
+    },
+};
 
 List<String> createFlutterBuildArgs({
   required String platform,
@@ -278,7 +327,11 @@ Future<int> _package(
       ...descriptionArgs,
     ],
     includeParentEnvironment: true,
-    environment: {'ANDROID_ARCH': ?androidArch},
+    environment: createPackageEnvironment(
+      platform: platform,
+      arch: arch,
+      androidArch: androidArch,
+    ),
     runInShell: Platform.isWindows,
   );
 
@@ -350,8 +403,7 @@ Future<File> copyLinuxPreflightScript(String rootDir) async {
 
 String _detectArch() {
   if (Platform.isWindows) {
-    final pa = Platform.environment['PROCESSOR_ARCHITECTURE'] ?? 'AMD64';
-    return pa.toUpperCase() == 'ARM64' ? 'arm64' : 'amd64';
+    return windowsArchitectureForAbi(Abi.current());
   }
   final result = Process.runSync('uname', ['-m']);
   final machine = (result.stdout as String).trim();

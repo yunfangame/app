@@ -121,6 +121,31 @@ class Target {
     return resolved;
   }
 
+  static List<Target> resolveWindowsTargets({
+    String? archName,
+    required String hostArch,
+  }) {
+    final arch = archName ?? hostArch;
+    final targets = forPlatform('windows')
+        .where((target) => target.goarch == arch)
+        .toList();
+    if (targets.isEmpty) {
+      throw BuildException('Invalid Windows arch: $arch');
+    }
+    return targets;
+  }
+
+  String get windowsRustTriple {
+    if (goos != 'windows') {
+      throw BuildException('Not a Windows target: $this');
+    }
+    return switch (goarch) {
+      'amd64' => 'x86_64-pc-windows-msvc',
+      'arm64' => 'aarch64-pc-windows-msvc',
+      _ => throw BuildException('Invalid Windows arch: $goarch'),
+    };
+  }
+
   String get dynamicLibExtension {
     switch (goos) {
       case 'android':

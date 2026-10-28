@@ -130,6 +130,9 @@ begin
     'Runtime DLL check did not use the native system directory');
   Require((Name = 'vcruntime140.dll') or (Name = 'vcruntime140_1.dll') or
     (Name = 'msvcp140.dll'), 'Unexpected runtime DLL check');
+#if VcRuntimeArchitecture == "arm64"
+  Require(Name <> 'vcruntime140_1.dll', 'ARM64 checked an x64-only exception runtime');
+#endif
   if Name = 'vcruntime140.dll' then TestFileReadMask := TestFileReadMask or 1;
   if Name = 'vcruntime140_1.dll' then TestFileReadMask := TestFileReadMask or 2;
   if Name = 'msvcp140.dll' then TestFileReadMask := TestFileReadMask or 4;
@@ -242,8 +245,20 @@ begin
   else if Name = 'missing-dll' then
   begin
     TestRegistry64 := True;
-    TestMissingFile := 'vcruntime140_1.dll';
+    TestMissingFile := 'vcruntime140.dll';
     ExpectedOperation := '/repair';
+  end
+  else if Name = 'missing-fh4-dll' then
+  begin
+    TestRegistry64 := True;
+    TestMissingFile := 'vcruntime140_1.dll';
+#if VcRuntimeArchitecture == "arm64"
+    ExpectedExecCalls := 0;
+    ExpectedExtractCalls := 0;
+    ExpectedOperation := '';
+#else
+    ExpectedOperation := '/repair';
+#endif
   end
   else if Name = 'outdated-dll' then
   begin
@@ -356,7 +371,11 @@ begin
   Require(CanLaunchAfterRuntime = (not ExpectedRestart), Name + ': incorrect launch availability');
   Require(NeedsRestart = ExpectedImmediateRestart, Name + ': incorrect immediate restart state');
   if ExpectedSuccess and not ExpectedRestart then
+#if VcRuntimeArchitecture == "arm64"
+    Require(TestFileReadMask = 5, Name + ': a required ARM64 runtime DLL was not checked');
+#else
     Require(TestFileReadMask = 7, Name + ': a required runtime DLL was not checked');
+#endif
   if Name = 'restart-initiated' then
   begin
     NeedsRestart := False;
@@ -421,30 +440,32 @@ try {
     foreach ($architecture in @('x64', 'arm64')) {
         [void](Write-InnoFixture "production-api-$architecture" $architecture $productionCode)
     }
-    $fixtureInstaller = Write-InnoFixture 'runtime-policy' 'x64' $mockCode
     $cases = @(
-        'healthy', 'registry32', 'helper-stop-failure', 'absent', 'outdated', 'missing-dll', 'outdated-dll',
+        'healthy', 'registry32', 'helper-stop-failure', 'absent', 'outdated', 'missing-dll', 'missing-fh4-dll', 'outdated-dll',
         'invalid-hash', 'extraction-failure', 'hash-read-failure', 'log-directory-failure',
         'exec-failure', 'installer-error', 'postcheck-failure', 'already-installed',
         'already-installed-invalid', 'already-installed-hresult',
         'already-installed-hresult-invalid', 'restart-required', 'restart-initiated'
     )
-    foreach ($case in $cases) {
-        $resultPath = Join-Path $fixtureRoot "$case.result"
-        $logPath = Join-Path $fixtureRoot "$case.log"
-        $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/CASE=$case", "/RESULTFILE=`"$resultPath`"", "/LOG=`"$logPath`"")
-        $process = Start-Process -FilePath $fixtureInstaller -ArgumentList $arguments -Wait -PassThru
-        if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $resultPath -PathType Leaf)) {
-            if (Test-Path -LiteralPath $logPath -PathType Leaf) { Get-Content -LiteralPath $logPath -Tail 60 | Write-Host }
-            throw "Native runtime policy case failed: $case (exit $($process.ExitCode))"
+    foreach ($architecture in @('x64', 'arm64')) {
+        $fixtureInstaller = Write-InnoFixture "runtime-policy-$architecture" $architecture $mockCode
+        foreach ($case in $cases) {
+            $resultPath = Join-Path $fixtureRoot "$architecture-$case.result"
+            $logPath = Join-Path $fixtureRoot "$architecture-$case.log"
+            $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/CASE=$case", "/RESULTFILE=`"$resultPath`"", "/LOG=`"$logPath`"")
+            $process = Start-Process -FilePath $fixtureInstaller -ArgumentList $arguments -Wait -PassThru
+            if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $resultPath -PathType Leaf)) {
+                if (Test-Path -LiteralPath $logPath -PathType Leaf) { Get-Content -LiteralPath $logPath -Tail 60 | Write-Host }
+                throw "Native runtime policy case failed: $architecture/$case (exit $($process.ExitCode))"
+            }
+            if ([IO.File]::ReadAllText($resultPath).Trim() -cne $case) {
+                throw "Native runtime policy case produced the wrong result: $architecture/$case"
+            }
+            Write-Host "Native runtime policy passed: $architecture/$case"
         }
-        if ([IO.File]::ReadAllText($resultPath).Trim() -cne $case) {
-            throw "Native runtime policy case produced the wrong result: $case"
-        }
-        Write-Host "Native runtime policy passed: $case"
     }
     $completed = $true
-    Write-Host "Native runtime policy verified: $($cases.Count) scenarios and production x64/arm64 API compilation."
+    Write-Host "Native runtime policy verified: $($cases.Count * 2) scenarios and production x64/arm64 API compilation."
 }
 finally {
     if ($completed) {
