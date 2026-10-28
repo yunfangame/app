@@ -147,6 +147,14 @@ jobs:
           dart test test/core_patches_test.dart
           if ($LASTEXITCODE -ne 0) { throw 'Core patch tests failed' }
 
+      - name: Test live API fallback and encryption
+        shell: pwsh
+        run: |
+          foreach ($case in @('redundant', 'backup', 'bundled')) {
+            flutter test tooling/api_remote_config_live_smoke_test.dart --no-pub --reporter expanded --plain-name $case 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/release-validation/live-api-$case.log"
+            if ($LASTEXITCODE -ne 0) { throw "Live API encryption check failed: $case" }
+          }
+
       - name: Test the complete Flutter application
         shell: pwsh
         run: |
@@ -178,14 +186,6 @@ jobs:
             } finally {
               Pop-Location
             }
-          }
-
-      - name: Test live API fallback and encryption
-        shell: pwsh
-        run: |
-          foreach ($case in @('redundant', 'backup', 'bundled')) {
-            flutter test tooling/api_remote_config_live_smoke_test.dart --no-pub --reporter expanded --plain-name $case
-            if ($LASTEXITCODE -ne 0) { throw "Live API encryption check failed: $case" }
           }
 
       - name: Test native Windows listeners

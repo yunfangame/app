@@ -35,9 +35,13 @@ void main() {
     test(
       '${source.key} live configuration decrypts and APIs respond',
       () async {
+        final cache = ApiRemoteConfigCacheStore(
+          namespace: 'live-smoke-${source.key}',
+        );
         final service = ApiHealthService(
           configUrl: source.value,
           backupConfigUrls: source.key == 'redundant' ? null : const [],
+          configCacheStore: cache,
           aesKey: aesKey,
           signingPublicKey: signingPublicKey,
           diagnosticRecorder: (_, _) {},
@@ -64,7 +68,7 @@ void main() {
           );
           verifiedReachableCount++;
         }
-        final payload = await ApiRemoteConfigCacheStore().load();
+        final payload = await cache.load();
         expect(payload, isA<String>());
         final envelope = jsonDecode(payload! as String) as Map<String, dynamic>;
         expect(envelope['alg'], 'A256GCM');
@@ -107,14 +111,20 @@ void main() {
         );
         final offline = ApiHealthService(
           configLoader: (_) async => throw const SocketException('offline'),
+          emergencyConfigLoader: () async =>
+              throw const SocketException('no emergency fallback'),
+          configCacheStore: cache,
+          memoryCache: ApiRemoteConfigMemoryCache(),
           aesKey: aesKey,
           signingPublicKey: signingPublicKey,
           configRetryDelays: const [Duration.zero],
           diagnosticRecorder: (_, _) {},
         );
+        final offlineEndpoints = await offline.loadCandidateEndpoints();
+        expect(offlineEndpoints, hasLength(snapshot.total));
         expect(
-          await offline.loadCandidateEndpoints(),
-          hasLength(snapshot.total),
+          offlineEndpoints,
+          unorderedEquals(snapshot.endpoints.map((health) => health.endpoint)),
         );
         stdout.writeln(
           '${source.key}: signature/decryption/tamper/wrong-key/cache passed; APIs $verifiedReachableCount/${snapshot.total}',
