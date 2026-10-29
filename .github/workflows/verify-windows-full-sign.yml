@@ -1,0 +1,70 @@
+name: fengwo-windows-full-sign-verify
+on:
+  push:
+    tags:
+      - fengwo-full-sign-verify-111-*
+permissions:
+  contents: read
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [x64, arm64]
+    runs-on: ${{ matrix.architecture == 'arm64' && 'windows-11-arm' || 'windows-2022' }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify final installer and exact signed payload
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./tooling/windows/arm64/common.ps1
+          $native = Assert-FwNativeRunner -Architecture $env:ARCHITECTURE
+          $inputs = Get-Content .github/release/windows-full-sign-input.json -Raw | ConvertFrom-Json
+          $entry = $inputs.($env:ARCHITECTURE)
+          $final = (Get-Content .github/release/windows-full-sign-final.json -Raw | ConvertFrom-Json).($env:ARCHITECTURE)
+          $prefix = 'https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/full-sign-validation-20261029/'
+          if ($entry.sha256 -cnotmatch '^[a-f0-9]{64}$' -or $final.sha256 -cnotmatch '^[a-f0-9]{64}$') { throw 'Invalid immutable hashes' }
+          if ($entry.url -cne ($prefix + $entry.sha256 + '/signed-' + $env:ARCHITECTURE + '.zip')) { throw 'Signed payload URL mismatch' }
+          $filename = if ($env:ARCHITECTURE -eq 'arm64') { 'fengwo-windows-arm64-setup.exe' } else { 'fengwo-windows-amd64-setup.exe' }
+          if ($final.url -cne ($prefix + $final.sha256 + '/' + $filename)) { throw 'Signed installer URL mismatch' }
+          $archive = Join-Path $env:RUNNER_TEMP 'signed-payload.zip'
+          Invoke-WebRequest -Uri $entry.url -OutFile $archive
+          if ((Get-FileHash $archive).Hash.ToLowerInvariant() -cne $entry.sha256) { throw 'Signed payload archive changed' }
+          $stage = Join-Path $env:RUNNER_TEMP 'full-sign-final'
+          Expand-Archive $archive $stage
+          $installer = Join-Path $stage $filename
+          Invoke-WebRequest -Uri $final.url -OutFile $installer
+          if ((Get-FileHash $installer).Hash.ToLowerInvariant() -cne $final.sha256) { throw 'Signed installer changed' }
+          $signature = Get-AuthenticodeSignature -LiteralPath $installer
+          if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { throw 'Final installer signature invalid' }
+          $publisher = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($signature.SignerCertificate.RawData)).ToLowerInvariant()
+          if ($publisher -cne '27e3e2e77a0c5f3428eeb95a35825d4cf0c8710e760e9c8cb12b447d39603252') { throw 'Final installer publisher changed' }
+          if ((Get-FileHash (Join-Path $stage 'signed-payload.json')).Hash.ToLowerInvariant() -cne $entry.manifest_sha256) { throw 'Payload manifest changed' }
+          & ./tooling/windows/verify_release_signatures.ps1 -Directory (Join-Path $stage 'bundle') -ManifestPath (Join-Path $stage 'signed-payload.json') -OutputPath (Join-Path $stage 'native-payload-signatures.json')
+          & ./tooling/windows/check_sac_enforcement.ps1 -OutputPath (Join-Path $stage 'sac-before.json')
+          @{ native = $native; installer_sha256 = $final.sha256; signature_status = [string]$signature.Status; publisher_certificate_sha256 = $publisher; timestamp_subject = $signature.TimeStamperCertificate.Subject; publication_allowed = $false } | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $stage 'installer-signature.json') -Encoding utf8NoBOM
+      - name: Test signed upgrade, runtime load, uninstall and user data retention
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP 'full-sign-final'
+          & ./tooling/windows/test_fully_signed_installer.ps1 -Stage $stage -Architecture $env:ARCHITECTURE
+          & ./tooling/windows/check_sac_enforcement.ps1 -OutputPath (Join-Path $stage 'sac-after.json')
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fengwo-full-sign-final-${{ matrix.architecture }}
+          path: |
+            ${{ runner.temp }}/full-sign-final/*.exe
+            ${{ runner.temp }}/full-sign-final/*.json
+            ${{ runner.temp }}/full-sign-final/*.log
+            ${{ runner.temp }}/full-sign-final/upgrade
+          if-no-files-found: error
