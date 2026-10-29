@@ -3,10 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('delay probes preserve valid HTTP and HTTPS URLs', () {
-    expect(
-      reliableDelayProbeUrl(null),
-      'http://cp.cloudflare.com/generate_204',
-    );
+    expect(reliableDelayProbeUrl(null), 'https://www.gstatic.com/generate_204');
     expect(
       reliableDelayProbeUrl('https://example.com/ping'),
       'https://example.com/ping',

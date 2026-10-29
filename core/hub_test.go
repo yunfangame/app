@@ -317,11 +317,13 @@ func TestDelayValue(t *testing.T) {
 		want  int32
 	}{
 		{delay: 0, want: -1},
-		{delay: 1, want: 30},
-		{delay: 62, want: 52},
-		{delay: 100, want: 65},
-		{delay: 250, want: 118},
-		{delay: 65535, want: 22967},
+		{delay: 1, want: 1},
+		{delay: 50, want: 1},
+		{delay: 51, want: 1},
+		{delay: 62, want: 12},
+		{delay: 100, want: 50},
+		{delay: 250, want: 200},
+		{delay: 65535, want: 65485},
 	}
 	for _, test := range tests {
 		if got := delayValue(test.delay); got != test.want {

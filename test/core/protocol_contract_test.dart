@@ -110,6 +110,25 @@ class _FailingConfigCoreHandler extends _RecordingCoreHandler {
   }
 }
 
+class _EmptyDelayCoreHandler extends _RecordingCoreHandler {
+  @override
+  Future<T?> invokeMethod<T>({
+    required CoreMethod method,
+    Object? arguments,
+    Duration? timeout,
+  }) async {
+    if (method == CoreMethod.asyncTestDelay) {
+      timeouts[method] = timeout;
+      return null;
+    }
+    return super.invokeMethod(
+      method: method,
+      arguments: arguments,
+      timeout: timeout,
+    );
+  }
+}
+
 class _EmptyConfigCoreHandler extends _RecordingCoreHandler {
   @override
   Future<T?> invokeMethod<T>({
@@ -173,10 +192,26 @@ void main() {
     }
     expect(handler.calls[CoreMethod.asyncTestDelay], {
       'proxy-name': 'DIRECT',
-      'timeout': 5000,
+      'timeout': 8000,
       'test-url': defaultTestUrl,
     });
+    expect(handler.timeouts[CoreMethod.asyncTestDelay], delayTestGuardDuration);
     expect(handler.calls[CoreMethod.clearEffect], 42);
+  });
+
+  test('missing delay result is an unavailable Core response', () async {
+    final handler = _EmptyDelayCoreHandler();
+    await expectLater(
+      handler.asyncTestDelay(defaultTestUrl, 'DIRECT'),
+      throwsA(
+        isA<CoreMethodException>().having(
+          (error) => error.code,
+          'code',
+          'delay_test_unavailable',
+        ),
+      ),
+    );
+    expect(handler.timeouts[CoreMethod.asyncTestDelay], delayTestGuardDuration);
   });
 
   test('event contract accepts batches and legacy single events', () async {
