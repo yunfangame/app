@@ -37,6 +37,10 @@ def code_kind(path):
         return 'pe'
     if path.suffix.lower() in {'.exe', '.dll', '.sys', '.e32', '.e64'}:
         raise ValueError('Executable extension without a PE image: ' + path.name)
+    if path.as_posix().endswith('/bundle/data/flutter_assets/packages/flutter_js/assets/js/fetch.js'):
+        if hashlib.sha256(data).hexdigest() != '466306adec694b9c09cfbc2702810a623396f23f51158e0fad47c513ddcf2317':
+            raise ValueError('Pinned embedded JavaScript asset changed')
+        return None
     if path.suffix.lower() in SIGNABLE_SCRIPTS:
         return 'script'
     if path.suffix.lower() in {'.bat', '.cmd', '.vbs'}:

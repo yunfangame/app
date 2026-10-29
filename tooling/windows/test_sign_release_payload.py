@@ -58,6 +58,16 @@ class SigningIntegrityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             code_kind(path)
 
+    def test_embedded_asset_exception_rejects_changed_content(self):
+        path = self.root / 'bundle/data/flutter_assets/packages/flutter_js/assets/js/fetch.js'
+        path.parent.mkdir(parents=True)
+        path.write_text('changed asset')
+        with self.assertRaises(ValueError):
+            code_kind(path)
+        left, _ = self.pe_pair()
+        path.write_bytes(left.read_bytes())
+        self.assertEqual(code_kind(path), 'pe')
+
     def test_script_signature_preserves_executable_text(self):
         before, after = self.root / 'a.ps1', self.root / 'b.ps1'
         before.write_bytes(b'Write-Output "test"\r\n')
