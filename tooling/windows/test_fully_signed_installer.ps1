@@ -25,8 +25,9 @@ $registrationPaths = @(@(
 ) | Where-Object { Test-Path -LiteralPath $_ })
 if (@($registrationPaths).Count -ne 1) { throw 'Expected one machine-wide uninstall registration' }
 $registration = Get-ItemProperty -LiteralPath $registrationPaths[0]
-if (-not ([string]$registration.DisplayName).StartsWith('蜂窝加速器') -or $registration.DisplayVersion -cne '1.1.1' -or $registration.UninstallString.Trim('"') -ine $uninstallers[0].FullName) { throw 'Windows Settings uninstall registration is invalid' }
-@{ path = $registrationPaths[0]; name = $registration.DisplayName; version = $registration.DisplayVersion; uninstall_string = $registration.UninstallString } | ConvertTo-Json | Set-Content (Join-Path $stage 'uninstall-registration.json') -Encoding utf8NoBOM
+$expectedUninstallCommand = '"' + $uninstallers[0].FullName + '" /LOG'
+@{ path = $registrationPaths[0]; name = $registration.DisplayName; version = $registration.DisplayVersion; uninstall_string = $registration.UninstallString; expected_uninstall_string = $expectedUninstallCommand } | ConvertTo-Json | Set-Content (Join-Path $stage 'uninstall-registration.json') -Encoding utf8NoBOM
+if (-not ([string]$registration.DisplayName).StartsWith('蜂窝加速器') -or $registration.DisplayVersion -cne '1.1.1' -or $registration.UninstallString -ine $expectedUninstallCommand) { throw 'Windows Settings uninstall registration is invalid' }
 
 $programFolders = @([Environment]::GetFolderPath('CommonPrograms'), [Environment]::GetFolderPath('Programs')) | Sort-Object -Unique
 $links = @($programFolders | ForEach-Object { Get-ChildItem -LiteralPath $_ -Recurse -Filter '*.lnk' -File })
