@@ -3,5 +3,10 @@
     "sha256": "7594d2f9a98b2589111c161d15affabbf160b01f356213757244be392473b4b8",
     "manifest_sha256": "908bdefd4ce8f4291f74032902d1fbffbf6ffe21036c99d73bc5de15e03fdc26",
     "url": "https://github.com/yunfangame/app/releases/download/fengwo-delay-subscription-test-111-e366e75f/signed-x64-stage.zip"
+  },
+  "arm64": {
+    "sha256": "258f03091e8a5e85ff678428d3a6a6842fb79e84919beacdc755e2de77cbec6d",
+    "manifest_sha256": "966a7bf52700b1a79d41a50fd0b696dcb0386bd4334dfd9f959840d7f140d11b",
+    "url": "https://github.com/yunfangame/app/releases/download/fengwo-delay-subscription-test-111-e366e75f/signed-arm64-stage.zip"
   }
 }
