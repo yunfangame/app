@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        architecture: [x64, arm64]
+        architecture: ${{ contains(github.ref_name, 'subscription') && fromJSON('["x64"]') || fromJSON('["x64", "arm64"]') }}
     runs-on: ${{ matrix.architecture == 'arm64' && 'windows-11-arm' || 'windows-2022' }}
     timeout-minutes: 30
     defaults:
