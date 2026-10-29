@@ -1,0 +1,247 @@
+name: fengwo-desktop-111-signed-public
+run-name: Public Windows 1.1.1 signed acceptance · ${{ github.ref_name }}
+on:
+  push:
+    tags:
+      - fengwo-verify-public-windows-signed-1.1.1-*
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      architecture: ${{ steps.release.outputs.architecture }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      unsigned_run_id: ${{ steps.release.outputs.unsigned_run_id }}
+      unsigned_artifact_id: ${{ steps.release.outputs.unsigned_artifact_id }}
+      unsigned_sha256: ${{ steps.release.outputs.unsigned_sha256 }}
+      signed_url: ${{ steps.release.outputs.signed_url }}
+      signed_sha256: ${{ steps.release.outputs.signed_sha256 }}
+      unsigned_url: ${{ steps.release.outputs.unsigned_url }}
+      unsigned_bytes: ${{ steps.release.outputs.unsigned_bytes }}
+      root_provenance_sha256: ${{ steps.release.outputs.root_provenance_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate committed manifest and root-accepted provenance
+        id: release
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          if os.environ['GITHUB_REPOSITORY'] != 'yunfangame/app':
+              raise ValueError('The public signed acceptance repository differs')
+          if os.environ['GITHUB_EVENT_NAME'] != 'push' or not os.environ['GITHUB_REF'].startswith('refs/tags/fengwo-verify-public-windows-signed-1.1.1-'):
+              raise ValueError('Unsupported public signed acceptance trigger')
+          release = json.loads(pathlib.Path('.github/release/desktop-111-signed-acceptance.json').read_text())
+          fields = {'architecture', 'source_sha', 'unsigned_run_id', 'unsigned_artifact_id', 'unsigned_sha256', 'signed_url', 'signed_sha256'}
+          if set(release) != fields or any(not isinstance(value, str) for value in release.values()):
+              raise ValueError('The signed acceptance manifest has unexpected fields')
+          if release['architecture'] not in ('x64', 'arm64'):
+              raise ValueError('Unsupported architecture')
+          for key, pattern in [('source_sha', '[a-f0-9]{40}'), ('unsigned_sha256', '[a-f0-9]{64}'), ('signed_sha256', '[a-f0-9]{64}'), ('unsigned_run_id', '[1-9][0-9]{0,19}'), ('unsigned_artifact_id', '[1-9][0-9]{0,19}')]:
+              if not re.fullmatch(pattern, release[key]):
+                  raise ValueError('Invalid immutable release input: ' + key)
+          filename = 'fengwo-windows-arm64-setup.exe' if release['architecture'] == 'arm64' else 'fengwo-windows-amd64-setup.exe'
+          expected_signed_url = 'https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/ov-validation-20261029/' + release['signed_sha256'] + '/' + filename
+          if release['signed_url'] != expected_signed_url:
+              raise ValueError('The signed staging URL must match the signed hash and architecture')
+          proof_path = pathlib.Path('.github/release/root-accepted-unsigned-' + release['architecture'] + '.json')
+          if proof_path.is_symlink() or not proof_path.is_file():
+              raise ValueError('Committed root provenance must be a regular file')
+          proof_bytes = proof_path.read_bytes().replace(b'\r\n', b'\n')
+          proof = json.loads(proof_bytes)
+          proof_fields = {'schema', 'passed', 'version', 'base_source_sha', 'architecture', 'source_sha', 'unsigned_run_id', 'unsigned_artifact_id', 'unsigned_sha256', 'unsigned_bytes', 'workflow_path', 'original_repository', 'original_run_conclusion', 'root_accepted_manifest_sha256', 'root_acceptance_receipt_sha256'}
+          if set(proof) != proof_fields:
+              raise ValueError('The root provenance has unexpected fields')
+          if proof['schema'] != 'desktop-111-root-accepted-unsigned-v1' or proof['passed'] is not True or proof['version'] != '1.1.1' or proof['base_source_sha'] != 'c788d1699f6665681c459473a3919cfe6ff4df17':
+              raise ValueError('The root provenance does not accept this release')
+          if proof['original_repository'] != 'yunfangame/app' or proof['original_run_conclusion'] != 'success':
+              raise ValueError('The root-reviewed private CI identity differs')
+          expected_workflow = '.github/workflows/package-windows-arm64.yml' if release['architecture'] == 'arm64' else '.github/workflows/package-windows.yml'
+          if proof['workflow_path'] != expected_workflow:
+              raise ValueError('The root-reviewed build workflow differs')
+          for key in ('architecture', 'source_sha', 'unsigned_run_id', 'unsigned_artifact_id', 'unsigned_sha256'):
+              if proof[key] != release[key]:
+                  raise ValueError('Manifest and root provenance disagree: ' + key)
+          for key in ('root_accepted_manifest_sha256', 'root_acceptance_receipt_sha256'):
+              if not isinstance(proof[key], str) or not re.fullmatch('[a-f0-9]{64}', proof[key]):
+                  raise ValueError('Invalid root provenance receipt hash')
+          if type(proof['unsigned_bytes']) is not int or proof['unsigned_bytes'] <= 0:
+              raise ValueError('Invalid root-accepted unsigned size')
+          output_values = dict(release)
+          output_values['unsigned_url'] = 'https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/unsigned-validation-20261029/' + release['unsigned_sha256'] + '/' + filename
+          output_values['unsigned_bytes'] = str(proof['unsigned_bytes'])
+          output_values['root_provenance_sha256'] = hashlib.sha256(proof_bytes).hexdigest()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key in sorted(output_values):
+                  output.write(key + '=' + output_values[key] + '\n')
+  verify:
+    needs: prepare
+    runs-on: ${{ needs.prepare.outputs.architecture == 'arm64' && 'windows-11-arm' || 'windows-2022' }}
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      ARCHITECTURE: ${{ needs.prepare.outputs.architecture }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+      UNSIGNED_RUN_ID: ${{ needs.prepare.outputs.unsigned_run_id }}
+      UNSIGNED_ARTIFACT_ID: ${{ needs.prepare.outputs.unsigned_artifact_id }}
+      UNSIGNED_SHA256: ${{ needs.prepare.outputs.unsigned_sha256 }}
+      SIGNED_URL: ${{ needs.prepare.outputs.signed_url }}
+      SIGNED_SHA256: ${{ needs.prepare.outputs.signed_sha256 }}
+      UNSIGNED_URL: ${{ needs.prepare.outputs.unsigned_url }}
+      UNSIGNED_BYTES: ${{ needs.prepare.outputs.unsigned_bytes }}
+      ROOT_PROVENANCE_SHA256: ${{ needs.prepare.outputs.root_provenance_sha256 }}
+    steps:
+      - name: Checkout verification tools
+        uses: actions/checkout@v4
+        with:
+          path: verification
+          persist-credentials: false
+      - name: Verify root-accepted provenance and download unsigned installer
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'yunfangame/app') { throw 'The public signed acceptance repository differs' }
+          if ($env:ARCHITECTURE -cnotin @('x64', 'arm64')) { throw 'Unsupported architecture' }
+          if ($env:SOURCE_SHA -cnotmatch '\A[a-f0-9]{40}\z') { throw 'A full source SHA is required' }
+          foreach ($hash in @($env:UNSIGNED_SHA256, $env:SIGNED_SHA256, $env:ROOT_PROVENANCE_SHA256)) { if ($hash -cnotmatch '\A[a-f0-9]{64}\z') { throw 'A full artifact SHA256 is required' } }
+          foreach ($id in @($env:UNSIGNED_RUN_ID, $env:UNSIGNED_ARTIFACT_ID)) { if ($id -cnotmatch '\A[1-9][0-9]{0,19}\z') { throw 'Invalid original GitHub provenance ID' } }
+          $filename = if ($env:ARCHITECTURE -ceq 'arm64') { 'fengwo-windows-arm64-setup.exe' } else { 'fengwo-windows-amd64-setup.exe' }
+          $expectedSignedUrl = 'https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/ov-validation-20261029/' + $env:SIGNED_SHA256 + '/' + $filename
+          $expectedUnsignedUrl = 'https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/unsigned-validation-20261029/' + $env:UNSIGNED_SHA256 + '/' + $filename
+          if ($env:SIGNED_URL -cne $expectedSignedUrl -or $env:UNSIGNED_URL -cne $expectedUnsignedUrl) { throw 'Only exact hash-scoped installer staging URLs are allowed' }
+          $proofPath = Join-Path $env:GITHUB_WORKSPACE ('verification/.github/release/root-accepted-unsigned-' + $env:ARCHITECTURE + '.json')
+          $proofCheckoutRawSha = (Get-FileHash -LiteralPath $proofPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $proofUtf8 = [Text.UTF8Encoding]::new($false, $true)
+          $proofBytes = $proofUtf8.GetBytes($proofUtf8.GetString([IO.File]::ReadAllBytes($proofPath)).Replace("`r`n", "`n"))
+          $proofSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($proofBytes)).ToLowerInvariant()
+          if ($proofSha -cne $env:ROOT_PROVENANCE_SHA256) { throw 'Root provenance changed between jobs' }
+          $proof = $proofUtf8.GetString($proofBytes) | ConvertFrom-Json
+          foreach ($binding in @(@('architecture', $env:ARCHITECTURE), @('source_sha', $env:SOURCE_SHA), @('unsigned_run_id', $env:UNSIGNED_RUN_ID), @('unsigned_artifact_id', $env:UNSIGNED_ARTIFACT_ID), @('unsigned_sha256', $env:UNSIGNED_SHA256))) {
+            if ([string]$proof.($binding[0]) -cne [string]$binding[1]) { throw ('Root provenance identity differs: ' + $binding[0]) }
+          }
+          if ([string]$proof.unsigned_bytes -cne $env:UNSIGNED_BYTES) { throw 'Root-accepted unsigned size differs' }
+          $evidence = Join-Path $env:RUNNER_TEMP 'signed-111-evidence'
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+          $unsigned = Join-Path $env:RUNNER_TEMP 'unsigned-1.1.1.exe'
+          Invoke-WebRequest -Uri $env:UNSIGNED_URL -OutFile $unsigned
+          if ((Get-Item -LiteralPath $unsigned).Length -ne [long]$env:UNSIGNED_BYTES -or (Get-FileHash -LiteralPath $unsigned -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:UNSIGNED_SHA256) { throw 'Unsigned staging bytes differ from the root-accepted size or SHA256' }
+          [IO.File]::WriteAllBytes((Join-Path $evidence 'root-accepted-unsigned.json'), $proofBytes)
+          @{ source_sha = $env:SOURCE_SHA; original_run_id = $env:UNSIGNED_RUN_ID; original_artifact_id = $env:UNSIGNED_ARTIFACT_ID; unsigned_sha256 = $env:UNSIGNED_SHA256; unsigned_bytes = [long]$env:UNSIGNED_BYTES; architecture = $env:ARCHITECTURE; root_provenance_sha256 = $env:ROOT_PROVENANCE_SHA256; root_provenance_checkout_raw_sha256 = $proofCheckoutRawSha; root_provenance_line_endings_normalized = ($proofCheckoutRawSha -cne $env:ROOT_PROVENANCE_SHA256); root_accepted_manifest_sha256 = $proof.root_accepted_manifest_sha256; root_acceptance_receipt_sha256 = $proof.root_acceptance_receipt_sha256; provenance_verification = 'root_local_build_ci_api_review'; public_runner_private_ci_api_queried = $false; unsigned_staging_url = $expectedUnsignedUrl; signed_staging_url = $expectedSignedUrl; publication_performed = $false } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'accepted-source.json') -Encoding utf8NoBOM
+      - name: Checkout the exact accepted application source
+        uses: actions/checkout@v4
+        with:
+          repository: yunfangame/app
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          path: candidate
+          persist-credentials: false
+      - name: Verify native environment, signed payload, publisher and timestamp
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidateRoot = Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          if ((& git -C $candidateRoot rev-parse HEAD).Trim() -cne $env:SOURCE_SHA) { throw 'Candidate checkout differs from the accepted source' }
+          $version = @(Select-String -LiteralPath (Join-Path $candidateRoot 'pubspec.yaml') -Pattern '^version:\s*1\.1\.1\s*$')
+          if ($version.Count -ne 1) { throw 'Only the 1.1.1 source may be verified' }
+          . (Join-Path $candidateRoot 'tooling/windows/arm64/common.ps1')
+          $native = Assert-FwNativeRunner -Architecture $env:ARCHITECTURE
+          $evidence = Join-Path $env:RUNNER_TEMP 'signed-111-evidence'
+          $signed = Join-Path $env:RUNNER_TEMP 'signed-1.1.1.exe'
+          Invoke-WebRequest -Uri $env:SIGNED_URL -OutFile $signed
+          if ((Get-FileHash -LiteralPath $signed -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:SIGNED_SHA256) { throw 'Signed staging bytes differ from the accepted SHA256' }
+          $payloadOutput = & python (Join-Path $env:GITHUB_WORKSPACE 'verification/tooling/windows/verify_signed_payload.py') (Join-Path $env:RUNNER_TEMP 'unsigned-1.1.1.exe') $signed
+          if ($LASTEXITCODE -ne 0) { throw 'Signing changed the tested application payload' }
+          $payload = ($payloadOutput -join "`n") | ConvertFrom-Json
+          if ($payload.passed -ne $true -or $payload.unsigned_sha256 -cne $env:UNSIGNED_SHA256 -or $payload.signed_sha256 -cne $env:SIGNED_SHA256 -or $payload.installer_content_preserved -ne $true -or $payload.core_helper_payload_unchanged -ne $true) { throw 'Signed payload verification receipt differs' }
+          $payload | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'signed-payload.json') -Encoding utf8NoBOM
+          $baselineHash = if ($env:ARCHITECTURE -ceq 'arm64') { '627c50c33c2d97ccbe5f8432c8a9b18a42e93c3be3a340b19c6ddc35328f776d' } else { '6d33d99ec4ea8715b093e2362a46d1c40db3a364749c88b0dd99cf7e9dcb4f30' }
+          $filename = if ($env:ARCHITECTURE -ceq 'arm64') { 'fengwo-windows-arm64-setup.exe' } else { 'fengwo-windows-amd64-setup.exe' }
+          $baseline = Join-Path $env:RUNNER_TEMP 'baseline-1.1.0.exe'
+          Invoke-WebRequest -Uri ('https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.0/desktop-110-20261028-234940-610b0156/' + $filename) -OutFile $baseline
+          if ((Get-FileHash -LiteralPath $baseline -Algorithm SHA256).Hash.ToLowerInvariant() -cne $baselineHash) { throw 'Published 1.1.0 baseline changed before signed acceptance' }
+          $signatures = @()
+          foreach ($item in @(@{ version = '1.1.0'; path = $baseline; sha256 = $baselineHash }, @{ version = '1.1.1'; path = $signed; sha256 = $env:SIGNED_SHA256 })) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $item.path
+            if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { throw 'Trusted timestamped Authenticode is required for both installers' }
+            $publisher = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($signature.SignerCertificate.RawData)).ToLowerInvariant()
+            if ($publisher -cne '27e3e2e77a0c5f3428eeb95a35825d4cf0c8710e760e9c8cb12b447d39603252') { throw 'The OV publisher certificate changed' }
+            $signatures += @{ version = $item.version; sha256 = $item.sha256; status = [string]$signature.Status; publisher_certificate_sha256 = $publisher; timestamp_subject = $signature.TimeStamperCertificate.Subject }
+          }
+          @{ native_environment = $native; signatures = $signatures; publication_performed = $false } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'native-signatures.json') -Encoding utf8NoBOM
+      - name: Verify signed 1.1.0 to 1.1.1 overwrite upgrade
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidateRoot = Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          & (Join-Path $candidateRoot 'tooling/windows/test_installed_upgrade.ps1') -InstallerPath (Join-Path $env:RUNNER_TEMP 'signed-1.1.1.exe') -PreviousInstallerPath (Join-Path $env:RUNNER_TEMP 'baseline-1.1.0.exe') -ExpectedPreviousVersion '1.1.0' -OutputDirectory (Join-Path $env:RUNNER_TEMP 'signed-111-evidence/upgrade')
+          . (Join-Path $candidateRoot 'tooling/windows/arm64/common.ps1')
+          $machine = if ($env:ARCHITECTURE -ceq 'arm64') { '0xaa64' } else { '0x8664' }
+          $binaries = @()
+          foreach ($name in @('FengWo.exe', 'FengWoCore.exe', 'FengWoHelperService.exe')) {
+            $identity = Get-FwPeIdentity (Join-Path $env:RUNNER_TEMP ('fengwo-overwrite-test/' + $name))
+            if ($identity.machine -cne $machine) { throw 'Installed application, Core or Helper has the wrong architecture' }
+            $binaries += $identity
+          }
+          @{ passed = $true; architecture = $env:ARCHITECTURE; source_sha = $env:SOURCE_SHA; signed_sha256 = $env:SIGNED_SHA256; installed_binaries = $binaries; provenance_verification = 'root_local_build_ci_api_review'; public_runner_private_ci_api_queried = $false; publication_performed = $false } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'signed-111-evidence/native-upgrade-complete.json') -Encoding utf8NoBOM
+      - name: Retain the exact signed and tested installer
+        run: |
+          $signed = Join-Path $env:RUNNER_TEMP 'signed-1.1.1.exe'
+          if ((Get-FileHash -LiteralPath $signed -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:SIGNED_SHA256) { throw 'Signed installer changed after acceptance' }
+          $filename = if ($env:ARCHITECTURE -ceq 'arm64') { 'fengwo-windows-arm64-setup.exe' } else { 'fengwo-windows-amd64-setup.exe' }
+          $output = Join-Path $env:RUNNER_TEMP 'accepted-signed-package'
+          New-Item -ItemType Directory -Path $output | Out-Null
+          Copy-Item -LiteralPath $signed -Destination (Join-Path $output $filename)
+      - name: Preserve safe acceptance receipts in the complete job log
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path $env:RUNNER_TEMP 'signed-111-evidence'
+          foreach ($relative in @('root-accepted-unsigned.json', 'accepted-source.json', 'signed-payload.json', 'native-signatures.json', 'native-upgrade-complete.json', 'upgrade/upgrade-results.json', 'upgrade/baseline-1.1.0-to-1.1.1-evidence.json')) {
+            $path = Join-Path $evidence $relative
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              [Console]::WriteLine('FENGWO_SAFE_RECEIPT_NOT_PRODUCED ' + $relative)
+              continue
+            }
+            $bytes = [IO.File]::ReadAllBytes($path)
+            if ($bytes.Length -gt 2097152) { throw 'An acceptance receipt exceeded the log export limit' }
+            $receipt = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            $entry = [ordered]@{ path = $relative; bytes = $bytes.Length; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant(); raw_json_base64 = [Convert]::ToBase64String($bytes); receipt = $receipt; public_runner_private_ci_api_queried = $false }
+            [Console]::WriteLine('FENGWO_SAFE_RECEIPT ' + ($entry | ConvertTo-Json -Depth 32 -Compress))
+          }
+      - uses: actions/upload-artifact@v4
+        id: retain_package_artifact
+        continue-on-error: true
+        with:
+          name: fengwo-tested-signed-public-111-${{ needs.prepare.outputs.architecture }}
+          path: ${{ runner.temp }}/accepted-signed-package
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        id: retain_evidence_artifact
+        if: always()
+        continue-on-error: true
+        with:
+          name: fengwo-signed-public-111-evidence-${{ needs.prepare.outputs.architecture }}
+          path: ${{ runner.temp }}/signed-111-evidence
+          if-no-files-found: warn
+      - name: Record actual artifact retention outcomes
+        if: always()
+        env:
+          PACKAGE_ARTIFACT_OUTCOME: ${{ steps.retain_package_artifact.outcome }}
+          PACKAGE_ARTIFACT_ID: ${{ steps.retain_package_artifact.outputs.artifact-id }}
+          EVIDENCE_ARTIFACT_OUTCOME: ${{ steps.retain_evidence_artifact.outcome }}
+          EVIDENCE_ARTIFACT_ID: ${{ steps.retain_evidence_artifact.outputs.artifact-id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $packageRetained = $env:PACKAGE_ARTIFACT_OUTCOME -ceq 'success' -and -not [string]::IsNullOrWhiteSpace($env:PACKAGE_ARTIFACT_ID)
+          $evidenceRetained = $env:EVIDENCE_ARTIFACT_OUTCOME -ceq 'success' -and -not [string]::IsNullOrWhiteSpace($env:EVIDENCE_ARTIFACT_ID)
+          $retention = [ordered]@{ schema = 'desktop-111-public-artifact-retention-v1'; package_artifact_outcome = $env:PACKAGE_ARTIFACT_OUTCOME; package_artifact_id = $env:PACKAGE_ARTIFACT_ID; package_artifact_retained = $packageRetained; evidence_artifact_outcome = $env:EVIDENCE_ARTIFACT_OUTCOME; evidence_artifact_id = $env:EVIDENCE_ARTIFACT_ID; evidence_artifact_retained = $evidenceRetained; artifact_retention_complete = ($packageRetained -and $evidenceRetained); native_checks_must_be_verified_separately = $true; publication_performed = $false }
+          $path = Join-Path $env:RUNNER_TEMP 'signed-111-evidence/artifact-retention.json'
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
+          [IO.File]::WriteAllText($path, (($retention | ConvertTo-Json -Depth 8) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+          $bytes = [IO.File]::ReadAllBytes($path)
+          $entry = [ordered]@{ path = 'artifact-retention.json'; bytes = $bytes.Length; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant(); raw_json_base64 = [Convert]::ToBase64String($bytes); receipt = $retention; public_runner_private_ci_api_queried = $false }
+          [Console]::WriteLine('FENGWO_SAFE_RECEIPT ' + ($entry | ConvertTo-Json -Depth 32 -Compress))
