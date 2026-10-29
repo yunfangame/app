@@ -6,9 +6,9 @@
     "url": "https://github.com/yunfangame/app/releases/download/fengwo-delay-subscription-test-111-e366e75f/signed-x64.zip"
   },
   "arm64": {
-    "sha256": "e42227483f7591c5a053e091363fd46e0f3f08128b3eb96f795a5f5b1ac5aa38",
-    "manifest_sha256": "e7bea764096c72b9530a5d3b812959fea325ce79881c21b21281227a4646bb0c",
+    "sha256": "a5c6359f4a07ae465578d1832c4bbb640344b2ab5f9cb53af067bbda9ac2f164",
+    "manifest_sha256": "60f86cf365d402654d6b3b0d743efba4edd7ba9080ff00781d95fb9c0b71b11d",
     "published_sha256": "bca002ef404fc16fc5379df13736aa6a041eceb73c39a6aade8457727caf74b9",
-    "url": "https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/full-sign-validation-20261029/e42227483f7591c5a053e091363fd46e0f3f08128b3eb96f795a5f5b1ac5aa38/signed-arm64.zip"
+    "url": "https://github.com/yunfangame/app/releases/download/fengwo-delay-subscription-test-111-e366e75f/signed-arm64.zip"
   }
 }
