@@ -269,6 +269,7 @@ Source: "{{SOURCE_DIR}}\\*"; DestDir: "{app}"; Excludes: "prerequisites\*"; Flag
 
 [Icons]
 Name: "{autoprograms}\\{{DISPLAY_NAME}}"; Filename: "{app}\\{{EXECUTABLE_NAME}}"; WorkingDir: "{app}"
+Name: "{autoprograms}\\{cm:UninstallProgram,{{DISPLAY_NAME}}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\\{{DISPLAY_NAME}}"; Filename: "{app}\\{{EXECUTABLE_NAME}}"; WorkingDir: "{app}"; Tasks: desktopicon
 [Run]
 Filename: "{app}\\{{EXECUTABLE_NAME}}"; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{{DISPLAY_NAME}}}"; Check: CanLaunchInstalledFengWo; Flags: {% if PRIVILEGES_REQUIRED == 'admin' %}runascurrentuser{% endif %} nowait postinstall skipifsilent

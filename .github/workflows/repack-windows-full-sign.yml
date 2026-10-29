@@ -1,0 +1,100 @@
+name: fengwo-windows-full-sign-repack
+on:
+  push:
+    tags:
+      - fengwo-full-sign-repack-111-*
+permissions:
+  contents: read
+jobs:
+  repack:
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [x64, arm64]
+    runs-on: ${{ matrix.architecture == 'arm64' && 'windows-11-arm' || 'windows-2022' }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify pinned signed payload
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./tooling/windows/arm64/common.ps1
+          $native = Assert-FwNativeRunner -Architecture $env:ARCHITECTURE
+          $inputs = Get-Content .github/release/windows-full-sign-input.json -Raw | ConvertFrom-Json
+          $entry = $inputs.($env:ARCHITECTURE)
+          if ($entry.sha256 -cnotmatch '^[a-f0-9]{64}$') { throw 'Invalid payload hash' }
+          $url = 'https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/full-sign-validation-20261029/' + $entry.sha256 + '/signed-' + $env:ARCHITECTURE + '.zip'
+          if ($entry.url -cne $url) { throw 'Payload URL differs from immutable hash scope' }
+          $archive = Join-Path $env:RUNNER_TEMP 'payload.zip'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          if ((Get-FileHash $archive).Hash.ToLowerInvariant() -cne $entry.sha256) { throw 'Signed payload archive changed' }
+          $stage = Join-Path $env:RUNNER_TEMP 'full-sign-repack'
+          Expand-Archive -LiteralPath $archive -DestinationPath $stage
+          $manifest = Join-Path $stage 'signed-payload.json'
+          if ((Get-FileHash $manifest).Hash.ToLowerInvariant() -cne $entry.manifest_sha256) { throw 'Signed manifest hash changed' }
+          & ./tooling/windows/verify_release_signatures.ps1 -Directory (Join-Path $stage 'bundle') -ManifestPath $manifest -OutputPath (Join-Path $stage 'native-payload-signatures.json')
+          & ./tooling/windows/check_sac_enforcement.ps1 -OutputPath (Join-Path $stage 'sac-state.json')
+          $native | ConvertTo-Json | Set-Content (Join-Path $stage 'native-environment.json') -Encoding utf8NoBOM
+      - name: Rebuild installer with signed uninstaller
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install Jinja2==3.1.6
+          if ($LASTEXITCODE -ne 0) { throw 'Template dependency installation failed' }
+          $stage = Join-Path $env:RUNNER_TEMP 'full-sign-repack'
+          python tooling/windows/render_signed_installer.py --bundle (Join-Path $stage 'bundle') --output (Join-Path $stage 'installer.iss') --architecture $env:ARCHITECTURE
+          if ($LASTEXITCODE -ne 0) { throw 'Installer rendering failed' }
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { choco install innosetup --version=6.7.1 -y --no-progress; if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' } }
+          $template = Get-Content (Join-Path $stage 'uninstaller-template.json') -Raw | ConvertFrom-Json
+          if ((Get-FileHash $iscc).Hash.ToLowerInvariant() -cne $template.compiler_sha256) { throw 'Compiler changed since uninstaller signing' }
+          $uninstaller = Join-Path (Join-Path $stage 'uninstaller-cache') $template.template
+          $signature = Get-AuthenticodeSignature -LiteralPath $uninstaller
+          if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { throw 'Signed uninstaller template is invalid' }
+          & $iscc (Join-Path $stage 'installer.iss') 2>&1 | Tee-Object (Join-Path $stage 'compile.log')
+          if ($LASTEXITCODE -ne 0) { throw 'Signed payload installer compilation failed' }
+      - name: Test upgrade and verify every installed executable
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'full-sign-repack'
+          $filename = if ($env:ARCHITECTURE -eq 'arm64') { 'fengwo-windows-arm64-setup.exe' } else { 'fengwo-windows-amd64-setup.exe' }
+          $candidate = Join-Path $stage $filename
+          $baseline = Join-Path $env:RUNNER_TEMP 'published-111.exe'
+          $inputs = Get-Content .github/release/windows-full-sign-input.json -Raw | ConvertFrom-Json
+          Invoke-WebRequest -Uri ('https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/desktop-111-20261029-040924-60d125e4/' + $filename) -OutFile $baseline
+          if ((Get-FileHash $baseline).Hash.ToLowerInvariant() -cne $inputs.($env:ARCHITECTURE).published_sha256) { throw 'Published baseline hash changed' }
+          & ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath $candidate -PreviousInstallerPath $baseline -ExpectedPreviousVersion '1.1.1' -OutputDirectory (Join-Path $stage 'upgrade')
+          $installed = Join-Path $env:RUNNER_TEMP 'fengwo-overwrite-test'
+          & ./tooling/windows/verify_release_signatures.ps1 -Directory $installed -ManifestPath (Join-Path $stage 'signed-payload.json') -OutputPath (Join-Path $stage 'installed-signatures.json') -Installed
+          $links = @(Get-ChildItem ([Environment]::GetFolderPath('CommonPrograms')) -Recurse -Filter '*.lnk' | Where-Object { $_.Name -like '*蜂窝*' })
+          $shell = New-Object -ComObject WScript.Shell
+          $uninstallLinks = @($links | Where-Object { $shell.CreateShortcut($_.FullName).TargetPath -ieq (Join-Path $installed 'unins000.exe') })
+          if ($uninstallLinks.Count -ne 1) { throw 'Signed uninstaller Start menu shortcut missing' }
+          $sentinel = Join-Path $env:APPDATA 'FengWo/蜂窝加速器/full-sign-uninstall-preserve.txt'
+          New-Item -ItemType Directory -Force (Split-Path $sentinel) | Out-Null
+          [IO.File]::WriteAllText($sentinel, 'preserve-user-data')
+          $uninstall = Start-Process -FilePath (Join-Path $installed 'unins000.exe') -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/LOG="' + (Join-Path $stage 'uninstall.log') + '"')) -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0 -or (Test-Path (Join-Path $installed 'FengWo.exe'))) { throw 'Signed uninstaller did not remove the installed application' }
+          if ((Get-Content $sentinel -Raw) -cne 'preserve-user-data') { throw 'User data was removed by uninstall' }
+          @{ passed = $true; installer_sha256 = (Get-FileHash $candidate).Hash.ToLowerInvariant(); shortcut_verified = $true; signed_uninstall_passed = $true; user_data_preserved = $true; sac_enforcement_test_passed = $false; publication_allowed = $false } | ConvertTo-Json | Set-Content (Join-Path $stage 'repack-acceptance.json') -Encoding utf8NoBOM
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fengwo-full-sign-repack-${{ matrix.architecture }}
+          path: |
+            ${{ runner.temp }}/full-sign-repack/*.exe
+            ${{ runner.temp }}/full-sign-repack/*.json
+            ${{ runner.temp }}/full-sign-repack/*.iss
+            ${{ runner.temp }}/full-sign-repack/*.log
+            ${{ runner.temp }}/full-sign-repack/upgrade
+          if-no-files-found: error
