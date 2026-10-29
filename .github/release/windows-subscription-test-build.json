@@ -1,6 +1,6 @@
 {
-  "run_id": "40876727389",
-  "source_sha": "af98aee76585f74a7fab7ad642be86345a4fa3af",
-  "purpose": "subscription refresh regression testing only",
+  "run_id": "40903490865",
+  "source_sha": "e366e75fa969a1a71965ce60cbdbeb6e83130445",
+  "purpose": "subscription and delay correction release",
   "publication_allowed": false
 }
