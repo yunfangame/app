@@ -3,7 +3,7 @@
     "sha256": "6057565c72e2a6b36ca5e43d710b5288f3b92437f45692ac384194f61ea13ae0",
     "manifest_sha256": "bc38c80e4eda3728a70bfc49517823be0767c4ae2219d601e034a9fa32c5baca",
     "published_sha256": "9b56c20bc250bafcba2b06f7afdf117d7b02318986bd26eacb11142f662aaffb",
-    "url": "https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/full-sign-validation-20261029/6057565c72e2a6b36ca5e43d710b5288f3b92437f45692ac384194f61ea13ae0/signed-x64.zip"
+    "url": "https://github.com/yunfangame/app/releases/download/fengwo-subscription-fix-test-111-af98aee7/signed-x64.zip"
   },
   "arm64": {
     "sha256": "e42227483f7591c5a053e091363fd46e0f3f08128b3eb96f795a5f5b1ac5aa38",
