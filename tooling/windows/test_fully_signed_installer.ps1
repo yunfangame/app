@@ -13,6 +13,7 @@ Invoke-WebRequest -Uri ('https://zryc.oss-cn-beijing.aliyuncs.com/releases/deskt
 if ((Get-FileHash $baseline).Hash.ToLowerInvariant() -cne $inputs.($Architecture).published_sha256) { throw 'Published baseline hash changed' }
 & ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath $candidate -PreviousInstallerPath $baseline -ExpectedPreviousVersion '1.1.1' -OutputDirectory (Join-Path $stage 'upgrade')
 $installed = Join-Path $env:RUNNER_TEMP 'fengwo-overwrite-test'
+& ./tooling/windows/verify_embedded_wintun.ps1 -CorePath (Join-Path $installed 'FengWoCore.exe') -Architecture $Architecture -OutputDirectory $stage
 & ./tooling/windows/verify_release_signatures.ps1 -Directory $installed -ManifestPath (Join-Path $stage 'signed-payload.json') -OutputPath (Join-Path $stage 'installed-signatures.json') -Installed
 $links = @(Get-ChildItem ([Environment]::GetFolderPath('CommonPrograms')) -Recurse -Filter '*.lnk' | Where-Object { $_.Name -like '*蜂窝*' })
 $shell = New-Object -ComObject WScript.Shell

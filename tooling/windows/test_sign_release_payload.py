@@ -67,6 +67,15 @@ class SigningIntegrityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             verify_script_content(before, after)
 
+    def test_javascript_uses_its_own_signature_comment_format(self):
+        before, after = self.root / 'a.js', self.root / 'b.js'
+        before.write_text('const value = 1;\n')
+        after.write_text('const value = 1;\n\n// SIG // Begin signature block\n// encoded\n// SIG // End signature block\n')
+        verify_script_content(before, after)
+        after.write_text(after.read_text().replace('value = 1', 'value = 2'))
+        with self.assertRaises(ValueError):
+            verify_script_content(before, after)
+
 
 if __name__ == '__main__':
     unittest.main()
