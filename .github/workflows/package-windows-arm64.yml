@@ -1,11 +1,11 @@
 name: fengwo-windows-arm64-package
-run-name: Windows ARM64 stable 1.1.0 · ${{ github.sha }}
+run-name: Windows ARM64 stable 1.1.1 · ${{ github.sha }}
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - fengwo-release-windows-arm64-1.1.0-*
+      - fengwo-release-windows-arm64-1.1.1-*
 
 permissions:
   contents: read
@@ -71,18 +71,18 @@ jobs:
           [void][IO.Directory]::CreateDirectory((Join-Path $PWD 'tooling/remote_config'))
           $keys = @{ aesKey = $env:AES_KEY; signingPublicKey = $env:SIGNING_PUBLIC_KEY } | ConvertTo-Json -Compress
           [IO.File]::WriteAllText((Join-Path $PWD 'tooling/remote_config/keys.json'), $keys, [Text.UTF8Encoding]::new($false))
-      - name: Download verified online v1.0.11 overwrite baseline
+      - name: Download verified online v1.1.0 overwrite baseline
         shell: pwsh
         run: |
-          $baseline = Join-Path $env:RUNNER_TEMP 'fengwo-baseline-1.0.11-arm64.exe'
-          Invoke-WebRequest -Uri 'https://picture.sansen.tech/fengwo-windows-arm64-setup.exe' -OutFile $baseline
+          $baseline = Join-Path $env:RUNNER_TEMP 'fengwo-baseline-1.1.0-arm64.exe'
+          Invoke-WebRequest -Uri 'https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.0/desktop-110-20261028-234940-610b0156/fengwo-windows-arm64-setup.exe' -OutFile $baseline
           $hash = (Get-FileHash -LiteralPath $baseline -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -cne '5d0a889729f18c2295212bc1966b286506b2afebbef05bebae4944e22b6f8d3b') { throw 'The online ARM64 baseline changed' }
+          if ($hash -cne '627c50c33c2d97ccbe5f8432c8a9b18a42e93c3be3a340b19c6ddc35328f776d') { throw 'The online ARM64 baseline changed' }
           $signature = Get-AuthenticodeSignature -LiteralPath $baseline
           if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { throw 'A trusted timestamped OV baseline is required' }
           $publisher = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($signature.SignerCertificate.RawData)).ToLowerInvariant()
           if ($publisher -cne '27e3e2e77a0c5f3428eeb95a35825d4cf0c8710e760e9c8cb12b447d39603252') { throw 'The baseline publisher certificate changed' }
-          @{ version = '1.0.11'; architecture = 'arm64'; bytes = (Get-Item -LiteralPath $baseline).Length; sha256 = $hash; authenticode_status = [string]$signature.Status; publisher_certificate_sha256 = $publisher; timestamped = $true } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/baseline.json') -Encoding utf8NoBOM
+          @{ version = '1.1.0'; architecture = 'arm64'; bytes = (Get-Item -LiteralPath $baseline).Length; sha256 = $hash; authenticode_status = [string]$signature.Status; publisher_certificate_sha256 = $publisher; timestamped = $true } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'arm64-evidence/baseline.json') -Encoding utf8NoBOM
       - name: Restore packages and prepare native ARM64 Javascript
         shell: pwsh
         run: |
@@ -172,7 +172,7 @@ jobs:
         shell: pwsh
         run: |
           ./tooling/windows/verify_vc_runtime_bundle.ps1 -Architecture arm64 -BundleDirectory build/windows/arm64/runner/Release
-          ./tooling/windows/arm64/verify_bundle.ps1 -BundleDirectory build/windows/arm64/runner/Release -InstallerPath dist/fengwo-windows-arm64-setup.exe -ExpectedVersion '1.1.0' -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'arm64-evidence/package')
+          ./tooling/windows/arm64/verify_bundle.ps1 -BundleDirectory build/windows/arm64/runner/Release -InstallerPath dist/fengwo-windows-arm64-setup.exe -ExpectedVersion '1.1.1' -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'arm64-evidence/package')
       - name: Verify FlClash coexistence across install start overwrite and uninstall
         shell: pwsh
         timeout-minutes: 15
@@ -232,21 +232,21 @@ jobs:
           foreach ($path in @('env.json', 'tooling/remote_config/keys.json')) {
             if (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Item -LiteralPath $path -Force }
           }
-      - name: Verify installed overwrite upgrade from 1.0.11
+      - name: Verify installed overwrite upgrade from 1.1.0
         shell: pwsh
         run: |
-          ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath dist/fengwo-windows-arm64-setup.exe -PreviousInstallerPath "$env:RUNNER_TEMP/fengwo-baseline-1.0.11-arm64.exe" -ExpectedPreviousVersion '1.0.11' -OutputDirectory (Join-Path $env:RUNNER_TEMP 'arm64-evidence/upgrade')
+          ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath dist/fengwo-windows-arm64-setup.exe -PreviousInstallerPath "$env:RUNNER_TEMP/fengwo-baseline-1.1.0-arm64.exe" -ExpectedPreviousVersion '1.1.0' -OutputDirectory (Join-Path $env:RUNNER_TEMP 'arm64-evidence/upgrade')
       - name: Record release manifest
         shell: pwsh
         run: |
           . ./tooling/windows/arm64/common.ps1
           $installer = Get-Item dist/fengwo-windows-arm64-setup.exe
           $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          Save-FwArmEvidence (Join-Path $PWD 'dist/windows-arm64-build.json') ([ordered]@{ version = '1.1.0'; architecture = 'arm64'; release_notes = '优化加速算法'; base_source_sha = 'c788d1699f6665681c459473a3919cfe6ff4df17'; architecture_build_source_sha = 'b51a22dfeb67aff9d5d107970d433d1f4bbe51ce'; requires_ov_signing = $true; publication_allowed = $false; source_branch = $env:GITHUB_REF_NAME; source_sha = $env:GITHUB_SHA; run_id = $env:GITHUB_RUN_ID; installer_name = $installer.Name; installer_bytes = $installer.Length; installer_sha256 = $hash; native_runner = 'windows-11-arm'; real_customer_account_tested = $false; old_x64_to_arm64_migration_verified = $false })
+          Save-FwArmEvidence (Join-Path $PWD 'dist/windows-arm64-build.json') ([ordered]@{ version = '1.1.1'; architecture = 'arm64'; release_notes = '修复订阅更新后代理启动失败的问题'; base_source_sha = 'c788d1699f6665681c459473a3919cfe6ff4df17'; architecture_build_source_sha = 'b51a22dfeb67aff9d5d107970d433d1f4bbe51ce'; requires_ov_signing = $true; publication_allowed = $false; source_branch = $env:GITHUB_REF_NAME; source_sha = $env:GITHUB_SHA; run_id = $env:GITHUB_RUN_ID; installer_name = $installer.Name; installer_bytes = $installer.Length; installer_sha256 = $hash; native_runner = 'windows-11-arm'; real_customer_account_tested = $false; old_x64_to_arm64_migration_verified = $false })
           ($hash + '  ' + $installer.Name) | Set-Content -LiteralPath dist/ARM64-SHA256SUMS -Encoding utf8NoBOM
       - uses: actions/upload-artifact@v4
         with:
-          name: fengwo-windows-arm64-1.1.0
+          name: fengwo-windows-arm64-1.1.1
           path: |
             dist/fengwo-windows-arm64-setup.exe
             dist/windows-arm64-build.json
