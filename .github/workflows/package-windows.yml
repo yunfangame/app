@@ -54,20 +54,20 @@ jobs:
             [System.Text.UTF8Encoding]::new($false)
           )
 
-      - name: Download verified online v1.0.11 overwrite baseline
+      - name: Download verified online v1.1.0 overwrite baseline
         shell: pwsh
         run: |
-          $baseline = Join-Path $env:RUNNER_TEMP 'fengwo-baseline-1.0.11.exe'
-          Invoke-WebRequest -Uri 'https://picture.sansen.tech/fengwo-windows-amd64-setup.exe' -OutFile $baseline
+          $baseline = Join-Path $env:RUNNER_TEMP 'fengwo-baseline-1.1.0.exe'
+          Invoke-WebRequest -Uri 'https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.0/desktop-110-20261028-234940-610b0156/fengwo-windows-amd64-setup.exe' -OutFile $baseline
           $hash = (Get-FileHash -LiteralPath $baseline -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -cne '57c355f4ba2b11913659d1ac3ec73fcee27aea9fb6e73f730e8161e54a155db3') { throw 'The online v1.0.11 baseline changed; refusing an unverified overwrite test' }
+          if ($hash -cne '6d33d99ec4ea8715b093e2362a46d1c40db3a364749c88b0dd99cf7e9dcb4f30') { throw 'The online v1.1.0 baseline changed; refusing an unverified overwrite test' }
           $signature = Get-AuthenticodeSignature -LiteralPath $baseline
           if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { throw 'The baseline must have a trusted timestamped OV signature' }
           $publisher = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($signature.SignerCertificate.RawData)).ToLowerInvariant()
           if ($publisher -cne '27e3e2e77a0c5f3428eeb95a35825d4cf0c8710e760e9c8cb12b447d39603252') { throw 'The baseline publisher certificate changed' }
           $directory = Join-Path $env:RUNNER_TEMP 'release-validation'
           New-Item -ItemType Directory -Force -Path $directory | Out-Null
-          @{ version = '1.0.11'; bytes = (Get-Item -LiteralPath $baseline).Length; sha256 = $hash; authenticode_status = [string]$signature.Status; publisher_certificate_sha256 = $publisher; timestamped = $true } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $directory 'baseline.json') -Encoding utf8NoBOM
+          @{ version = '1.1.0'; bytes = (Get-Item -LiteralPath $baseline).Length; sha256 = $hash; authenticode_status = [string]$signature.Status; publisher_certificate_sha256 = $publisher; timestamped = $true } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $directory 'baseline.json') -Encoding utf8NoBOM
           $tokens = $null
           $parseErrors = $null
           $null = [System.Management.Automation.Language.Parser]::ParseFile("$PWD/tooling/windows/test_installed_upgrade.ps1", [ref]$tokens, [ref]$parseErrors)
@@ -358,7 +358,7 @@ jobs:
         shell: pwsh
         run: |
           $installer = Get-ChildItem dist -Filter '*windows*.exe' -File | Select-Object -First 1
-          ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/upgrade-verification" -PreviousInstallerPath "$env:RUNNER_TEMP/fengwo-baseline-1.0.11.exe" -ExpectedPreviousVersion '1.0.11'
+          ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath $installer.FullName -OutputDirectory "$env:RUNNER_TEMP/upgrade-verification" -PreviousInstallerPath "$env:RUNNER_TEMP/fengwo-baseline-1.1.0.exe" -ExpectedPreviousVersion '1.1.0'
 
       - name: Verify installed helper service repair and overwrite
         shell: pwsh
@@ -386,11 +386,11 @@ jobs:
           $metadata = [ordered]@{
             version = (Get-Item build/windows/x64/runner/Release/FengWo.exe).VersionInfo.ProductVersion
             release_channel = 'stable'
-            release_notes = '优化加速算法'
+            release_notes = '修复订阅更新后代理启动失败的问题'
             base_source_sha = 'c788d1699f6665681c459473a3919cfe6ff4df17'
             requires_ov_signing = $true
             publication_allowed = $false
-            source_branch = 'codex/desktop-release-1.1.0-20261028'
+            source_branch = 'codex/desktop-release-1.1.1-20261029'
             source_sha = $env:GITHUB_SHA
             source_ref = $env:GITHUB_REF
             run_id = $env:GITHUB_RUN_ID
