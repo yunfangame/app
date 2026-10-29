@@ -8,11 +8,11 @@
     "repack_run": "40910489790"
   },
   "arm64": {
-    "sha256": "4780de515a0ea1a1434a2f473e178d03e5104e2d8f8db2d8219c5f5a0dab7ab3",
-    "bytes": 54554216,
-    "unsigned_sha256": "95dc2659da2cb242f41d941d155d10650dcfb3173ea857ca0743bbfa9c8a21d2",
+    "sha256": "3ff988431351e7e11b6bcbc897e79faa5d9eb69302fe8087800ad04da94dae2e",
+    "bytes": 54555584,
+    "unsigned_sha256": "bcce58817a686969f1282976d0c19d90152ea50261d81956031d34d7e509a23a",
     "publisher_certificate_sha256": "27e3e2e77a0c5f3428eeb95a35825d4cf0c8710e760e9c8cb12b447d39603252",
-    "url": "https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/full-sign-validation-20261029/4780de515a0ea1a1434a2f473e178d03e5104e2d8f8db2d8219c5f5a0dab7ab3/fengwo-windows-arm64-setup.exe",
-    "repack_run": "40823847843"
+    "url": "https://github.com/yunfangame/app/releases/download/fengwo-delay-subscription-test-111-e366e75f/fengwo-windows-arm64-setup.exe",
+    "repack_run": "40911194232"
   }
 }
