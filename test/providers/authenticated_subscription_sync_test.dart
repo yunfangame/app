@@ -61,6 +61,115 @@ void main() {
     },
   );
 
+  for (final realProfiles in [false, true]) {
+    for (final reuseIdentity in [false, true]) {
+      test(
+        'authenticated V2 replacement survives removal of its old source ($realProfiles, $reuseIdentity)',
+        () async {
+          final h = await _Harness.create(realProfiles: realProfiles);
+          if (reuseIdentity) {
+            await database.rulesDao.bindProfileAccount(
+              h.profile.id,
+              'replacement-account',
+            );
+          }
+          const sourceId = 'fengwo-v2://fixture/replacement';
+          File? committedFile;
+          final result = await h.action.runAuthenticatedSubscriptionSync(
+            h.session,
+            allowTokenRegistration: false,
+            sync: (guard) => h.action.syncSubscriptionProfileBytes(
+              Uint8List.fromList([1]),
+              sourceId: sourceId,
+              replacingUrl: h.profile.url,
+              ruleAccountKey: 'replacement-account',
+              isCurrent: guard,
+              loader: (profile, _) async {
+                expect(profile.id == h.profile.id, reuseIdentity);
+                committedFile = File(
+                  await appPath.getProfilePath(profile.id.toString()),
+                );
+                await committedFile!.parent.create(recursive: true);
+                await committedFile!.writeAsString('validated-replacement');
+                return profile.copyWith(
+                  lastUpdateDate: DateTime(2026, 10, 29, 20, 27, 13, 123, 456),
+                );
+              },
+              effectClearer: (_) async {},
+            ),
+          );
+          expect(result, isNotNull);
+          expect(result!.url, sourceId);
+          expect(h.container.read(currentProfileIdProvider), result.id);
+          expect(h.container.read(profilesProvider).map((p) => (p.id, p.url)), [
+            (result.id, sourceId),
+          ]);
+          expect(await committedFile!.readAsString(), 'validated-replacement');
+          expect(h.setup.applications, 1);
+          await XboardSessionStorage().setManagedProfileUrl(sourceId);
+          final refreshed = await h.action.runAuthenticatedSubscriptionSync(
+            h.session,
+            allowTokenRegistration: false,
+            forceRefresh: true,
+            sync: (guard) => h.action.syncSubscriptionProfileBytes(
+              Uint8List.fromList([2]),
+              sourceId: sourceId,
+              ruleAccountKey: 'replacement-account',
+              isCurrent: guard,
+              loader: (profile, _) async {
+                await committedFile!.writeAsString('validated-refresh');
+                return profile.copyWith(
+                  lastUpdateDate: DateTime(2026, 10, 29, 20, 27, 24, 321),
+                );
+              },
+            ),
+          );
+          expect(refreshed?.id, result.id);
+          expect(h.container.read(currentProfileIdProvider), result.id);
+          expect(await committedFile!.readAsString(), 'validated-refresh');
+          expect(h.setup.applications, 2);
+        },
+      );
+    }
+  }
+
+  for (final change in ['logout', 'source', 'delete-profile']) {
+    test('V2 replacement still rejects $change during cleanup', () async {
+      final h = await _Harness.create();
+      Profile? replacement;
+      final syncing = h.action.runAuthenticatedSubscriptionSync(
+        h.session,
+        allowTokenRegistration: false,
+        sync: (guard) => h.action.syncSubscriptionProfileBytes(
+          Uint8List.fromList([1]),
+          sourceId: 'fengwo-v2://fixture/replacement',
+          replacingUrl: h.profile.url,
+          ruleAccountKey: 'replacement-account',
+          isCurrent: guard,
+          loader: (profile, _) async => replacement = profile,
+          effectClearer: (_) async {
+            switch (change) {
+              case 'logout':
+                globalState.clearXboardSession();
+              case 'source':
+                h.container
+                    .read(profilesProvider.notifier)
+                    .put(
+                      replacement!.copyWith(url: 'fengwo-v2://fixture/changed'),
+                    );
+              case 'delete-profile':
+                await h.container
+                    .read(profilesProvider.notifier)
+                    .del(replacement!.id);
+            }
+          },
+        ),
+      );
+      await expectLater(syncing, throwsA(isA<StateError>()));
+      expect(h.container.read(currentProfileIdProvider), isNull);
+    });
+  }
+
   test(
     'nearby sequential login reuses verified bytes and reapplies locally',
     () async {
@@ -361,23 +470,30 @@ class _Harness {
   final ProviderContainer container;
   late File file;
 
-  static Future<_Harness> create() async {
+  static Future<_Harness> create({bool realProfiles = false}) async {
     final session = _session('one');
     globalState.activateXboardSession(session);
     final profile = Profile.normal(url: session.legacySubscribeUrl.toString());
     await XboardSessionStorage().setManagedProfileUrl(profile.url);
+    if (realProfiles) await database.profilesDao.setAll([profile]);
     final action = _Action();
     final setup = _Setup();
     final container = ProviderContainer(
       overrides: [
         profilesActionProvider.overrideWith(() => action),
         setupActionProvider.overrideWith(() => setup),
-        profilesProvider.overrideWith(() => _Profiles([profile])),
+        if (!realProfiles)
+          profilesProvider.overrideWith(() => _Profiles([profile])),
         currentProfileIdProvider.overrideWithBuild((_, _) => null),
         coreStatusProvider.overrideWithBuild((_, _) => CoreStatus.connected),
       ],
     );
     addTearDown(container.dispose);
+    container.listen(currentProfileIdProvider, (_, _) {});
+    if (realProfiles) {
+      container.listen(profilesProvider, (_, _) {});
+      await container.read(profilesStreamProvider.future);
+    }
     container.read(profilesActionProvider.notifier);
     final h = _Harness(session, profile, action, setup, container);
     h.file = File(await appPath.getProfilePath(profile.id.toString()));
