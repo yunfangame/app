@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        architecture: ${{ contains(github.ref_name, 'subscription-arm64') && fromJSON('["arm64"]') || contains(github.ref_name, 'subscription') && fromJSON('["x64"]') || fromJSON('["x64", "arm64"]') }}
+        architecture: ${{ (contains(github.ref_name, 'subscription-arm64') || contains(github.ref_name, 'delay-arm64')) && fromJSON('["arm64"]') || (contains(github.ref_name, 'subscription') || contains(github.ref_name, 'delay-x64')) && fromJSON('["x64"]') || fromJSON('["x64", "arm64"]') }}
     runs-on: ${{ matrix.architecture == 'arm64' && 'windows-11-arm' || 'windows-2022' }}
     timeout-minutes: 30
     defaults:
@@ -33,11 +33,13 @@ jobs:
           $prefix = 'https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/full-sign-validation-20261029/'
           if ($entry.sha256 -cnotmatch '^[a-f0-9]{64}$' -or $final.sha256 -cnotmatch '^[a-f0-9]{64}$') { throw 'Invalid immutable hashes' }
           $payloadUrl = $prefix + $entry.sha256 + '/signed-' + $env:ARCHITECTURE + '.zip'
-          if ($env:GITHUB_REF_NAME -like '*subscription*') { $payloadUrl = 'https://github.com/yunfangame/app/releases/download/fengwo-subscription-fix-test-111-af98aee7/signed-' + $env:ARCHITECTURE + '.zip' }
+          if ($env:GITHUB_REF_NAME -like '*delay-*') { $payloadUrl = 'https://github.com/yunfangame/app/releases/download/fengwo-delay-subscription-test-111-e366e75f/signed-' + $env:ARCHITECTURE + '.zip' }
+          elseif ($env:GITHUB_REF_NAME -like '*subscription*') { $payloadUrl = 'https://github.com/yunfangame/app/releases/download/fengwo-subscription-fix-test-111-af98aee7/signed-' + $env:ARCHITECTURE + '.zip' }
           if ($entry.url -cne $payloadUrl) { throw 'Signed payload URL mismatch' }
           $filename = if ($env:ARCHITECTURE -eq 'arm64') { 'fengwo-windows-arm64-setup.exe' } else { 'fengwo-windows-amd64-setup.exe' }
           $installerUrl = $prefix + $final.sha256 + '/' + $filename
-          if ($env:GITHUB_REF_NAME -like '*subscription*') { $installerUrl = 'https://github.com/yunfangame/app/releases/download/fengwo-subscription-fix-test-111-af98aee7/' + $filename }
+          if ($env:GITHUB_REF_NAME -like '*delay-*') { $installerUrl = 'https://github.com/yunfangame/app/releases/download/fengwo-delay-subscription-test-111-e366e75f/' + $filename }
+          elseif ($env:GITHUB_REF_NAME -like '*subscription*') { $installerUrl = 'https://github.com/yunfangame/app/releases/download/fengwo-subscription-fix-test-111-af98aee7/' + $filename }
           if ($final.url -cne $installerUrl) { throw 'Signed installer URL mismatch' }
           $archive = Join-Path $env:RUNNER_TEMP 'signed-payload.zip'
           Invoke-WebRequest -Uri $entry.url -OutFile $archive
