@@ -508,18 +508,24 @@ class ApplicationState extends ConsumerState<Application> {
       ref.read(realTestUrlProvider(group.testUrl)),
     ]);
     final proxies = ref.read(proxiesActionProvider.notifier);
+    final previousDelay = ref.read(
+      delayDataSourceProvider,
+    )[testUrl]?[selected.proxyName];
     proxies.setDelay(Delay(url: testUrl, name: selected.proxyName, value: 0));
     commonPrint.event('connection.auto.probe_started');
     try {
       final delay = await coreController
           .getDelay(testUrl, selected.proxyName)
-          .timeout(const Duration(seconds: 6));
+          .timeout(delayTestGuardDuration);
       if (isCurrent()) proxies.setDelay(delay);
     } catch (error) {
       if (!isCurrent()) return;
-      proxies.setDelay(
-        Delay(url: testUrl, name: selected.proxyName, value: -1),
-      );
+      if (ref.read(delayDataSourceProvider)[testUrl]?[selected.proxyName] ==
+          0) {
+        proxies.setDelay(
+          Delay(url: testUrl, name: selected.proxyName, value: previousDelay),
+        );
+      }
       commonPrint.event(
         'connection.auto.probe_failed',
         fields: {'error_type': error.runtimeType.toString()},
