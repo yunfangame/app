@@ -4,7 +4,7 @@
   required List<String> subscriptionRules,
 }) {
   String? matchTarget(List<String> source) {
-    for (final rule in source.reversed) {
+    for (final rule in source) {
       final parts = rule.split(',');
       if (parts.length == 2 && parts.first.trim().toUpperCase() == 'MATCH') {
         final target = parts.last.trim();
@@ -19,14 +19,21 @@
   var replacedCount = 0;
   final repaired = rules.map((rule) {
     final parts = rule.split(',');
-    if (parts.length < 2 || parts.first.trim().toUpperCase() == 'SUB-RULE') {
+    final type = parts.first.trim().toUpperCase();
+    if (parts.length < 2 || type == 'SUB-RULE') {
       return rule;
     }
-    var targetIndex = parts.length - 1;
-    while (targetIndex > 1 &&
-        const {'no-resolve', 'src'}.contains(parts[targetIndex].trim())) {
-      targetIndex--;
-    }
+    final targetIndex = switch (type) {
+      'MATCH' => 1,
+      'NOT' ||
+      'OR' ||
+      'AND' ||
+      'DOMAIN-REGEX' ||
+      'PROCESS-NAME-REGEX' ||
+      'PROCESS-PATH-REGEX' => parts.length - 1,
+      _ => 2,
+    };
+    if (targetIndex >= parts.length) return rule;
     final target = parts[targetIndex].trim();
     if (target.isEmpty || availableTargets.contains(target)) return rule;
     parts[targetIndex] = fallback;
