@@ -1,0 +1,70 @@
+name: fengwo-windows-signed-core-helper
+on:
+  push:
+    tags:
+      - fengwo-full-sign-helper-111-*
+permissions:
+  contents: read
+jobs:
+  helper:
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [x64, arm64]
+    runs-on: ${{ matrix.architecture == 'arm64' && 'windows-11-arm' || 'windows-2022' }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Rebuild Helper bound to the signed Core hash
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./tooling/windows/arm64/common.ps1
+          $native = Assert-FwNativeRunner -Architecture $env:ARCHITECTURE
+          $entry = (Get-Content .github/release/windows-full-sign-input.json -Raw | ConvertFrom-Json).($env:ARCHITECTURE)
+          $expected = 'https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/full-sign-validation-20261029/' + $entry.sha256 + '/signed-' + $env:ARCHITECTURE + '.zip'
+          if ($entry.sha256 -cnotmatch '^[a-f0-9]{64}$' -or $entry.url -cne $expected) { throw 'Unexpected signed Core source' }
+          $archive = Join-Path $env:RUNNER_TEMP 'payload.zip'
+          Invoke-WebRequest -Uri $entry.url -OutFile $archive
+          if ((Get-FileHash $archive).Hash.ToLowerInvariant() -cne $entry.sha256) { throw 'Signed payload changed' }
+          $stage = Join-Path $env:RUNNER_TEMP 'helper-rebind'
+          Expand-Archive $archive (Join-Path $stage 'input')
+          $output = Join-Path $stage 'output'
+          New-Item -ItemType Directory -Force $output | Out-Null
+          $manifestPath = Join-Path $stage 'input/signed-payload.json'
+          if ((Get-FileHash $manifestPath).Hash.ToLowerInvariant() -cne $entry.manifest_sha256) { throw 'Signed payload manifest changed' }
+          $core = Join-Path $stage 'input/bundle/FengWoCore.exe'
+          $env:CORE_SHA256 = (Get-FileHash $core).Hash.ToLowerInvariant()
+          $coreRow = @((Get-Content $manifestPath -Raw | ConvertFrom-Json).files | Where-Object path -CEQ 'bundle/FengWoCore.exe')
+          if ($coreRow.Count -ne 1 -or $env:CORE_SHA256 -cne $coreRow[0].sha256) { throw 'Signed Core binding differs' }
+          if ((Get-AuthenticodeSignature $core).Status -ne 'Valid') { throw 'Signed Core does not verify on Windows' }
+          $env:CORE_NAME = 'FengWoCore.exe'
+          $rust = (& rustc -Vv | Out-String)
+          $triple = if ($env:ARCHITECTURE -eq 'arm64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
+          if ($LASTEXITCODE -ne 0 -or $rust -notmatch ('(?m)^host: ' + [regex]::Escape($triple) + '\s*$')) { throw 'Native Rust toolchain required' }
+          $rust | Set-Content (Join-Path $output 'rust.txt')
+          cargo fmt --manifest-path services/helper/Cargo.toml -- --check
+          if ($LASTEXITCODE -ne 0) { throw 'Helper formatting failed' }
+          cargo test --manifest-path services/helper/Cargo.toml --locked --features windows-service 2>&1 | Tee-Object (Join-Path $output 'cargo-tests.log')
+          if ($LASTEXITCODE -ne 0) { throw 'Native Helper tests failed' }
+          cargo build --manifest-path services/helper/Cargo.toml --locked --features windows-service --release 2>&1 | Tee-Object (Join-Path $output 'cargo-build.log')
+          if ($LASTEXITCODE -ne 0) { throw 'Native Helper build failed' }
+          $helper = Join-Path $output 'FengWoHelperService.exe'
+          Copy-Item services/helper/target/release/helper.exe $helper
+          $identity = Get-FwPeIdentity $helper
+          if (-not $identity.($env:ARCHITECTURE)) { throw 'Helper architecture differs' }
+          [IO.File]::WriteAllText((Join-Path $output 'manifest.json'), ('{"coreSha256":"' + $env:CORE_SHA256 + '"}' + "`n"), [Text.UTF8Encoding]::new($false))
+          $source = @(git ls-files services/helper | ForEach-Object { @{ path = $_; sha256 = (Get-FileHash $_).Hash.ToLowerInvariant() } })
+          @{ passed = $true; architecture = $env:ARCHITECTURE; source_sha = $env:GITHUB_SHA; signed_core_sha256 = $env:CORE_SHA256; input_archive_sha256 = $entry.sha256; helper = $identity; manifest_sha256 = (Get-FileHash (Join-Path $output 'manifest.json')).Hash.ToLowerInvariant(); source_files = $source; native = $native; helper_signing_still_required = $true; publication_allowed = $false } | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $output 'helper-rebind.json') -Encoding utf8NoBOM
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fengwo-full-sign-helper-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/helper-rebind/output
+          if-no-files-found: error
