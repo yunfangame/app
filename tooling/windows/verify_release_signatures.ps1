@@ -9,6 +9,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $publisher = '27e3e2e77a0c5f3428eeb95a35825d4cf0c8710e760e9c8cb12b447d39603252'
 $root = (Resolve-Path -LiteralPath $Directory).Path
+$coreHash = (Get-FileHash -LiteralPath (Join-Path $root 'FengWoCore.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+$coreManifest = Get-Content -LiteralPath (Join-Path $root 'manifest.json') -Raw | ConvertFrom-Json
+if ($coreManifest.coreSha256 -cne $coreHash) { throw 'Core manifest must bind the signed Core file hash' }
 $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
 if ($manifest.schema -cne 'fengwo-fully-signed-payload-v1' -or $manifest.passed -ne $true) { throw 'Invalid signed payload manifest' }
 $expected = @{}

@@ -1,14 +1,14 @@
 {
   "x64": {
-    "sha256": "f80c39679b244d547e27a9e0277f3b8babbb6393a371fa53d943c5cb5e0f35f5",
-    "manifest_sha256": "a8a8e73c1160979c0538c52a1fa77c77d852d8f69ed0009a7a86f4198e1778ac",
+    "sha256": "c7b6055a72250f4dd5c034b8c22e768348cda6a58951e335f73e5f919fe62d88",
+    "manifest_sha256": "a8ee972884b860baa4be944c295aaf12b5a85663a7c1b4fc499098fac9aea218",
     "published_sha256": "9b56c20bc250bafcba2b06f7afdf117d7b02318986bd26eacb11142f662aaffb",
-    "url": "https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/full-sign-validation-20261029/f80c39679b244d547e27a9e0277f3b8babbb6393a371fa53d943c5cb5e0f35f5/signed-x64.zip"
+    "url": "https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/full-sign-validation-20261029/c7b6055a72250f4dd5c034b8c22e768348cda6a58951e335f73e5f919fe62d88/signed-x64.zip"
   },
   "arm64": {
-    "sha256": "53ba3eab7f1a58b3f156856283a6af2d477f5ef6170f8d93d8bb3451ed064642",
-    "manifest_sha256": "c9af10e677c9772929f61b9c90c7a9277388e9dea0023950367967c39251036e",
+    "sha256": "e42227483f7591c5a053e091363fd46e0f3f08128b3eb96f795a5f5b1ac5aa38",
+    "manifest_sha256": "e7bea764096c72b9530a5d3b812959fea325ce79881c21b21281227a4646bb0c",
     "published_sha256": "bca002ef404fc16fc5379df13736aa6a041eceb73c39a6aade8457727caf74b9",
-    "url": "https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/full-sign-validation-20261029/53ba3eab7f1a58b3f156856283a6af2d477f5ef6170f8d93d8bb3451ed064642/signed-arm64.zip"
+    "url": "https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/full-sign-validation-20261029/e42227483f7591c5a053e091363fd46e0f3f08128b3eb96f795a5f5b1ac5aa38/signed-arm64.zip"
   }
 }

@@ -76,4 +76,7 @@ jobs:
             ${{ runner.temp }}/full-sign-repack/*.iss
             ${{ runner.temp }}/full-sign-repack/*.log
             ${{ runner.temp }}/full-sign-repack/upgrade
+            ${{ runner.temp }}/full-sign-repack/runtime
+            ${{ runner.temp }}/full-sign-repack/helper-repair
+            ${{ runner.temp }}/full-sign-repack/shortcuts
           if-no-files-found: error

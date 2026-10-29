@@ -67,4 +67,7 @@ jobs:
             ${{ runner.temp }}/full-sign-final/*.json
             ${{ runner.temp }}/full-sign-final/*.log
             ${{ runner.temp }}/full-sign-final/upgrade
+            ${{ runner.temp }}/full-sign-final/runtime
+            ${{ runner.temp }}/full-sign-final/helper-repair
+            ${{ runner.temp }}/full-sign-final/shortcuts
           if-no-files-found: error

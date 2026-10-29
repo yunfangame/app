@@ -15,6 +15,7 @@ if ((Get-FileHash $baseline).Hash.ToLowerInvariant() -cne $inputs.($Architecture
 $installed = Join-Path $env:RUNNER_TEMP 'fengwo-overwrite-test'
 & ./tooling/windows/verify_embedded_wintun.ps1 -CorePath (Join-Path $installed 'FengWoCore.exe') -Architecture $Architecture -OutputDirectory $stage
 & ./tooling/windows/verify_release_signatures.ps1 -Directory $installed -ManifestPath (Join-Path $stage 'signed-payload.json') -OutputPath (Join-Path $stage 'installed-signatures.json') -Installed
+Add-Type -Path (Join-Path $PSScriptRoot 'shell_link_fixture.cs')
 $shell = New-Object -ComObject WScript.Shell
 $uninstallers = @(Get-ChildItem -LiteralPath $installed -File -Filter 'unins*.exe')
 if ($uninstallers.Count -ne 1) { throw 'Expected one installed uninstaller' }
@@ -22,10 +23,19 @@ $programFolders = @([Environment]::GetFolderPath('CommonPrograms'), [Environment
 $links = @($programFolders | ForEach-Object { Get-ChildItem -LiteralPath $_ -Recurse -Filter '*.lnk' -File })
 $fileSystem = New-Object -ComObject Scripting.FileSystemObject
 $expectedTargets = @($uninstallers[0].FullName, $fileSystem.GetFile($uninstallers[0].FullName).ShortPath)
-$linkRows = @($links | ForEach-Object { @{ path = $_.FullName; target = $shell.CreateShortcut($_.FullName).TargetPath } })
+$linkRows = @($links | ForEach-Object {
+    $nativeTarget = ''
+    $nativeError = ''
+    try { $nativeTarget = [FengWoShellLinkFixture]::ReadTarget($_.FullName) } catch { $nativeError = $_.Exception.Message }
+    @{ path = $_.FullName; target = $nativeTarget; wsh_target = $shell.CreateShortcut($_.FullName).TargetPath; native_error = $nativeError }
+})
 @{ program_folders = $programFolders; expected_targets = $expectedTargets; shortcuts = $linkRows } | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $stage 'shortcut-targets.json') -Encoding utf8NoBOM
 $uninstallLinks = @($linkRows | Where-Object { [Environment]::ExpandEnvironmentVariables($_.target).Trim('"') -iin $expectedTargets })
+$shortcutEvidence = Join-Path $stage 'shortcuts'
+New-Item -ItemType Directory -Force $shortcutEvidence | Out-Null
+$links | Where-Object { $_.Name -like '*蜂窝*' } | Copy-Item -Destination $shortcutEvidence
 if ($uninstallLinks.Count -ne 1) { throw 'Signed uninstaller Start menu shortcut missing' }
+& ./tooling/windows/test_signed_core_runtime.ps1 -BundleDirectory $installed -EvidenceDirectory (Join-Path $stage 'runtime') -Architecture $Architecture
 $sentinel = Join-Path $env:APPDATA 'FengWo/蜂窝加速器/full-sign-uninstall-preserve.txt'
 New-Item -ItemType Directory -Force (Split-Path $sentinel) | Out-Null
 [IO.File]::WriteAllText($sentinel, 'preserve-user-data')
@@ -41,4 +51,5 @@ if ($uninstall.ExitCode -ne 0 -or (Test-Path (Join-Path $installed 'FengWo.exe')
 if ((Get-Content $sentinel -Raw) -cne 'preserve-user-data') { throw 'User data was removed by uninstall' }
 foreach ($path in $dataHashes.Keys) { if ((Get-FileHash $path).Hash -cne $dataHashes[$path]) { throw 'User preferences or database changed during uninstall' } }
 if (Test-Path -LiteralPath $uninstallLinks[0].path) { throw 'Uninstall shortcut was not removed' }
-@{ passed = $true; installer_sha256 = (Get-FileHash $candidate).Hash.ToLowerInvariant(); shortcut_verified = $true; signed_uninstall_passed = $true; user_data_preserved = $true; preserved_data_hashes = $dataHashes; sac_enforcement_test_passed = $false; publication_allowed = $false } | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $stage 'repack-acceptance.json') -Encoding utf8NoBOM
+& ./tooling/windows/test_helper_service_repair.ps1 -InstallerPath $candidate -OutputDirectory (Join-Path $stage 'helper-repair')
+@{ passed = $true; installer_sha256 = (Get-FileHash $candidate).Hash.ToLowerInvariant(); shortcut_verified = $true; runtime_verified = $true; helper_repair_verified = $true; signed_uninstall_passed = $true; user_data_preserved = $true; preserved_data_hashes = $dataHashes; sac_enforcement_test_passed = $false; publication_allowed = $false } | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $stage 'repack-acceptance.json') -Encoding utf8NoBOM
