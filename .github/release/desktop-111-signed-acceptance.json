@@ -1,0 +1,9 @@
+{
+  "architecture": "x64",
+  "source_sha": "1276aecc4a3815bc0eda94eb34b475f9face08fe",
+  "unsigned_run_id": "40812093299",
+  "unsigned_artifact_id": "12872170673",
+  "unsigned_sha256": "78cfba33c99a8a9c8c74301c2e14cb68850ea1142cf84b16782bae594aed73f0",
+  "signed_sha256": "9b56c20bc250bafcba2b06f7afdf117d7b02318986bd26eacb11142f662aaffb",
+  "signed_url": "https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/ov-validation-20261029/9b56c20bc250bafcba2b06f7afdf117d7b02318986bd26eacb11142f662aaffb/fengwo-windows-amd64-setup.exe"
+}
