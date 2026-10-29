@@ -154,7 +154,7 @@ void main() {
     test('migrates previous default latency URLs', () {
       for (final previous in [
         'http://www.gstatic.com/generate_204',
-        'https://www.gstatic.com/generate_204',
+        'http://cp.cloudflare.com/generate_204',
       ]) {
         final restored = AppSettingProps.safeFromJson({'testUrl': previous});
         expect(restored.testUrl, defaultTestUrl);
