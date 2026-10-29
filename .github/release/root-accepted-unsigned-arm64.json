@@ -1,17 +1,17 @@
 {
-  "schema": "desktop-110-root-accepted-unsigned-v1",
+  "schema": "desktop-111-root-accepted-unsigned-v1",
   "passed": true,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "base_source_sha": "c788d1699f6665681c459473a3919cfe6ff4df17",
   "architecture": "arm64",
-  "source_sha": "a3fa4b06c1f571e6b009201d94f5184bc2c98722",
-  "unsigned_run_id": "40726886769",
-  "unsigned_artifact_id": "12837261084",
-  "unsigned_sha256": "5065b39ddaa7e5007f33361ae9883d4a4ca5c5d7e169b7bfe663f9c5a3e11cf5",
-  "unsigned_bytes": 54478929,
+  "source_sha": "37b209d6f6f048e6494ae326747f6e1fef3cb964",
+  "unsigned_run_id": "40812101893",
+  "unsigned_artifact_id": "12871932358",
+  "unsigned_sha256": "16a452d9a558bd00e10aa3ec74857c362a83118df40a39abf56f4b2d2f06ac0d",
+  "unsigned_bytes": 54482385,
   "workflow_path": ".github/workflows/package-windows-arm64.yml",
-  "original_repository": "yunfangame/fengwo-b-windows-build",
+  "original_repository": "yunfangame/app",
   "original_run_conclusion": "success",
-  "root_accepted_manifest_sha256": "eb1747e339197c2cba44ac992c14b3f9b083be8b3aa9cf85d30b51e7459eeffa",
-  "root_acceptance_receipt_sha256": "67dadb21ca0b3aec5e2b43dc7540735e357b53d92ed980c89d8b630f7aa188e0"
+  "root_accepted_manifest_sha256": "1d17aa4f21d519682de43e4f50adb8a2dcfebc78e51afc63577e973f23a9bb85",
+  "root_acceptance_receipt_sha256": "96c28b6c84114db85e2d0cb5f0c7b1cb7013e230f419718667aca34e77d03012"
 }

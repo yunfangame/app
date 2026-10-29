@@ -1,9 +1,9 @@
 {
-  "architecture": "x64",
-  "source_sha": "1276aecc4a3815bc0eda94eb34b475f9face08fe",
-  "unsigned_run_id": "40812093299",
-  "unsigned_artifact_id": "12872170673",
-  "unsigned_sha256": "78cfba33c99a8a9c8c74301c2e14cb68850ea1142cf84b16782bae594aed73f0",
-  "signed_sha256": "9b56c20bc250bafcba2b06f7afdf117d7b02318986bd26eacb11142f662aaffb",
-  "signed_url": "https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/ov-validation-20261029/9b56c20bc250bafcba2b06f7afdf117d7b02318986bd26eacb11142f662aaffb/fengwo-windows-amd64-setup.exe"
+  "architecture": "arm64",
+  "source_sha": "37b209d6f6f048e6494ae326747f6e1fef3cb964",
+  "unsigned_run_id": "40812101893",
+  "unsigned_artifact_id": "12871932358",
+  "unsigned_sha256": "16a452d9a558bd00e10aa3ec74857c362a83118df40a39abf56f4b2d2f06ac0d",
+  "signed_sha256": "bca002ef404fc16fc5379df13736aa6a041eceb73c39a6aade8457727caf74b9",
+  "signed_url": "https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/ov-validation-20261029/bca002ef404fc16fc5379df13736aa6a041eceb73c39a6aade8457727caf74b9/fengwo-windows-arm64-setup.exe"
 }
