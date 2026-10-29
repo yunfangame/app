@@ -435,7 +435,20 @@ class ProfilesAction extends _$ProfilesAction {
         (_profileSourceRevisions[original.id] ?? 0) ==
             operation.committingSourceRevision &&
         latest.url == committing.url &&
-        latest.lastUpdateDate == committing.lastUpdateDate;
+        _matchesAuthenticatedCommitDate(
+          latest.lastUpdateDate,
+          committing.lastUpdateDate,
+        );
+  }
+
+  bool _matchesAuthenticatedCommitDate(DateTime? actual, DateTime? expected) {
+    if (actual == expected) return true;
+    if (actual == null || expected == null) return false;
+    return actual.isAtSameMomentAs(
+      DateTime.fromMillisecondsSinceEpoch(
+        (expected.millisecondsSinceEpoch ~/ 1000) * 1000,
+      ),
+    );
   }
 
   Future<Profile?> _managedAuthenticatedProfile(
@@ -863,6 +876,24 @@ class ProfilesAction extends _$ProfilesAction {
         committed == null ||
         committed.url != expected.url) {
       throw StateError('profile_sync_superseded');
+    }
+    final operation = Zone.current[_authenticatedProfileOperationKey];
+    if (operation is _AuthenticatedProfileOperation) {
+      final current = ref.read(profilesProvider).getProfile(expected.id);
+      final revision = _profileSourceRevisions[expected.id] ?? 0;
+      if (operation.committingProfile != expected ||
+          revision != operation.committingSourceRevision ||
+          current?.url != expected.url ||
+          !_matchesAuthenticatedCommitDate(
+            current?.lastUpdateDate,
+            expected.lastUpdateDate,
+          )) {
+        throw StateError('profile_sync_superseded');
+      }
+      operation.originalProfile = committed;
+      operation.sourceRevision = revision;
+      operation.committingProfile = null;
+      operation.committingSourceRevision = null;
     }
     return committed;
   }
