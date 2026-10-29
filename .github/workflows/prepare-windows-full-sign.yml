@@ -1,0 +1,86 @@
+name: fengwo-windows-full-sign-prepare
+on:
+  push:
+    tags:
+      - fengwo-full-sign-prepare-111-*
+permissions:
+  contents: read
+jobs:
+  prepare:
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [x64, arm64]
+    runs-on: ${{ matrix.architecture == 'arm64' && 'windows-11-arm' || 'windows-2022' }}
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Extract exact published 1.1.1 payload
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./tooling/windows/arm64/common.ps1
+          $native = Assert-FwNativeRunner -Architecture $env:ARCHITECTURE
+          $filename = if ($env:ARCHITECTURE -eq 'arm64') { 'fengwo-windows-arm64-setup.exe' } else { 'fengwo-windows-amd64-setup.exe' }
+          $expectedHash = if ($env:ARCHITECTURE -eq 'arm64') { 'bca002ef404fc16fc5379df13736aa6a041eceb73c39a6aade8457727caf74b9' } else { '9b56c20bc250bafcba2b06f7afdf117d7b02318986bd26eacb11142f662aaffb' }
+          $stage = Join-Path $env:RUNNER_TEMP 'full-sign'
+          $bundle = Join-Path $stage 'bundle'
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          $installer = Join-Path $env:RUNNER_TEMP 'published-111.exe'
+          Invoke-WebRequest -Uri ('https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/desktop-111-20261029-040924-60d125e4/' + $filename) -OutFile $installer
+          if ((Get-FileHash $installer).Hash.ToLowerInvariant() -cne $expectedHash) { throw 'Published installer hash differs' }
+          $signature = Get-AuthenticodeSignature -LiteralPath $installer
+          if ($signature.Status -ne 'Valid') { throw 'Published installer signature is invalid' }
+          $process = Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/DIR="' + $bundle + '"'), ('/LOG="' + (Join-Path $stage 'extract-install.log') + '"')) -Wait -PassThru
+          if ($process.ExitCode -notin @(0, 3010)) { throw 'Published installer extraction failed' }
+          Get-ChildItem $bundle -Filter 'unins*' -File | Remove-Item
+          $files = @(Get-ChildItem $bundle -File -Recurse | ForEach-Object { @{ path = [IO.Path]::GetRelativePath($bundle, $_.FullName).Replace('\', '/'); sha256 = (Get-FileHash $_.FullName).Hash.ToLowerInvariant(); bytes = $_.Length } })
+          @{ schema = 'fengwo-full-sign-input-v1'; architecture = $env:ARCHITECTURE; published_sha256 = $expectedHash; native = $native; files = $files } | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $stage 'original-payload.json') -Encoding utf8NoBOM
+          & ./tooling/windows/prepare_vc_runtime.ps1 -Architecture $env:ARCHITECTURE -OutputDirectory (Join-Path $bundle 'prerequisites')
+          Copy-Item windows/packaging/exe/vc_runtime_code.iss, windows/packaging/exe/install_integrity_code.iss (Join-Path $bundle 'prerequisites')
+          $cleanup = Join-Path $bundle 'fengwo_install_cleanup.ps1'
+          if ((Get-FileHash $cleanup).Hash -cne (Get-FileHash (Join-Path $bundle 'prerequisites/fengwo_install_cleanup.ps1')).Hash) { throw 'Cleanup source differs from published payload' }
+          Remove-Item $cleanup
+          $inventory = @(Get-ChildItem $bundle -File -Recurse | Where-Object { $_.Extension -in @('.exe', '.dll', '.sys', '.ps1') } | ForEach-Object {
+            $sig = Get-AuthenticodeSignature -LiteralPath $_.FullName
+            @{ path = [IO.Path]::GetRelativePath($bundle, $_.FullName).Replace('\', '/'); sha256 = (Get-FileHash $_.FullName).Hash.ToLowerInvariant(); status = [string]$sig.Status; subject = [string]$sig.SignerCertificate.Subject; timestamped = [bool]$sig.TimeStamperCertificate }
+          })
+          $inventory | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $stage 'original-signatures.json') -Encoding utf8NoBOM
+          if (Get-Command citool.exe -ErrorAction SilentlyContinue) {
+            & citool.exe -lp -json 2>&1 | Out-File (Join-Path $stage 'sac-policy-inventory.txt')
+          } else {
+            'CiTool unavailable; SAC acceptance not performed' | Out-File (Join-Path $stage 'sac-policy-inventory.txt')
+          }
+      - name: Generate installer and unsigned uninstaller template
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install Jinja2==3.1.6
+          if ($LASTEXITCODE -ne 0) { throw 'Template dependency installation failed' }
+          $stage = Join-Path $env:RUNNER_TEMP 'full-sign'
+          New-Item -ItemType Directory -Force (Join-Path $stage 'uninstaller-cache') | Out-Null
+          python tooling/windows/render_signed_installer.py --bundle (Join-Path $stage 'bundle') --output (Join-Path $stage 'installer.iss') --architecture $env:ARCHITECTURE
+          if ($LASTEXITCODE -ne 0) { throw 'Template rendering failed' }
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { choco install innosetup --version=6.7.1 -y --no-progress; if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' } }
+          & $iscc (Join-Path $stage 'installer.iss') 2>&1 | Tee-Object (Join-Path $stage 'prepare-uninstaller.log')
+          $code = $LASTEXITCODE
+          $templates = @(Get-ChildItem (Join-Path $stage 'uninstaller-cache') -File)
+          if ($code -eq 0 -or $templates.Count -ne 1) { throw 'Expected exactly one unsigned uninstaller template and signing-required failure' }
+          $sig = Get-AuthenticodeSignature -LiteralPath $templates[0].FullName
+          if ($sig.Status -ne 'NotSigned') { throw 'Unexpected uninstaller template signature' }
+          @{ compiler_sha256 = (Get-FileHash $iscc).Hash.ToLowerInvariant(); compiler_version = (Get-Item $iscc).VersionInfo.FileVersion; template = $templates[0].Name; template_sha256 = (Get-FileHash $templates[0].FullName).Hash.ToLowerInvariant(); expected_signing_required_exit = $code } | ConvertTo-Json | Set-Content (Join-Path $stage 'uninstaller-template.json') -Encoding utf8NoBOM
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fengwo-full-sign-input-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/full-sign
+          if-no-files-found: error
