@@ -3,6 +3,38 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
+    'target position matches core parsing for parameters and reserved names',
+    () {
+      final result = repairRuleTargets(
+        [
+          'IP-CIDR,192.0.2.0/24,Old,src,no-resolve',
+          'DOMAIN,test.example,src',
+          r'PROCESS-PATH-REGEX,^(foo,bar){1,3}$,Old',
+          'DOMAIN,incomplete.example',
+        ],
+        availableTargets: {'GLOBAL', 'New', 'src'},
+        subscriptionRules: ['MATCH,New'],
+      );
+      expect(result.rules, [
+        'IP-CIDR,192.0.2.0/24,New,src,no-resolve',
+        'DOMAIN,test.example,src',
+        r'PROCESS-PATH-REGEX,^(foo,bar){1,3}$,New',
+        'DOMAIN,incomplete.example',
+      ]);
+      expect(result.replacedCount, 2);
+    },
+  );
+
+  test('fallback follows the first reachable subscription catch-all', () {
+    final result = repairRuleTargets(
+      ['DOMAIN,test.example,Old'],
+      availableTargets: {'GLOBAL', 'First', 'Unreachable'},
+      subscriptionRules: ['MATCH,First', 'MATCH,Unreachable'],
+    );
+    expect(result.rules, ['DOMAIN,test.example,First']);
+  });
+
+  test(
     'new subscription default replaces stale targets without changing conditions',
     () {
       final input = [
