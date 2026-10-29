@@ -132,9 +132,9 @@ rules:
     $ping = Invoke-FwHelperHttp 'GET' ('ping?coreSha256=' + $manifest.coreSha256)
     if ($ping.StatusCode -ne 200 -or $ping.Content.Trim() -ine $helperPath -or $ping.Headers['x-fengwo-helper-protocol'] -ne '6') { throw 'The privileged Helper handshake did not verify the installed binary and Core hash' }
     $service = Get-CimInstance Win32_Service -Filter "Name='FengWoHelperService'"
-    if ($service.State -ne 'Running' -or $service.PathName.Trim('"') -ine $helperPath) { throw 'The expected native Helper is not running in SCM' }
+    if ($service.State -ne 'Running' -or $service.StartName -cne 'LocalSystem' -or $service.PathName.Trim('"') -ine $helperPath) { throw 'The expected native Helper is not running in SCM' }
     Assert-FwNativeProcess $service.ProcessId -Architecture $Architecture
-    $checks.Add([ordered]@{ name = 'native-helper-scm-and-protocol-six'; passed = $true })
+    $checks.Add([ordered]@{ name = 'native-helper-scm-and-protocol-six'; passed = $true; service_account = $service.StartName })
     $pipe = New-Object FengWoArm64Tests.CorePipe
     $helperSession = $pipe.SessionId
     $start = (Invoke-FwHelperHttp 'POST' 'start' @{ address = $pipe.Address; sessionId = $helperSession }).Content | ConvertFrom-Json

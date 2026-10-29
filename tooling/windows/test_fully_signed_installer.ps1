@@ -19,6 +19,15 @@ Add-Type -Path (Join-Path $PSScriptRoot 'shell_link_fixture.cs')
 $shell = New-Object -ComObject WScript.Shell
 $uninstallers = @(Get-ChildItem -LiteralPath $installed -File -Filter 'unins*.exe')
 if ($uninstallers.Count -ne 1) { throw 'Expected one installed uninstaller' }
+$registrationPaths = @(@(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\0B31AA8F-C520-4E03-ACF1-FBE8B4EBA461_is1',
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\0B31AA8F-C520-4E03-ACF1-FBE8B4EBA461_is1'
+) | Where-Object { Test-Path -LiteralPath $_ })
+if (@($registrationPaths).Count -ne 1) { throw 'Expected one machine-wide uninstall registration' }
+$registration = Get-ItemProperty -LiteralPath $registrationPaths[0]
+if (-not ([string]$registration.DisplayName).StartsWith('蜂窝加速器') -or $registration.DisplayVersion -cne '1.1.1' -or $registration.UninstallString.Trim('"') -ine $uninstallers[0].FullName) { throw 'Windows Settings uninstall registration is invalid' }
+@{ path = $registrationPaths[0]; name = $registration.DisplayName; version = $registration.DisplayVersion; uninstall_string = $registration.UninstallString } | ConvertTo-Json | Set-Content (Join-Path $stage 'uninstall-registration.json') -Encoding utf8NoBOM
+
 $programFolders = @([Environment]::GetFolderPath('CommonPrograms'), [Environment]::GetFolderPath('Programs')) | Sort-Object -Unique
 $links = @($programFolders | ForEach-Object { Get-ChildItem -LiteralPath $_ -Recurse -Filter '*.lnk' -File })
 $fileSystem = New-Object -ComObject Scripting.FileSystemObject
@@ -50,6 +59,7 @@ $uninstall = Start-Process -FilePath $uninstallers[0].FullName -ArgumentList @('
 if ($uninstall.ExitCode -ne 0 -or (Test-Path (Join-Path $installed 'FengWo.exe'))) { throw 'Signed uninstaller did not remove the installed application' }
 if ((Get-Content $sentinel -Raw) -cne 'preserve-user-data') { throw 'User data was removed by uninstall' }
 foreach ($path in $dataHashes.Keys) { if ((Get-FileHash $path).Hash -cne $dataHashes[$path]) { throw 'User preferences or database changed during uninstall' } }
+if (Test-Path -LiteralPath $registrationPaths[0]) { throw 'Windows Settings uninstall registration was not removed' }
 if (Test-Path -LiteralPath $uninstallLinks[0].path) { throw 'Uninstall shortcut was not removed' }
 & ./tooling/windows/test_helper_service_repair.ps1 -InstallerPath $candidate -OutputDirectory (Join-Path $stage 'helper-repair')
-@{ passed = $true; installer_sha256 = (Get-FileHash $candidate).Hash.ToLowerInvariant(); shortcut_verified = $true; runtime_verified = $true; helper_repair_verified = $true; signed_uninstall_passed = $true; user_data_preserved = $true; preserved_data_hashes = $dataHashes; sac_enforcement_test_passed = $false; publication_allowed = $false } | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $stage 'repack-acceptance.json') -Encoding utf8NoBOM
+@{ passed = $true; installer_sha256 = (Get-FileHash $candidate).Hash.ToLowerInvariant(); shortcut_verified = $true; uninstall_registration_verified = $true; runtime_verified = $true; helper_repair_verified = $true; signed_uninstall_passed = $true; user_data_preserved = $true; preserved_data_hashes = $dataHashes; sac_enforcement_test_passed = $false; publication_allowed = $false } | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $stage 'repack-acceptance.json') -Encoding utf8NoBOM
