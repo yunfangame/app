@@ -100,6 +100,8 @@ void main() {
       final service = _NodesService()
         ..loader = (_) async => [_node('Node A', online: false)];
       await globalState.loadXboardNodesSnapshot(service, session);
+      expect(globalState.xboardNodesStatusFresh, isTrue);
+      expect(globalState.xboardNodes.single.rawData['is_online'], isFalse);
       await _mount(tester, service);
       for (var test = 0; test < 2; test++) {
         await tester.tap(
@@ -551,5 +553,5 @@ XboardNodeData _node(String name, {bool online = true}) => XboardNodeData(
   rate: 1,
   tags: const ['HK'],
   isOnline: online,
-  rawData: const {'is_online': true},
+  rawData: {'is_online': online},
 );
