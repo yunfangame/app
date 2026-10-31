@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:fl_clash/common/constant.dart';
+import 'package:fl_clash/common/function.dart';
 import 'package:fl_clash/common/request.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
@@ -362,7 +364,8 @@ void main() {
     test(
       'ignores a canceled stale check after a newer check succeeds',
       () async {
-        request.dio.httpClientAdapter = _DelayedCancelIpAdapter();
+        final adapter = _ControlledIpAdapter();
+        request.dio.httpClientAdapter = adapter;
         final container = ProviderContainer(
           overrides: [
             initProvider.overrideWithBuild((_, _) => true),
@@ -370,20 +373,48 @@ void main() {
           ],
         );
         addTearDown(container.dispose);
-
+        addTearDown(() => debouncer.cancel(FunctionTag.checkIp));
+        final success = Completer<void>();
+        final subscription = container.listen(networkDetectionProvider, (
+          _,
+          next,
+        ) {
+          if (next.ipInfo?.ip == '2.2.2.2' &&
+              !next.isLoading &&
+              !success.isCompleted) {
+            success.complete();
+          }
+        });
+        addTearDown(subscription.close);
         final notifier = container.read(networkDetectionProvider.notifier);
         notifier.startCheck();
-        await Future.delayed(commonDuration + const Duration(milliseconds: 50));
+        final old = await adapter.firstStarted.future.timeout(
+          const Duration(seconds: 10),
+        );
 
         notifier.startCheck();
-        await Future.delayed(
-          commonDuration + const Duration(milliseconds: 120),
+        final newer = await adapter.secondStarted.future.timeout(
+          const Duration(seconds: 10),
         );
+        await old.cancellationObserved.future.timeout(
+          const Duration(seconds: 10),
+        );
+        expect(old.token.isCancelled, isTrue);
+        newer.succeed();
+        await success.future.timeout(const Duration(seconds: 10));
 
         expect(container.read(networkDetectionProvider).ipInfo?.ip, '2.2.2.2');
         expect(container.read(networkDetectionProvider).isLoading, false);
 
-        await Future.delayed(const Duration(milliseconds: 620));
+        old.finishCancelled();
+        await Future.wait(
+          old.responses.map(
+            (response) => response.future.then<void>(
+              (_) {},
+              onError: (Object _, StackTrace _) {},
+            ),
+          ),
+        ).timeout(const Duration(seconds: 10));
 
         expect(container.read(networkDetectionProvider).ipInfo?.ip, '2.2.2.2');
         expect(container.read(networkDetectionProvider).isLoading, false);
@@ -432,10 +463,10 @@ class _StaticIpAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
-class _DelayedCancelIpAdapter implements HttpClientAdapter {
-  static const _sourceCount = 7;
-
-  int _requestCount = 0;
+class _ControlledIpAdapter implements HttpClientAdapter {
+  final attempts = <_IpAttempt>[];
+  final firstStarted = Completer<_IpAttempt>();
+  final secondStarted = Completer<_IpAttempt>();
 
   @override
   Future<ResponseBody> fetch(
@@ -443,37 +474,77 @@ class _DelayedCancelIpAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) {
-    _requestCount++;
-    final batch = ((_requestCount - 1) ~/ _sourceCount) + 1;
-    if (batch == 1) {
-      final completer = Completer<ResponseBody>();
-      cancelFuture?.then((_) {
-        Timer(const Duration(milliseconds: 500), () {
-          if (completer.isCompleted) return;
-          completer.completeError(
-            DioException(
-              requestOptions: options,
-              type: DioExceptionType.cancel,
-              error: 'cancelled',
-            ),
-          );
-        });
-      });
-      return completer.future;
-    }
-
-    return Future.delayed(
-      const Duration(milliseconds: 10),
-      () => ResponseBody.fromString(
-        '{"ip":"2.2.2.2","country_code":"US"}',
-        200,
-        headers: {
-          Headers.contentTypeHeader: ['application/json'],
-        },
-      ),
+    final token = options.cancelToken!;
+    final matches = attempts.where(
+      (attempt) => identical(attempt.token, token),
     );
+    final attempt = matches.isEmpty ? _IpAttempt(token) : matches.single;
+    if (matches.isEmpty) {
+      attempts.add(attempt);
+      if (attempts.length == 1) firstStarted.complete(attempt);
+      if (attempts.length == 2) secondStarted.complete(attempt);
+    }
+    return attempt.add(options, cancelFuture);
   }
 
   @override
   void close({bool force = false}) {}
+}
+
+class _IpAttempt {
+  _IpAttempt(this.token);
+
+  final CancelToken token;
+  final cancellationObserved = Completer<void>();
+  final requests = <RequestOptions>[];
+  final responses = <Completer<ResponseBody>>[];
+
+  Future<ResponseBody> add(RequestOptions options, Future<void>? cancelFuture) {
+    requests.add(options);
+    final response = Completer<ResponseBody>();
+    responses.add(response);
+    cancelFuture?.then((_) {
+      if (!cancellationObserved.isCompleted) cancellationObserved.complete();
+    });
+    return response.future;
+  }
+
+  void succeed() {
+    final payload = jsonEncode({
+      'ip': '2.2.2.2',
+      'query': '2.2.2.2',
+      'country_code': 'US',
+      'countryCode': 'US',
+      'country': 'US',
+      'cc': 'US',
+      'latitude': 37.0,
+      'longitude': -122.0,
+      'lat': 37.0,
+      'lon': -122.0,
+      'loc': '37.0,-122.0',
+    });
+    for (final response in responses) {
+      response.complete(
+        ResponseBody.fromString(
+          payload,
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['application/json'],
+          },
+        ),
+      );
+    }
+  }
+
+  void finishCancelled() {
+    for (var index = 0; index < responses.length; index++) {
+      responses[index].completeError(
+        DioException(
+          requestOptions: requests[index],
+          type: DioExceptionType.cancel,
+          error: 'controlled old cancellation',
+        ),
+      );
+    }
+  }
 }

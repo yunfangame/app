@@ -171,6 +171,9 @@ Manual proxy delay testing uses at most 16 concurrent probes, an eight-second pr
 The default URL is HTTPS gstatic; custom and subscription-specific test URLs remain supported. Core reports successful
 measurements with a 50-millisecond offset, clamped to one millisecond. Actual probe failures remain `-1`, while transport
 or runtime failures restore the previous display result. `DelayTestButton` reverses its animation in `finally`.
+Manual probes and the node selector block only a unique node match with a fresh, explicit offline API status. Cached
+booleans, missing or invalid statuses, stale snapshots, and ambiguous normalized names remain unknown and allow probing.
+The selector observes metadata freshness changes while open; group aliases use the resolved leaf for probe eligibility.
 
 ## State Management
 

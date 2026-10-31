@@ -53,6 +53,24 @@ class _FengWoNodeSelectorViewState
   bool _testingAll = false;
   bool _refreshingNodes = false;
 
+  @override
+  void initState() {
+    super.initState();
+    globalState.xboardNodesRevisionNotifier.addListener(_metadataChanged);
+    globalState.offlineModeNotifier.addListener(_metadataChanged);
+  }
+
+  @override
+  void dispose() {
+    globalState.xboardNodesRevisionNotifier.removeListener(_metadataChanged);
+    globalState.offlineModeNotifier.removeListener(_metadataChanged);
+    super.dispose();
+  }
+
+  void _metadataChanged() {
+    if (mounted) setState(() {});
+  }
+
   Group _selectedGroup(List<Group> groups) {
     final requested = _selectedGroupName.takeFirstValid([
       ref.read(currentProfileProvider)?.currentGroupName,
@@ -63,10 +81,7 @@ class _FengWoNodeSelectorViewState
   Future<void> _testAll(Group group) async {
     if (_testingAll || group.all.isEmpty) return;
     final testable = group.all
-        .where(
-          (proxy) =>
-              !isXboardNodeMarkedOffline(proxy.name, globalState.xboardNodes),
-        )
+        .where((proxy) => !isProxyDelayTestBlocked(proxy.name))
         .toList();
     if (testable.isEmpty) return;
     setState(() => _testingAll = true);
@@ -524,8 +539,7 @@ class _NodePane extends ConsumerWidget {
     });
     final selectedName = ref.watch(selectedProxyNameProvider(group.name));
     final canTestAll = group.all.any(
-      (proxy) =>
-          !isXboardNodeMarkedOffline(proxy.name, globalState.xboardNodes),
+      (proxy) => !isProxyDelayTestBlocked(proxy.name),
     );
     return Column(
       children: [
@@ -579,6 +593,7 @@ class _NodePane extends ConsumerWidget {
                   const SizedBox(width: 6),
                   if (compactActions)
                     IconButton.filledTonal(
+                      key: const ValueKey('fengwo-selector-test-all'),
                       onPressed: testingAll || !canTestAll ? null : onTestAll,
                       tooltip: l10n.delayTest,
                       icon: testingAll
@@ -590,6 +605,7 @@ class _NodePane extends ConsumerWidget {
                     )
                   else
                     FilledButton.tonalIcon(
+                      key: const ValueKey('fengwo-selector-test-all'),
                       onPressed: testingAll || !canTestAll ? null : onTestAll,
                       icon: testingAll
                           ? const SizedBox.square(
@@ -665,16 +681,13 @@ class _NodePane extends ConsumerWidget {
                   itemBuilder: (context, index) {
                     final proxy = proxies[index];
                     final delay = delayMap[proxy.name];
-                    final offline = isXboardNodeMarkedOffline(
-                      proxy.name,
-                      globalState.xboardNodes,
-                    );
+                    final offline = isProxyDelayTestBlocked(proxy.name);
                     final backendStatus = resolveXboardNodeDisplayStatus(
                       ref
                           .watch(realSelectedProxyStateProvider(proxy.name))
                           .proxyName,
                       globalState.xboardNodes,
-                      statusAvailable: !globalState.isOfflineMode,
+                      statusAvailable: globalState.xboardNodesStatusFresh,
                     );
                     return _NodeRow(
                       colors: colors,

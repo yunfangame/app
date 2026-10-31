@@ -827,6 +827,10 @@ class ProxiesAction extends _$ProxiesAction {
         .put(currentProfile.copyWith(unfoldSet: value));
   }
 
+  Future<Delay> getDelay(String url, String proxyName) {
+    return proxyController.getDelay(url, proxyName);
+  }
+
   void setDelay(Delay delay) {
     ref.read(delayDataSourceProvider.notifier).setDelay(delay);
   }
