@@ -138,7 +138,7 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m56(label) => "${label} 必须在 1024 到 49151 之间";
 
-  static String m57(value) => "${value} ms";
+  static String m57(value) => "参考 ${value} ms";
 
   static String m58(count) => "已保存 ${count} 个，开启覆写后生效";
 
@@ -1533,7 +1533,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "referenceConnectionDelay": MessageLookupByLibrary.simpleMessage("参考连接延迟"),
     "referenceCurrentNodeDelay": MessageLookupByLibrary.simpleMessage("参考节点延迟"),
     "referenceDelayExplanation": MessageLookupByLibrary.simpleMessage(
-      "显示校准后的完整线路参考延迟；测速失败显示“超时”。",
+      "节点状态以后端为准。延迟为处理后的参考值；测速超时或失败也显示参考值，不代表真实往返时延。",
     ),
     "referenceDelayValue": m57,
     "referenceStandardizedDelay": MessageLookupByLibrary.simpleMessage(

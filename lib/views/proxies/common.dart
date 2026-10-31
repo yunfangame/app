@@ -42,6 +42,28 @@ void updateCurrentUnfoldSet(Set<String> value) {
       .updateCurrentUnfoldSet(value);
 }
 
+bool isProxyDelayTestBlocked(String proxyName, {String? resolvedName}) {
+  final name =
+      resolvedName ??
+      computeRealSelectedProxyState(
+        proxyName,
+        groups: getGroups(),
+        selectedMap:
+            globalState.container.read(currentProfileProvider)?.selectedMap ??
+            {},
+      ).proxyName;
+  if (name.isEmpty) return true;
+  return [proxyName, name].any(
+    (name) =>
+        resolveXboardNodeDisplayStatus(
+          name,
+          globalState.xboardNodes,
+          statusAvailable: globalState.xboardNodesStatusFresh,
+        ) ==
+        XboardNodeDisplayStatus.offline,
+  );
+}
+
 Future<void> proxyDelayTest(Proxy proxy, [String? testUrl]) async {
   final ref = globalState.container;
   final groups = getGroups();
@@ -56,22 +78,16 @@ Future<void> proxyDelayTest(Proxy proxy, [String? testUrl]) async {
   final currentTestUrl = state.testUrl.takeFirstValid([
     ref.read(realTestUrlProvider(testUrl)),
   ]);
-  if (state.proxyName.isEmpty ||
-      isXboardNodeMarkedOffline(state.proxyName, globalState.xboardNodes) ||
-      isXboardNodeMarkedOffline(proxy.name, globalState.xboardNodes)) {
+  if (isProxyDelayTestBlocked(proxy.name, resolvedName: state.proxyName)) {
     return;
   }
-  final previousDelay = ref.read(
-    delayDataSourceProvider,
-  )[currentTestUrl]?[state.proxyName];
   ref
       .read(proxiesActionProvider.notifier)
       .setDelay(Delay(url: currentTestUrl, name: state.proxyName, value: 0));
   try {
-    final delay = await coreController.getDelay(
-      currentTestUrl,
-      state.proxyName,
-    );
+    final delay = await ref
+        .read(proxiesActionProvider.notifier)
+        .getDelay(currentTestUrl, state.proxyName);
     ref.read(proxiesActionProvider.notifier).setDelay(delay);
   } catch (error) {
     commonPrint.log(
@@ -83,11 +99,7 @@ Future<void> proxyDelayTest(Proxy proxy, [String? testUrl]) async {
       ref
           .read(proxiesActionProvider.notifier)
           .setDelay(
-            Delay(
-              url: currentTestUrl,
-              name: state.proxyName,
-              value: previousDelay,
-            ),
+            Delay(url: currentTestUrl, name: state.proxyName, value: -1),
           );
     }
   }

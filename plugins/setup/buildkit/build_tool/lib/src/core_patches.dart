@@ -1,5 +1,26 @@
 import 'dart:io';
 
+const requiredCorePatchNames = [
+  'mixed-listener-readiness.patch',
+  'reference-delay-policy.patch',
+];
+
+bool applyRequiredCorePatches(
+  Directory rootDirectory, {
+  String expectedRevision = '70f0570405c3c2c47bb113b88db95006d239b346',
+}) {
+  var changed = false;
+  for (final patchName in requiredCorePatchNames) {
+    final applied = CorePatchApplier(
+      rootDirectory: rootDirectory,
+      expectedRevision: expectedRevision,
+      patchName: patchName,
+    ).apply();
+    changed = applied || changed;
+  }
+  return changed;
+}
+
 class CorePatchException implements Exception {
   const CorePatchException(this.message);
 
@@ -24,8 +45,8 @@ class CorePatchApplier {
       Directory.fromUri(rootDirectory.absolute.uri.resolve('core/Clash.Meta/'));
 
   File get _patch => File.fromUri(
-    rootDirectory.absolute.uri.resolve('core/patches/$patchName'),
-  );
+        rootDirectory.absolute.uri.resolve('core/patches/$patchName'),
+      );
 
   bool apply() {
     if (!_patch.existsSync()) {
@@ -67,7 +88,8 @@ class CorePatchApplier {
         'Clash.Meta revision mismatch: expected $expectedRevision, got $revision',
       );
     }
-    final paths = _git(['apply', '--numstat', '-z', _patch.path]).stdout
+    final paths = _git(['apply', '--numstat', '-z', _patch.path])
+        .stdout
         .toString()
         .split('\u0000')
         .where((entry) => entry.isNotEmpty)

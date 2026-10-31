@@ -227,15 +227,17 @@ class ProxiesAction extends _$ProxiesAction {
                   .getDelay(defaultTestUrl, candidate.nodeName)
                   .timeout(timeout);
               if (!current()) return false;
-              final valid =
+              final hasReferenceValue =
                   delay.name == candidate.nodeName &&
                   delay.url == defaultTestUrl &&
                   (delay.value ?? -1) > 0;
+              final valid = hasReferenceValue && delay.successful != false;
               setDelay(
                 Delay(
                   name: candidate.nodeName,
                   url: defaultTestUrl,
-                  value: valid ? delay.value : -1,
+                  value: hasReferenceValue ? delay.value : -1,
+                  successful: valid,
                 ),
               );
               commonPrint.event(
@@ -244,12 +246,20 @@ class ProxiesAction extends _$ProxiesAction {
                   ...fields,
                   'node_ref': diagnosticFingerprint(candidate.nodeName),
                   'reachable': valid,
-                  'measured_ms': valid ? delay.value : null,
+                  'reference_ms': valid ? delay.value : null,
                 },
               );
               return valid;
             } catch (error) {
               if (current()) {
+                setDelay(
+                  Delay(
+                    name: candidate.nodeName,
+                    url: defaultTestUrl,
+                    value: -1,
+                    successful: false,
+                  ),
+                );
                 commonPrint.event(
                   'proxy.hong_kong_selection.probe_failed',
                   fields: {
@@ -825,6 +835,10 @@ class ProxiesAction extends _$ProxiesAction {
     ref
         .read(profilesProvider.notifier)
         .put(currentProfile.copyWith(unfoldSet: value));
+  }
+
+  Future<Delay> getDelay(String url, String proxyName) {
+    return proxyController.getDelay(url, proxyName);
   }
 
   void setDelay(Delay delay) {

@@ -52,7 +52,7 @@ class GoBuilder {
     bool force = false,
     String? outputFile,
   }) async {
-    CorePatchApplier(rootDirectory: Directory(rootDir)).apply();
+    applyRequiredCorePatches(Directory(rootDir));
     final defaultOutDir = target.isLib
         ? p.join(_outputPath, target.platformDir, target.abi!)
         : p.join(_outputPath, target.platformDir);

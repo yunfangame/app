@@ -503,6 +503,17 @@ class _HeroPanel extends ConsumerWidget {
                       key: const ValueKey('fengwo-desktop-node-entry'),
                       nodeName: nodeName,
                       delay: delay,
+                      backendStatus: resolveXboardNodeDisplayStatus(
+                        ref
+                            .watch(
+                              realSelectedProxyStateProvider(
+                                firstGroupSelected,
+                              ),
+                            )
+                            .proxyName,
+                        globalState.xboardNodes,
+                        statusAvailable: globalState.xboardNodesStatusFresh,
+                      ),
                       onTap: onOpenNodes,
                     ),
                   ),
@@ -1618,6 +1629,17 @@ class _ThemedWorldMapState extends State<_ThemedWorldMap> {
   }
 }
 
+Color _backendStatusColor(
+  XboardNodeDisplayStatus status,
+  _DashboardColors colors,
+) {
+  return switch (status) {
+    XboardNodeDisplayStatus.online => colors.success,
+    XboardNodeDisplayStatus.offline => const Color(0xFFE84C4C),
+    XboardNodeDisplayStatus.unknown => colors.muted,
+  };
+}
+
 class _WorldNode {
   final String name;
   final int? delay;
@@ -1654,7 +1676,7 @@ class _NodeMapMarker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final markerColor = _delayColor(node.delay, colors);
+    final markerColor = _backendStatusColor(node.backendStatus, colors);
     final diameter = selected ? 12.0 : 9.0;
     return Semantics(
       button: true,
@@ -1772,7 +1794,7 @@ class _NodeNameCallout extends StatelessWidget {
                   width: 4,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: _delayColor(node.delay, colors),
+                    color: _backendStatusColor(node.backendStatus, colors),
                     shape: BoxShape.circle,
                   ),
                 ),

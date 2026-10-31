@@ -189,6 +189,50 @@ void main() {
     },
   );
 
+  test(
+    'a positive failed reference cannot establish a usable HK candidate',
+    () async {
+      final harness = _Harness();
+      harness.probe = (url, name) async =>
+          Delay(name: name, url: url, value: 137, successful: false);
+      expect(
+        await harness.action.selectHongKongForMode(Mode.global),
+        HongKongSelectionResult.unavailable,
+      );
+      expect(
+        harness.container.read(
+          delayDataSourceProvider,
+        )[defaultTestUrl]?[_hongKongOne.name],
+        137,
+      );
+      harness.expectUnchanged();
+    },
+  );
+
+  test(
+    'probe transport failures replace previous latency with a reference',
+    () async {
+      final harness = _Harness();
+      harness.action.setDelay(
+        Delay(name: _hongKongOne.name, url: defaultTestUrl, value: 42),
+      );
+      harness.probe = (_, _) => Future.error(StateError('core unavailable'));
+
+      expect(
+        await harness.action.selectHongKongForMode(Mode.global),
+        HongKongSelectionResult.unavailable,
+      );
+
+      expect(
+        harness.container.read(
+          delayDataSourceProvider,
+        )[defaultTestUrl]?[_hongKongOne.name],
+        inInclusiveRange(120, 150),
+      );
+      harness.expectUnchanged();
+    },
+  );
+
   test('all failed fresh probes leave mode and selections unchanged', () async {
     final harness = _Harness();
     harness.probe = (url, name) async => Delay(name: name, url: url, value: -1);

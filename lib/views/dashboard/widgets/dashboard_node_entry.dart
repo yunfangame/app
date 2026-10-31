@@ -6,13 +6,13 @@ class DashboardNodeEntry extends StatelessWidget {
     super.key,
     required this.nodeName,
     this.delay,
-    this.unavailable = false,
+    this.backendStatus = XboardNodeDisplayStatus.unknown,
     this.onTap,
   });
 
   final String nodeName;
   final int? delay;
-  final bool unavailable;
+  final XboardNodeDisplayStatus backendStatus;
   final VoidCallback? onTap;
 
   @override
@@ -21,17 +21,17 @@ class DashboardNodeEntry extends StatelessWidget {
     final scheme = theme.colorScheme;
     final l10n = context.appLocalizations;
     final dark = theme.brightness == Brightness.dark;
-    final delayText = switch (delay) {
-      null || 0 => unavailable ? l10n.nodeBackendOffline : l10n.notTested,
-      < 0 => l10n.timeout,
-      final value => '$value ms',
-    };
-    final delayColor = switch (delay) {
-      null || 0 => unavailable ? scheme.error : scheme.onSurfaceVariant,
-      < 0 => scheme.error,
-      <= 250 => dark ? const Color(0xFF56D99C) : const Color(0xFF008854),
-      <= 400 => scheme.primary,
-      _ => dark ? const Color(0xFFFFBE6B) : const Color(0xFF996000),
+    final delayText = backendStatus == XboardNodeDisplayStatus.offline
+        ? l10n.nodeBackendOffline
+        : switch (delay) {
+            null || 0 => l10n.notTested,
+            final value => formatReferenceDelay(value),
+          };
+    final delayColor = switch (backendStatus) {
+      XboardNodeDisplayStatus.online =>
+        dark ? const Color(0xFF56D99C) : const Color(0xFF008854),
+      XboardNodeDisplayStatus.offline => scheme.error,
+      XboardNodeDisplayStatus.unknown => scheme.onSurfaceVariant,
     };
     final flag = RegExp(
       r'[\u{1F1E6}-\u{1F1FF}]{2}',

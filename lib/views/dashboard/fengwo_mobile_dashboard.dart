@@ -39,9 +39,13 @@ class FengWoMobileDashboard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return ValueListenableBuilder<XboardSubscriptionData?>(
-      valueListenable: globalState.xboardSubscriptionNotifier,
-      builder: (context, _, _) => _buildDashboard(context, ref),
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        globalState.xboardSubscriptionNotifier,
+        globalState.xboardNodesRevisionNotifier,
+        globalState.offlineModeNotifier,
+      ]),
+      builder: (context, _) => _buildDashboard(context, ref),
     );
   }
 
@@ -82,7 +86,7 @@ class FengWoMobileDashboard extends ConsumerWidget {
     final backendStatus = resolveXboardNodeDisplayStatus(
       ref.watch(realSelectedProxyStateProvider(rawNodeName)).proxyName,
       globalState.xboardNodes,
-      statusAvailable: !globalState.isOfflineMode,
+      statusAvailable: globalState.xboardNodesStatusFresh,
     );
     final traffic = ref.watch(trafficsProvider).list.safeLast(const Traffic());
     final subscription = globalState.xboardSubscription;
@@ -143,7 +147,7 @@ class FengWoMobileDashboard extends ConsumerWidget {
                   key: const ValueKey('fengwo-mobile-node-entry'),
                   nodeName: nodeName,
                   delay: delay,
-                  unavailable: backendStatus == XboardNodeDisplayStatus.offline,
+                  backendStatus: backendStatus,
                   onTap: () => FengWoNodeSelector.show(context),
                 ),
                 const SizedBox(height: 14),

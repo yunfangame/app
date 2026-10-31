@@ -679,10 +679,18 @@ class PopularAppsDialog extends StatelessWidget {
 }
 
 class ChainProxyDialog extends ConsumerStatefulWidget {
-  const ChainProxyDialog({super.key, this.validator, this.coreRestarter});
+  const ChainProxyDialog({
+    super.key,
+    this.validator,
+    this.coreRestarter,
+    @visibleForTesting this.controller,
+    @visibleForTesting this.isWindows,
+  });
 
   final ChainProxyValidator? validator;
   final Future<void> Function()? coreRestarter;
+  final CoreController? controller;
+  final bool? isWindows;
 
   @override
   ConsumerState<ChainProxyDialog> createState() => _ChainProxyDialogState();
@@ -732,11 +740,16 @@ class _ChainProxyDialogState extends ConsumerState<ChainProxyDialog> {
   ) async {
     final validator = widget.validator;
     if (validator != null) return validator(entry);
-    if (system.isWindows) {
+    if (widget.isWindows ?? system.isWindows) {
       final result = await validateChainRuntimeConnectivity(
         testUrl: testUrl,
-        probe: (url) async =>
-            (await coreController.getDelay(url, chainProxyRuntimeName)).value,
+        probe: (url) async {
+          final delay = await (widget.controller ?? coreController).getDelay(
+            url,
+            chainProxyRuntimeName,
+          );
+          return delay.successful == false ? -1 : delay.value;
+        },
         onAttempt: (attempt, delay, error) => commonPrint.event(
           'chain_proxy.validation.attempt',
           fields: {
@@ -754,11 +767,12 @@ class _ChainProxyDialogState extends ConsumerState<ChainProxyDialog> {
       return result;
     }
     try {
-      final delay = await coreController.getDelay(
+      final delay = await (widget.controller ?? coreController).getDelay(
         testUrl,
         chainProxyRuntimeName,
       );
-      final available = delay.value != null && delay.value! > 0;
+      final available =
+          delay.successful != false && delay.value != null && delay.value! > 0;
       commonPrint.event(
         'chain_proxy.validation.completed',
         fields: {'success': available, 'delay_ms': delay.value},

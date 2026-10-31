@@ -9,9 +9,7 @@ void main(List<String> arguments) {
     return;
   }
   try {
-    final changed = CorePatchApplier(
-      rootDirectory: Directory(arguments.single),
-    ).apply();
+    final changed = applyRequiredCorePatches(Directory(arguments.single));
     stdout.writeln(
       changed ? 'Core patches applied' : 'Core patches already verified',
     );

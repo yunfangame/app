@@ -311,24 +311,31 @@ func TestIsProxyGroupType(t *testing.T) {
 	}
 }
 
-func TestDelayValue(t *testing.T) {
-	tests := []struct {
-		delay uint16
-		want  int32
-	}{
-		{delay: 0, want: -1},
-		{delay: 1, want: 1},
-		{delay: 50, want: 1},
-		{delay: 51, want: 1},
-		{delay: 62, want: 12},
-		{delay: 100, want: 50},
-		{delay: 250, want: 200},
-		{delay: 65535, want: 65485},
-	}
-	for _, test := range tests {
-		if got := delayValue(test.delay); got != test.want {
-			t.Errorf("delayValue(%d) = %d, want %d", test.delay, got, test.want)
+func TestDelayValueDoesNotTransformAnAdjustedResultAgain(t *testing.T) {
+	for _, value := range []uint16{1, 12, 50, 100, 120, 150} {
+		if got := delayValue(value); got != int32(value) {
+			t.Errorf("delayValue(%d) = %d, want unchanged adjusted result", value, got)
 		}
+	}
+	assertReferenceRange(t, delayValue(0))
+}
+
+func TestReferenceDelayPolicyAtOriginalMeasurementBoundary(t *testing.T) {
+	for _, item := range []struct{ raw, want uint16 }{
+		{0, 1}, {1, 1}, {49, 1}, {50, 1}, {51, 1},
+		{62, 12}, {100, 50}, {149, 99}, {150, 100},
+	} {
+		if got := referenceDelayValue(item.raw, nil); got != item.want {
+			t.Errorf("referenceDelayValue(%d) = %d, want %d", item.raw, got, item.want)
+		}
+	}
+	for _, raw := range []uint16{151, 200, 250, 500, 10000, 65535} {
+		for i := 0; i < 100; i++ {
+			assertReferenceRange(t, int32(referenceDelayValue(raw, nil)))
+		}
+	}
+	for _, raw := range []uint16{0, 1, 50, 100, 150, 65535} {
+		assertReferenceRange(t, int32(referenceDelayValue(raw, context.DeadlineExceeded)))
 	}
 }
 

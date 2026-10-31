@@ -168,6 +168,35 @@ void main() {
     expect(target.readAsStringSync(), 'before\n');
   });
 
+  test('required patch set applies and verifies each patch', () {
+    unrelated.writeAsStringSync('patched policy\n');
+    final content =
+        git(['diff', '--binary', '--', 'unrelated.txt']).stdout.toString();
+    unrelated.writeAsStringSync('untouched\n');
+    final policy =
+        File('${root.path}/core/patches/reference-delay-policy.patch');
+    policy.writeAsStringSync(content);
+    final indexBefore = git(['ls-files', '--stage']).stdout;
+    expect(
+      applyRequiredCorePatches(root, expectedRevision: revision),
+      isTrue,
+    );
+    expect(target.readAsStringSync(), 'after\n');
+    expect(unrelated.readAsStringSync(), 'patched policy\n');
+    expect(git(['ls-files', '--stage']).stdout, indexBefore);
+    expect(
+      applyRequiredCorePatches(root, expectedRevision: revision),
+      isFalse,
+    );
+  });
+
+  test('required patch set refuses a missing delay policy patch', () {
+    expect(
+      () => applyRequiredCorePatches(root, expectedRevision: revision),
+      throwsA(isA<CorePatchException>()),
+    );
+  });
+
   test('rejects a missing required patch', () {
     patch.deleteSync();
     expect(() => applier().apply(), throwsA(isA<CorePatchException>()));

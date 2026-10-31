@@ -31,8 +31,8 @@
   "referenceConnectionDelay": "参考接続遅延",
   "referenceStandardizedDelay": "参考 RTT",
   "referenceCurrentNodeDelay": "参考ノード遅延",
-  "referenceDelayExplanation": "経路全体を通した校正済み参考遅延を表示します。測定失敗時はタイムアウトと表示します。",
-  "referenceDelayValue": "{value} ms",
+  "referenceDelayExplanation": "ノードの状態はサーバーの情報に基づきます。遅延は調整後の参考値で、測定のタイムアウトや失敗時も参考値を表示します。実測の往復時間ではありません。",
+  "referenceDelayValue": "参考 {value} ms",
   "@referenceDelayValue": {
     "placeholders": {
       "value": {"type": "int"}

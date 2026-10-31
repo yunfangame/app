@@ -31,8 +31,8 @@
   "referenceConnectionDelay": "Reference connection latency",
   "referenceStandardizedDelay": "Reference RTT",
   "referenceCurrentNodeDelay": "Ref. node latency",
-  "referenceDelayExplanation": "Shows calibrated reference latency through the complete route. Failed tests are shown as Timeout.",
-  "referenceDelayValue": "{value} ms",
+  "referenceDelayExplanation": "Node status comes from the backend. Latency values are adjusted references, including when probes time out or fail; they do not represent measured round-trip time.",
+  "referenceDelayValue": "Reference {value} ms",
   "@referenceDelayValue": {
     "placeholders": {
       "value": {"type": "int"}

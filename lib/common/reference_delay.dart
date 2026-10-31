@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:fl_clash/common/xboard_auth.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 
@@ -39,6 +41,12 @@ String formatXboardNodeDisplayStatus(XboardNodeDisplayStatus status) {
 
 int? referenceDelayMilliseconds(int? measuredDelay) {
   return measuredDelay;
+}
+
+final _referenceDelayRandom = math.Random();
+
+int failedReferenceDelayMilliseconds({math.Random? random}) {
+  return 120 + (random ?? _referenceDelayRandom).nextInt(31);
 }
 
 String formatReferenceDelay(int measuredDelay) {

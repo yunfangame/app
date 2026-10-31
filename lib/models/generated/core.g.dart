@@ -192,12 +192,14 @@ _Delay _$DelayFromJson(Map<String, dynamic> json) => _Delay(
   name: json['name'] as String,
   url: json['url'] as String,
   value: (json['value'] as num?)?.toInt(),
+  successful: json['successful'] as bool?,
 );
 
 Map<String, dynamic> _$DelayToJson(_Delay instance) => <String, dynamic>{
   'name': instance.name,
   'url': instance.url,
   'value': instance.value,
+  'successful': instance.successful,
 };
 
 _Now _$NowFromJson(Map<String, dynamic> json) =>

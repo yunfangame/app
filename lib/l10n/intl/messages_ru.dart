@@ -148,7 +148,7 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m56(label) => "${label} должен быть числом от 1024 до 49151";
 
-  static String m57(value) => "${value} мс";
+  static String m57(value) => "Ориентир ${value} мс";
 
   static String m58(count) =>
       "Сохранено: ${count}; активно при включённой замене";
@@ -2129,7 +2129,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Спр. задержка узла",
     ),
     "referenceDelayExplanation": MessageLookupByLibrary.simpleMessage(
-      "Показывается скорректированная справочная задержка по полному маршруту. При ошибке проверки отображается тайм-аут.",
+      "Статус узла определяется сервером. Задержка — скорректированное справочное значение, в том числе при тайм-ауте или ошибке проверки; это не фактическое время отклика.",
     ),
     "referenceDelayValue": m57,
     "referenceStandardizedDelay": MessageLookupByLibrary.simpleMessage(

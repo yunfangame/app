@@ -252,7 +252,7 @@ void main() {
           expect(find.text(l10n.timeout), findsOneWidget);
           expect(
             find.text(formatXboardNodeDisplayStatus(sample.$4)),
-            findsNothing,
+            findsWidgets,
           );
           expect(find.textContaining(' ms'), findsNothing);
           expect(container.read(delayProvider(proxyName: 'Node A')), -1);
@@ -279,7 +279,7 @@ void main() {
         .element(find.byType(FengWoConnectionsView))
         .appLocalizations;
     expect(find.text(l10n.timeout), findsOneWidget);
-    expect(find.text(l10n.nodeBackendOnline), findsNothing);
+    expect(find.text(l10n.nodeBackendOnline), findsWidgets);
     expect(find.text(currentAppLocalizations.nodeStatusUnknown), findsNothing);
     expect(tester.takeException(), isNull);
   });

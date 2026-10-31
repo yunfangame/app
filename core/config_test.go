@@ -401,8 +401,9 @@ func TestTestDelayRejectsAnUnknownProxyWithoutWaitingForASlot(t *testing.T) {
 
 	select {
 	case delay := <-done:
-		if delay.Value != -1 {
-			t.Errorf("value = %d, want -1", delay.Value)
+		assertReferenceRange(t, delay.Value)
+		if delay.Successful == nil || *delay.Successful {
+			t.Error("missing proxy must preserve unsuccessful probe state")
 		}
 	case <-time.After(time.Second):
 		t.Fatal("an unknown proxy queued behind a saturated delay-test semaphore")
@@ -715,8 +716,9 @@ func TestTestDelayQueuesWhenTheTimeoutIsUnset(t *testing.T) {
 	delay := <-done
 	delayTestSlots <- struct{}{}
 
-	if delay.Value != -1 {
-		t.Errorf("value = %d, want -1 for a probe against a refused port", delay.Value)
+	assertReferenceRange(t, delay.Value)
+	if delay.Successful == nil || *delay.Successful {
+		t.Error("refused port must preserve unsuccessful probe state")
 	}
 }
 
@@ -839,8 +841,12 @@ func TestTestDelayStopsQueueingOnceTheTimeoutIsSpent(t *testing.T) {
 
 	select {
 	case delay := <-done:
-		if delay != nil {
-			t.Errorf("delay = %+v, want no result for a test that never got a slot", delay)
+		if delay == nil {
+			t.Fatal("queue timeout must return a reference result")
+		}
+		assertReferenceRange(t, delay.Value)
+		if delay.Successful == nil || *delay.Successful {
+			t.Error("queue timeout must preserve unsuccessful probe state")
 		}
 	case <-time.After(time.Second):
 		t.Fatal("handleTestDelay outlived the timeout it was given, waiting for a slot")

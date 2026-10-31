@@ -33,40 +33,66 @@ class ProxyCard extends StatelessWidget {
   Widget _buildDelayText() {
     return SizedBox(
       height: measure.labelSmallHeight,
-      child: Consumer(
-        builder: (context, ref, _) {
-          final delay = ref.watch(
-            delayProvider(proxyName: proxy.name, testUrl: testUrl),
-          );
-          return FadeThroughBox(
-            alignment: type == ProxyCardType.expand
-                ? Alignment.centerLeft
-                : Alignment.centerRight,
-            child: delay == 0 || delay == null
-                ? SizedBox(
-                    height: measure.labelSmallHeight,
-                    width: measure.labelSmallHeight,
-                    child: delay == 0
-                        ? const CommonCircleLoading()
-                        : IconButton(
-                            icon: const Icon(Icons.bolt),
-                            iconSize: globalState.measure.labelSmallHeight,
-                            padding: EdgeInsets.zero,
-                            onPressed: _handleTestCurrentDelay,
+      child: ListenableBuilder(
+        listenable: Listenable.merge([
+          globalState.xboardNodesRevisionNotifier,
+          globalState.offlineModeNotifier,
+        ]),
+        builder: (context, _) => Consumer(
+          builder: (context, ref, _) {
+            final delay = ref.watch(
+              delayProvider(proxyName: proxy.name, testUrl: testUrl),
+            );
+            final backendStatus = resolveXboardNodeDisplayStatus(
+              ref.watch(realSelectedProxyStateProvider(proxy.name)).proxyName,
+              globalState.xboardNodes,
+              statusAvailable:
+                  globalState.xboardNodesStatusFresh &&
+                  !globalState.isOfflineMode,
+            );
+            final color = switch (backendStatus) {
+              XboardNodeDisplayStatus.online => utils.getDelayColor(1),
+              XboardNodeDisplayStatus.offline => utils.getDelayColor(-1),
+              XboardNodeDisplayStatus.unknown => Theme.of(
+                context,
+              ).colorScheme.onSurfaceVariant,
+            };
+            final offline = backendStatus == XboardNodeDisplayStatus.offline;
+            return FadeThroughBox(
+              alignment: type == ProxyCardType.expand
+                  ? Alignment.centerLeft
+                  : Alignment.centerRight,
+              child: !offline && (delay == 0 || delay == null)
+                  ? SizedBox(
+                      height: measure.labelSmallHeight,
+                      width: measure.labelSmallHeight,
+                      child: delay == 0
+                          ? const CommonCircleLoading()
+                          : IconButton(
+                              icon: const Icon(Icons.bolt),
+                              iconSize: globalState.measure.labelSmallHeight,
+                              padding: EdgeInsets.zero,
+                              onPressed: _handleTestCurrentDelay,
+                            ),
+                    )
+                  : Tooltip(
+                      message: formatXboardNodeDisplayStatus(backendStatus),
+                      child: GestureDetector(
+                        onTap: offline ? null : _handleTestCurrentDelay,
+                        child: Text(
+                          offline
+                              ? formatXboardNodeDisplayStatus(backendStatus)
+                              : formatReferenceDelay(delay!),
+                          style: context.textTheme.labelSmall?.copyWith(
+                            overflow: TextOverflow.ellipsis,
+                            color: color,
                           ),
-                  )
-                : GestureDetector(
-                    onTap: _handleTestCurrentDelay,
-                    child: Text(
-                      formatReferenceDelay(delay),
-                      style: context.textTheme.labelSmall?.copyWith(
-                        overflow: TextOverflow.ellipsis,
-                        color: utils.getDelayColor(delay),
+                        ),
                       ),
                     ),
-                  ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }

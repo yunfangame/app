@@ -391,12 +391,16 @@ class DelayDataSource extends _$DelayDataSource with AutoDisposeNotifierMixin {
   }
 
   void setDelay(Delay delay) {
-    if (state[delay.url]?[delay.name] != delay.value) {
-      final DelayMap newDelayMap = Map.from(state);
-      if (newDelayMap[delay.url] == null) {
-        newDelayMap[delay.url] = {};
-      }
-      newDelayMap[delay.url]![delay.name] = delay.value;
+    final delayValue =
+        (delay.value ?? 0) < 0 ||
+            (delay.value ?? 0) <= 0 && delay.successful == false
+        ? failedReferenceDelayMilliseconds()
+        : delay.value;
+    if (state[delay.url]?[delay.name] != delayValue) {
+      final DelayMap newDelayMap = {
+        ...state,
+        delay.url: {...?state[delay.url], delay.name: delayValue},
+      };
       value = newDelayMap;
     }
   }
@@ -411,12 +415,16 @@ class ConnectionDelayDataSource extends _$ConnectionDelayDataSource
   }
 
   void setDelay(Delay delay) {
-    if (state[delay.url]?[delay.name] != delay.value) {
-      final DelayMap newDelayMap = Map.from(state);
-      if (newDelayMap[delay.url] == null) {
-        newDelayMap[delay.url] = {};
-      }
-      newDelayMap[delay.url]![delay.name] = delay.value;
+    final delayValue =
+        (delay.value ?? 0) < 0 ||
+            (delay.value ?? 0) <= 0 && delay.successful == false
+        ? failedReferenceDelayMilliseconds()
+        : delay.value;
+    if (state[delay.url]?[delay.name] != delayValue) {
+      final DelayMap newDelayMap = {
+        ...state,
+        delay.url: {...?state[delay.url], delay.name: delayValue},
+      };
       value = newDelayMap;
     }
   }

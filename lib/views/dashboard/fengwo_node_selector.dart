@@ -53,6 +53,24 @@ class _FengWoNodeSelectorViewState
   bool _testingAll = false;
   bool _refreshingNodes = false;
 
+  @override
+  void initState() {
+    super.initState();
+    globalState.xboardNodesRevisionNotifier.addListener(_metadataChanged);
+    globalState.offlineModeNotifier.addListener(_metadataChanged);
+  }
+
+  @override
+  void dispose() {
+    globalState.xboardNodesRevisionNotifier.removeListener(_metadataChanged);
+    globalState.offlineModeNotifier.removeListener(_metadataChanged);
+    super.dispose();
+  }
+
+  void _metadataChanged() {
+    if (mounted) setState(() {});
+  }
+
   Group _selectedGroup(List<Group> groups) {
     final requested = _selectedGroupName.takeFirstValid([
       ref.read(currentProfileProvider)?.currentGroupName,
@@ -63,10 +81,7 @@ class _FengWoNodeSelectorViewState
   Future<void> _testAll(Group group) async {
     if (_testingAll || group.all.isEmpty) return;
     final testable = group.all
-        .where(
-          (proxy) =>
-              !isXboardNodeMarkedOffline(proxy.name, globalState.xboardNodes),
-        )
+        .where((proxy) => !isProxyDelayTestBlocked(proxy.name))
         .toList();
     if (testable.isEmpty) return;
     setState(() => _testingAll = true);
@@ -522,8 +537,7 @@ class _NodePane extends ConsumerWidget {
     });
     final selectedName = ref.watch(selectedProxyNameProvider(group.name));
     final canTestAll = group.all.any(
-      (proxy) =>
-          !isXboardNodeMarkedOffline(proxy.name, globalState.xboardNodes),
+      (proxy) => !isProxyDelayTestBlocked(proxy.name),
     );
     return Column(
       children: [
@@ -663,16 +677,13 @@ class _NodePane extends ConsumerWidget {
                   itemBuilder: (context, index) {
                     final proxy = proxies[index];
                     final delay = delayMap[proxy.name];
-                    final offline = isXboardNodeMarkedOffline(
-                      proxy.name,
-                      globalState.xboardNodes,
-                    );
+                    final offline = isProxyDelayTestBlocked(proxy.name);
                     final backendStatus = resolveXboardNodeDisplayStatus(
                       ref
                           .watch(realSelectedProxyStateProvider(proxy.name))
                           .proxyName,
                       globalState.xboardNodes,
-                      statusAvailable: !globalState.isOfflineMode,
+                      statusAvailable: globalState.xboardNodesStatusFresh,
                     );
                     return _NodeRow(
                       colors: colors,
@@ -713,21 +724,18 @@ class _NodeRow extends StatelessWidget {
     required this.onTest,
   });
 
-  Color _delayColor() {
-    if (offline) return const Color(0xFFE84C4C);
-    if (delay == null || delay == 0) return colors.muted;
-    if (delay! < 0) return const Color(0xFFE84C4C);
-    if (delay! <= 250) return colors.success;
-    if (delay! <= 400) return colors.primary;
-    return const Color(0xFFF29C38);
+  Color _statusColor() {
+    return switch (backendStatus) {
+      XboardNodeDisplayStatus.online => colors.success,
+      XboardNodeDisplayStatus.offline => const Color(0xFFE84C4C),
+      XboardNodeDisplayStatus.unknown => colors.muted,
+    };
   }
 
   @override
   Widget build(BuildContext context) {
-    final color = _delayColor();
-    final text = delay != null && delay! < 0
-        ? context.appLocalizations.timeout
-        : offline
+    final color = _statusColor();
+    final text = offline
         ? context.appLocalizations.nodeBackendOffline
         : switch (delay) {
             null => context.appLocalizations.delayTest,
@@ -766,31 +774,51 @@ class _NodeRow extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  proxy.name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colors.text,
-                    fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      proxy.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colors.text,
+                        fontWeight: selected
+                            ? FontWeight.w900
+                            : FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      formatXboardNodeDisplayStatus(backendStatus),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: color, fontSize: 11),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 12),
-              OutlinedButton.icon(
-                key: ValueKey('fengwo-selector-test-${proxy.name}'),
-                onPressed: offline || delay == 0 ? null : onTest,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: color,
-                  side: BorderSide(color: color.withValues(alpha: 0.45)),
+              Flexible(
+                child: OutlinedButton.icon(
+                  key: ValueKey('fengwo-selector-test-${proxy.name}'),
+                  onPressed: offline || delay == 0 ? null : onTest,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: color,
+                    side: BorderSide(color: color.withValues(alpha: 0.45)),
+                  ),
+                  icon: !offline && delay == 0
+                      ? const SizedBox.square(
+                          dimension: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.speed_rounded, size: 17),
+                  label: Text(
+                    text,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                icon: !offline && delay == 0
-                    ? const SizedBox.square(
-                        dimension: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.speed_rounded, size: 17),
-                label: Text(text),
               ),
             ],
           ),

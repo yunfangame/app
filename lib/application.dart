@@ -508,9 +508,6 @@ class ApplicationState extends ConsumerState<Application> {
       ref.read(realTestUrlProvider(group.testUrl)),
     ]);
     final proxies = ref.read(proxiesActionProvider.notifier);
-    final previousDelay = ref.read(
-      delayDataSourceProvider,
-    )[testUrl]?[selected.proxyName];
     proxies.setDelay(Delay(url: testUrl, name: selected.proxyName, value: 0));
     commonPrint.event('connection.auto.probe_started');
     try {
@@ -523,7 +520,12 @@ class ApplicationState extends ConsumerState<Application> {
       if (ref.read(delayDataSourceProvider)[testUrl]?[selected.proxyName] ==
           0) {
         proxies.setDelay(
-          Delay(url: testUrl, name: selected.proxyName, value: previousDelay),
+          Delay(
+            url: testUrl,
+            name: selected.proxyName,
+            value: -1,
+            successful: false,
+          ),
         );
       }
       commonPrint.event(

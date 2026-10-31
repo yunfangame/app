@@ -1,0 +1,24 @@
+diff --git a/adapter/adapter.go b/adapter/adapter.go
+index 22054f07..5bc96f5a 100644
+--- a/adapter/adapter.go
++++ b/adapter/adapter.go
+@@ -167,6 +167,9 @@ func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.In
+ 	var satisfied bool
+ 
+ 	defer func() {
++		if UrlTestDelayTransform != nil {
++			t = UrlTestDelayTransform(t, err)
++		}
+ 		if UrlTestHook != nil {
+ 			UrlTestHook(url, p.Name(), t)
+ 		}
+diff --git a/adapter/patch.go b/adapter/patch.go
+index 4391c56b..a8520de4 100644
+--- a/adapter/patch.go
++++ b/adapter/patch.go
+@@ -3,3 +3,5 @@ package adapter
+ type UrlTestCheck func(url string, name string, delay uint16)
+ 
+ var UrlTestHook UrlTestCheck
++
++var UrlTestDelayTransform func(delay uint16, probeErr error) uint16

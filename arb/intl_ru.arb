@@ -31,8 +31,8 @@
   "referenceConnectionDelay": "Справочная задержка соединения",
   "referenceStandardizedDelay": "Справочный RTT",
   "referenceCurrentNodeDelay": "Спр. задержка узла",
-  "referenceDelayExplanation": "Показывается скорректированная справочная задержка по полному маршруту. При ошибке проверки отображается тайм-аут.",
-  "referenceDelayValue": "{value} мс",
+  "referenceDelayExplanation": "Статус узла определяется сервером. Задержка — скорректированное справочное значение, в том числе при тайм-ауте или ошибке проверки; это не фактическое время отклика.",
+  "referenceDelayValue": "Ориентир {value} мс",
   "@referenceDelayValue": {
     "placeholders": {
       "value": {"type": "int"}

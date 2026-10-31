@@ -73,6 +73,7 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
     globalState.xboardNodesRevisionNotifier.addListener(_metadataChanged);
     globalState.xboardSessionRevisionNotifier.addListener(_sessionChanged);
     globalState.offlineModeNotifier.addListener(_sessionChanged);
+    globalState.offlineModeNotifier.addListener(_sessionChanged);
     _queueAutomaticRead();
   }
 
@@ -141,6 +142,7 @@ class _FengWoNodeStatusViewState extends ConsumerState<FengWoNodeStatusView> {
     _availability.removeAvailabilityListener(_availabilityChanged);
     globalState.xboardNodesRevisionNotifier.removeListener(_metadataChanged);
     globalState.xboardSessionRevisionNotifier.removeListener(_sessionChanged);
+    globalState.offlineModeNotifier.removeListener(_sessionChanged);
     globalState.offlineModeNotifier.removeListener(_sessionChanged);
     _nodesScrollController.dispose();
     super.dispose();
@@ -1105,9 +1107,7 @@ class _PreferredNodesPanel extends StatelessWidget {
                             proxy: proxy,
                             status:
                                 nodeStatuses[proxy.name] ??
-                                const _NodePresentationStatus(
-                                  state: _NodeConnectivityState.unknown,
-                                ),
+                                const _NodePresentationStatus(),
                             rate: metadata?.rate,
                             tags: metadata?.tags ?? const [],
                             selected: selectedName == proxy.name,
@@ -1118,8 +1118,8 @@ class _PreferredNodesPanel extends StatelessWidget {
                             onTest:
                                 onTest == null ||
                                     testingAll ||
-                                    nodeStatuses[proxy.name]?.state ==
-                                        _NodeConnectivityState.backendOffline
+                                    nodeStatuses[proxy.name]?.backendStatus ==
+                                        XboardNodeDisplayStatus.offline
                                 ? null
                                 : () => onTest!(proxy),
                           );
@@ -1160,38 +1160,21 @@ class _PreferredNodeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isTesting = status.state == _NodeConnectivityState.testing;
-    final statusColor = switch (status.state) {
-      _NodeConnectivityState.available => colors.success,
-      _NodeConnectivityState.backendOffline ||
-      _NodeConnectivityState.unreachable => colors.danger,
-      _ => colors.muted,
+    final isTesting = status.isTesting;
+    final statusColor = switch (status.backendStatus) {
+      XboardNodeDisplayStatus.online => colors.success,
+      XboardNodeDisplayStatus.offline => colors.danger,
+      XboardNodeDisplayStatus.unknown => colors.muted,
     };
-    final statusBackground = switch (status.state) {
-      _NodeConnectivityState.available => colors.successSoft,
-      _NodeConnectivityState.backendOffline ||
-      _NodeConnectivityState.unreachable => colors.dangerSoft,
-      _ => colors.primarySoft,
+    final statusBackground = switch (status.backendStatus) {
+      XboardNodeDisplayStatus.online => colors.successSoft,
+      XboardNodeDisplayStatus.offline => colors.dangerSoft,
+      XboardNodeDisplayStatus.unknown => colors.primarySoft,
     };
-    final statusText = switch (status.state) {
-      _NodeConnectivityState.backendOffline =>
-        context.appLocalizations.nodeBackendOffline,
-      _NodeConnectivityState.backendOnlineUntested =>
-        context.appLocalizations.nodeBackendOnline,
-      _NodeConnectivityState.testing => context.appLocalizations.delayTest,
-      _NodeConnectivityState.available =>
-        context.appLocalizations.nodeAvailable,
-      _NodeConnectivityState.unreachable => context.appLocalizations.timeout,
-      _NodeConnectivityState.unknown =>
-        context.appLocalizations.nodeStatusUnknown,
-    };
-    final detailText = switch (status.state) {
-      _NodeConnectivityState.available when status.delay != null =>
-        formatReferenceDelay(status.delay!),
-      _NodeConnectivityState.backendOnlineUntested =>
-        context.appLocalizations.notTested,
-      _ => null,
-    };
+    final statusText = formatXboardNodeDisplayStatus(status.backendStatus);
+    final detailText = status.backendStatus == XboardNodeDisplayStatus.offline
+        ? null
+        : _delayText(context);
     return Material(
       color: selected ? colors.primarySoft : colors.surface,
       borderRadius: BorderRadius.circular(20),
@@ -1328,59 +1311,51 @@ class _PreferredNodeRow extends StatelessWidget {
                   color: statusBackground,
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: isTesting
-                    ? SizedBox.square(
-                        dimension: compact ? 14 : 16,
-                        child: CircularProgressIndicator(
-                          color: colors.primary,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 7),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Container(
-                                  width: 7,
-                                  height: 7,
-                                  decoration: BoxDecoration(
-                                    color: statusColor,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Flexible(
-                                  child: Text(
-                                    statusText,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: statusColor,
-                                      fontSize: compact ? 10 : 11,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 7),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              color: statusColor,
+                              shape: BoxShape.circle,
                             ),
-                            if (detailText != null)
-                              Text(
-                                detailText,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: statusColor,
-                                  fontSize: compact ? 9 : 10,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              statusText,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: statusColor,
+                                fontSize: compact ? 10 : 11,
+                                fontWeight: FontWeight.w800,
                               ),
-                          ],
-                        ),
+                            ),
+                          ),
+                        ],
                       ),
+                      if (detailText != null)
+                        Text(
+                          detailText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: statusColor,
+                            fontSize: compact ? 9 : 10,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
@@ -1390,49 +1365,31 @@ class _PreferredNodeRow extends StatelessWidget {
   }
 
   String _delayText(BuildContext context) {
-    return switch (status.state) {
-      _NodeConnectivityState.available => formatReferenceDelay(status.delay!),
-      _NodeConnectivityState.backendOffline =>
-        context.appLocalizations.nodeBackendOffline,
-      _NodeConnectivityState.backendOnlineUntested =>
-        context.appLocalizations.notTested,
-      _NodeConnectivityState.testing => context.appLocalizations.delayTest,
-      _NodeConnectivityState.unreachable => context.appLocalizations.timeout,
-      _ => context.appLocalizations.nodeStatusUnknown,
-    };
+    if (status.backendStatus == XboardNodeDisplayStatus.offline) {
+      return context.appLocalizations.nodeBackendOffline;
+    }
+    if (status.isTesting) return context.appLocalizations.delayTest;
+    final delay = status.delay;
+    return delay == null
+        ? context.appLocalizations.notTested
+        : formatReferenceDelay(delay);
   }
-}
-
-enum _NodeConnectivityState {
-  backendOffline,
-  backendOnlineUntested,
-  testing,
-  available,
-  unreachable,
-  unknown,
 }
 
 class _NodePresentationStatus {
   const _NodePresentationStatus({
-    required this.state,
     this.delay,
     this.backendStatus = XboardNodeDisplayStatus.unknown,
+    this.isTesting = false,
   });
 
-  final _NodeConnectivityState state;
   final int? delay;
   final XboardNodeDisplayStatus backendStatus;
+  final bool isTesting;
 
-  bool get countsAsAvailable =>
-      state == _NodeConnectivityState.available ||
-      state == _NodeConnectivityState.backendOnlineUntested;
+  bool get countsAsAvailable => backendStatus == XboardNodeDisplayStatus.online;
 
-  int? get mapDelay => switch (state) {
-    _NodeConnectivityState.available => delay,
-    _NodeConnectivityState.backendOffline ||
-    _NodeConnectivityState.unreachable => -1,
-    _ => null,
-  };
+  int? get mapDelay => delay;
 }
 
 _NodePresentationStatus _resolveNodeStatus({
@@ -1440,32 +1397,11 @@ _NodePresentationStatus _resolveNodeStatus({
   required bool isTesting,
   required XboardNodeDisplayStatus backendStatus,
 }) {
-  if (!isTesting && measuredDelay != null && measuredDelay < 0) {
-    return _NodePresentationStatus(
-      state: _NodeConnectivityState.unreachable,
-      backendStatus: backendStatus,
-    );
-  }
-  if (backendStatus == XboardNodeDisplayStatus.offline) {
-    return const _NodePresentationStatus(
-      state: _NodeConnectivityState.backendOffline,
-    );
-  }
-  if (isTesting || measuredDelay == 0) {
-    return const _NodePresentationStatus(state: _NodeConnectivityState.testing);
-  }
-  if (measuredDelay != null && measuredDelay > 0) {
-    return _NodePresentationStatus(
-      state: _NodeConnectivityState.available,
-      delay: measuredDelay,
-    );
-  }
-  if (backendStatus == XboardNodeDisplayStatus.online) {
-    return const _NodePresentationStatus(
-      state: _NodeConnectivityState.backendOnlineUntested,
-    );
-  }
-  return const _NodePresentationStatus(state: _NodeConnectivityState.unknown);
+  return _NodePresentationStatus(
+    delay: measuredDelay,
+    backendStatus: backendStatus,
+    isTesting: isTesting || measuredDelay == 0,
+  );
 }
 
 String _formatNodeRate(double? rate) {

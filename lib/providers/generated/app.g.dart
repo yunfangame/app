@@ -1330,7 +1330,7 @@ final class DelayDataSourceProvider
   }
 }
 
-String _$delayDataSourceHash() => r'9737cf2d943cb9b5504a5ec8ace20b0a9380b197';
+String _$delayDataSourceHash() => r'e1429f5cc2f383e86e7162447a9363e5729d460a';
 
 abstract class _$DelayDataSource extends $Notifier<DelayMap> {
   DelayMap build();
@@ -1383,7 +1383,7 @@ final class ConnectionDelayDataSourceProvider
 }
 
 String _$connectionDelayDataSourceHash() =>
-    r'7fa1baa55907c9038f030001b4029b5d89b12356';
+    r'cc39a20f263b4e601e5437a05ac5fd00f09a2d5d';
 
 abstract class _$ConnectionDelayDataSource extends $Notifier<DelayMap> {
   DelayMap build();

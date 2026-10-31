@@ -508,5 +508,5 @@ XboardNodeData _node(String name, {bool online = true}) => XboardNodeData(
   rate: 1,
   tags: const ['HK'],
   isOnline: online,
-  rawData: const {'is_online': true},
+  rawData: {'is_online': online},
 );

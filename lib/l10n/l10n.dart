@@ -344,20 +344,20 @@ class AppLocalizations {
     );
   }
 
-  /// `Shows calibrated reference latency through the complete route. Failed tests are shown as Timeout.`
+  /// `Node status comes from the backend. Latency values are adjusted references, including when probes time out or fail; they do not represent measured round-trip time.`
   String get referenceDelayExplanation {
     return Intl.message(
-      'Shows calibrated reference latency through the complete route. Failed tests are shown as Timeout.',
+      'Node status comes from the backend. Latency values are adjusted references, including when probes time out or fail; they do not represent measured round-trip time.',
       name: 'referenceDelayExplanation',
       desc: '',
       args: [],
     );
   }
 
-  /// `{value} ms`
+  /// `Reference {value} ms`
   String referenceDelayValue(int value) {
     return Intl.message(
-      '$value ms',
+      'Reference $value ms',
       name: 'referenceDelayValue',
       desc: '',
       args: [value],

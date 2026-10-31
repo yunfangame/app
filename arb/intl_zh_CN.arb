@@ -31,8 +31,8 @@
   "referenceConnectionDelay": "参考连接延迟",
   "referenceStandardizedDelay": "参考标准 RTT",
   "referenceCurrentNodeDelay": "参考节点延迟",
-  "referenceDelayExplanation": "显示校准后的完整线路参考延迟；测速失败显示“超时”。",
-  "referenceDelayValue": "{value} ms",
+  "referenceDelayExplanation": "节点状态以后端为准。延迟为处理后的参考值；测速超时或失败也显示参考值，不代表真实往返时延。",
+  "referenceDelayValue": "参考 {value} ms",
   "@referenceDelayValue": {
     "placeholders": {
       "value": {"type": "int"}

@@ -366,7 +366,7 @@ void main() {
         expect(
           find.descendant(
             of: find.byType(DashboardNodeEntry),
-            matching: find.text('350 ms'),
+            matching: find.text(l10n.referenceDelayValue(350)),
           ),
           findsOneWidget,
         );
@@ -527,7 +527,12 @@ void main() {
               find.descendant(
                 of: find.byType(DashboardNodeEntry),
                 matching: find.text(
-                  measured < 0 ? l10n.timeout : '$measured ms',
+                  !offlineMode &&
+                          backendStatus == XboardNodeDisplayStatus.offline
+                      ? l10n.nodeBackendOffline
+                      : measured < 0
+                      ? l10n.timeout
+                      : l10n.referenceDelayValue(measured),
                 ),
               ),
               findsOneWidget,
@@ -550,7 +555,9 @@ void main() {
                   offlineMode ? XboardNodeDisplayStatus.unknown : backendStatus,
                 ),
               ),
-              findsNothing,
+              !offlineMode && backendStatus == XboardNodeDisplayStatus.offline
+                  ? findsWidgets
+                  : findsNothing,
             );
             expect(find.textContaining('-1 ms'), findsNothing);
             expect(
@@ -639,111 +646,106 @@ void main() {
     expect(tester.takeException(), null);
   });
 
-  testWidgets(
-    'desktop global mode confirms before preserving the rule node',
-    (tester) async {
-      tester.view.physicalSize = const Size(1440, 900);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets('desktop global mode confirms before preserving the rule node', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
 
-      const profile = Profile(
-        id: 1,
-        autoUpdateDuration: Duration.zero,
-        currentGroupName: '规则节点组',
-        selectedMap: {'GLOBAL': '旧节点', '规则节点组': '规则节点'},
-      );
-      final container = ProviderContainer(
-        overrides: [
-          dashboardStateProvider.overrideWithValue(
-            const DashboardState(dashboardWidgets: []),
-          ),
-          viewSizeProvider.overrideWithBuild((_, _) => const Size(1440, 900)),
-          initProvider.overrideWithBuild((_, _) => true),
-          profilesProvider.overrideWith(() => _TestProfiles([profile])),
-          currentProfileIdProvider.overrideWithBuild((_, _) => profile.id),
-          patchClashConfigProvider.overrideWithBuild(
-            (_, _) => const PatchClashConfig(mode: Mode.rule),
-          ),
-          setupActionProvider.overrideWith(_RecordingSetupAction.new),
-        ],
-      );
-      addTearDown(container.dispose);
-      globalState.container = container;
-
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: const _TestApp(child: DashboardView()),
+    const profile = Profile(
+      id: 1,
+      autoUpdateDuration: Duration.zero,
+      currentGroupName: '规则节点组',
+      selectedMap: {'GLOBAL': '旧节点', '规则节点组': '规则节点'},
+    );
+    final container = ProviderContainer(
+      overrides: [
+        dashboardStateProvider.overrideWithValue(
+          const DashboardState(dashboardWidgets: []),
         ),
-      );
-      await tester.pump();
+        viewSizeProvider.overrideWithBuild((_, _) => const Size(1440, 900)),
+        initProvider.overrideWithBuild((_, _) => true),
+        profilesProvider.overrideWith(() => _TestProfiles([profile])),
+        currentProfileIdProvider.overrideWithBuild((_, _) => profile.id),
+        patchClashConfigProvider.overrideWithBuild(
+          (_, _) => const PatchClashConfig(mode: Mode.rule),
+        ),
+        setupActionProvider.overrideWith(_RecordingSetupAction.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    globalState.container = container;
 
-      final globalMode = find.byKey(
-        const ValueKey('fengwo-desktop-global-mode'),
-      );
-      await tester.tap(globalMode);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(
-        find.byKey(const ValueKey('global-mode-confirmation-dialog')),
-        findsOneWidget,
-      );
-      expect(container.read(patchClashConfigProvider).mode, Mode.rule);
-      expect(
-        (container.read(setupActionProvider.notifier)
-                as _RecordingSetupAction)
-            .modeRequests,
-        isEmpty,
-      );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _TestApp(child: DashboardView()),
+      ),
+    );
+    await tester.pump();
 
-      await tester.tap(
-        find.byKey(const ValueKey('global-mode-dont-show-checkbox')),
-      );
-      await tester.pump();
-      expect(
-        tester
-            .widget<Checkbox>(
-              find.byKey(const ValueKey('global-mode-dont-show-checkbox')),
-            )
-            .value,
-        isTrue,
-      );
-      await tester.tap(find.byKey(const ValueKey('global-mode-confirm')));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
+    final globalMode = find.byKey(const ValueKey('fengwo-desktop-global-mode'));
+    await tester.tap(globalMode);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      find.byKey(const ValueKey('global-mode-confirmation-dialog')),
+      findsOneWidget,
+    );
+    expect(container.read(patchClashConfigProvider).mode, Mode.rule);
+    expect(
+      (container.read(setupActionProvider.notifier) as _RecordingSetupAction)
+          .modeRequests,
+      isEmpty,
+    );
 
-      expect(container.read(patchClashConfigProvider).mode, Mode.global);
-      expect(
-        container.read(appSettingProvider).skipGlobalModeConfirmation,
-        isTrue,
-      );
-      expect(
-        container.read(profilesProvider).single.selectedMap['GLOBAL'],
-        '规则节点',
-      );
+    await tester.tap(
+      find.byKey(const ValueKey('global-mode-dont-show-checkbox')),
+    );
+    await tester.pump();
+    expect(
+      tester
+          .widget<Checkbox>(
+            find.byKey(const ValueKey('global-mode-dont-show-checkbox')),
+          )
+          .value,
+      isTrue,
+    );
+    await tester.tap(find.byKey(const ValueKey('global-mode-confirm')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
-      container
-          .read(patchClashConfigProvider.notifier)
-          .update((state) => state.copyWith(mode: Mode.rule));
-      await tester.pump();
-      await tester.tap(globalMode);
-      await tester.pump();
+    expect(container.read(patchClashConfigProvider).mode, Mode.global);
+    expect(
+      container.read(appSettingProvider).skipGlobalModeConfirmation,
+      isTrue,
+    );
+    expect(
+      container.read(profilesProvider).single.selectedMap['GLOBAL'],
+      '规则节点',
+    );
 
-      expect(
-        find.byKey(const ValueKey('global-mode-confirmation-dialog')),
-        findsNothing,
-      );
-      expect(container.read(patchClashConfigProvider).mode, Mode.global);
-      expect(
-        (container.read(setupActionProvider.notifier)
-                as _RecordingSetupAction)
-            .modeRequests,
-        [Mode.global, Mode.global],
-      );
-      expect(tester.takeException(), null);
-    },
-  );
+    container
+        .read(patchClashConfigProvider.notifier)
+        .update((state) => state.copyWith(mode: Mode.rule));
+    await tester.pump();
+    await tester.tap(globalMode);
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('global-mode-confirmation-dialog')),
+      findsNothing,
+    );
+    expect(container.read(patchClashConfigProvider).mode, Mode.global);
+    expect(
+      (container.read(setupActionProvider.notifier) as _RecordingSetupAction)
+          .modeRequests,
+      [Mode.global, Mode.global],
+    );
+    expect(tester.takeException(), null);
+  });
 
   testWidgets('mobile global mode dialog adapts to a narrow dark viewport', (
     tester,
@@ -878,7 +880,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byType(DashboardNodeEntry),
-        matching: find.text('128 ms'),
+        matching: find.text(l10n.referenceDelayValue(128)),
       ),
       findsOneWidget,
     );
@@ -1893,7 +1895,7 @@ void main() {
     }
   }
 
-  testWidgets('world map colors markers by the required latency thresholds', (
+  testWidgets('world map colors markers only by backend node status', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(720, 420);
@@ -1917,10 +1919,26 @@ void main() {
             interactive: true,
             opacity: 0.8,
             nodes: [
-              FengWoWorldMapNode(name: '美国超时节点', delay: -1),
-              FengWoWorldMapNode(name: '日本低延迟节点', delay: 250),
-              FengWoWorldMapNode(name: '新加坡中延迟节点', delay: 400),
-              FengWoWorldMapNode(name: '澳大利亚高延迟节点', delay: 401),
+              FengWoWorldMapNode(
+                name: '美国超时节点',
+                delay: -1,
+                backendStatus: XboardNodeDisplayStatus.online,
+              ),
+              FengWoWorldMapNode(
+                name: '日本低延迟节点',
+                delay: 250,
+                backendStatus: XboardNodeDisplayStatus.offline,
+              ),
+              FengWoWorldMapNode(
+                name: '新加坡中延迟节点',
+                delay: 400,
+                backendStatus: XboardNodeDisplayStatus.online,
+              ),
+              FengWoWorldMapNode(
+                name: '澳大利亚高延迟节点',
+                delay: 401,
+                backendStatus: XboardNodeDisplayStatus.offline,
+              ),
               FengWoWorldMapNode(
                 name: '仅通过标签定位的节点',
                 delay: 120,
@@ -1934,11 +1952,13 @@ void main() {
     await tester.pump();
 
     final expectedColors = <String, Color>{
-      '美国超时节点': const Color(0xFFE84C4C),
-      '日本低延迟节点': const Color(0xFF15BF70),
-      '新加坡中延迟节点': const Color(0xFF3B82F6),
-      '澳大利亚高延迟节点': const Color(0xFFF29C38),
-      '仅通过标签定位的节点': const Color(0xFF15BF70),
+      '美国超时节点': const Color(0xFF15BF70),
+      '日本低延迟节点': const Color(0xFFE84C4C),
+      '新加坡中延迟节点': const Color(0xFF15BF70),
+      '澳大利亚高延迟节点': const Color(0xFFE84C4C),
+      '仅通过标签定位的节点': Theme.of(
+        tester.element(find.byType(FengWoWorldMap)),
+      ).colorScheme.onSurfaceVariant,
     };
     for (final entry in delays.entries) {
       final dot = tester.widget<Container>(
@@ -2104,7 +2124,8 @@ void main() {
     );
     expect(find.text(group.name), findsNothing);
     expect(find.text(localizations.nodeBackendOffline), findsOneWidget);
-    expect(find.text(localizations.nodeAvailable), findsWidgets);
+    expect(find.text(localizations.nodeAvailable), findsNothing);
+    expect(find.text(localizations.nodeStatusUnknown), findsWidgets);
     expect(find.text(localizations.timeout), findsWidgets);
     expect(find.text(localizations.nodeLocallyUnreachable), findsNothing);
     expect(
@@ -2248,7 +2269,7 @@ void main() {
         rate: 1,
         tags: ['SG'],
         isOnline: false,
-        rawData: {},
+        rawData: {'is_online': false},
       ),
     ];
     addTearDown(() => globalState.xboardNodes = const []);
@@ -2268,7 +2289,7 @@ void main() {
         .element(find.byType(FengWoNodeSelectorView))
         .appLocalizations;
     expect(find.text(localizations.referenceDelayValue(168)), findsOneWidget);
-    expect(find.text(localizations.nodeBackendOffline), findsOneWidget);
+    expect(find.text(localizations.nodeBackendOffline), findsWidgets);
     final offlineTestButton = tester.widget<OutlinedButton>(
       find.byKey(const ValueKey('fengwo-selector-test-新加坡 AWS 2x')),
     );

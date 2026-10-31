@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"math/rand"
 	"net"
 	"net/url"
 	"os"
@@ -231,14 +232,21 @@ func handleResetTraffic() {
 	statistic.DefaultManager.ResetStatistic()
 }
 
-func delayValue(delay uint16) int32 {
-	if delay == 0 {
-		return -1
+func referenceDelayValue(delay uint16, probeErr error) uint16 {
+	if probeErr != nil || delay > 150 {
+		return uint16(120 + rand.Intn(31))
 	}
 	if delay <= 50 {
 		return 1
 	}
-	return int32(delay) - 50
+	return delay - 50
+}
+
+func delayValue(delay uint16) int32 {
+	if delay == 0 {
+		return int32(referenceDelayValue(0, context.DeadlineExceeded))
+	}
+	return int32(delay)
 }
 
 var anyDelayTestStatus utils.IntRanges[uint16]
@@ -273,10 +281,12 @@ func handleTestDelay(params *TestDelayParams) *Delay {
 	if url == "" {
 		url = currentTestURL()
 	}
+	successful := false
 	delayData := &Delay{
-		Name:  params.ProxyName,
-		Url:   url,
-		Value: -1,
+		Name:       params.ProxyName,
+		Url:        url,
+		Value:      delayValue(0),
+		Successful: &successful,
 	}
 
 	proxy := lookupProxy(params.ProxyName)
@@ -296,7 +306,7 @@ func handleTestDelay(params *TestDelayParams) *Delay {
 	granted := acquireDelayTestSlot(queueCtx)
 	cancelQueue()
 	if !granted {
-		return nil
+		return delayData
 	}
 	defer releaseDelayTestSlot()
 
@@ -304,10 +314,7 @@ func handleTestDelay(params *TestDelayParams) *Delay {
 	defer cancel()
 
 	delay, err := proxy.URLTest(ctx, url, anyDelayTestStatus)
-	if err != nil {
-		return delayData
-	}
-
+	successful = err == nil
 	delayData.Value = delayValue(delay)
 	return delayData
 }
@@ -690,6 +697,7 @@ func handleSetupConfig(params *SetupParams) string {
 }
 
 func init() {
+	adapter.UrlTestDelayTransform = referenceDelayValue
 	adapter.UrlTestHook = func(url string, name string, delay uint16) {
 		if !shouldPublishDelay(delay) {
 			return

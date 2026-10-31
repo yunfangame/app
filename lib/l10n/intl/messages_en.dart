@@ -150,7 +150,7 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m56(label) => "${label} must be between 1024 and 49151";
 
-  static String m57(value) => "${value} ms";
+  static String m57(value) => "Reference ${value} ms";
 
   static String m58(count) => "${count} saved; active when override is enabled";
 
@@ -2054,7 +2054,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Ref. node latency",
     ),
     "referenceDelayExplanation": MessageLookupByLibrary.simpleMessage(
-      "Shows calibrated reference latency through the complete route. Failed tests are shown as Timeout.",
+      "Node status comes from the backend. Latency values are adjusted references, including when probes time out or fail; they do not represent measured round-trip time.",
     ),
     "referenceDelayValue": m57,
     "referenceStandardizedDelay": MessageLookupByLibrary.simpleMessage(

@@ -111,7 +111,9 @@ void main() {
         expect(find.text(expected), findsOneWidget);
         expect(
           tester.widget<Text>(find.text(expected)).style?.color,
-          utils.getDelayColor(measured),
+          Theme.of(
+            tester.element(find.byType(ProxyCard)),
+          ).colorScheme.onSurfaceVariant,
         );
         expect(container.read(delayProvider(proxyName: 'Node A')), measured);
         expect(tester.takeException(), isNull);
@@ -311,105 +313,169 @@ void main() {
         ),
       ]) {
     for (final surface in ['card', 'selector', 'node status']) {
-      testWidgets('$surface failed delay ignores ${sample.$1} backend status', (
-        tester,
-      ) async {
-        final child = switch (surface) {
-          'card' => const Center(
-            child: SizedBox(
-              width: 300,
-              height: 140,
-              child: ProxyCard(
-                groupName: 'Reference test group',
-                testUrl: null,
-                proxy: Proxy(name: 'Node A', type: 'ss'),
-                groupType: GroupType.Selector,
-                type: ProxyCardType.expand,
+      testWidgets(
+        '$surface keeps ${sample.$1} backend status authoritative on failed delay',
+        (tester) async {
+          final child = switch (surface) {
+            'card' => const Center(
+              child: SizedBox(
+                width: 300,
+                height: 140,
+                child: ProxyCard(
+                  groupName: 'Reference test group',
+                  testUrl: null,
+                  proxy: Proxy(name: 'Node A', type: 'ss'),
+                  groupType: GroupType.Selector,
+                  type: ProxyCardType.expand,
+                ),
               ),
             ),
-          ),
-          'selector' => const FengWoNodeSelectorView(),
-          _ => const FengWoNodeStatusView(),
-        };
-        final container = await pumpView(
-          tester,
-          delays: {'Node A': -1},
-          backendNodes: sample.$2,
-          offlineMode: sample.$3,
-          child: child,
-        );
+            'selector' => const FengWoNodeSelectorView(),
+            _ => const FengWoNodeStatusView(),
+          };
+          final container = await pumpView(
+            tester,
+            delays: {'Node A': -1},
+            backendNodes: sample.$2,
+            offlineMode: sample.$3,
+            child: child,
+          );
 
+          expect(
+            find.text(currentAppLocalizations.timeout),
+            sample.$4 == XboardNodeDisplayStatus.offline
+                ? findsNothing
+                : findsWidgets,
+          );
+          expect(
+            find.text(formatXboardNodeDisplayStatus(sample.$4)),
+            surface == 'card' && sample.$4 != XboardNodeDisplayStatus.offline
+                ? findsNothing
+                : findsWidgets,
+          );
+          expect(
+            find.text(currentAppLocalizations.nodeLocallyUnreachable),
+            findsNothing,
+          );
+          expect(find.textContaining(' ms'), findsNothing);
+          expect(container.read(delayProvider(proxyName: 'Node A')), -1);
+          if (surface == 'node status') {
+            final map = tester.widget<FengWoWorldMap>(
+              find.byType(FengWoWorldMap),
+            );
+            expect(map.nodes.single.delay, -1);
+            expect(map.nodes.single.backendStatus, sample.$4);
+            expect(
+              find.text(currentAppLocalizations.nodeAvailable),
+              findsNothing,
+            );
+            final testButton = tester.widget<IconButton>(
+              find.descendant(
+                of: find.byKey(const ValueKey('fengwo-node-row-Node A')),
+                matching: find.byType(IconButton),
+              ),
+            );
+            expect(
+              testButton.onPressed == null,
+              sample.$4 == XboardNodeDisplayStatus.offline,
+            );
+          }
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
+  for (final surface in ['card', 'selector']) {
+    testWidgets(
+      '$surface keeps backend status for a failed selected group leaf',
+      (tester) async {
+        await pumpView(
+          tester,
+          delays: {'Automatic': -1},
+          backendNodes: [_backendNode(true)],
+          additionalGroups: const [
+            Group(
+              name: 'Automatic',
+              type: GroupType.URLTest,
+              now: 'Node A',
+              all: [Proxy(name: 'Node A', type: 'ss')],
+            ),
+          ],
+          child: surface == 'card'
+              ? const Center(
+                  child: SizedBox(
+                    width: 300,
+                    height: 140,
+                    child: ProxyCard(
+                      groupName: 'Reference test group',
+                      testUrl: null,
+                      proxy: Proxy(name: 'Automatic', type: 'url-test'),
+                      groupType: GroupType.Selector,
+                      type: ProxyCardType.expand,
+                    ),
+                  ),
+                )
+              : const FengWoNodeSelectorView(),
+        );
         expect(find.text(currentAppLocalizations.timeout), findsWidgets);
         expect(
-          find.text(formatXboardNodeDisplayStatus(sample.$4)),
-          findsNothing,
+          find.text(currentAppLocalizations.nodeBackendOnline),
+          surface == 'card' ? findsNothing : findsWidgets,
         );
-        expect(
-          find.text(currentAppLocalizations.nodeLocallyUnreachable),
-          findsNothing,
-        );
-        expect(find.textContaining(' ms'), findsNothing);
-        expect(container.read(delayProvider(proxyName: 'Node A')), -1);
-        if (surface == 'node status') {
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  for (final measured in <int?>[null, 0, -1, 125]) {
+    for (final backendStatus in XboardNodeDisplayStatus.values) {
+      testWidgets(
+        'node availability uses $backendStatus independently of delay $measured',
+        (tester) async {
+          await pumpView(
+            tester,
+            delays: {'Node A': measured},
+            backendNodes: backendStatus == XboardNodeDisplayStatus.unknown
+                ? const []
+                : [
+                    _backendNode(
+                      backendStatus == XboardNodeDisplayStatus.online,
+                    ),
+                  ],
+            child: const FengWoNodeStatusView(),
+          );
+          final l10n = currentAppLocalizations;
+          expect(
+            find.text(formatXboardNodeDisplayStatus(backendStatus)),
+            findsWidgets,
+          );
+          expect(
+            find.text(
+              backendStatus == XboardNodeDisplayStatus.online ? '100%' : '0%',
+            ),
+            findsOneWidget,
+          );
+          expect(find.text(l10n.nodeAvailable), findsNothing);
           final map = tester.widget<FengWoWorldMap>(
             find.byType(FengWoWorldMap),
           );
-          expect(map.nodes.single.delay, -1);
-          expect(map.nodes.single.backendStatus, sample.$4);
-          expect(
-            find.text(currentAppLocalizations.nodeAvailable),
-            findsNothing,
-          );
-          final testButton = tester.widget<IconButton>(
+          expect(map.nodes.single.backendStatus, backendStatus);
+          expect(map.nodes.single.delay, measured);
+          final button = tester.widget<IconButton>(
             find.descendant(
               of: find.byKey(const ValueKey('fengwo-node-row-Node A')),
               matching: find.byType(IconButton),
             ),
           );
-          expect(testButton.onPressed == null, isFalse);
-        }
-        expect(tester.takeException(), isNull);
-      });
+          expect(
+            button.onPressed == null,
+            backendStatus == XboardNodeDisplayStatus.offline || measured == 0,
+          );
+          expect(tester.takeException(), isNull);
+        },
+      );
     }
-  }
-
-  for (final surface in ['card', 'selector']) {
-    testWidgets('$surface keeps failed group delay as timeout', (tester) async {
-      await pumpView(
-        tester,
-        delays: {'Automatic': -1},
-        backendNodes: [_backendNode(true)],
-        additionalGroups: const [
-          Group(
-            name: 'Automatic',
-            type: GroupType.URLTest,
-            now: 'Node A',
-            all: [Proxy(name: 'Node A', type: 'ss')],
-          ),
-        ],
-        child: surface == 'card'
-            ? const Center(
-                child: SizedBox(
-                  width: 300,
-                  height: 140,
-                  child: ProxyCard(
-                    groupName: 'Reference test group',
-                    testUrl: null,
-                    proxy: Proxy(name: 'Automatic', type: 'url-test'),
-                    groupType: GroupType.Selector,
-                    type: ProxyCardType.expand,
-                  ),
-                ),
-              )
-            : const FengWoNodeSelectorView(),
-      );
-      expect(find.text(currentAppLocalizations.timeout), findsWidgets);
-      expect(
-        find.text(currentAppLocalizations.nodeBackendOnline),
-        findsNothing,
-      );
-      expect(tester.takeException(), isNull);
-    });
   }
 
   for (final fails in [false, true]) {

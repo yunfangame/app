@@ -175,6 +175,21 @@ Proxy delay testing follows the same failure-safe UI rule. `proxyDelayTest()` re
 real result on success, and logs plus records `-1` on exceptions. `DelayTestButton` reverses its animation in `finally`, so
 an RPC failure cannot leave the control permanently spinning.
 
+Manual proxy delay testing uses at most 16 concurrent probes, an eight-second probe timeout, and a 30-second RPC guard.
+The default URL is HTTPS gstatic; custom and subscription-specific test URLs remain supported. The tracked
+`core/patches/reference-delay-policy.patch` processes each completed native probe exactly once before events, return
+values and successful history: original successful values through 150 milliseconds subtract 50 and clamp to one;
+larger values and completed failures become a random inclusive 120–150 millisecond reference. Raw numeric timings
+are not retained. Actual error and health semantics remain separate, and the optional RPC `successful` field prevents
+reference values from making a failed proxy pass automatic selection or chain validation. Flutter transport failures
+receive a stored reference too; pending zero and missing null remain distinct. Each node writes and renders its result
+immediately without waiting for the bulk test. Reads never repeat the transform or randomize stored values.
+Node badges, availability counts and map colors use only fresh, unambiguous backend `is_online` status. Local probe
+results cannot change online, offline or unknown backend status. Fresh explicit offline nodes block manual probes;
+missing, invalid, stale and ambiguous backend statuses remain unknown and allow probing. Group aliases use the resolved
+leaf for eligibility, and open views observe metadata revisions and offline-mode changes. `DelayTestButton` reverses
+its animation in `finally`.
+
 ## State Management
 
 Provider files in `lib/providers/`:

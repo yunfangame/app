@@ -88,6 +88,12 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
   void initState() {
     super.initState();
     globalState.xboardSessionRevisionNotifier.addListener(_onSessionChanged);
+    globalState.xboardNodesRevisionNotifier.addListener(_metadataChanged);
+    globalState.offlineModeNotifier.addListener(_metadataChanged);
+  }
+
+  void _metadataChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onSessionChanged() {
@@ -651,6 +657,8 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
   @override
   void dispose() {
     globalState.xboardSessionRevisionNotifier.removeListener(_onSessionChanged);
+    globalState.xboardNodesRevisionNotifier.removeListener(_metadataChanged);
+    globalState.offlineModeNotifier.removeListener(_metadataChanged);
     _searchController.dispose();
     _desktopVerticalController.dispose();
     _desktopHorizontalController.dispose();
@@ -677,7 +685,8 @@ class _FengWoConnectionsViewState extends ConsumerState<FengWoConnectionsView>
     final backendStatus = resolveXboardNodeDisplayStatus(
       delay.nodeName,
       globalState.xboardNodes,
-      statusAvailable: !globalState.isOfflineMode,
+      statusAvailable:
+          globalState.xboardNodesStatusFresh && !globalState.isOfflineMode,
     );
     final connections = _visibleConnections;
     return Material(
@@ -2100,8 +2109,13 @@ class _ConnectionSummaryRow extends StatelessWidget {
       _ConnectionSummaryCard(
         colors: colors,
         icon: Icons.sensors_rounded,
-        accent: colors.success,
+        accent: switch (backendStatus) {
+          XboardNodeDisplayStatus.online => colors.success,
+          XboardNodeDisplayStatus.offline => colors.danger,
+          XboardNodeDisplayStatus.unknown => colors.muted,
+        },
         label: l10n.referenceCurrentNodeDelay,
+        detail: formatXboardNodeDisplayStatus(backendStatus),
         value: switch (delay) {
           final value? when value > 0 => '$value ms',
           final value? when value < 0 => l10n.timeout,
@@ -2140,6 +2154,7 @@ class _ConnectionSummaryCard extends StatelessWidget {
   final Color accent;
   final String label;
   final String value;
+  final String? detail;
 
   const _ConnectionSummaryCard({
     required this.colors,
@@ -2147,6 +2162,7 @@ class _ConnectionSummaryCard extends StatelessWidget {
     required this.accent,
     required this.label,
     required this.value,
+    this.detail,
   });
 
   @override
@@ -2188,6 +2204,13 @@ class _ConnectionSummaryCard extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
+                if (detail != null)
+                  Text(
+                    detail!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: accent, fontSize: 11),
+                  ),
                 const SizedBox(height: 3),
                 FittedBox(
                   fit: BoxFit.scaleDown,
