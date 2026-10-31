@@ -16,6 +16,7 @@ dart setup.dart macos
 dart setup.dart linux
 dart setup.dart windows
 dart setup.dart android
+dart setup.dart android --universal
 ```
 
 Build only the Go core and skip Flutter packaging:

@@ -92,6 +92,80 @@ void main() {
       expect(results['env'], 'dev');
     });
 
+    test(
+      'parses Android universal mode and rejects conflicting selections',
+      () {
+        final results = setup.createSetupArgParser().parse([
+          'android',
+          '--universal',
+        ]);
+        expect(results['universal'], isTrue);
+        expect(results['arch'], isNull);
+        setup.validateAndroidBuildSelection(
+          platform: 'android',
+          androidUniversal: true,
+        );
+        for (final platform in ['android', 'windows', 'macos', 'linux']) {
+          expect(
+            () => setup.validateAndroidBuildSelection(
+              platform: platform,
+              androidArch: 'arm64',
+              androidUniversal: true,
+            ),
+            throwsArgumentError,
+          );
+        }
+        expect(
+          () => setup.validateAndroidBuildSelection(
+            platform: 'macos',
+            androidUniversal: true,
+          ),
+          throwsArgumentError,
+        );
+      },
+    );
+
+    test('universal builds request all targets without splitting the APK', () {
+      final args = setup.createFlutterBuildArgs(
+        platform: 'android',
+        verbose: false,
+        androidDebugInfoDirectory: '/symbols/universal/dart',
+        androidUniversal: true,
+      );
+      expect(args, [
+        'dart-define-from-file=env.json',
+        'release',
+        'obfuscate',
+        'split-debug-info=/symbols/universal/dart',
+      ]);
+      expect(
+        setup.androidTargetPlatforms(androidUniversal: true),
+        'android-arm,android-arm64,android-x64',
+      );
+      expect(
+        setup.androidTargetPlatforms(androidArch: 'arm64'),
+        'android-arm64',
+      );
+      expect(
+        () => setup.androidTargetPlatforms(
+          androidArch: 'arm64',
+          androidUniversal: true,
+        ),
+        throwsArgumentError,
+      );
+      expect(setup.createPackagingEnvironment(platform: 'android'), {
+        'ANDROID_ARCH': '',
+      });
+      expect(
+        setup.createPackagingEnvironment(
+          platform: 'android',
+          androidArch: 'arm64',
+        ),
+        {'ANDROID_ARCH': 'arm64'},
+      );
+      expect(setup.createPackagingEnvironment(platform: 'windows'), isEmpty);
+    });
+
     test('accepts unsigned macOS encrypted secret storage mode', () {
       final results = setup.createSetupArgParser().parse([
         'macos',
@@ -610,6 +684,123 @@ void main() {
         );
       },
     );
+    test(
+      'universal release replaces old split outputs and archives all symbols',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'android-universal-',
+        );
+        addTearDown(() => root.delete(recursive: true));
+        await File(
+          '${root.path}/pubspec.yaml',
+        ).writeAsString('name: fl_clash\nversion: 1.0.9+2026103118\n');
+        for (final abi in ['armeabi-v7a', 'arm64-v8a', 'x86_64']) {
+          await _writeAndroidApkFixture(root, abi, marker: 'old');
+        }
+        await _writeUniversalApkFixture(root, marker: 'old-universal');
+        final symbols = await setup.prepareAndroidReleaseSymbols(
+          root.path,
+          androidUniversal: true,
+        );
+        expect(symbols.path, contains('/1.0.9+2026103118/universal/build-'));
+        await setup.quarantineAndroidReleaseApks(root.path, symbols);
+        final backup =
+            jsonDecode(
+                  await File(
+                    '${symbols.path}/previous-apks.json',
+                  ).readAsString(),
+                )
+                as List;
+        expect(backup, hasLength(8));
+        final apk = await _writeUniversalApkFixture(
+          root,
+          marker: 'new-universal',
+        );
+        for (final target in ['android-arm', 'android-arm64', 'android-x64']) {
+          final file = File('${symbols.path}/dart/app.$target.symbols');
+          await file.parent.create(recursive: true);
+          await file.writeAsString('symbols-$target');
+        }
+        final mapping = File(
+          '${root.path}/build/app/outputs/mapping/release/mapping.txt',
+        );
+        await mapping.parent.create(recursive: true);
+        await mapping.writeAsString('fixture.Model -> a:\n');
+
+        final manifest = await setup.archiveAndroidReleaseSymbols(
+          root.path,
+          symbols,
+          androidUniversal: true,
+        );
+        final record = jsonDecode(await manifest.readAsString()) as Map;
+        final artifact = (record['artifacts'] as List).single as Map;
+
+        expect(record['universal'], isTrue);
+        expect(artifact['abi'], 'universal');
+        expect((artifact['abis'] as List).toSet(), {
+          'armeabi-v7a',
+          'arm64-v8a',
+          'x86_64',
+        });
+        expect(
+          artifact['apk']['sha256'],
+          sha256.convert(await apk.readAsBytes()).toString(),
+        );
+        expect(
+          artifact['distributed_apk']['sha256'],
+          artifact['apk']['sha256'],
+        );
+        expect(
+          (artifact['dart_symbols'] as List)
+              .map((entry) => entry['abi'])
+              .toSet(),
+          {'armeabi-v7a', 'arm64-v8a', 'x86_64'},
+        );
+        expect(
+          (record['r8'] as List).single['path'],
+          endsWith('/r8/mapping.txt'),
+        );
+        final distApks = await Directory(
+          '${root.path}/dist',
+        ).list().where((file) => file.path.endsWith('.apk')).toList();
+        expect(distApks, hasLength(1));
+      },
+    );
+
+    test('rejects a single ABI relabelled as a universal APK', () async {
+      final root = await Directory.systemTemp.createTemp('android-universal-');
+      addTearDown(() => root.delete(recursive: true));
+      await File(
+        '${root.path}/pubspec.yaml',
+      ).writeAsString('name: fl_clash\nversion: 1.0.9+2026103118\n');
+      final apk = await _writeAndroidApkFixture(root, 'arm64-v8a');
+      await apk.rename('${apk.parent.path}/app-release.apk');
+      await File(
+        '${root.path}/dist/fl_clash-1.0.9-android-arm64-v8a.apk',
+      ).rename('${root.path}/dist/fl_clash-1.0.9-android.apk');
+
+      await expectLater(
+        setup.verifyAndroidReleaseApks(root.path, androidUniversal: true),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects mixed universal and split distribution files', () async {
+      final root = await Directory.systemTemp.createTemp('android-universal-');
+      addTearDown(() => root.delete(recursive: true));
+      await File(
+        '${root.path}/pubspec.yaml',
+      ).writeAsString('name: fl_clash\nversion: 1.0.9+2026103118\n');
+      await _writeUniversalApkFixture(root);
+      await File(
+        '${root.path}/dist/fl_clash-1.0.9-android-arm64-v8a.apk',
+      ).writeAsString('old-arm64');
+
+      await expectLater(
+        setup.verifyAndroidReleaseApks(root.path, androidUniversal: true),
+        throwsFormatException,
+      );
+    });
   });
 }
 
@@ -629,6 +820,28 @@ Future<File> _writeAndroidApkFixture(
   await apk.parent.create(recursive: true);
   await apk.writeAsBytes(ZipEncoder().encode(archive));
   final packaged = File('${root.path}/dist/fl_clash-1.0.9-android-$abi.apk');
+  await packaged.parent.create(recursive: true);
+  await apk.copy(packaged.path);
+  return apk;
+}
+
+Future<File> _writeUniversalApkFixture(
+  Directory root, {
+  String marker = 'fixture',
+}) async {
+  final archive = Archive();
+  for (final abi in ['armeabi-v7a', 'arm64-v8a', 'x86_64']) {
+    for (final name in ['libapp.so', 'libflutter.so', 'libclash.so']) {
+      final bytes = utf8.encode('$marker-$abi-$name');
+      archive.addFile(ArchiveFile('lib/$abi/$name', bytes.length, bytes));
+    }
+  }
+  final apk = File(
+    '${root.path}/build/app/outputs/flutter-apk/app-release.apk',
+  );
+  await apk.parent.create(recursive: true);
+  await apk.writeAsBytes(ZipEncoder().encode(archive));
+  final packaged = File('${root.path}/dist/fl_clash-1.0.9-android.apk');
   await packaged.parent.create(recursive: true);
   await apk.copy(packaged.path);
   return apk;

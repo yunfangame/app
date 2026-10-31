@@ -281,6 +281,8 @@ Shared:
 Android release packaging requires complete signing inputs and passes Dart obfuscation plus split debug info to Flutter.
 Each build archives its Dart symbols, R8 mapping, ABI package hashes, and symbol hashes under the ignored
 `release-symbols/android/` directory. These files stay separate from distributable installers for crash symbolication.
+Use `--universal` for the shared `fengwo.apk` distribution URL; it builds all three Android ABIs in one APK and cannot be
+combined with `--arch`. Universal packages use the base version code without split-ABI offsets.
 
 Go core building is handled by `build_tool`, a standalone Dart CLI in `plugins/setup/buildkit/build_tool/`.
 

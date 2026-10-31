@@ -65,6 +65,12 @@ Future<void> main(List<String> args) async {
   final arch = _detectArch();
   final targets = _getTargets(platform, arch, results['targets']);
   final androidArch = results['arch'] as String?;
+  final androidUniversal = results['universal'] as bool;
+  validateAndroidBuildSelection(
+    platform: platform,
+    androidArch: androidArch,
+    androidUniversal: androidUniversal,
+  );
   final verbose = results['verbose'] as bool;
   final macOsFileSecretStorage = results['macos-file-secret-storage'] as bool;
 
@@ -75,6 +81,7 @@ Future<void> main(List<String> args) async {
     rootDir,
     arch,
     androidArch: androidArch,
+    androidUniversal: androidUniversal,
     verbose: verbose,
     macOsFileSecretStorage: macOsFileSecretStorage,
   );
@@ -101,6 +108,11 @@ ArgParser createSetupArgParser() {
       help: 'Target architecture (Android only)',
     )
     ..addFlag(
+      'universal',
+      negatable: false,
+      help: 'Build one Android APK for all three architectures',
+    )
+    ..addFlag(
       'verbose',
       abbr: 'v',
       negatable: false,
@@ -117,6 +129,7 @@ List<String> createFlutterBuildArgs({
   required String platform,
   required bool verbose,
   String? androidDebugInfoDirectory,
+  bool androidUniversal = false,
 }) {
   final flutterBuildArgs = <String>[
     if (verbose) 'verbose',
@@ -130,13 +143,47 @@ List<String> createFlutterBuildArgs({
     }
     flutterBuildArgs.addAll([
       'release',
-      'split-per-abi',
+      if (!androidUniversal) 'split-per-abi',
       'obfuscate',
       'split-debug-info=$androidDebugInfoDirectory',
     ]);
   }
   return flutterBuildArgs;
 }
+
+void validateAndroidBuildSelection({
+  required String platform,
+  String? androidArch,
+  bool androidUniversal = false,
+}) {
+  if (androidUniversal && (platform != 'android' || androidArch != null)) {
+    throw ArgumentError(
+      '--universal requires Android and cannot be combined with --arch',
+    );
+  }
+  if (androidArch != null && !_androidFlutterTarget.containsKey(androidArch)) {
+    throw ArgumentError('Unknown Android architecture');
+  }
+}
+
+String androidTargetPlatforms({
+  String? androidArch,
+  bool androidUniversal = false,
+}) {
+  validateAndroidBuildSelection(
+    platform: 'android',
+    androidArch: androidArch,
+    androidUniversal: androidUniversal,
+  );
+  return androidArch == null
+      ? _androidFlutterTarget.values.join(',')
+      : _androidFlutterTarget[androidArch]!;
+}
+
+Map<String, String> createPackagingEnvironment({
+  required String platform,
+  String? androidArch,
+}) => {if (platform == 'android') 'ANDROID_ARCH': androidArch ?? ''};
 
 Future<void> validateAndroidReleaseSigningInputs(String rootDir) async {
   final store = File(p.join(rootDir, 'android', 'app', 'keystore.jks'));
@@ -170,7 +217,13 @@ Future<void> validateAndroidReleaseSigningInputs(String rootDir) async {
 Future<Directory> prepareAndroidReleaseSymbols(
   String rootDir, {
   String? androidArch,
+  bool androidUniversal = false,
 }) async {
+  validateAndroidBuildSelection(
+    platform: 'android',
+    androidArch: androidArch,
+    androidUniversal: androidUniversal,
+  );
   final pubspec = loadYaml(
     await File(p.join(rootDir, 'pubspec.yaml')).readAsString(),
   );
@@ -190,7 +243,7 @@ Future<Directory> prepareAndroidReleaseSymbols(
       'release-symbols',
       'android',
       version,
-      androidArch ?? 'all-abis',
+      androidUniversal ? 'universal' : androidArch ?? 'all-abis',
     ),
   );
   await parent.create(recursive: true);
@@ -328,13 +381,22 @@ Future<Map<String, Object>> _androidFileRecord(
 Future<List<Map<String, Object>>> verifyAndroidReleaseApks(
   String rootDir, {
   String? androidArch,
+  bool androidUniversal = false,
 }) async {
+  validateAndroidBuildSelection(
+    platform: 'android',
+    androidArch: androidArch,
+    androidUniversal: androidUniversal,
+  );
   final architectures = androidArch == null
       ? _androidFlutterTarget.keys.toList()
       : [androidArch];
   final expectedNames = {
-    for (final arch in architectures)
-      'app-${_androidAbiByArch[arch] ?? (throw ArgumentError('Unknown Android architecture'))}-release.apk',
+    if (androidUniversal)
+      'app-release.apk'
+    else
+      for (final arch in architectures)
+        'app-${_androidAbiByArch[arch]!}-release.apk',
   };
   final flutterApks = await _androidFlutterApks(rootDir);
   if (flutterApks.length != expectedNames.length ||
@@ -346,7 +408,10 @@ Future<List<Map<String, Object>>> verifyAndroidReleaseApks(
   final artifact = await androidReleaseArtifactName(rootDir);
   final stem = p.basenameWithoutExtension(artifact);
   final expectedDist = {
-    for (final arch in architectures) '$stem-${_androidAbiByArch[arch]}.apk',
+    if (androidUniversal)
+      artifact
+    else
+      for (final arch in architectures) '$stem-${_androidAbiByArch[arch]}.apk',
   };
   final knownDist = {
     artifact,
@@ -366,8 +431,13 @@ Future<List<Map<String, Object>>> verifyAndroidReleaseApks(
     }
   }
   final records = <Map<String, Object>>[];
-  for (final arch in architectures) {
-    final abi = _androidAbiByArch[arch]!;
+  final packages = androidUniversal
+      ? ['universal']
+      : architectures.map((arch) => _androidAbiByArch[arch]!).toList();
+  for (final abi in packages) {
+    final expectedAbis = androidUniversal
+        ? _androidAbiByArch.values.toSet()
+        : {abi};
     final apk = File(
       p.join(
         rootDir,
@@ -375,7 +445,7 @@ Future<List<Map<String, Object>>> verifyAndroidReleaseApks(
         'app',
         'outputs',
         'flutter-apk',
-        'app-$abi-release.apk',
+        androidUniversal ? 'app-release.apk' : 'app-$abi-release.apk',
       ),
     );
     final input = InputFileStream(apk.path);
@@ -391,13 +461,15 @@ Future<List<Map<String, Object>>> verifyAndroidReleaseApks(
           .map((file) => file.name)
           .toSet();
       final abis = libraries.map((name) => name.split('/')[1]).toSet();
-      if (abis.length != 1 ||
-          abis.single != abi ||
-          ![
-            'libapp.so',
-            'libflutter.so',
-            'libclash.so',
-          ].every((name) => libraries.contains('lib/$abi/$name'))) {
+      if (abis.length != expectedAbis.length ||
+          !abis.containsAll(expectedAbis) ||
+          !expectedAbis.every(
+            (expectedAbi) => [
+              'libapp.so',
+              'libflutter.so',
+              'libclash.so',
+            ].every((name) => libraries.contains('lib/$expectedAbi/$name')),
+          )) {
         throw const FormatException(
           'Android APK native libraries do not match its ABI',
         );
@@ -405,7 +477,9 @@ Future<List<Map<String, Object>>> verifyAndroidReleaseApks(
     } finally {
       await input.close();
     }
-    final packaged = File(p.join(dist.path, '$stem-$abi.apk'));
+    final packaged = File(
+      p.join(dist.path, androidUniversal ? artifact : '$stem-$abi.apk'),
+    );
     if (await FileSystemEntity.isLink(packaged.path)) {
       throw FileSystemException(
         'Android distribution APK must not be a symlink',
@@ -420,7 +494,12 @@ Future<List<Map<String, Object>>> verifyAndroidReleaseApks(
         'Android distribution APK differs from the current build',
       );
     }
-    records.add({'abi': abi, 'apk': original, 'distributed_apk': distributed});
+    records.add({
+      'abi': abi,
+      'abis': expectedAbis.toList(),
+      'apk': original,
+      'distributed_apk': distributed,
+    });
   }
   return records;
 }
@@ -429,22 +508,35 @@ Future<File> archiveAndroidReleaseSymbols(
   String rootDir,
   Directory symbolsDirectory, {
   String? androidArch,
+  bool androidUniversal = false,
 }) async {
   final dartDirectory = Directory(p.join(symbolsDirectory.path, 'dart'));
   final files = <Map<String, Object>>[];
   final apks = await verifyAndroidReleaseApks(
     rootDir,
     androidArch: androidArch,
+    androidUniversal: androidUniversal,
   );
   for (final output in apks) {
-    final arch = _androidAbiByArch.entries
-        .singleWhere((entry) => entry.value == output['abi'])
-        .key;
-    final target = _androidFlutterTarget[arch]!;
-    final symbols = File(p.join(dartDirectory.path, 'app.$target.symbols'));
+    final architectures = androidUniversal
+        ? _androidAbiByArch.keys.toList()
+        : [
+            _androidAbiByArch.entries
+                .singleWhere((entry) => entry.value == output['abi'])
+                .key,
+          ];
+    final symbols = <Map<String, Object>>[];
+    for (final architecture in architectures) {
+      final target = _androidFlutterTarget[architecture]!;
+      final file = File(p.join(dartDirectory.path, 'app.$target.symbols'));
+      symbols.add({
+        'abi': _androidAbiByArch[architecture]!,
+        ...await _androidFileRecord(rootDir, file),
+      });
+    }
     files.add({
       ...output,
-      'dart_symbols': await _androidFileRecord(rootDir, symbols),
+      'dart_symbols': androidUniversal ? symbols : symbols.single,
     });
   }
 
@@ -480,7 +572,7 @@ Future<File> archiveAndroidReleaseSymbols(
           as YamlMap;
   final manifest = File(p.join(symbolsDirectory.path, 'manifest.json'));
   await manifest.writeAsString(
-    '${const JsonEncoder.withIndent('  ').convert({'version': pubspec['version'], 'obfuscated': true, 'artifacts': files, 'r8': r8Files})}\n',
+    '${const JsonEncoder.withIndent('  ').convert({'version': pubspec['version'], 'obfuscated': true, 'universal': androidUniversal, 'artifacts': files, 'r8': r8Files})}\n',
   );
   return manifest;
 }
@@ -575,6 +667,7 @@ Future<int> _package(
   String rootDir,
   String arch, {
   String? androidArch,
+  bool androidUniversal = false,
   required bool verbose,
   required bool macOsFileSecretStorage,
 }) async {
@@ -584,6 +677,7 @@ Future<int> _package(
     androidSymbols = await prepareAndroidReleaseSymbols(
       rootDir,
       androidArch: androidArch,
+      androidUniversal: androidUniversal,
     );
   }
   await writeBuildEnvironmentFile(
@@ -595,6 +689,7 @@ Future<int> _package(
   final flutterBuildArgs = createFlutterBuildArgs(
     platform: platform,
     verbose: verbose,
+    androidUniversal: androidUniversal,
     androidDebugInfoDirectory: androidSymbols == null
         ? null
         : p.join(androidSymbols.path, 'dart'),
@@ -656,14 +751,17 @@ Future<int> _package(
       '--targets',
       targets,
       if (androidArtifactName != null) '--artifact-name=$androidArtifactName',
-      if (androidArch != null)
-        '--build-target-platform=${_androidFlutterTarget[androidArch]!}',
+      if (platform == 'android')
+        '--build-target-platform=${androidTargetPlatforms(androidArch: androidArch, androidUniversal: androidUniversal)}',
       if (flutterBuildArgs.isNotEmpty)
         '--flutter-build-args=${flutterBuildArgs.join(',')}',
       ...descriptionArgs,
     ],
     includeParentEnvironment: true,
-    environment: {'ANDROID_ARCH': ?androidArch},
+    environment: createPackagingEnvironment(
+      platform: platform,
+      androidArch: androidArch,
+    ),
     runInShell: Platform.isWindows,
   );
 
@@ -679,6 +777,7 @@ Future<int> _package(
       rootDir,
       androidSymbols!,
       androidArch: androidArch,
+      androidUniversal: androidUniversal,
     );
   }
   if (exitCode == 0 && platform == 'windows') {
