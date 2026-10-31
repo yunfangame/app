@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $binding = if ($Architecture -eq 'x64') {
-    @{ offset = 58287808; bytes = 427552; sha256 = 'e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce' }
+    @{ offset = 58288320; bytes = 427552; sha256 = 'e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce' }
 } else {
     @{ offset = 53395488; bytes = 222488; sha256 = 'f7ba89005544be9d85231a9e0d5f23b2d15b3311667e2dad0debd344918a3f80' }
 }
