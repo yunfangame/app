@@ -702,6 +702,39 @@ void main() {
 
   group('SetupAction', () {
     group('rapid status changes', () {
+      test(
+        'background sampling pause preserves running state and resumes immediately',
+        () async {
+          final container = ProviderContainer(
+            overrides: [
+              initProvider.overrideWithBuild((_, _) => true),
+              commonActionProvider.overrideWith(_RaceCommonAction.new),
+              setupActionProvider.overrideWith(_RaceSetupAction.new),
+            ],
+          );
+          addTearDown(container.dispose);
+          final action = container.read(setupActionProvider.notifier);
+          final commonAction =
+              container.read(commonActionProvider.notifier)
+                  as _RaceCommonAction;
+          action.setRuntimeForeground(false);
+
+          await action.setRunning(true);
+          expect(container.read(isStartProvider), isTrue);
+          expect(container.read(runTimeProvider), isNotNull);
+          expect(commonAction.updateTrafficCount, 0);
+
+          action.setRuntimeForeground(true);
+          expect(commonAction.updateTrafficCount, 1);
+          action.setRuntimeForeground(false);
+          expect(container.read(isStartProvider), isTrue);
+          await action.setRunning(false);
+          expect(container.read(isStartProvider), isFalse);
+          action.setRuntimeForeground(true);
+          expect(commonAction.updateTrafficCount, 1);
+        },
+      );
+
       test('updates runtime and traffic while core start is pending', () async {
         final startCompleter = Completer<bool>();
         final container = ProviderContainer(
@@ -1152,6 +1185,12 @@ class _TestProfiles extends Profiles {
   List<Profile> build() => initial;
 
   @override
+  Future<void> persistProfile(Profile profile) async {}
+
+  @override
+  Future<void> putDurable(Profile profile) async => put(profile);
+
+  @override
   void put(Profile profile) {
     final next = List<Profile>.from(state);
     final index = next.indexWhere((item) => item.id == profile.id);
@@ -1337,7 +1376,7 @@ class _RaceCommonAction extends CommonAction {
   int updateTrafficCount = 0;
 
   @override
-  Future<void> updateTraffic() async {
+  Future<void> updateTraffic({bool Function()? isCurrent}) async {
     updateTrafficCount++;
   }
 }

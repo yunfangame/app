@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 import 'package:test/test.dart';
 
 import '../setup.dart' as setup;
@@ -239,22 +241,395 @@ void main() {
       final args = setup.createFlutterBuildArgs(
         platform: 'android',
         verbose: false,
+        androidDebugInfoDirectory: '/symbols/1.0.9+2026103118/arm64/dart',
       );
 
-      expect(args, ['dart-define-from-file=env.json', 'split-per-abi']);
+      expect(args, [
+        'dart-define-from-file=env.json',
+        'release',
+        'split-per-abi',
+        'obfuscate',
+        'split-debug-info=/symbols/1.0.9+2026103118/arm64/dart',
+      ]);
     });
 
     test('adds verbose to flutter build args with -v', () {
       final args = setup.createFlutterBuildArgs(
         platform: 'android',
         verbose: true,
+        androidDebugInfoDirectory: '/symbols/1.0.9+2026103118/arm64/dart',
       );
 
       expect(args, [
         'verbose',
         'dart-define-from-file=env.json',
+        'release',
         'split-per-abi',
+        'obfuscate',
+        'split-debug-info=/symbols/1.0.9+2026103118/arm64/dart',
       ]);
     });
+
+    test('requires an unambiguous Android symbols directory', () {
+      for (final directory in [null, '', '/symbols/invalid,path']) {
+        expect(
+          () => setup.createFlutterBuildArgs(
+            platform: 'android',
+            verbose: false,
+            androidDebugInfoDirectory: directory,
+          ),
+          throwsArgumentError,
+        );
+      }
+    });
+
+    test('preserves desktop Flutter build arguments', () {
+      for (final platform in ['macos', 'windows', 'linux']) {
+        expect(
+          setup.createFlutterBuildArgs(platform: platform, verbose: false),
+          ['dart-define-from-file=env.json'],
+        );
+      }
+    });
+
+    test('rejects missing or incomplete Android release signing', () async {
+      final root = await Directory.systemTemp.createTemp('android-signing-');
+      addTearDown(() => root.delete(recursive: true));
+      final store = File('${root.path}/android/app/keystore.jks');
+      final properties = File('${root.path}/android/local.properties');
+      await store.parent.create(recursive: true);
+      await properties.writeAsString(
+        'storePassword=fixture-store\nkeyAlias=fixture-alias\nkeyPassword=fixture-key\n',
+      );
+      await expectLater(
+        setup.validateAndroidReleaseSigningInputs(root.path),
+        throwsFormatException,
+      );
+      await store.writeAsString('fixture-keystore');
+      await properties.writeAsString('storePassword=fixture-store\n');
+      await expectLater(
+        setup.validateAndroidReleaseSigningInputs(root.path),
+        throwsFormatException,
+      );
+      await properties.writeAsString(
+        'storePassword=fixture-store\nkeyAlias=fixture-alias\nkeyPassword=fixture-key\nkeyPassword=   \n',
+      );
+      await expectLater(
+        setup.validateAndroidReleaseSigningInputs(root.path),
+        throwsFormatException,
+      );
+    });
+
+    test('accepts complete Android release signing inputs', () async {
+      final root = await Directory.systemTemp.createTemp('android-signing-');
+      addTearDown(() => root.delete(recursive: true));
+      final store = File('${root.path}/android/app/keystore.jks');
+      await store.parent.create(recursive: true);
+      await store.writeAsString('fixture-keystore');
+      await File('${root.path}/android/local.properties').writeAsString(
+        '# fixture\nstorePassword=fixture-store\nkeyAlias: fixture-alias\nkeyPassword fixture-key\n',
+      );
+
+      await setup.validateAndroidReleaseSigningInputs(root.path);
+    });
+
+    test(
+      'keeps symbols unique for version and selected architecture',
+      () async {
+        final root = await Directory.systemTemp.createTemp('android-symbols-');
+        addTearDown(() => root.delete(recursive: true));
+        await File(
+          '${root.path}/pubspec.yaml',
+        ).writeAsString('name: fl_clash\nversion: 1.0.9+2026103118\n');
+
+        final first = await setup.prepareAndroidReleaseSymbols(
+          root.path,
+          androidArch: 'arm64',
+        );
+        final second = await setup.prepareAndroidReleaseSymbols(
+          root.path,
+          androidArch: 'arm64',
+        );
+        final all = await setup.prepareAndroidReleaseSymbols(root.path);
+
+        expect(first.path, contains('/1.0.9+2026103118/arm64/build-'));
+        expect(second.path, isNot(first.path));
+        expect(all.path, contains('/1.0.9+2026103118/all-abis/build-'));
+      },
+    );
+
+    test('rejects unsafe or unversioned Android symbols archives', () async {
+      final root = await Directory.systemTemp.createTemp('android-symbols-');
+      addTearDown(() => root.delete(recursive: true));
+      for (final version in ['1.0.9', '../outside', '1.0.9+../../outside']) {
+        await File(
+          '${root.path}/pubspec.yaml',
+        ).writeAsString('version: $version\n');
+        await expectLater(
+          setup.prepareAndroidReleaseSymbols(root.path),
+          throwsFormatException,
+        );
+      }
+      expect(await Directory('${root.path}/release-symbols').exists(), isFalse);
+    });
+
+    test('archives R8 mapping and binds Dart symbols to each APK', () async {
+      final root = await Directory.systemTemp.createTemp('android-symbols-');
+      addTearDown(() => root.delete(recursive: true));
+      await File(
+        '${root.path}/pubspec.yaml',
+      ).writeAsString('name: fl_clash\nversion: 1.0.9+2026103118\n');
+      final directory = await setup.prepareAndroidReleaseSymbols(root.path);
+      final abis = {
+        'android-arm': 'armeabi-v7a',
+        'android-arm64': 'arm64-v8a',
+        'android-x64': 'x86_64',
+      };
+      for (final entry in abis.entries) {
+        final symbols = File('${directory.path}/dart/app.${entry.key}.symbols');
+        await symbols.parent.create(recursive: true);
+        await symbols.writeAsString('symbols-${entry.value}');
+        await _writeAndroidApkFixture(root, entry.value);
+      }
+      final mapping = File(
+        '${root.path}/build/app/outputs/mapping/release/mapping.txt',
+      );
+      await mapping.parent.create(recursive: true);
+      await mapping.writeAsString('fixture.Model -> a:\n');
+
+      final manifest = await setup.archiveAndroidReleaseSymbols(
+        root.path,
+        directory,
+      );
+      final record = jsonDecode(await manifest.readAsString()) as Map;
+
+      expect(record['version'], '1.0.9+2026103118');
+      expect(record['obfuscated'], isTrue);
+      final artifacts = record['artifacts'] as List;
+      expect(artifacts.map((row) => row['abi']).toSet(), abis.values.toSet());
+      for (final row in artifacts) {
+        expect(
+          row['apk']['sha256'],
+          sha256
+              .convert(
+                await File('${root.path}/${row['apk']['path']}').readAsBytes(),
+              )
+              .toString(),
+        );
+        expect(
+          row['dart_symbols']['sha256'],
+          sha256.convert(utf8.encode('symbols-${row['abi']}')).toString(),
+        );
+      }
+      expect(
+        (record['r8'] as List).single['path'],
+        endsWith('/r8/mapping.txt'),
+      );
+      expect(
+        await File('${directory.path}/r8/mapping.txt').readAsString(),
+        await mapping.readAsString(),
+      );
+    });
+
+    test(
+      'rejects a successful build without its selected Dart symbols',
+      () async {
+        final root = await Directory.systemTemp.createTemp('android-symbols-');
+        addTearDown(() => root.delete(recursive: true));
+        await File(
+          '${root.path}/pubspec.yaml',
+        ).writeAsString('name: fl_clash\nversion: 1.0.9+2026103118\n');
+        final directory = await setup.prepareAndroidReleaseSymbols(
+          root.path,
+          androidArch: 'arm64',
+        );
+        await _writeAndroidApkFixture(root, 'arm64-v8a');
+
+        await expectLater(
+          setup.archiveAndroidReleaseSymbols(
+            root.path,
+            directory,
+            androidArch: 'arm64',
+          ),
+          throwsA(isA<FileSystemException>()),
+        );
+        expect(await File('${directory.path}/manifest.json').exists(), isFalse);
+      },
+    );
+
+    test('rejects a successful build without its R8 mapping', () async {
+      final root = await Directory.systemTemp.createTemp('android-symbols-');
+      addTearDown(() => root.delete(recursive: true));
+      await File(
+        '${root.path}/pubspec.yaml',
+      ).writeAsString('name: fl_clash\nversion: 1.0.9+2026103118\n');
+      final directory = await setup.prepareAndroidReleaseSymbols(
+        root.path,
+        androidArch: 'arm64',
+      );
+      await _writeAndroidApkFixture(root, 'arm64-v8a');
+      final symbols = File('${directory.path}/dart/app.android-arm64.symbols');
+      await symbols.parent.create(recursive: true);
+      await symbols.writeAsString('fixture-symbols');
+
+      await expectLater(
+        setup.archiveAndroidReleaseSymbols(
+          root.path,
+          directory,
+          androidArch: 'arm64',
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(await File('${directory.path}/manifest.json').exists(), isFalse);
+    });
+
+    test('quarantines old ABI outputs before a single ARM64 build', () async {
+      final root = await Directory.systemTemp.createTemp('android-old-abis-');
+      addTearDown(() => root.delete(recursive: true));
+      await File(
+        '${root.path}/pubspec.yaml',
+      ).writeAsString('name: fl_clash\nversion: 1.0.9+2026103118\n');
+      for (final abi in ['armeabi-v7a', 'arm64-v8a', 'x86_64']) {
+        await _writeAndroidApkFixture(root, abi, marker: 'old');
+      }
+      final unrelated = File('${root.path}/dist/user-package.apk');
+      await unrelated.writeAsString('user-owned');
+      final debug = File(
+        '${root.path}/build/app/outputs/flutter-apk/app-debug.apk',
+      );
+      await debug.writeAsString('debug-build');
+      final symbols = await setup.prepareAndroidReleaseSymbols(
+        root.path,
+        androidArch: 'arm64',
+      );
+
+      await setup.quarantineAndroidReleaseApks(root.path, symbols);
+
+      final backups =
+          jsonDecode(
+                await File('${symbols.path}/previous-apks.json').readAsString(),
+              )
+              as List;
+      expect(backups, hasLength(6));
+      for (final row in backups) {
+        expect(await File('${root.path}/${row['original']}').exists(), isFalse);
+        expect(await File('${root.path}/${row['archived']}').exists(), isTrue);
+      }
+      final fresh = await _writeAndroidApkFixture(
+        root,
+        'arm64-v8a',
+        marker: 'new',
+      );
+      final artifacts = await setup.verifyAndroidReleaseApks(
+        root.path,
+        androidArch: 'arm64',
+      );
+
+      expect(artifacts.single['abi'], 'arm64-v8a');
+      expect(
+        (artifacts.single['apk'] as Map)['sha256'],
+        sha256.convert(await fresh.readAsBytes()).toString(),
+      );
+      expect(
+        (artifacts.single['distributed_apk'] as Map)['sha256'],
+        (artifacts.single['apk'] as Map)['sha256'],
+      );
+      expect(await unrelated.readAsString(), 'user-owned');
+      expect(await debug.readAsString(), 'debug-build');
+    });
+
+    test(
+      'preserves unknown release APKs and refuses to package them',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'android-foreign-apk-',
+        );
+        addTearDown(() => root.delete(recursive: true));
+        await File(
+          '${root.path}/pubspec.yaml',
+        ).writeAsString('name: fl_clash\nversion: 1.0.9+2026103118\n');
+        final known = await _writeAndroidApkFixture(root, 'arm64-v8a');
+        final foreign = File('${known.parent.path}/user-release.apk');
+        await foreign.writeAsString('user-owned');
+        final symbols = await setup.prepareAndroidReleaseSymbols(root.path);
+
+        await expectLater(
+          setup.quarantineAndroidReleaseApks(root.path, symbols),
+          throwsA(isA<FileSystemException>()),
+        );
+
+        expect(await foreign.readAsString(), 'user-owned');
+        expect(await known.exists(), isTrue);
+      },
+    );
+
+    test('rejects stale ABI copies and modified distributed APKs', () async {
+      final root = await Directory.systemTemp.createTemp('android-dist-apk-');
+      addTearDown(() => root.delete(recursive: true));
+      await File(
+        '${root.path}/pubspec.yaml',
+      ).writeAsString('name: fl_clash\nversion: 1.0.9+2026103118\n');
+      await _writeAndroidApkFixture(root, 'arm64-v8a');
+      final stale = File('${root.path}/dist/fl_clash-1.0.9-android-x86_64.apk');
+      await stale.writeAsString('old-x86');
+      await expectLater(
+        setup.verifyAndroidReleaseApks(root.path, androidArch: 'arm64'),
+        throwsFormatException,
+      );
+      await stale.delete();
+      await File(
+        '${root.path}/dist/fl_clash-1.0.9-android-arm64-v8a.apk',
+      ).writeAsString('wrong-bytes');
+
+      await expectLater(
+        setup.verifyAndroidReleaseApks(root.path, androidArch: 'arm64'),
+        throwsFormatException,
+      );
+    });
+
+    test(
+      'rejects native libraries with a different ABI than the filename',
+      () async {
+        final root = await Directory.systemTemp.createTemp('android-apk-abi-');
+        addTearDown(() => root.delete(recursive: true));
+        await File(
+          '${root.path}/pubspec.yaml',
+        ).writeAsString('name: fl_clash\nversion: 1.0.9+2026103118\n');
+        final wrong = await _writeAndroidApkFixture(root, 'x86_64');
+        await wrong.rename('${wrong.parent.path}/app-arm64-v8a-release.apk');
+        final wrongDist = File(
+          '${root.path}/dist/fl_clash-1.0.9-android-x86_64.apk',
+        );
+        await wrongDist.rename(
+          '${root.path}/dist/fl_clash-1.0.9-android-arm64-v8a.apk',
+        );
+
+        await expectLater(
+          setup.verifyAndroidReleaseApks(root.path, androidArch: 'arm64'),
+          throwsFormatException,
+        );
+      },
+    );
   });
+}
+
+Future<File> _writeAndroidApkFixture(
+  Directory root,
+  String abi, {
+  String marker = 'fixture',
+}) async {
+  final archive = Archive();
+  for (final name in ['libapp.so', 'libflutter.so', 'libclash.so']) {
+    final bytes = utf8.encode('$marker-$abi-$name');
+    archive.addFile(ArchiveFile('lib/$abi/$name', bytes.length, bytes));
+  }
+  final apk = File(
+    '${root.path}/build/app/outputs/flutter-apk/app-$abi-release.apk',
+  );
+  await apk.parent.create(recursive: true);
+  await apk.writeAsBytes(ZipEncoder().encode(archive));
+  final packaged = File('${root.path}/dist/fl_clash-1.0.9-android-$abi.apk');
+  await packaged.parent.create(recursive: true);
+  await apk.copy(packaged.path);
+  return apk;
 }

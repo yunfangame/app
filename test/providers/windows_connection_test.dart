@@ -412,5 +412,5 @@ class _WindowsSetup extends SetupAction {
 
 class _QuietCommon extends CommonAction {
   @override
-  Future<void> updateTraffic() async {}
+  Future<void> updateTraffic({bool Function()? isCurrent}) async {}
 }

@@ -364,6 +364,77 @@ void main() {
     expect(find.byType(XboardAnnouncementDialog), findsNothing);
   });
 
+  _hostTest('disposing a host cancels the pending native window deadline', (
+    tester,
+    rig,
+  ) async {
+    rig.observeWindow = true;
+    final visibility = Completer<bool>();
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('window_manager'),
+      (call) async => call.method == 'isVisible'
+          ? visibility.future
+          : call.method != 'isMinimized',
+    );
+    await rig.mount(tester);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    expect(visibility.isCompleted, isFalse);
+    expect(rig.service.calls, 0);
+  });
+
+  _hostTest('superseded native reads release their deadlines before disposal', (
+    tester,
+    rig,
+  ) async {
+    rig.observeWindow = true;
+    final reads = <Completer<bool>>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('window_manager'),
+      (call) async {
+        if (call.method == 'isVisible') {
+          final pending = Completer<bool>();
+          reads.add(pending);
+          return pending.future;
+        }
+        return call.method != 'isMinimized';
+      },
+    );
+    await rig.mount(tester);
+    await _windowEvent(tester, 'show');
+    await tester.pump();
+    expect(reads.length, greaterThanOrEqualTo(2));
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    expect(reads.every((read) => !read.isCompleted), isTrue);
+  });
+
+  _hostTest(
+    'focus supersedes a late background result without changing shared reads',
+    (tester, rig) async {
+      rig.observeWindow = true;
+      final visibility = Completer<bool>();
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('window_manager'),
+        (call) async => call.method == 'isVisible'
+            ? visibility.future
+            : call.method != 'isMinimized',
+      );
+      await rig.mount(tester);
+      await rig.automatic(tester);
+      expect(rig.service.calls, 0);
+      await _windowEvent(tester, 'focus');
+      await tester.pumpAndSettle();
+      expect(rig.service.calls, 1);
+      visibility.complete(false);
+      await tester.pumpAndSettle();
+      await rig.close(tester);
+      rig.now = rig.now.add(const Duration(minutes: 5));
+      await rig.automatic(tester);
+      expect(rig.service.calls, 2);
+    },
+  );
+
   for (final pause in ['page', 'lifecycle', 'window', 'offline', 'modal']) {
     _hostTest('automatic pagination defers under $pause and replays once', (
       tester,

@@ -25,7 +25,21 @@ class _RunRequest {
 
 @Riverpod(keepAlive: true)
 class SetupAction extends _$SetupAction {
-  Timer? _runtimeTimer;
+  late final _runtimeSampler = RuntimeSampler(
+    sample: (isCurrent) async {
+      if (!ref.mounted || !isCurrent()) return;
+      _updateRunTime();
+      await ref
+          .read(commonActionProvider.notifier)
+          .updateTraffic(isCurrent: () => ref.mounted && isCurrent());
+    },
+    onError: (error, _) {
+      commonPrint.log(
+        'update runtime sample failed: $error',
+        logLevel: coreFailureLogLevel(error),
+      );
+    },
+  );
   final _setupScheduler = SerialTaskScheduler();
   final _listenerScheduler = SerialTaskScheduler();
   final _accessControlScheduler = SerialTaskScheduler();
@@ -188,7 +202,7 @@ class SetupAction extends _$SetupAction {
     ref.onDispose(() {
       _bypassRevision++;
       debouncer.cancel(FunctionTag.applyBypassDomains);
-      _runtimeTimer?.cancel();
+      _runtimeSampler.close();
       _physicalNetworkRecoveryRevision++;
     });
   }
@@ -283,8 +297,7 @@ class SetupAction extends _$SetupAction {
   }
 
   void _setLocalRunning(bool running) {
-    _runtimeTimer?.cancel();
-    _runtimeTimer = null;
+    if (!running) _runtimeSampler.setRunning(false);
     if (!running) {
       _startTime = null;
       debouncer.cancel(FunctionTag.applyProfile);
@@ -293,16 +306,12 @@ class SetupAction extends _$SetupAction {
     }
 
     _startTime ??= DateTime.now();
-    _refreshRunningState();
-    _runtimeTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) => _refreshRunningState(),
-    );
+    _updateRunTime();
+    _runtimeSampler.setRunning(true);
   }
 
-  void _refreshRunningState() {
-    _updateRunTime();
-    unawaited(ref.read(commonActionProvider.notifier).updateTraffic());
+  void setRuntimeForeground(bool foreground) {
+    _runtimeSampler.setForeground(foreground);
   }
 
   void _updateRunTime() {

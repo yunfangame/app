@@ -89,6 +89,13 @@ Future<YamlMap> _profile({
           'fake-ip-range': '198.18.0.1/16',
           'fake-ip-filter': ['subscription.example'],
         },
+        'proxy-groups': [
+          {
+            'name': 'Proxy',
+            'type': 'select',
+            'proxies': ['DIRECT'],
+          },
+        ],
         'rules': ['MATCH,Proxy'],
       },
       realPatchConfig: patch,

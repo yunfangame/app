@@ -197,6 +197,7 @@ extension ProfileExtension on Profile {
   Future<Profile> saveFile(
     Uint8List bytes, {
     bool Function()? isCurrent,
+    Future<String> Function(String path)? validateConfig,
   }) async {
     void ensureCurrent() {
       if (isCurrent?.call() == false) {
@@ -209,14 +210,16 @@ extension ProfileExtension on Profile {
     final tempFile = File(path);
     try {
       await tempFile.safeWriteAsBytes(bytes);
-      final message = await coreController.validateConfig(path);
+      final message = await (validateConfig ?? coreController.validateConfig)(
+        path,
+      );
       if (message.isNotEmpty) {
         throw message;
       }
       ensureCurrent();
       final mFile = await file;
       ensureCurrent();
-      await tempFile.copy(mFile.path);
+      await writeProfileFileBytes(mFile, bytes, isCurrent: isCurrent);
       return copyWith(lastUpdateDate: DateTime.now());
     } finally {
       await tempFile.safeDelete();
@@ -229,7 +232,7 @@ extension ProfileExtension on Profile {
       throw message;
     }
     final mFile = await file;
-    await File(path).copy(mFile.path);
+    await writeProfileFileBytes(mFile, await File(path).readAsBytes());
     return copyWith(lastUpdateDate: DateTime.now());
   }
 }

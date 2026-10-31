@@ -390,7 +390,7 @@ class _TrafficCommonAction extends CommonAction {
   int updates = 0;
 
   @override
-  Future<void> updateTraffic() async {
+  Future<void> updateTraffic({bool Function()? isCurrent}) async {
     updates++;
   }
 }

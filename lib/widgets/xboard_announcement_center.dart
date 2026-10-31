@@ -53,6 +53,7 @@ class _XboardAnnouncementCenterHostState
   DialogRoute<void>? _dialog;
   Future<void>? _dialogClosed;
   Timer? _windowRetry;
+  _AnnouncementWindowRead? _windowRead;
   String? _identity;
   String? _shownDate;
   int _requestRevision = 0;
@@ -144,7 +145,17 @@ class _XboardAnnouncementCenterHostState
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _pageActive = PageActivityScope.isActiveOf(context);
+    final previous = _pageActive;
+    final active = PageActivityScope.isActiveOf(context);
+    _pageActive = active;
+    if (active != previous && _observeDesktopWindow) {
+      if (active) {
+        unawaited(_readWindow());
+      } else {
+        _cancelWindowRead();
+        _windowRetry?.cancel();
+      }
+    }
     _scheduleAutomatic();
   }
 
@@ -421,6 +432,7 @@ class _XboardAnnouncementCenterHostState
     _windowForeground = false;
     _windowKnownBackground = true;
     _windowRetry?.cancel();
+    _cancelWindowRead();
     _scheduleAutomatic();
   }
 
@@ -430,7 +442,13 @@ class _XboardAnnouncementCenterHostState
     _windowKnownBackground = false;
     _windowRetries = 0;
     _windowRetry?.cancel();
+    _cancelWindowRead();
     _scheduleAutomatic();
+  }
+
+  void _cancelWindowRead() {
+    _windowRead?.cancel();
+    _windowRead = null;
   }
 
   Future<void> _readWindow({bool reset = true}) async {
@@ -440,15 +458,20 @@ class _XboardAnnouncementCenterHostState
       _windowRetry?.cancel();
     }
     final revision = ++_windowRevision;
+    _cancelWindowRead();
     _windowForeground = false;
     _scheduleAutomatic();
-    try {
-      final state = await Future.wait([
+    final read = _AnnouncementWindowRead(
+      Future.wait([
         windowManager.isVisible(),
         windowManager.isMinimized(),
         windowManager.isFocused(),
-      ]).timeout(const Duration(seconds: 2));
-      if (!mounted || revision != _windowRevision) return;
+      ]),
+    );
+    _windowRead = read;
+    try {
+      final state = await read.future;
+      if (state == null || !mounted || revision != _windowRevision) return;
       _windowForeground = state[0] && !state[1] && state[2];
       _windowKnownBackground = !_windowForeground;
       _windowRetries = 0;
@@ -472,13 +495,19 @@ class _XboardAnnouncementCenterHostState
           unawaited(_readWindow(reset: false));
         }
       });
+    } finally {
+      if (identical(_windowRead, read)) _windowRead = null;
+      read.cancel();
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _foreground = state == AppLifecycleState.resumed;
-    if (!_foreground) _windowRetry?.cancel();
+    if (!_foreground) {
+      _windowRetry?.cancel();
+      _cancelWindowRead();
+    }
     if (_foreground && _observeDesktopWindow) unawaited(_readWindow());
     _scheduleAutomatic();
   }
@@ -509,6 +538,7 @@ class _XboardAnnouncementCenterHostState
     _requestRevision++;
     _windowRevision++;
     _windowRetry?.cancel();
+    _cancelWindowRead();
     _queries.clear();
     WidgetsBinding.instance.removeObserver(this);
     globalState.xboardSessionRevisionNotifier.removeListener(_sessionChanged);
@@ -529,6 +559,40 @@ class _XboardAnnouncementCenterHostState
 
   @override
   Widget build(BuildContext context) => widget.child;
+}
+
+class _AnnouncementWindowRead {
+  _AnnouncementWindowRead(Future<List<bool>> read) {
+    _timeout = Timer(const Duration(seconds: 2), () {
+      _fail(
+        TimeoutException('Window state read timed out'),
+        StackTrace.current,
+      );
+    });
+    unawaited(read.then<void>(_complete, onError: _fail));
+  }
+
+  final _completion = Completer<List<bool>?>();
+  late final Timer _timeout;
+
+  Future<List<bool>?> get future => _completion.future;
+
+  void _complete(List<bool> state) {
+    _timeout.cancel();
+    if (!_completion.isCompleted) _completion.complete(state);
+  }
+
+  void _fail(Object error, StackTrace stackTrace) {
+    _timeout.cancel();
+    if (!_completion.isCompleted) {
+      _completion.completeError(error, stackTrace);
+    }
+  }
+
+  void cancel() {
+    _timeout.cancel();
+    if (!_completion.isCompleted) _completion.complete(null);
+  }
 }
 
 class _AnnouncementPresentation {

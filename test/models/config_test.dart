@@ -138,10 +138,21 @@ void main() {
     test('migrates previous default latency URLs', () {
       for (final previous in [
         'http://www.gstatic.com/generate_204',
-        'https://www.gstatic.com/generate_204',
+        'http://cp.cloudflare.com/generate_204',
       ]) {
         final restored = AppSettingProps.safeFromJson({'testUrl': previous});
         expect(restored.testUrl, defaultTestUrl);
+      }
+    });
+
+    test('safe restoration preserves current and custom latency URLs', () {
+      for (final url in [
+        defaultTestUrl,
+        'https://custom.test/ping',
+        'http://custom.test/generate_204',
+      ]) {
+        final restored = AppSettingProps.safeFromJson({'testUrl': url});
+        expect(restored.testUrl, url);
       }
     });
 

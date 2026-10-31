@@ -49,11 +49,10 @@ String _randomPipeId() {
 final defaultTextScaleFactor =
     WidgetsBinding.instance.platformDispatcher.textScaleFactor;
 const httpTimeoutDuration = Duration(milliseconds: 5000);
+const delayTestTimeoutDuration = Duration(seconds: 8);
+const delayTestGuardDuration = Duration(seconds: 30);
 
-/// Keep at or below the Core's delay-test concurrency (`mBatch` in
-/// core/common.go). Surplus requests queue inside the Core behind a full wave
-/// of 5s timeouts, which no RPC timeout can cover.
-const maxConcurrentDelayTests = 50;
+const maxConcurrentDelayTests = 16;
 const moreDuration = Duration(milliseconds: 100);
 const animateDuration = Duration(milliseconds: 100);
 const midDuration = Duration(milliseconds: 200);
@@ -77,7 +76,7 @@ const repository = 'chen08209/FlClash';
 const defaultExternalController = '127.0.0.1:9090';
 const maxMobileWidth = 600;
 const maxLaptopWidth = 840;
-const defaultTestUrl = 'http://cp.cloudflare.com/generate_204';
+const defaultTestUrl = 'https://www.gstatic.com/generate_204';
 final commonFilter = ImageFilter.blur(
   sigmaX: 5,
   sigmaY: 5,

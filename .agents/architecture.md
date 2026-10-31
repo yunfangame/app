@@ -167,9 +167,10 @@ surface. It is shown only outside dashboard edit mode and only when `coreLib == 
 - Taps during the display hold or while the provider is genuinely connecting are inert. Connected/disconnected taps show
   the appropriate confirmation and delegate restart to `CoreAction`; the widget never starts Core directly.
 
-Proxy delay testing follows the same failure-safe UI rule. `proxyDelayTest()` records an in-progress zero delay, writes the
-real result on success, and logs plus records `-1` on exceptions. `DelayTestButton` reverses its animation in `finally`, so
-an RPC failure cannot leave the control permanently spinning.
+Manual proxy delay testing uses at most 16 concurrent probes, an eight-second probe timeout, and a 30-second RPC guard.
+The default URL is HTTPS gstatic; custom and subscription-specific test URLs remain supported. Core reports successful
+measurements with a 50-millisecond offset, clamped to one millisecond. Actual probe failures remain `-1`, while transport
+or runtime failures restore the previous display result. `DelayTestButton` reverses its animation in `finally`.
 
 ## State Management
 
@@ -182,6 +183,18 @@ Provider files in `lib/providers/`:
 - `database.dart`: Drift database provider wrappers.
 
 `globalState` in `lib/state.dart` is a singleton holding app lifecycle, timers, theme, and start/stop state. Providers are generated into `lib/providers/generated/`.
+
+`RuntimeSampler` owns Flutter runtime/traffic sampling with at most one call in flight. Android UI lifecycle pauses this
+sampling in the background and requests an immediate fresh sample on resume. Samples from a stopped or superseded run
+cannot update providers. Native VPN forwarding and notification ownership remain in the Android service layer.
+
+`DiagnosticLog` bounds queued events and bytes, writes batches, and records overflow counts. Critical events take
+priority over ordinary events but still share the capacity bound. Disk rotation and field redaction apply independently
+of the pending-write capacity.
+
+Subscription refreshes await durable profile metadata before applying a configuration. Metadata rollback compares the
+account generation, mutation generation, and current row; profile-file rollback also requires ownership and unchanged
+candidate contents. Older failed operations must not overwrite a later refresh, account change, or source migration.
 
 ## Database
 
@@ -264,6 +277,10 @@ Shared:
 2. Activates `flutter_distributor` for packaging.
 3. Relies on the platform build hook to build the required Core artifacts before
    the native application is linked.
+
+Android release packaging requires complete signing inputs and passes Dart obfuscation plus split debug info to Flutter.
+Each build archives its Dart symbols, R8 mapping, ABI package hashes, and symbol hashes under the ignored
+`release-symbols/android/` directory. These files stay separate from distributable installers for crash symbolication.
 
 Go core building is handled by `build_tool`, a standalone Dart CLI in `plugins/setup/buildkit/build_tool/`.
 

@@ -61,13 +61,13 @@ Future<void> proxyDelayTest(Proxy proxy, [String? testUrl]) async {
       isXboardNodeMarkedOffline(proxy.name, globalState.xboardNodes)) {
     return;
   }
+  final previousDelay = ref.read(
+    delayDataSourceProvider,
+  )[currentTestUrl]?[state.proxyName];
   ref
       .read(proxiesActionProvider.notifier)
       .setDelay(Delay(url: currentTestUrl, name: state.proxyName, value: 0));
   try {
-    // Keep FlClash's native delay-test path intact. Probe URLs are normalized
-    // once while the runtime profile is built, rather than being substituted
-    // independently for every node test.
     final delay = await coreController.getDelay(
       currentTestUrl,
       state.proxyName,
@@ -78,9 +78,18 @@ Future<void> proxyDelayTest(Proxy proxy, [String? testUrl]) async {
       'Delay test failed for ${state.proxyName}: $error',
       logLevel: coreFailureLogLevel(error),
     );
-    ref
-        .read(proxiesActionProvider.notifier)
-        .setDelay(Delay(url: currentTestUrl, name: state.proxyName, value: -1));
+    if (ref.read(delayDataSourceProvider)[currentTestUrl]?[state.proxyName] ==
+        0) {
+      ref
+          .read(proxiesActionProvider.notifier)
+          .setDelay(
+            Delay(
+              url: currentTestUrl,
+              name: state.proxyName,
+              value: previousDelay,
+            ),
+          );
+    }
   }
 }
 

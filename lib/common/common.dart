@@ -41,6 +41,7 @@ export 'path.dart';
 export 'permission.dart';
 export 'picker.dart';
 export 'preferences.dart';
+export 'profile_file_write.dart';
 export 'print.dart';
 export 'protocol.dart';
 export 'proxy.dart';

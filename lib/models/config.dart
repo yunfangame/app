@@ -20,7 +20,7 @@ const defaultBypassDomain = [
 const defaultAppSettingProps = AppSettingProps();
 const _previousDefaultTestUrls = {
   'http://www.gstatic.com/generate_204',
-  'https://www.gstatic.com/generate_204',
+  'http://cp.cloudflare.com/generate_204',
 };
 const defaultVpnProps = VpnProps();
 const defaultNetworkProps = NetworkProps();

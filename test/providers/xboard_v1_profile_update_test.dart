@@ -136,8 +136,9 @@ void main() {
                 profile.url,
                 isCurrent: () => current,
                 loader: (candidate) async {
-                  await file.safeWriteAsBytes(
-                    utf8.encode('expired configuration'),
+                  await writeProfileFileBytes(
+                    file,
+                    Uint8List.fromList(utf8.encode('expired configuration')),
                   );
                   current = false;
                   return candidate.copyWith(label: 'Expired');
@@ -196,7 +197,7 @@ void main() {
                 sourceId: profile.url,
                 isCurrent: () => current,
                 loader: (candidate, bytes) async {
-                  await file.safeWriteAsBytes(bytes);
+                  await writeProfileFileBytes(file, bytes);
                   current = false;
                   return candidate.copyWith(label: 'Expired');
                 },
@@ -431,7 +432,10 @@ void main() {
       await storage.setManagedProfileUrl(profile.url);
       final action = _TestProfileUpdateAction()
         ..loader = (candidate) async {
-          await file.safeWriteAsBytes(utf8.encode('failed replacement'));
+          await writeProfileFileBytes(
+            file,
+            Uint8List.fromList(utf8.encode('failed replacement')),
+          );
           throw StateError('download failed');
         };
       final container = createContainer(profile, action);
@@ -529,6 +533,12 @@ class _TestProfiles extends Profiles {
 
   @override
   List<Profile> build() => initial;
+
+  @override
+  Future<void> persistProfile(Profile profile) async {}
+
+  @override
+  Future<void> putDurable(Profile profile) async => put(profile);
 
   @override
   void put(Profile profile) {

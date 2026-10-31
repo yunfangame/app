@@ -83,6 +83,7 @@ class ProfilesAction extends _$ProfilesAction {
   final _profileUpdates = <_ProfileUpdateScope, _ProfileUpdateOperation>{};
   final _automaticFailures = <_ProfileUpdateScope, _ProfileUpdateFailure>{};
   final _profileSourceRevisions = <int, int>{};
+  final _subscriptionFileOwners = <int, Object>{};
   Object? _accountIdentity;
   int _accountRevision = 0;
   final _authenticatedProfilePending =
@@ -423,7 +424,20 @@ class ProfilesAction extends _$ProfilesAction {
         (_profileSourceRevisions[original.id] ?? 0) ==
             operation.committingSourceRevision &&
         latest.url == committing.url &&
-        latest.lastUpdateDate == committing.lastUpdateDate;
+        _matchesAuthenticatedCommitDate(
+          latest.lastUpdateDate,
+          committing.lastUpdateDate,
+        );
+  }
+
+  bool _matchesAuthenticatedCommitDate(DateTime? actual, DateTime? expected) {
+    if (actual == expected) return true;
+    if (actual == null || expected == null) return false;
+    return actual.isAtSameMomentAs(
+      DateTime.fromMillisecondsSinceEpoch(
+        (expected.millisecondsSinceEpoch ~/ 1000) * 1000,
+      ),
+    );
   }
 
   Future<Profile?> _managedAuthenticatedProfile(
@@ -503,6 +517,169 @@ class ProfilesAction extends _$ProfilesAction {
     }
   }
 
+  Profile _completeAuthenticatedProfileCommit(
+    Profile profile, {
+    bool requireSelected = true,
+  }) {
+    final committed = ref.read(profilesProvider).getProfile(profile.id);
+    if (committed == null ||
+        committed.url != profile.url ||
+        (requireSelected && ref.read(currentProfileIdProvider) != profile.id)) {
+      throw StateError('profile_sync_superseded');
+    }
+    final operation = Zone.current[_authenticatedProfileOperationKey];
+    if (operation is _AuthenticatedProfileOperation) {
+      final revision = _profileSourceRevisions[profile.id] ?? 0;
+      if (operation.committingProfile != profile ||
+          revision != operation.committingSourceRevision ||
+          !_matchesAuthenticatedCommitDate(
+            committed.lastUpdateDate,
+            profile.lastUpdateDate,
+          )) {
+        throw StateError('profile_sync_superseded');
+      }
+      operation.originalProfile = committed;
+      operation.sourceRevision = revision;
+      operation.committingProfile = null;
+      operation.committingSourceRevision = null;
+    }
+    return committed;
+  }
+
+  Future<Profile> _loadAndPersistSubscriptionProfile(
+    Profile sourceProfile,
+    Future<Profile> Function() load, {
+    bool Function()? isCurrent,
+    bool preserveProfileEdits = false,
+    void Function(Profile profile)? onPersisted,
+  }) async {
+    final owner = Object();
+    final profileId = sourceProfile.id;
+    _subscriptionFileOwners[profileId] = owner;
+    final accountRevision = _accountRevision;
+    final accountIdentity = _currentAccountIdentity;
+    final sourceRevision = _profileSourceRevisions[profileId] ?? 0;
+    final profiles = ref.read(profilesProvider.notifier);
+    var mutationRevision = profiles.mutationRevision;
+    var original = ref.read(profilesProvider).getProfile(profileId);
+    final operation = Zone.current[_authenticatedProfileOperationKey];
+    bool requestCurrent() => operation is _AuthenticatedProfileOperation
+        ? operation.isCurrent?.call() != false
+        : isCurrent?.call() != false;
+    bool ownsPath() =>
+        ref.mounted && identical(_subscriptionFileOwners[profileId], owner);
+    bool ownsFile() =>
+        ownsPath() &&
+        _accountRevision == accountRevision &&
+        _currentAccountIdentity == accountIdentity;
+    void ensureCurrent() {
+      if (!ownsFile() || !requestCurrent() || isCurrent?.call() == false) {
+        throw StateError('profile_sync_superseded');
+      }
+    }
+
+    _ProfileFileSnapshot? sourceSnapshot;
+    _ProfileFileSnapshot? candidateSnapshot;
+    ProfileFileWriteScope? writeScope;
+    Profile? updated;
+    var persistenceStarted = false;
+    try {
+      ensureCurrent();
+      sourceSnapshot = await _captureProfileFile(profileId);
+      ensureCurrent();
+      writeScope = ProfileFileWriteScope(sourceSnapshot.path);
+      var loaded = await writeScope.run(load);
+      if (loaded.id != profileId) {
+        throw StateError('profile_sync_changed_profile_id');
+      }
+      ensureCurrent();
+      if (preserveProfileEdits) {
+        final latest = ref.read(profilesProvider).getProfile(profileId);
+        if (latest == null || latest.url != sourceProfile.url) {
+          throw StateError('profile_sync_superseded');
+        }
+        loaded = latest.copyWith(
+          url: loaded.url,
+          label: latest.label == sourceProfile.label
+              ? loaded.label
+              : latest.label,
+          lastUpdateDate: loaded.lastUpdateDate,
+          subscriptionInfo: loaded.subscriptionInfo,
+        );
+        original = latest;
+        mutationRevision = profiles.mutationRevision;
+      }
+      final receipt = writeScope.receipt;
+      candidateSnapshot = receipt == null
+          ? await _captureProfileFile(profileId)
+          : _ProfileFileSnapshot(path: receipt.path, bytes: receipt.bytes);
+      ensureCurrent();
+      if (profiles.mutationRevision != mutationRevision ||
+          (_profileSourceRevisions[profileId] ?? 0) != sourceRevision ||
+          ref.read(profilesProvider).getProfile(profileId) != original) {
+        throw StateError('profile_sync_superseded');
+      }
+      updated = loaded;
+      _markAuthenticatedProfileCommit(loaded);
+      persistenceStarted = true;
+      await profiles.putDurable(loaded);
+      if (!ownsFile()) throw StateError('profile_sync_superseded');
+      final committed = ref.read(profilesProvider).getProfile(profileId);
+      if (committed == null ||
+          committed.url != loaded.url ||
+          !_matchesAuthenticatedCommitDate(
+            committed.lastUpdateDate,
+            loaded.lastUpdateDate,
+          ) ||
+          (_profileSourceRevisions[profileId] ?? 0) !=
+              sourceRevision + (original?.url != loaded.url ? 1 : 0)) {
+        throw StateError('profile_sync_superseded');
+      }
+      onPersisted?.call(committed);
+      ensureCurrent();
+      return loaded;
+    } catch (error, stackTrace) {
+      final receipt = writeScope?.receipt;
+      if (candidateSnapshot == null && receipt != null) {
+        candidateSnapshot = _ProfileFileSnapshot(
+          path: receipt.path,
+          bytes: receipt.bytes,
+        );
+      }
+      final expectedRevision =
+          sourceRevision +
+          (persistenceStarted && original?.url != updated?.url ? 2 : 0);
+      bool canRestore() =>
+          ownsPath() &&
+          (ownsFile() || writeScope?.ownsReceipt == true) &&
+          writeScope?.hasForeignWrite != true &&
+          profiles.mutationRevision ==
+              mutationRevision + (persistenceStarted ? 1 : 0) &&
+          (_profileSourceRevisions[profileId] ?? 0) == expectedRevision &&
+          ref.read(profilesProvider).getProfile(profileId) == original;
+      if (sourceSnapshot != null && candidateSnapshot != null && canRestore()) {
+        try {
+          await _restoreProfileFileIfUnchanged(
+            sourceSnapshot,
+            candidateSnapshot,
+            isCurrent: canRestore,
+          );
+        } catch (restoreError) {
+          commonPrint.event(
+            'subscription.profile.rollback_failed',
+            fields: {'error_type': restoreError.runtimeType.toString()},
+          );
+        }
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    } finally {
+      writeScope?.dispose();
+      if (identical(_subscriptionFileOwners[profileId], owner)) {
+        _subscriptionFileOwners.remove(profileId);
+      }
+    }
+  }
+
   void _markSubscriptionTokenRegistration(bool usedTokenRegistration) {
     final operation = Zone.current[_authenticatedProfileOperationKey];
     if (operation is _AuthenticatedProfileOperation && usedTokenRegistration) {
@@ -570,37 +747,30 @@ class ProfilesAction extends _$ProfilesAction {
     }
 
     ensureCurrent();
-    final sourceSnapshot = isCurrent == null
-        ? null
-        : await _captureProfileFile(sourceProfile.id);
-    late final Profile updatedProfile;
-    try {
-      ensureCurrent();
-      updatedProfile =
-          await (loader ?? (profile) => profile.update(isCurrent: isCurrent))(
-            sourceProfile,
-          );
-      ensureCurrent();
-    } catch (error, stackTrace) {
-      if (sourceSnapshot != null) {
-        await _restoreProfileFile(sourceSnapshot);
-      }
-      Error.throwWithStackTrace(error, stackTrace);
-    }
-
-    _markAuthenticatedProfileCommit(updatedProfile);
-    ref.read(profilesProvider.notifier).put(updatedProfile);
+    final updatedProfile = await _loadAndPersistSubscriptionProfile(
+      sourceProfile,
+      () => (loader ?? (profile) => profile.update(isCurrent: isCurrent))(
+        sourceProfile,
+      ),
+      isCurrent: isCurrent,
+    );
+    ensureCurrent();
     ref.read(currentProfileIdProvider.notifier).value = updatedProfile.id;
     await ref
         .read(setupActionProvider.notifier)
         .applyProfile(force: true, silence: true);
+    ensureCurrent();
+    final committed = _completeAuthenticatedProfileCommit(updatedProfile);
+    ensureCurrent();
     if (replacingUrl != null && replacingUrl != normalizedUrl) {
       await removeSubscriptionProfile(
         replacingUrl,
         effectClearer: effectClearer,
+        isCurrent: isCurrent,
       );
     }
-    return updatedProfile;
+    ensureCurrent();
+    return committed;
   }
 
   Future<Profile> syncSubscriptionProfileBytes(
@@ -667,29 +837,23 @@ class ProfilesAction extends _$ProfilesAction {
     }
 
     ensureCurrent();
-    final sourceSnapshot = isCurrent == null
-        ? null
-        : await _captureProfileFile(sourceProfile.id);
-    late final Profile updatedProfile;
-    try {
-      ensureCurrent();
-      updatedProfile =
-          await (loader ??
-              (profile, content) => profile.saveFile(
-                content,
-                isCurrent: isCurrent,
-              ))(sourceProfile, bytes);
-      ensureCurrent();
-    } catch (error, stackTrace) {
-      if (sourceSnapshot != null) await _restoreProfileFile(sourceSnapshot);
-      Error.throwWithStackTrace(error, stackTrace);
-    }
-    _markAuthenticatedProfileCommit(updatedProfile);
-    ref.read(profilesProvider.notifier).put(updatedProfile);
+    final updatedProfile = await _loadAndPersistSubscriptionProfile(
+      sourceProfile,
+      () =>
+          (loader ??
+          (profile, content) => profile.saveFile(
+            content,
+            isCurrent: isCurrent,
+          ))(sourceProfile, bytes),
+      isCurrent: isCurrent,
+    );
+    ensureCurrent();
     ref.read(currentProfileIdProvider.notifier).value = updatedProfile.id;
     await ref
         .read(setupActionProvider.notifier)
         .applyProfile(force: true, silence: true);
+    ensureCurrent();
+    final committed = _completeAuthenticatedProfileCommit(updatedProfile);
     ensureCurrent();
     if (replacingUrl != null && replacingUrl != sourceId) {
       await removeSubscriptionProfile(
@@ -706,7 +870,7 @@ class ProfilesAction extends _$ProfilesAction {
       );
     }
     ensureCurrent();
-    return updatedProfile;
+    return committed;
   }
 
   Future<void> removeLegacyXboardSubscriptionProfiles({
@@ -800,79 +964,83 @@ class ProfilesAction extends _$ProfilesAction {
       sourceRevision,
       automatic: automatic,
     );
-    Future<void> execute(bool Function() transactionCurrent) =>
-        _profileMutationScheduler.run(() async {
-          if (!ref.mounted ||
-              scope.account != _accountRevision ||
-              _currentAccountIdentity != _accountIdentity) {
-            return;
-          }
-          final latest = ref.read(profilesProvider).getProfile(profile.id);
-          if (latest == null ||
-              operation.sourceRevision !=
-                  (_profileSourceRevisions[profile.id] ?? 0)) {
-            return;
-          }
-          if (operation.automatic &&
-              (globalState.isOfflineMode ||
-                  latest.url != profile.url ||
-                  !_canAutomaticallyUpdate(latest))) {
-            return;
-          }
-          if (!operation.automatic &&
-              latest.url != initial?.url &&
-              latest.url != profile.url) {
-            return;
-          }
-          final candidate = operation.automatic || profile == initial
-              ? latest
-              : profile.copyWith(lastUpdateDate: latest.lastUpdateDate);
-          if (!operation.automatic) {
-            ref.read(profilesProvider.notifier).put(candidate);
-          }
-          operation.sourceRevision = _profileSourceRevisions[profile.id] ?? 0;
-          final requestRevision =
-              operation.automatic &&
-                  profile.id != ref.read(currentProfileIdProvider)
-              ? automaticProfileRequestRevision
-              : null;
-          bool isCurrent() {
-            if (!ref.mounted ||
-                scope.account != _accountRevision ||
-                _currentAccountIdentity != _accountIdentity ||
-                globalState.isOfflineMode ||
-                !transactionCurrent() ||
-                operation.sourceRevision !=
-                    (_profileSourceRevisions[profile.id] ?? 0)) {
-              return false;
-            }
-            final current = ref.read(profilesProvider).getProfile(profile.id);
-            return current != null &&
-                (!operation.automatic ||
-                    (_canAutomaticallyReadProfile(profile.id) &&
-                        (requestRevision == null ||
-                            requestRevision ==
-                                automaticProfileRequestRevision))) &&
-                current.url == candidate.url &&
-                current.lastUpdateDate == candidate.lastUpdateDate;
-          }
+    Future<void> execute(
+      bool Function() transactionCurrent,
+    ) => _profileMutationScheduler.run(() async {
+      if (!ref.mounted ||
+          scope.account != _accountRevision ||
+          _currentAccountIdentity != _accountIdentity) {
+        return;
+      }
+      final latest = ref.read(profilesProvider).getProfile(profile.id);
+      if (latest == null ||
+          operation.sourceRevision !=
+              (_profileSourceRevisions[profile.id] ?? 0)) {
+        return;
+      }
+      if (operation.automatic &&
+          (globalState.isOfflineMode ||
+              latest.url != profile.url ||
+              !_canAutomaticallyUpdate(latest))) {
+        return;
+      }
+      if (!operation.automatic &&
+          latest.url != initial?.url &&
+          latest.url != profile.url) {
+        return;
+      }
+      var candidate = operation.automatic || profile == initial
+          ? latest
+          : profile.copyWith(lastUpdateDate: latest.lastUpdateDate);
+      if (!operation.automatic) {
+        ref.read(profilesProvider.notifier).put(candidate);
+      }
+      operation.sourceRevision = _profileSourceRevisions[profile.id] ?? 0;
+      final requestRevision =
+          operation.automatic &&
+              profile.id != ref.read(currentProfileIdProvider)
+          ? automaticProfileRequestRevision
+          : null;
+      bool isCurrent() {
+        if (!ref.mounted ||
+            scope.account != _accountRevision ||
+            _currentAccountIdentity != _accountIdentity ||
+            globalState.isOfflineMode ||
+            !transactionCurrent() ||
+            operation.sourceRevision !=
+                (_profileSourceRevisions[profile.id] ?? 0)) {
+          return false;
+        }
+        final current = ref.read(profilesProvider).getProfile(profile.id);
+        return current != null &&
+            (!operation.automatic ||
+                (_canAutomaticallyReadProfile(profile.id) &&
+                    (requestRevision == null ||
+                        requestRevision == automaticProfileRequestRevision))) &&
+            current.url == candidate.url &&
+            current.lastUpdateDate == candidate.lastUpdateDate;
+      }
 
-          try {
-            operation.started = true;
-            await _updateProfile(
-              candidate,
-              showLoading: showLoading,
-              isCurrent: isCurrent,
-              forceRefresh: !operation.automatic,
-            );
-            _automaticFailures.remove(scope);
-          } on XboardApiRequestDeferred {
-            return;
-          } catch (error) {
-            if (isCurrent()) _recordAutomaticFailure(scope);
-            rethrow;
-          }
-        });
+      try {
+        operation.started = true;
+        await _updateProfile(
+          candidate,
+          showLoading: showLoading,
+          isCurrent: isCurrent,
+          forceRefresh: !operation.automatic,
+          onPersisted: (committed) {
+            candidate = committed;
+            operation.sourceRevision = _profileSourceRevisions[profile.id] ?? 0;
+          },
+        );
+        _automaticFailures.remove(scope);
+      } on XboardApiRequestDeferred {
+        return;
+      } catch (error) {
+        if (isCurrent()) _recordAutomaticFailure(scope);
+        rethrow;
+      }
+    });
     operation.future =
         _runAutomaticAuthenticatedProfileUpdate(
           profile,
@@ -931,53 +1099,33 @@ class ProfilesAction extends _$ProfilesAction {
     bool showLoading = false,
     required bool Function() isCurrent,
     required bool forceRefresh,
+    required void Function(Profile profile) onPersisted,
   }) async {
-    final snapshot = await _captureProfileFile(profile.id);
     try {
       if (!isCurrent()) throw StateError('profile_sync_superseded');
       if (showLoading) {
         ref.read(isUpdatingProvider(profile.updatingKey).notifier).value = true;
       }
-      final newProfile = isSubscriptionV2ProfileSource(profile.url)
-          ? await _updateSubscriptionV2Profile(
-              profile,
-              isCurrent: isCurrent,
-              forceRefresh: forceRefresh,
-            )
-          : await _updateLegacySubscriptionProfile(
-              profile,
-              isCurrent: isCurrent,
-            );
+      final newProfile = await _loadAndPersistSubscriptionProfile(
+        profile,
+        () => isSubscriptionV2ProfileSource(profile.url)
+            ? _updateSubscriptionV2Profile(
+                profile,
+                isCurrent: isCurrent,
+                forceRefresh: forceRefresh,
+              )
+            : _updateLegacySubscriptionProfile(profile, isCurrent: isCurrent),
+        isCurrent: isCurrent,
+        preserveProfileEdits: true,
+        onPersisted: onPersisted,
+      );
       if (!isCurrent()) throw StateError('profile_sync_superseded');
-      final latest = ref.read(profilesProvider).getProfile(profile.id)!;
-      _markAuthenticatedProfileCommit(newProfile);
-      ref
-          .read(profilesProvider.notifier)
-          .put(
-            latest.copyWith(
-              url: newProfile.url,
-              label: latest.label == profile.label
-                  ? newProfile.label
-                  : latest.label,
-              lastUpdateDate: newProfile.lastUpdateDate,
-              subscriptionInfo: newProfile.subscriptionInfo,
-            ),
-          );
+      _completeAuthenticatedProfileCommit(newProfile, requireSelected: false);
       if (profile.id == ref.read(currentProfileIdProvider)) {
         ref
             .read(setupActionProvider.notifier)
             .applyProfileDebounce(silence: true);
       }
-    } catch (error, stackTrace) {
-      if (ref.mounted) {
-        final latest = ref.read(profilesProvider).getProfile(profile.id);
-        if (latest == null) {
-          await File(snapshot.path).safeDelete();
-        } else if (latest.lastUpdateDate == profile.lastUpdateDate) {
-          await _restoreProfileFile(snapshot);
-        }
-      }
-      Error.throwWithStackTrace(error, stackTrace);
     } finally {
       if (ref.mounted) {
         ref.read(isUpdatingProvider(profile.updatingKey).notifier).value =
@@ -1106,14 +1254,18 @@ class ProfilesAction extends _$ProfilesAction {
     return _ProfileFileSnapshot(path: path, bytes: bytes);
   }
 
-  Future<void> _restoreProfileFile(_ProfileFileSnapshot snapshot) async {
-    final file = File(snapshot.path);
-    final bytes = snapshot.bytes;
-    if (bytes == null) {
-      await file.safeDelete();
-      return;
-    }
-    await file.safeWriteAsBytes(bytes);
+  Future<void> _restoreProfileFileIfUnchanged(
+    _ProfileFileSnapshot snapshot,
+    _ProfileFileSnapshot expected, {
+    required bool Function() isCurrent,
+  }) async {
+    if (snapshot.path != expected.path || !isCurrent()) return;
+    await restoreProfileFileBytes(
+      File(snapshot.path),
+      snapshot.bytes,
+      expectedBytes: expected.bytes,
+      isCurrent: isCurrent,
+    );
   }
 
   Future<void> addProfileFormFile() async {

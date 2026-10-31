@@ -345,17 +345,21 @@ abstract class CoreHandlerInterface with CoreInterface {
   Future<Delay> asyncTestDelay(String url, String proxyName) async {
     final delayParams = {
       'proxy-name': proxyName,
-      'timeout': httpTimeoutDuration.inMilliseconds,
+      'timeout': delayTestTimeoutDuration.inMilliseconds,
       'test-url': url,
     };
     final data = await _invokeMethod<Map<String, dynamic>>(
       method: CoreMethod.asyncTestDelay,
       arguments: delayParams,
-      timeout: const Duration(seconds: 6),
+      timeout: delayTestGuardDuration,
     );
-    return data == null
-        ? Delay(name: proxyName, value: -1, url: url)
-        : Delay.fromJson(data);
+    if (data == null) {
+      throw const CoreMethodException(
+        code: 'delay_test_unavailable',
+        message: 'The Core did not return a delay-test result',
+      );
+    }
+    return Delay.fromJson(data);
   }
 
   @override

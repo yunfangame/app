@@ -250,13 +250,6 @@ class ProxiesAction extends _$ProxiesAction {
               return valid;
             } catch (error) {
               if (current()) {
-                setDelay(
-                  Delay(
-                    name: candidate.nodeName,
-                    url: defaultTestUrl,
-                    value: -1,
-                  ),
-                );
                 commonPrint.event(
                   'proxy.hong_kong_selection.probe_failed',
                   fields: {

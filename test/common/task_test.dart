@@ -98,6 +98,11 @@ void main() {
           },
           'proxy-groups': [
             {
+              'name': 'Original',
+              'type': 'select',
+              'proxies': ['DIRECT'],
+            },
+            {
               'name': '自动选择',
               'type': 'url-test',
               'proxies': ['DIRECT'],
@@ -170,7 +175,7 @@ void main() {
         config['proxy-providers']['remote']['health-check']['url'],
         defaultTestUrl,
       );
-      expect(config['proxy-groups'][0]['url'], defaultTestUrl);
+      expect(config['proxy-groups'][1]['url'], defaultTestUrl);
       expect(config['unified-delay'], true);
       expect(
         config['rule-providers']['remote']['path'],
@@ -235,6 +240,13 @@ void main() {
           'enhanced-mode': 'fake-ip',
           'fake-ip-filter': ['printer.internal'],
         },
+        'proxy-groups': [
+          {
+            'name': 'Proxy',
+            'type': 'select',
+            'proxies': ['DIRECT'],
+          },
+        ],
         'rules': ['MATCH,Proxy'],
       };
       final result = await makeRealProfileTask(

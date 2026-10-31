@@ -5,6 +5,8 @@ import 'package:drift/drift.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/database/database.dart';
 import 'package:fl_clash/models/models.dart';
+import 'package:fl_clash/state.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -45,31 +47,100 @@ Stream<int> proxyGroupsCount(Ref ref, int profileId) {
 
 @Riverpod(keepAlive: true)
 class Profiles extends _$Profiles {
+  int _mutationRevision = 0;
+  final _profileMutationRevisions = <int, int>{};
+
+  int get mutationRevision => _mutationRevision;
+
   @override
   List<Profile> build() {
     return ref.watch(profilesStreamProvider).value ?? [];
   }
 
   void put(Profile profile) {
+    unawaited(putDurable(profile));
+  }
+
+  @visibleForTesting
+  Future<void> persistProfile(Profile profile) async {
+    await database.profiles.put(profile.toCompanion());
+  }
+
+  Future<void> _persistMutation(
+    List<Profile> next,
+    Future<void> Function() persist,
+  ) async {
+    final previous = List<Profile>.from(state);
+    final revision = ++_mutationRevision;
+    final sessionRevision = globalState.xboardSessionRevision;
+    final before = {for (final profile in previous) profile.id: profile};
+    final after = {for (final profile in next) profile.id: profile};
+    final changedIds = {
+      for (final id in {...before.keys, ...after.keys})
+        if (before[id] != after[id]) id,
+    };
+    final affectedIds = changedIds.isNotEmpty
+        ? changedIds
+        : {...before.keys, ...after.keys};
+    for (final id in affectedIds) {
+      _profileMutationRevisions[id] = revision;
+    }
+    state = next;
+    try {
+      await persist();
+    } catch (error, stackTrace) {
+      if (ref.mounted && sessionRevision == globalState.xboardSessionRevision) {
+        if (revision == _mutationRevision &&
+            profileListEquality.equals(state, next)) {
+          state = previous;
+        } else {
+          final restored = List<Profile>.from(state);
+          for (final id in changedIds) {
+            if (_profileMutationRevisions[id] != revision ||
+                restored.getProfile(id) != after[id]) {
+              continue;
+            }
+            final old = before[id];
+            final index = restored.indexWhere((profile) => profile.id == id);
+            if (old == null) {
+              if (index >= 0) restored.removeAt(index);
+            } else if (index >= 0) {
+              restored[index] = old;
+            } else {
+              final oldIndex = previous.indexWhere(
+                (profile) => profile.id == id,
+              );
+              restored.insert(oldIndex.clamp(0, restored.length), old);
+            }
+          }
+          state = restored;
+        }
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    } finally {
+      for (final id in affectedIds) {
+        if (_profileMutationRevisions[id] == revision) {
+          _profileMutationRevisions.remove(id);
+        }
+      }
+    }
+  }
+
+  Future<void> putDurable(Profile profile) {
     final previous = List<Profile>.from(state);
     final newProfile = previous.optimizeLabel(profile);
-    state = previous.copyAndPut(newProfile, (item) => item.id == newProfile.id);
-    unawaited(
-      withRollback(
-        snapshot: previous,
-        action: () => database.profiles.put(newProfile.toCompanion()),
-        rollback: (v) => state = v,
-      ),
+    final next = previous.copyAndPut(
+      newProfile,
+      (item) => item.id == newProfile.id,
     );
+    return _persistMutation(next, () => persistProfile(newProfile));
   }
 
   Future<void> del(int id) async {
     final previous = List<Profile>.from(state);
-    state = previous.where((e) => e.id != id).toList();
-    await withRollback(
-      snapshot: previous,
-      action: () => database.profiles.remove((t) => t.id.equals(id)),
-      rollback: (v) => state = v,
+    await _persistMutation(
+      previous.where((e) => e.id != id).toList(),
+      () => database.profiles.remove((t) => t.id.equals(id)),
     );
   }
 
@@ -80,30 +151,19 @@ class Profiles extends _$Profiles {
     final previous = List<Profile>.from(state);
     final next = List<Profile>.from(previous);
     next[index] = newProfile;
-    state = next;
-    unawaited(
-      withRollback(
-        snapshot: previous,
-        action: () => database.profiles.put(newProfile.toCompanion()),
-        rollback: (v) => state = v,
-      ),
-    );
+    unawaited(_persistMutation(next, () => persistProfile(newProfile)));
   }
 
   void setAndReorder(List<Profile> profiles) {
-    final previous = List<Profile>.from(state);
-    state = List<Profile>.from(profiles);
     unawaited(
-      withRollback(
-        snapshot: previous,
-        action: () => database.profilesDao.setAll(profiles),
-        rollback: (v) => state = v,
+      _persistMutation(
+        List<Profile>.from(profiles),
+        () => database.profilesDao.setAll(profiles),
       ),
     );
   }
 
   void reorder(List<Profile> profiles) {
-    final previous = List<Profile>.from(state);
     final next = List<Profile>.from(profiles);
     final needUpdate = <ProfilesCompanion>[];
     next.forEachIndexed((index, item) {
@@ -111,13 +171,8 @@ class Profiles extends _$Profiles {
         needUpdate.add(item.toCompanion(index));
       }
     });
-    state = next;
     unawaited(
-      withRollback(
-        snapshot: previous,
-        action: () => database.profilesDao.putAll(needUpdate),
-        rollback: (v) => state = v,
-      ),
+      _persistMutation(next, () => database.profilesDao.putAll(needUpdate)),
     );
   }
 

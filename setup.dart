@@ -1,8 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive_io.dart';
 import 'package:args/args.dart';
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
 
 const _allTargets = <String, String>{
   'android': 'apk',
@@ -15,6 +18,12 @@ const _androidFlutterTarget = {
   'arm': 'android-arm',
   'arm64': 'android-arm64',
   'amd64': 'android-x64',
+};
+
+const _androidAbiByArch = {
+  'arm': 'armeabi-v7a',
+  'arm64': 'arm64-v8a',
+  'amd64': 'x86_64',
 };
 
 const _hostPlatform = {
@@ -107,15 +116,373 @@ ArgParser createSetupArgParser() {
 List<String> createFlutterBuildArgs({
   required String platform,
   required bool verbose,
+  String? androidDebugInfoDirectory,
 }) {
   final flutterBuildArgs = <String>[
     if (verbose) 'verbose',
     'dart-define-from-file=env.json',
   ];
   if (platform == 'android') {
-    flutterBuildArgs.add('split-per-abi');
+    if (androidDebugInfoDirectory == null ||
+        androidDebugInfoDirectory.trim().isEmpty ||
+        androidDebugInfoDirectory.contains(',')) {
+      throw ArgumentError('Android release symbols directory is required');
+    }
+    flutterBuildArgs.addAll([
+      'release',
+      'split-per-abi',
+      'obfuscate',
+      'split-debug-info=$androidDebugInfoDirectory',
+    ]);
   }
   return flutterBuildArgs;
+}
+
+Future<void> validateAndroidReleaseSigningInputs(String rootDir) async {
+  final store = File(p.join(rootDir, 'android', 'app', 'keystore.jks'));
+  final properties = File(p.join(rootDir, 'android', 'local.properties'));
+  if (!await store.exists() ||
+      await store.length() == 0 ||
+      !await properties.exists()) {
+    throw const FormatException('Android release signing inputs are missing');
+  }
+  final values = <String, String>{};
+  final propertyPattern = RegExp(
+    r'^\s*(storePassword|keyAlias|keyPassword)(?:\s*[=:]\s*|\s+)(.*)$',
+  );
+  for (final line in const LineSplitter().convert(
+    await properties.readAsString(),
+  )) {
+    final match = propertyPattern.firstMatch(line);
+    if (match != null) values[match.group(1)!] = match.group(2)!.trim();
+  }
+  if ([
+    'storePassword',
+    'keyAlias',
+    'keyPassword',
+  ].any((key) => values[key]?.isNotEmpty != true)) {
+    throw const FormatException(
+      'Android release signing inputs are incomplete',
+    );
+  }
+}
+
+Future<Directory> prepareAndroidReleaseSymbols(
+  String rootDir, {
+  String? androidArch,
+}) async {
+  final pubspec = loadYaml(
+    await File(p.join(rootDir, 'pubspec.yaml')).readAsString(),
+  );
+  final version = pubspec is YamlMap ? pubspec['version'] : null;
+  if (version is! String ||
+      !RegExp(r'^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\+\d+$').hasMatch(version)) {
+    throw const FormatException(
+      'Android release version and build are required',
+    );
+  }
+  if (androidArch != null && !_androidFlutterTarget.containsKey(androidArch)) {
+    throw ArgumentError('Unknown Android architecture');
+  }
+  final parent = Directory(
+    p.join(
+      rootDir,
+      'release-symbols',
+      'android',
+      version,
+      androidArch ?? 'all-abis',
+    ),
+  );
+  await parent.create(recursive: true);
+  return parent.createTemp('build-');
+}
+
+Future<String> androidReleaseArtifactName(String rootDir) async {
+  final pubspec =
+      loadYaml(await File(p.join(rootDir, 'pubspec.yaml')).readAsString())
+          as YamlMap;
+  final optionsFile = File(p.join(rootDir, 'distribute_options.yaml'));
+  final Map<Object?, Object?> options = await optionsFile.exists()
+      ? loadYaml(await optionsFile.readAsString()) as YamlMap
+      : <String, Object>{};
+  final name = options['app_name'] ?? pubspec['name'];
+  final output = options['output'] ?? 'dist/';
+  final version = pubspec['version'];
+  if (name is! String ||
+      name.isEmpty ||
+      name.contains(RegExp(r'[/\\]')) ||
+      version is! String ||
+      !RegExp(r'^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\+\d+$').hasMatch(version) ||
+      output is! String ||
+      p.normalize(output) != 'dist') {
+    throw const FormatException('Unsupported Android package output layout');
+  }
+  return '$name-${version.split('+').first}-android.apk';
+}
+
+Future<void> _requireAndroidOutputDirectory(String rootDir, String path) async {
+  var current = p.normalize(path);
+  final root = p.normalize(rootDir);
+  if (!p.isWithin(root, current)) {
+    throw FileSystemException('Android output is outside the project', path);
+  }
+  while (current != root) {
+    if (await FileSystemEntity.isLink(current)) {
+      throw FileSystemException(
+        'Android output must not be a symlink',
+        current,
+      );
+    }
+    current = p.dirname(current);
+  }
+}
+
+Future<List<File>> _androidFlutterApks(String rootDir) async {
+  final directory = Directory(
+    p.join(rootDir, 'build', 'app', 'outputs', 'flutter-apk'),
+  );
+  await _requireAndroidOutputDirectory(rootDir, directory.path);
+  if (!await directory.exists()) return [];
+  final files = <File>[];
+  await for (final entry in directory.list(
+    recursive: true,
+    followLinks: false,
+  )) {
+    if (!entry.path.endsWith('-release.apk')) continue;
+    final relative = p.relative(entry.path, from: directory.path);
+    final known = {
+      'app-release.apk',
+      for (final abi in _androidAbiByArch.values) 'app-$abi-release.apk',
+    };
+    if (entry is! File || !known.contains(relative)) {
+      throw FileSystemException(
+        'Unexpected Android release APK was preserved',
+        entry.path,
+      );
+    }
+    files.add(entry);
+  }
+  return files;
+}
+
+Future<void> quarantineAndroidReleaseApks(
+  String rootDir,
+  Directory symbolsDirectory,
+) async {
+  final artifact = await androidReleaseArtifactName(rootDir);
+  final stem = p.basenameWithoutExtension(artifact);
+  final flutterApks = await _androidFlutterApks(rootDir);
+  final dist = Directory(p.join(rootDir, 'dist'));
+  await _requireAndroidOutputDirectory(rootDir, dist.path);
+  final candidates = [
+    ...flutterApks,
+    for (final filename in [
+      artifact,
+      for (final abi in _androidAbiByArch.values) '$stem-$abi.apk',
+    ])
+      File(p.join(dist.path, filename)),
+  ];
+  for (final file in candidates) {
+    if (await FileSystemEntity.isLink(file.path)) {
+      throw FileSystemException(
+        'Android release APK must not be a symlink',
+        file.path,
+      );
+    }
+  }
+  final records = <Map<String, Object>>[];
+  for (final file in candidates) {
+    if (!await file.exists()) continue;
+    final relative = p.relative(file.path, from: rootDir);
+    final archived = File(
+      p.join(symbolsDirectory.path, 'previous-apks', relative),
+    );
+    await archived.parent.create(recursive: true);
+    final hash = (await sha256.bind(file.openRead()).first).toString();
+    await file.rename(archived.path);
+    records.add({
+      'original': relative,
+      'archived': p.relative(archived.path, from: rootDir),
+      'sha256': hash,
+    });
+  }
+  await File(
+    p.join(symbolsDirectory.path, 'previous-apks.json'),
+  ).writeAsString('${const JsonEncoder.withIndent('  ').convert(records)}\n');
+}
+
+Future<Map<String, Object>> _androidFileRecord(
+  String rootDir,
+  File file,
+) async {
+  if (!await file.exists() || await file.length() == 0) {
+    throw FileSystemException('Missing Android release artifact', file.path);
+  }
+  return {
+    'path': p.relative(file.path, from: rootDir),
+    'bytes': await file.length(),
+    'sha256': (await sha256.bind(file.openRead()).first).toString(),
+  };
+}
+
+Future<List<Map<String, Object>>> verifyAndroidReleaseApks(
+  String rootDir, {
+  String? androidArch,
+}) async {
+  final architectures = androidArch == null
+      ? _androidFlutterTarget.keys.toList()
+      : [androidArch];
+  final expectedNames = {
+    for (final arch in architectures)
+      'app-${_androidAbiByArch[arch] ?? (throw ArgumentError('Unknown Android architecture'))}-release.apk',
+  };
+  final flutterApks = await _androidFlutterApks(rootDir);
+  if (flutterApks.length != expectedNames.length ||
+      !flutterApks.every(
+        (file) => expectedNames.contains(p.basename(file.path)),
+      )) {
+    throw const FormatException('Android build produced an unexpected ABI set');
+  }
+  final artifact = await androidReleaseArtifactName(rootDir);
+  final stem = p.basenameWithoutExtension(artifact);
+  final expectedDist = {
+    for (final arch in architectures) '$stem-${_androidAbiByArch[arch]}.apk',
+  };
+  final knownDist = {
+    artifact,
+    for (final abi in _androidAbiByArch.values) '$stem-$abi.apk',
+  };
+  final dist = Directory(p.join(rootDir, 'dist'));
+  await _requireAndroidOutputDirectory(rootDir, dist.path);
+  for (final filename in knownDist.difference(expectedDist)) {
+    if (await FileSystemEntity.type(
+          p.join(dist.path, filename),
+          followLinks: false,
+        ) !=
+        FileSystemEntityType.notFound) {
+      throw const FormatException(
+        'Android distribution contains an unexpected ABI',
+      );
+    }
+  }
+  final records = <Map<String, Object>>[];
+  for (final arch in architectures) {
+    final abi = _androidAbiByArch[arch]!;
+    final apk = File(
+      p.join(
+        rootDir,
+        'build',
+        'app',
+        'outputs',
+        'flutter-apk',
+        'app-$abi-release.apk',
+      ),
+    );
+    final input = InputFileStream(apk.path);
+    try {
+      final archive = ZipDecoder().decodeStream(input);
+      final libraries = archive.files
+          .where(
+            (file) =>
+                file.isFile &&
+                file.name.startsWith('lib/') &&
+                file.name.endsWith('.so'),
+          )
+          .map((file) => file.name)
+          .toSet();
+      final abis = libraries.map((name) => name.split('/')[1]).toSet();
+      if (abis.length != 1 ||
+          abis.single != abi ||
+          ![
+            'libapp.so',
+            'libflutter.so',
+            'libclash.so',
+          ].every((name) => libraries.contains('lib/$abi/$name'))) {
+        throw const FormatException(
+          'Android APK native libraries do not match its ABI',
+        );
+      }
+    } finally {
+      await input.close();
+    }
+    final packaged = File(p.join(dist.path, '$stem-$abi.apk'));
+    if (await FileSystemEntity.isLink(packaged.path)) {
+      throw FileSystemException(
+        'Android distribution APK must not be a symlink',
+        packaged.path,
+      );
+    }
+    final original = await _androidFileRecord(rootDir, apk);
+    final distributed = await _androidFileRecord(rootDir, packaged);
+    if (original['bytes'] != distributed['bytes'] ||
+        original['sha256'] != distributed['sha256']) {
+      throw const FormatException(
+        'Android distribution APK differs from the current build',
+      );
+    }
+    records.add({'abi': abi, 'apk': original, 'distributed_apk': distributed});
+  }
+  return records;
+}
+
+Future<File> archiveAndroidReleaseSymbols(
+  String rootDir,
+  Directory symbolsDirectory, {
+  String? androidArch,
+}) async {
+  final dartDirectory = Directory(p.join(symbolsDirectory.path, 'dart'));
+  final files = <Map<String, Object>>[];
+  final apks = await verifyAndroidReleaseApks(
+    rootDir,
+    androidArch: androidArch,
+  );
+  for (final output in apks) {
+    final arch = _androidAbiByArch.entries
+        .singleWhere((entry) => entry.value == output['abi'])
+        .key;
+    final target = _androidFlutterTarget[arch]!;
+    final symbols = File(p.join(dartDirectory.path, 'app.$target.symbols'));
+    files.add({
+      ...output,
+      'dart_symbols': await _androidFileRecord(rootDir, symbols),
+    });
+  }
+
+  final mapping = File(
+    p.join(
+      rootDir,
+      'build',
+      'app',
+      'outputs',
+      'mapping',
+      'release',
+      'mapping.txt',
+    ),
+  );
+  await _androidFileRecord(rootDir, mapping);
+  final r8Directory = Directory(p.join(symbolsDirectory.path, 'r8'));
+  await r8Directory.create(recursive: true);
+  final r8Files = <Map<String, Object>>[];
+  for (final name in [
+    'mapping.txt',
+    'configuration.txt',
+    'seeds.txt',
+    'usage.txt',
+    'resources.txt',
+  ]) {
+    final source = File(p.join(mapping.parent.path, name));
+    if (!await source.exists()) continue;
+    final output = await source.copy(p.join(r8Directory.path, name));
+    r8Files.add(await _androidFileRecord(rootDir, output));
+  }
+  final pubspec =
+      loadYaml(await File(p.join(rootDir, 'pubspec.yaml')).readAsString())
+          as YamlMap;
+  final manifest = File(p.join(symbolsDirectory.path, 'manifest.json'));
+  await manifest.writeAsString(
+    '${const JsonEncoder.withIndent('  ').convert({'version': pubspec['version'], 'obfuscated': true, 'artifacts': files, 'r8': r8Files})}\n',
+  );
+  return manifest;
 }
 
 Map<String, String> createBuildEnvironment(String env) {
@@ -211,6 +578,14 @@ Future<int> _package(
   required bool verbose,
   required bool macOsFileSecretStorage,
 }) async {
+  Directory? androidSymbols;
+  if (platform == 'android') {
+    await validateAndroidReleaseSigningInputs(rootDir);
+    androidSymbols = await prepareAndroidReleaseSymbols(
+      rootDir,
+      androidArch: androidArch,
+    );
+  }
   await writeBuildEnvironmentFile(
     rootDir,
     env,
@@ -220,6 +595,9 @@ Future<int> _package(
   final flutterBuildArgs = createFlutterBuildArgs(
     platform: platform,
     verbose: verbose,
+    androidDebugInfoDirectory: androidSymbols == null
+        ? null
+        : p.join(androidSymbols.path, 'dart'),
   );
   final descriptionArgs = <String>[];
   if (platform != 'android') {
@@ -262,6 +640,12 @@ Future<int> _package(
     }
   }
 
+  String? androidArtifactName;
+  if (platform == 'android') {
+    androidArtifactName = await androidReleaseArtifactName(rootDir);
+    await quarantineAndroidReleaseApks(rootDir, androidSymbols!);
+  }
+
   final process = await Process.start(
     'flutter_distributor',
     [
@@ -271,6 +655,7 @@ Future<int> _package(
       platform,
       '--targets',
       targets,
+      if (androidArtifactName != null) '--artifact-name=$androidArtifactName',
       if (androidArch != null)
         '--build-target-platform=${_androidFlutterTarget[androidArch]!}',
       if (flutterBuildArgs.isNotEmpty)
@@ -289,6 +674,13 @@ Future<int> _package(
     stderr.write(utf8.decode(data));
   });
   final exitCode = await process.exitCode;
+  if (exitCode == 0 && platform == 'android') {
+    await archiveAndroidReleaseSymbols(
+      rootDir,
+      androidSymbols!,
+      androidArch: androidArch,
+    );
+  }
   if (exitCode == 0 && platform == 'windows') {
     final runtimeArch = arch == 'arm64' ? 'arm64' : 'x64';
     final verification = await Process.start(

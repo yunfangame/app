@@ -10,6 +10,9 @@ class CommonAction extends _$CommonAction {
   @override
   void build() {}
 
+  @protected
+  CoreController get trafficController => coreController;
+
   Future<void> startAfterLogin({required bool Function() isCurrent}) async {
     if (!ref.mounted ||
         !isCurrent() ||
@@ -45,15 +48,21 @@ class CommonAction extends _$CommonAction {
     setup.changeMode(Mode.values[nextIndex]);
   }
 
-  Future<void> updateTraffic() async {
+  Future<void> updateTraffic({bool Function()? isCurrent}) async {
+    bool canApply() => ref.mounted && (isCurrent?.call() ?? true);
+    if (!canApply()) return;
     final onlyStatisticsProxy = ref.read(
       appSettingProvider.select((state) => state.onlyStatisticsProxy),
     );
     try {
-      final traffic = await coreController.getTraffic(onlyStatisticsProxy);
+      final traffic = await trafficController.getTraffic(onlyStatisticsProxy);
+      if (!canApply()) return;
+      final totalTraffic = await trafficController.getTotalTraffic(
+        onlyStatisticsProxy,
+      );
+      if (!canApply()) return;
       ref.read(trafficsProvider.notifier).addTraffic(traffic);
-      ref.read(totalTrafficProvider.notifier).value = await coreController
-          .getTotalTraffic(onlyStatisticsProxy);
+      ref.read(totalTrafficProvider.notifier).value = totalTraffic;
     } catch (error) {
       commonPrint.log(
         'updateTraffic error: $error',

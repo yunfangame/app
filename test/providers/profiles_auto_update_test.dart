@@ -43,6 +43,123 @@ void main() {
     await directory.delete(recursive: true);
   });
 
+  for (final automatic in [false, true]) {
+    test(
+      'failed persistence restores file before apply (auto $automatic)',
+      () async {
+        final h = _Harness();
+        final profile = h.profiles.single;
+        h.container.read(currentProfileIdProvider.notifier).value = profile.id;
+        final file = File(await appPath.getProfilePath(profile.id.toString()));
+        await file.safeWriteAsBytes([1, 2, 3]);
+        h.action.loader = (candidate, isCurrent) async {
+          await writeProfileFileBytes(
+            file,
+            Uint8List.fromList([9, 9, 9]),
+            isCurrent: isCurrent,
+          );
+          return candidate.copyWith(lastUpdateDate: h.clock.now);
+        };
+        final entered = Completer<void>();
+        final failure = Completer<void>();
+        final profiles =
+            h.container.read(profilesProvider.notifier) as _Profiles;
+        profiles.persist = (_) {
+          entered.complete();
+          return failure.future;
+        };
+        final updating = automatic
+            ? h.action.autoUpdateProfiles()
+            : h.action.updateProfile(profile);
+        final finished = automatic
+            ? updating
+            : expectLater(updating, throwsStateError);
+        await entered.future;
+        final setup =
+            h.container.read(setupActionProvider.notifier) as _SetupAction;
+        expect(setup.applications, 0);
+        failure.completeError(StateError('write failed'));
+        await finished;
+        expect(h.profiles, [profile]);
+        expect(await file.readAsBytes(), [1, 2, 3]);
+        expect(setup.applications, 0);
+      },
+    );
+
+    for (final change in [
+      'file',
+      'same-bytes',
+      'source',
+      'account',
+      'new-write',
+    ]) {
+      test(
+        'failed refresh preserves newer $change (auto $automatic)',
+        () async {
+          globalState.activateXboardSession(_session('one'));
+          final h = _Harness();
+          final profile = h.profiles.single;
+          h.container.read(currentProfileIdProvider.notifier).value =
+              profile.id;
+          final file = File(
+            await appPath.getProfilePath(profile.id.toString()),
+          );
+          await file.safeWriteAsBytes([1, 2, 3]);
+          h.action.loader = (candidate, isCurrent) async {
+            await writeProfileFileBytes(
+              file,
+              Uint8List.fromList([9, 9, 9]),
+              isCurrent: isCurrent,
+            );
+            return candidate.copyWith(lastUpdateDate: h.clock.now);
+          };
+          final entered = Completer<void>();
+          final failure = Completer<void>();
+          final profiles =
+              h.container.read(profilesProvider.notifier) as _Profiles;
+          var writes = 0;
+          profiles.persist = (_) {
+            if (++writes > 1) return Future.value();
+            entered.complete();
+            return failure.future;
+          };
+          final updating = automatic
+              ? h.action.autoUpdateProfiles()
+              : h.action.updateProfile(profile);
+          final finished = automatic
+              ? updating
+              : expectLater(updating, throwsStateError);
+          await entered.future;
+          final latestBytes = Uint8List.fromList(
+            change == 'same-bytes' ? [9, 9, 9] : [7, 7, 7],
+          );
+          await writeProfileFileBytes(file, latestBytes);
+          switch (change) {
+            case 'file':
+            case 'same-bytes':
+              break;
+            case 'source':
+              profiles.put(
+                profile.copyWith(url: 'https://new.example/profile'),
+              );
+            case 'account':
+              globalState.activateXboardSession(_session('two'));
+            case 'new-write':
+              await profiles.putDurable(
+                profile.copyWith(url: 'https://new.example/profile'),
+              );
+          }
+          failure.completeError(StateError('late write failed'));
+          await finished;
+          expect(await file.readAsBytes(), latestBytes);
+          final setup =
+              h.container.read(setupActionProvider.notifier) as _SetupAction;
+          expect(setup.applications, 0);
+        },
+      );
+    }
+  }
+
   test(
     'offline automatic entry never downloads even without a session',
     () async {
@@ -389,10 +506,14 @@ void main() {
         await file.safeWriteAsBytes([1, 2, 3]);
         final entered = Completer<void>();
         final release = Completer<void>();
-        h.action.loader = (profile, _) async {
+        h.action.loader = (profile, isCurrent) async {
           entered.complete();
           await release.future;
-          await file.safeWriteAsBytes([9, 9, 9]);
+          await writeProfileFileBytes(
+            file,
+            Uint8List.fromList([9, 9, 9]),
+            isCurrent: isCurrent,
+          );
           return profile.copyWith(lastUpdateDate: h.clock.now);
         };
         final updating = h.action.autoUpdateProfiles();
@@ -405,6 +526,7 @@ void main() {
             h.put(original);
           case 'deleted':
             await h.container.read(profilesProvider.notifier).del(original.id);
+            await file.delete();
           case 'logout':
             globalState.clearXboardSession();
             globalState.activateXboardSession(_session('one'));
@@ -613,8 +735,12 @@ class _Action extends ProfilesAction {
 class _Profiles extends Profiles {
   _Profiles(this.initial);
   final List<Profile> initial;
+  Future<void> Function(Profile) persist = (_) async {};
   @override
   List<Profile> build() => initial;
+
+  @override
+  Future<void> persistProfile(Profile profile) => persist(profile);
   @override
   void put(Profile profile) => state = [
     for (final previous in state)
@@ -626,8 +752,11 @@ class _Profiles extends Profiles {
 }
 
 class _SetupAction extends SetupAction {
+  int applications = 0;
   @override
-  void applyProfileDebounce({bool silence = false, bool force = false}) {}
+  void applyProfileDebounce({bool silence = false, bool force = false}) {
+    applications++;
+  }
 }
 
 class _Paths extends PathProviderPlatform {

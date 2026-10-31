@@ -202,6 +202,27 @@ void main() {
     harness.expectUnchanged();
   });
 
+  test('probe transport failures preserve previous latency', () async {
+    final harness = _Harness();
+    harness.action.setDelay(
+      Delay(name: _hongKongOne.name, url: defaultTestUrl, value: 42),
+    );
+    harness.probe = (_, _) => Future.error(StateError('core unavailable'));
+
+    expect(
+      await harness.action.selectHongKongForMode(Mode.global),
+      HongKongSelectionResult.unavailable,
+    );
+
+    expect(
+      harness.container.read(
+        delayDataSourceProvider,
+      )[defaultTestUrl]?[_hongKongOne.name],
+      42,
+    );
+    harness.expectUnchanged();
+  });
+
   test(
     'cached positive latency never substitutes for a fresh failed probe',
     () async {

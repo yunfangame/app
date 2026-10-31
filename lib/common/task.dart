@@ -8,6 +8,7 @@ import 'package:drift/native.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:fl_clash/common/bypass_domain.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/rule_target_repair.dart';
 import 'package:fl_clash/database/database.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
@@ -87,13 +88,20 @@ Future<List<Group>> _toGroupsTask(ComputeGroupsState state) async {
 Future<VM2<String, String>> makeRealProfileTask(
   MakeRealProfileState data,
 ) async {
-  return compute<MakeRealProfileState, VM2<String, String>>(
+  final result = await compute<MakeRealProfileState, VM3<String, String, int>>(
     _makeRealProfileTask,
     data,
   );
+  if (result.c > 0) {
+    commonPrint.event(
+      'profile.rules.missing_target_replaced',
+      fields: {'count': result.c},
+    );
+  }
+  return VM2(result.a, result.b);
 }
 
-Future<VM2<String, String>> _makeRealProfileTask(
+Future<VM3<String, String, int>> _makeRealProfileTask(
   MakeRealProfileState data,
 ) async {
   final rawConfig = Map.from(data.rawConfig);
@@ -104,6 +112,22 @@ Future<VM2<String, String>> _makeRealProfileTask(
   final addedRules = data.addedRules;
   final appendSystemDns = data.appendSystemDns;
   final defaultUA = data.defaultUA;
+  final ruleTargets = <String>{
+    'DIRECT',
+    'REJECT',
+    'REJECT-DROP',
+    'COMPATIBLE',
+    'PASS',
+    'PASS-RULE',
+    'GLOBAL',
+    for (final proxy in (rawConfig['proxies'] as List? ?? const []))
+      if (proxy is Map && proxy['name'] is String) proxy['name'] as String,
+    if (data.proxyGroups.isNotEmpty)
+      ...data.proxyGroups.map((group) => group.name)
+    else
+      for (final group in (rawConfig['proxy-groups'] as List? ?? const []))
+        if (group is Map && group['name'] is String) group['name'] as String,
+  };
   String getProvidersFilePathInner(String type, String url) {
     return join(
       profilesPath,
@@ -239,46 +263,18 @@ Future<VM2<String, String>> _makeRealProfileTask(
       rules = List<String>.from(rawConfig['rules']);
     }
     if (addedRules.isNotEmpty) {
-      final hasMatchPlaceholder = addedRules.any(
-        (item) => item.ruleTarget?.toUpperCase() == 'MATCH',
-      );
-      String? replacementTarget;
-
-      if (hasMatchPlaceholder) {
-        for (int i = rules.length - 1; i >= 0; i--) {
-          final parsed = Rule.parse(rules[i]);
-          if (parsed.ruleAction == RuleAction.MATCH) {
-            final target = parsed.ruleTarget;
-            if (target != null && target.isNotEmpty) {
-              replacementTarget = target;
-              break;
-            }
-          }
-        }
-      }
-      final List<String> finalAddedRules;
-
-      if (replacementTarget?.isNotEmpty == true) {
-        finalAddedRules = [];
-        for (int i = 0; i < addedRules.length; i++) {
-          final parsed = addedRules[i];
-          if (parsed.ruleTarget?.toUpperCase() == 'MATCH') {
-            finalAddedRules.add(
-              parsed.copyWith(ruleTarget: replacementTarget).rawValue,
-            );
-          } else {
-            finalAddedRules.add(addedRules[i].rawValue);
-          }
-        }
-      } else {
-        finalAddedRules = addedRules.map((e) => e.rawValue).toList();
-      }
+      final finalAddedRules = addedRules.map((rule) => rule.rawValue).toList();
       rules = [...finalAddedRules, ...rules];
     }
   } else {
     rules = data.rules.map((item) => item.rawValue).toList();
   }
-  rules = withLocalNetworkDirectRules(rules);
+  final repairedRules = repairRuleTargets(
+    rules,
+    availableTargets: ruleTargets,
+    subscriptionRules: List<String>.from(rawConfig['rules'] ?? const []),
+  );
+  rules = withLocalNetworkDirectRules(repairedRules.rules);
   if (data.proxyGroups.isNotEmpty) {
     rawConfig['proxy-groups'] = data.proxyGroups
         .map(
@@ -305,7 +301,7 @@ Future<VM2<String, String>> _makeRealProfileTask(
   );
   final normalizedConfig = normalizeRuntimeDelayProbeUrls(bypassConfig);
   final yaml = await _encodeYaml(normalizedConfig);
-  return VM2(yaml, yaml.toMd5());
+  return VM3(yaml, yaml.toMd5(), repairedRules.replacedCount);
 }
 
 Future<List<String>> shakingProfileTask(

@@ -68,6 +68,15 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
       WidgetsBinding.instance.lifecycleState == null ||
           WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed,
     );
+    if (system.isAndroid) {
+      ref
+          .read(setupActionProvider.notifier)
+          .setRuntimeForeground(
+            WidgetsBinding.instance.lifecycleState == null ||
+                WidgetsBinding.instance.lifecycleState ==
+                    AppLifecycleState.resumed,
+          );
+    }
     globalState.xboardSessionRevisionNotifier.addListener(_syncTickets);
     globalState.offlineModeNotifier.addListener(_syncTickets);
     _syncTickets();
@@ -130,6 +139,9 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
 
   @override
   void dispose() {
+    if (system.isAndroid) {
+      ref.read(setupActionProvider.notifier).setRuntimeForeground(false);
+    }
     ApiHealthService.setAppForeground(false);
     _tickets.stopPolling();
     globalState.xboardSessionRevisionNotifier.removeListener(_syncTickets);
@@ -142,6 +154,11 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
   Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
     commonPrint.log('$state');
     ApiHealthService.setAppForeground(state == AppLifecycleState.resumed);
+    if (system.isAndroid) {
+      ref
+          .read(setupActionProvider.notifier)
+          .setRuntimeForeground(state == AppLifecycleState.resumed);
+    }
     _tickets.setForeground(state == AppLifecycleState.resumed);
     if (state == AppLifecycleState.resumed) {
       _syncTickets();
