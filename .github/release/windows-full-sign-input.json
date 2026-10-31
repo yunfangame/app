@@ -2,7 +2,7 @@
   "x64": {
     "sha256": "489730b455af4281f5ef898657ae05b69762deed03da9458329dcaa3870311f3",
     "manifest_sha256": "5360834dfebfadd0417073766d3cf5fd6e13955acfaa7b889002847e8323c701",
-    "published_sha256": "9b56c20bc250bafcba2b06f7afdf117d7b02318986bd26eacb11142f662aaffb",
+    "published_sha256": "430d69a4d518b5d4fd3d320bb203402cc06c48c600c9e70342346e2d9b677e6b",
     "url": "https://github.com/yunfangame/app/releases/download/fengwo-delay-subscription-test-111-e366e75f/signed-x64.zip"
   },
   "arm64": {

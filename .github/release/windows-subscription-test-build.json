@@ -1,6 +1,6 @@
 {
-  "run_id": "40903490865",
-  "source_sha": "e366e75fa969a1a71965ce60cbdbeb6e83130445",
-  "purpose": "subscription and delay correction release",
+  "run_id": "41212636106",
+  "source_sha": "2162c0fad02eaa36b3d274f4231046b919f4cf8a",
+  "purpose": "Windows x64 backend status and per-node reference-delay test",
   "publication_allowed": false
 }

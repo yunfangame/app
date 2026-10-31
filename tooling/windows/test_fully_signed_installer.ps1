@@ -9,7 +9,12 @@ $filename = if ($Architecture -eq 'arm64') { 'fengwo-windows-arm64-setup.exe' } 
 $candidate = Join-Path $stage $filename
 $baseline = Join-Path $env:RUNNER_TEMP 'published-111.exe'
 $inputs = Get-Content .github/release/windows-full-sign-input.json -Raw | ConvertFrom-Json
-Invoke-WebRequest -Uri ('https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/desktop-111-20261029-040924-60d125e4/' + $filename) -OutFile $baseline
+$baselineUrl = if ($Architecture -eq 'x64') {
+    'https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/desktop-111-20261029-165155-221f75d8/fengwo-windows-amd64-setup.exe'
+} else {
+    'https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/desktop-111-20261029-040924-60d125e4/' + $filename
+}
+Invoke-WebRequest -Uri $baselineUrl -OutFile $baseline
 if ((Get-FileHash $baseline).Hash.ToLowerInvariant() -cne $inputs.($Architecture).published_sha256) { throw 'Published baseline hash changed' }
 & ./tooling/windows/test_installed_upgrade.ps1 -InstallerPath $candidate -PreviousInstallerPath $baseline -ExpectedPreviousVersion '1.1.1' -OutputDirectory (Join-Path $stage 'upgrade')
 $installed = Join-Path $env:RUNNER_TEMP 'fengwo-overwrite-test'

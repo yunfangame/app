@@ -30,7 +30,7 @@ jobs:
           $inputFile = if ($env:GITHUB_REF_NAME -like '*delay-*') { '.github/release/windows-delay-signed-core-input.json' } else { '.github/release/windows-full-sign-input.json' }
           $entry = (Get-Content $inputFile -Raw | ConvertFrom-Json).($env:ARCHITECTURE)
           $expected = 'https://zryc.oss-cn-beijing.aliyuncs.com/releases/desktop-1.1.1/full-sign-validation-20261029/' + $entry.sha256 + '/signed-' + $env:ARCHITECTURE + '.zip'
-          if ($env:GITHUB_REF_NAME -like '*delay-*') { $expected = 'https://github.com/yunfangame/app/releases/download/fengwo-delay-subscription-test-111-e366e75f/signed-' + $env:ARCHITECTURE + '-stage.zip' }
+          if ($env:GITHUB_REF_NAME -like '*delay-*') { $expected = 'https://github.com/yunfangame/app/releases/download/fengwo-reference-delay-test-111-2162c0fa/signed-' + $env:ARCHITECTURE + '-stage.zip' }
           if ($entry.sha256 -cnotmatch '^[a-f0-9]{64}$' -or $entry.url -cne $expected) { throw 'Unexpected signed Core source' }
           $archive = Join-Path $env:RUNNER_TEMP 'payload.zip'
           Invoke-WebRequest -Uri $entry.url -OutFile $archive
