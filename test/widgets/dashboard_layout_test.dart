@@ -2307,6 +2307,9 @@ void main() {
     );
     addTearDown(container.dispose);
     globalState.container = container;
+    final previousOfflineMode = globalState.isOfflineMode;
+    globalState.setOfflineMode(false);
+    addTearDown(() => globalState.setOfflineMode(previousOfflineMode));
     globalState.xboardNodes = const [
       XboardNodeData(
         name: '新加坡 AWS 2x',
@@ -2314,10 +2317,11 @@ void main() {
         rate: 1,
         tags: ['SG'],
         isOnline: false,
-        rawData: {},
+        rawData: {'is_online': false},
       ),
     ];
     addTearDown(() => globalState.xboardNodes = const []);
+    expect(globalState.xboardNodesStatusFresh, isTrue);
 
     await tester.pumpWidget(
       UncontrolledProviderScope(
