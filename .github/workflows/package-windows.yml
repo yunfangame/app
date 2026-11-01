@@ -6,6 +6,9 @@ on:
     tags:
       - 'fengwo-package-windows-*'
 
+permissions:
+  contents: read
+
 jobs:
   package:
     runs-on: windows-2022

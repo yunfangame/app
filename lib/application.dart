@@ -6,6 +6,7 @@ import 'package:fl_clash/common/api_network_diagnostic.dart';
 import 'package:fl_clash/common/application_bootstrap.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/login_routing_coordinator.dart';
+import 'package:fl_clash/common/post_login_profile_sync.dart';
 import 'package:fl_clash/common/startup_connection_coordinator.dart';
 import 'package:fl_clash/common/subscription_access.dart';
 import 'package:fl_clash/common/xboard_api_request.dart';
@@ -76,7 +77,7 @@ class ApplicationState extends ConsumerState<Application> {
   late final LoginRoutingCoordinator _loginRouting;
   LoginRoutingAttempt? _loginRoutingAttempt;
   XboardLoginResult? _loginRoutingSession;
-  int? _postLoginProfileSyncRevision;
+  final _postLoginProfileSync = PostLoginProfileSyncCoordinator();
   int? _deferredProfileSyncRevision;
   int? _authenticationBootstrapSessionRevision;
   final _managedProfileSources = <String>{};
@@ -725,7 +726,6 @@ class ApplicationState extends ConsumerState<Application> {
         _authenticationBootstrapSessionRevision = sessionRevision;
         _beginDefaultLoginRouting(session, autoConnect: true);
         _startPostLoginProfileSync(session, sessionRevision);
-        globalState.setOfflineMode(false);
         await _xboardSessionStorage.setOfflineMode(false);
         if (!_isAuthenticationBootstrapCurrent(bootstrapRevision)) return;
         unawaited(_loadXboardNodes(session, ignoreOfflineMode: true));
@@ -905,10 +905,19 @@ class ApplicationState extends ConsumerState<Application> {
     if (!mounted ||
         _logoutInProgress ||
         !identical(session, globalState.xboardSession)) {
+      commonPrint.event(
+        'auth.post_login.persistence.skipped',
+        fields: {
+          'reason': !mounted
+              ? 'disposed'
+              : _logoutInProgress
+              ? 'logout'
+              : 'session_changed',
+        },
+      );
       return Future.value();
     }
     final sessionRevision = globalState.xboardSessionRevision;
-    globalState.setOfflineMode(false);
     final saving = _loginPersistence.saveAuthenticated(
       session: session,
       email: email,
@@ -973,40 +982,56 @@ class ApplicationState extends ConsumerState<Application> {
     XboardLoginResult session,
     int sessionRevision,
   ) {
-    if (_postLoginProfileSyncRevision == sessionRevision) return;
-    _postLoginProfileSyncRevision = sessionRevision;
-    ref.read(loadingProvider(LoadingTag.subscriptionProfile).notifier).start();
+    final syncing = _postLoginProfileSync.run(
+      sessionRevision: sessionRevision,
+      isCurrent: () =>
+          mounted &&
+          !_logoutInProgress &&
+          globalState.isActiveXboardSession(session, sessionRevision),
+      enterOnline: () => globalState.setOfflineMode(false),
+      onStarted: () {
+        ref
+            .read(loadingProvider(LoadingTag.subscriptionProfile).notifier)
+            .start();
+      },
+      sync: (isCurrent) =>
+          _finishPostLoginProfileSync(session, sessionRevision, isCurrent),
+      onSettled: () async {
+        if (mounted) {
+          await ref
+              .read(loadingProvider(LoadingTag.subscriptionProfile).notifier)
+              .stop();
+        }
+      },
+      onDiagnostic: (reason) => commonPrint.event(
+        'auth.post_login.sync.gate',
+        fields: {
+          'session_revision': sessionRevision,
+          'reason': reason,
+          'offline': globalState.isOfflineMode,
+        },
+      ),
+    );
     runPostAuthenticationTask(
       task: () async {
-        try {
-          await _finishPostLoginProfileSync(session, sessionRevision);
-        } finally {
-          if (mounted && _postLoginProfileSyncRevision == sessionRevision) {
-            await ref
-                .read(loadingProvider(LoadingTag.subscriptionProfile).notifier)
-                .stop();
-          }
-        }
+        await syncing;
       },
       onError: (error, stackTrace) {
         commonPrint.event(
           'auth.post_login.sync.failed',
           fields: {
+            'session_revision': sessionRevision,
             'error_type': error.runtimeType.toString(),
-            'error': '$error',
           },
-        );
-        commonPrint.log(
-          'post-login profile sync failed: $error, $stackTrace',
-          logLevel: LogLevel.warning,
         );
       },
     );
   }
 
-  Future<void> _finishPostLoginProfileSync(
+  Future<bool> _finishPostLoginProfileSync(
     XboardLoginResult session,
     int sessionRevision,
+    bool Function() isCurrent,
   ) async {
     try {
       final profile = await _syncSubscriptionProfileForLogin(
@@ -1014,12 +1039,9 @@ class ApplicationState extends ConsumerState<Application> {
         sessionRevision,
         showFailureMessage: true,
       );
-      if (!mounted ||
-          !globalState.isActiveXboardSession(session, sessionRevision) ||
-          profile == null) {
-        return;
-      }
+      if (!isCurrent() || profile == null) return false;
       await _selectDefaultLoginNode(session, expectedProfile: profile);
+      return isCurrent();
     } finally {
       await _finishRoutingAttempt(session);
     }
@@ -1346,7 +1368,7 @@ class ApplicationState extends ConsumerState<Application> {
     _loginRouting.cancel();
     _loginRoutingAttempt = null;
     _loginRoutingSession = null;
-    _postLoginProfileSyncRevision = null;
+    _postLoginProfileSync.cancel();
     ref.read(loadingProvider(LoadingTag.subscriptionProfile).notifier).value =
         false;
     _deferredProfileSyncRevision = null;
@@ -2295,6 +2317,7 @@ class ApplicationState extends ConsumerState<Application> {
 
   @override
   void dispose() {
+    _postLoginProfileSync.cancel();
     _authenticationBootstrapController.dispose();
     _applicationReadinessGate.dispose();
     _loginRouting.dispose();

@@ -195,6 +195,11 @@ its animation in `finally`.
 
 ## State Management
 
+Authenticated login enters online mode before the first subscription profile sync reaches its offline admission gate.
+`PostLoginProfileSyncCoordinator` owns the current session's in-flight and successful sync deduplication; incomplete or
+failed attempts do not consume that session's retry opportunity. Logout, disposal, or session replacement invalidates
+old work. Loading cleanup belongs to the attempt that started it, and an older completion must not clear newer loading.
+
 Provider files in `lib/providers/`:
 
 - `app.dart`: runtime/UI state, logs, traffic, delays, loading, navigation.
