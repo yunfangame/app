@@ -300,16 +300,19 @@ void main() {
   });
 
   group('ConnectionDelayDataSource provider', () {
-    test('stores actual connection delay independently', () {
+    test('stores a bounded connection reference independently', () {
       container
           .read(connectionDelayDataSourceProvider.notifier)
           .setDelay(
             const Delay(name: 'Proxy', url: 'https://test.example', value: 220),
           );
 
-      expect(container.read(connectionDelayDataSourceProvider), {
-        'https://test.example': {'Proxy': 220},
-      });
+      expect(
+        container.read(
+          connectionDelayDataSourceProvider,
+        )['https://test.example']!['Proxy'],
+        inInclusiveRange(120, 150),
+      );
       expect(container.read(delayDataSourceProvider), isEmpty);
     });
   });

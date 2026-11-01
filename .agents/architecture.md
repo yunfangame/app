@@ -184,6 +184,9 @@ are not retained. Actual error and health semantics remain separate, and the opt
 reference values from making a failed proxy pass automatic selection or chain validation. Flutter transport failures
 receive a stored reference too; pending zero and missing null remain distinct. Each node writes and renders its result
 immediately without waiting for the bulk test. Reads never repeat the transform or randomize stored values.
+Both Flutter delay data sources normalize completed ingress before storage: native references through 150 remain
+unchanged, while any out-of-range positive completion becomes a stored 120–150 reference. This bounds legacy or
+otherwise unnormalized RPC/event values without subtracting 50 again or changing actual probe success.
 Node badges, availability counts and map colors use only fresh, unambiguous backend `is_online` status. Local probe
 results cannot change online, offline or unknown backend status. Fresh explicit offline nodes block manual probes;
 missing, invalid, stale and ambiguous backend statuses remain unknown and allow probing. Group aliases use the resolved

@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/theme.dart';
 import 'package:fl_clash/core/controller.dart';
+import 'package:fl_clash/core/event.dart';
 import 'package:fl_clash/core/interface.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
+import 'package:fl_clash/manager/core_manager.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
@@ -24,6 +26,7 @@ void main() {
   });
 
   tearDown(() {
+    debouncer.cancel(FunctionTag.updateDelay);
     globalState.clearXboardSession();
     globalState.setOfflineMode(false);
   });
@@ -85,6 +88,89 @@ void main() {
     );
     await tester.pump();
     return container;
+  }
+
+  for (final value in [400, 450, 65535]) {
+    for (final source in ['RPC', 'event']) {
+      testWidgets('$source ingress $value is bounded in storage and node UI', (
+        tester,
+      ) async {
+        final core = _MockDelayCore();
+        when(() => core.stopLog()).thenAnswer((_) {});
+        final incoming = Delay(
+          name: 'Node A',
+          url: defaultTestUrl,
+          value: value,
+          successful: source == 'RPC',
+        );
+        when(() => core.asyncTestDelay(any(), any())).thenAnswer((
+          invocation,
+        ) async {
+          return incoming.copyWith(
+            url: invocation.positionalArguments[0] as String,
+          );
+        });
+        final controller = CoreController.test(core);
+        final container = await pumpView(
+          tester,
+          delays: {'Node A': null},
+          backendNodes: [_backendNode(true)],
+          useStoredDelays: true,
+          controller: controller,
+          child: CoreManager(
+            controller: controller,
+            child: const FengWoNodeStatusView(),
+          ),
+        );
+        if (source == 'RPC') {
+          await tester.tap(
+            find.byKey(const ValueKey('fengwo-node-status-delay-test')),
+          );
+        } else {
+          coreEventManager.sendEvent(
+            CoreEvent(type: CoreEventType.delay, data: incoming.toJson()),
+          );
+        }
+        await tester.pump();
+        await tester.pump();
+        final stored = container.read(delayProvider(proxyName: 'Node A'));
+        expect(stored, inInclusiveRange(120, 150));
+        final row = find.byKey(const ValueKey('fengwo-node-row-Node A'));
+        expect(
+          find.descendant(
+            of: row,
+            matching: find.text(formatReferenceDelay(stored!)),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: row,
+            matching: find.text(currentAppLocalizations.nodeBackendOnline),
+          ),
+          findsOneWidget,
+        );
+        for (var rebuild = 0; rebuild < 3; rebuild++) {
+          await tester.pump();
+          expect(container.read(delayProvider(proxyName: 'Node A')), stored);
+        }
+        globalState.xboardNodes = [_backendNode(false)];
+        await tester.pump();
+        expect(
+          find.descendant(
+            of: row,
+            matching: find.text(currentAppLocalizations.nodeBackendOffline),
+          ),
+          findsWidgets,
+        );
+        expect(container.read(delayProvider(proxyName: 'Node A')), stored);
+        expect(incoming.value, value);
+        expect(incoming.successful, source == 'RPC');
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        debouncer.cancel(FunctionTag.updateDelay);
+      });
+    }
   }
 
   for (final firstFails in [false, true]) {

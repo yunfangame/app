@@ -68,6 +68,71 @@ void main() {
     expect(Delay.fromJson(jsonDecode(jsonEncode(connection))), connection);
   });
 
+  for (final value in [151, 400, 450, 65535]) {
+    for (final successful in [true, false, null]) {
+      test(
+        'completed ingress $value/$successful is bounded before storage',
+        () {
+          final incoming = Delay.fromJson({
+            'name': 'Leaf',
+            'url': testUrl,
+            'value': value,
+            'successful': successful,
+          });
+          container.read(delayDataSourceProvider.notifier).setDelay(incoming);
+          container
+              .read(connectionDelayDataSourceProvider.notifier)
+              .setDelay(incoming);
+          final standard = container.read(
+            delayDataSourceProvider,
+          )[testUrl]!['Leaf'];
+          final connection = container.read(
+            connectionDelayDataSourceProvider,
+          )[testUrl]!['Leaf'];
+          expect(standard, inInclusiveRange(120, 150));
+          expect(connection, inInclusiveRange(120, 150));
+          for (var read = 0; read < 5; read++) {
+            expect(
+              container.read(
+                standardDelayProvider(proxyName: 'Leaf', testUrl: testUrl),
+              ),
+              standard,
+            );
+            expect(
+              container.read(
+                connectionDelayProvider(proxyName: 'Leaf', testUrl: testUrl),
+              ),
+              connection,
+            );
+          }
+          expect(incoming.value, value);
+          expect(incoming.successful, successful);
+          expect(
+            jsonDecode(jsonEncode(container.read(delayDataSourceProvider))),
+            {
+              testUrl: {'Leaf': standard},
+            },
+          );
+        },
+      );
+    }
+  }
+
+  test('native completed references are not adjusted a second time', () {
+    for (var value = 1; value <= 150; value++) {
+      final incoming = Delay(name: 'Leaf', url: testUrl, value: value);
+      container.read(delayDataSourceProvider.notifier).setDelay(incoming);
+      container
+          .read(connectionDelayDataSourceProvider.notifier)
+          .setDelay(incoming);
+      expect(container.read(delayDataSourceProvider)[testUrl]!['Leaf'], value);
+      expect(
+        container.read(connectionDelayDataSourceProvider)[testUrl]!['Leaf'],
+        value,
+      );
+    }
+  });
+
   test('failed completions replace failures with a stable reference value', () {
     for (final failure in [
       const Delay(name: 'Leaf', url: testUrl, value: -1),

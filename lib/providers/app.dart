@@ -391,11 +391,10 @@ class DelayDataSource extends _$DelayDataSource with AutoDisposeNotifierMixin {
   }
 
   void setDelay(Delay delay) {
-    final delayValue =
-        (delay.value ?? 0) < 0 ||
-            (delay.value ?? 0) <= 0 && delay.successful == false
-        ? failedReferenceDelayMilliseconds()
-        : delay.value;
+    final delayValue = completedReferenceDelayMilliseconds(
+      delay.value,
+      successful: delay.successful,
+    );
     if (state[delay.url]?[delay.name] != delayValue) {
       final DelayMap newDelayMap = {
         ...state,
@@ -415,11 +414,10 @@ class ConnectionDelayDataSource extends _$ConnectionDelayDataSource
   }
 
   void setDelay(Delay delay) {
-    final delayValue =
-        (delay.value ?? 0) < 0 ||
-            (delay.value ?? 0) <= 0 && delay.successful == false
-        ? failedReferenceDelayMilliseconds()
-        : delay.value;
+    final delayValue = completedReferenceDelayMilliseconds(
+      delay.value,
+      successful: delay.successful,
+    );
     if (state[delay.url]?[delay.name] != delayValue) {
       final DelayMap newDelayMap = {
         ...state,

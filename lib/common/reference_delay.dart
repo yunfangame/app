@@ -49,6 +49,15 @@ int failedReferenceDelayMilliseconds({math.Random? random}) {
   return 120 + (random ?? _referenceDelayRandom).nextInt(31);
 }
 
+int? completedReferenceDelayMilliseconds(int? value, {bool? successful}) {
+  if ((value ?? 0) > 150 ||
+      (value ?? 0) < 0 ||
+      (value ?? 0) <= 0 && successful == false) {
+    return failedReferenceDelayMilliseconds();
+  }
+  return value;
+}
+
 String formatReferenceDelay(int measuredDelay) {
   final l10n = AppLocalizations.current;
   if (measuredDelay == 0) return l10n.testingStatus;
