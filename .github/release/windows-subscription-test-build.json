@@ -1,6 +1,6 @@
 {
-  "run_id": "41212636106",
-  "source_sha": "2162c0fad02eaa36b3d274f4231046b919f4cf8a",
-  "purpose": "Windows x64 backend status and per-node reference-delay test",
+  "run_id": "41278148291",
+  "source_sha": "e5a8dbdc5e6e7fb680b323a2802c4ee642432625",
+  "purpose": "Windows x64 completed reference-delay upper-bound ingress guard test",
   "publication_allowed": false
 }
