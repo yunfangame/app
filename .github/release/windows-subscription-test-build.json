@@ -1,6 +1,6 @@
 {
-  "run_id": "41278148291",
-  "source_sha": "e5a8dbdc5e6e7fb680b323a2802c4ee642432625",
-  "purpose": "Windows x64 completed reference-delay upper-bound ingress guard test",
+  "run_id": "41297292213",
+  "source_sha": "bc9ddbd4d6919258523e97c9c4fc854b73c15387",
+  "purpose": "Windows x64 private login/profile refresh repair unsigned native inventory only",
   "publication_allowed": false
 }
